@@ -37,7 +37,7 @@ YoSoy es una plataforma integral que combina gestión clínica, turnos y asisten
 | Capa | Tecnología |
 |---|---|
 | Lenguaje | C# (.NET) |
-| UI | Windows Forms |
+| UI | HTML |
 | Acceso a datos | ADO.NET |
 | Base de datos | SQL Server Express |
 | Control de versiones | Git / GitHub |
