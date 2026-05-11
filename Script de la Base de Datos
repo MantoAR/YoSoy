@@ -1,0 +1,643 @@
+USE [master]
+GO
+/****** Object:  Database [yosoy]    Script Date: 11/5/2026 17:19:59 ******/
+CREATE DATABASE [yosoy]
+ CONTAINMENT = NONE
+ ON  PRIMARY 
+( NAME = N'Prueba', FILENAME = N'D:\Programacion\SQL\SQL Server Express Edition 2019\MSSQL15.SQLEXPRESS\MSSQL\DATA\Prueba.mdf' , SIZE = 8192KB , MAXSIZE = UNLIMITED, FILEGROWTH = 65536KB )
+ LOG ON 
+( NAME = N'Prueba_log', FILENAME = N'D:\Programacion\SQL\SQL Server Express Edition 2019\MSSQL15.SQLEXPRESS\MSSQL\DATA\Prueba_log.ldf' , SIZE = 8192KB , MAXSIZE = 2048GB , FILEGROWTH = 65536KB )
+ WITH CATALOG_COLLATION = DATABASE_DEFAULT
+GO
+ALTER DATABASE [yosoy] SET COMPATIBILITY_LEVEL = 150
+GO
+IF (1 = FULLTEXTSERVICEPROPERTY('IsFullTextInstalled'))
+begin
+EXEC [yosoy].[dbo].[sp_fulltext_database] @action = 'enable'
+end
+GO
+ALTER DATABASE [yosoy] SET ANSI_NULL_DEFAULT OFF 
+GO
+ALTER DATABASE [yosoy] SET ANSI_NULLS OFF 
+GO
+ALTER DATABASE [yosoy] SET ANSI_PADDING OFF 
+GO
+ALTER DATABASE [yosoy] SET ANSI_WARNINGS OFF 
+GO
+ALTER DATABASE [yosoy] SET ARITHABORT OFF 
+GO
+ALTER DATABASE [yosoy] SET AUTO_CLOSE OFF 
+GO
+ALTER DATABASE [yosoy] SET AUTO_SHRINK OFF 
+GO
+ALTER DATABASE [yosoy] SET AUTO_UPDATE_STATISTICS ON 
+GO
+ALTER DATABASE [yosoy] SET CURSOR_CLOSE_ON_COMMIT OFF 
+GO
+ALTER DATABASE [yosoy] SET CURSOR_DEFAULT  GLOBAL 
+GO
+ALTER DATABASE [yosoy] SET CONCAT_NULL_YIELDS_NULL OFF 
+GO
+ALTER DATABASE [yosoy] SET NUMERIC_ROUNDABORT OFF 
+GO
+ALTER DATABASE [yosoy] SET QUOTED_IDENTIFIER OFF 
+GO
+ALTER DATABASE [yosoy] SET RECURSIVE_TRIGGERS OFF 
+GO
+ALTER DATABASE [yosoy] SET  DISABLE_BROKER 
+GO
+ALTER DATABASE [yosoy] SET AUTO_UPDATE_STATISTICS_ASYNC OFF 
+GO
+ALTER DATABASE [yosoy] SET DATE_CORRELATION_OPTIMIZATION OFF 
+GO
+ALTER DATABASE [yosoy] SET TRUSTWORTHY OFF 
+GO
+ALTER DATABASE [yosoy] SET ALLOW_SNAPSHOT_ISOLATION OFF 
+GO
+ALTER DATABASE [yosoy] SET PARAMETERIZATION SIMPLE 
+GO
+ALTER DATABASE [yosoy] SET READ_COMMITTED_SNAPSHOT OFF 
+GO
+ALTER DATABASE [yosoy] SET HONOR_BROKER_PRIORITY OFF 
+GO
+ALTER DATABASE [yosoy] SET RECOVERY SIMPLE 
+GO
+ALTER DATABASE [yosoy] SET  MULTI_USER 
+GO
+ALTER DATABASE [yosoy] SET PAGE_VERIFY CHECKSUM  
+GO
+ALTER DATABASE [yosoy] SET DB_CHAINING OFF 
+GO
+ALTER DATABASE [yosoy] SET FILESTREAM( NON_TRANSACTED_ACCESS = OFF ) 
+GO
+ALTER DATABASE [yosoy] SET TARGET_RECOVERY_TIME = 60 SECONDS 
+GO
+ALTER DATABASE [yosoy] SET DELAYED_DURABILITY = DISABLED 
+GO
+ALTER DATABASE [yosoy] SET ACCELERATED_DATABASE_RECOVERY = OFF  
+GO
+ALTER DATABASE [yosoy] SET QUERY_STORE = OFF
+GO
+USE [yosoy]
+GO
+/****** Object:  Table [dbo].[Agenda]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Agenda](
+	[IdAgenda] [int] IDENTITY(1,1) NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[Dia] [nvarchar](20) NULL,
+	[HoraInicio] [time](7) NULL,
+	[HoraFin] [time](7) NULL,
+	[Disponible] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdAgenda] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Cobertura]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Cobertura](
+	[IdCobertura] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdObraSocial] [int] NOT NULL,
+	[NroAfiliado] [nvarchar](50) NULL,
+	[PlanCobertura] [nvarchar](50) NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdCobertura] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Consentimiento]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Consentimiento](
+	[IdConsentimiento] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdTipoConsentimiento] [int] NOT NULL,
+	[Version] [nvarchar](20) NULL,
+	[FechaFirma] [date] NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdConsentimiento] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Derivacion]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Derivacion](
+	[IdDerivacion] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdProfesionalOrigen] [int] NOT NULL,
+	[IdProfesionalDestino] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[Motivo] [nvarchar](max) NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdDerivacion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Especialidad]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Especialidad](
+	[IdEspecialidad] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdEspecialidad] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Nombre] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[EstadoTurno]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[EstadoTurno](
+	[IdEstadoTurno] [int] IDENTITY(1,1) NOT NULL,
+	[Descripcion] [nvarchar](50) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdEstadoTurno] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Descripcion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[EventoCrisis]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[EventoCrisis](
+	[IdEvento] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[NivelRiesgo] [nvarchar](50) NULL,
+	[Acciones] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdEvento] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Evolucion]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Evolucion](
+	[IdEvolucion] [int] IDENTITY(1,1) NOT NULL,
+	[IdHistoria] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[IdTurno] [int] NULL,
+	[Fecha] [date] NOT NULL,
+	[Diagnostico] [nvarchar](max) NULL,
+	[Observaciones] [nvarchar](max) NULL,
+	[PlanTratamiento] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdEvolucion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[HistoriaClinica]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[HistoriaClinica](
+	[IdHistoria] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[FechaApertura] [date] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdHistoria] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[IdPaciente] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[InteraccionIA]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[InteraccionIA](
+	[IdInteraccion] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[Fecha] [datetime] NOT NULL,
+	[Consulta] [nvarchar](max) NOT NULL,
+	[Respuesta] [nvarchar](max) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdInteraccion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ObraSocial]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[ObraSocial](
+	[IdObraSocial] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdObraSocial] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Nombre] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Paciente]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Paciente](
+	[IdPaciente] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Dni] [nvarchar](20) NOT NULL,
+	[FechaNacimiento] [date] NULL,
+	[Domicilio] [nvarchar](200) NULL,
+	[Telefono] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdPaciente] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Dni] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[PacienteTutor]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[PacienteTutor](
+	[IdPaciente] [int] NOT NULL,
+	[IdTutor] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdPaciente] ASC,
+	[IdTutor] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Profesional]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Profesional](
+	[IdProfesional] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Matricula] [nvarchar](50) NOT NULL,
+	[IdEspecialidad] [int] NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+	[Telefono] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdProfesional] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Matricula] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Rol]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Rol](
+	[IdRol] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](50) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdRol] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Nombre] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[TipoConsentimiento]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[TipoConsentimiento](
+	[IdTipoConsentimiento] [int] IDENTITY(1,1) NOT NULL,
+	[Descripcion] [nvarchar](100) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdTipoConsentimiento] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Descripcion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Turno]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Turno](
+	[IdTurno] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[IdEstadoTurno] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[Hora] [time](7) NOT NULL,
+	[Modalidad] [nvarchar](50) NULL,
+	[Motivo] [nvarchar](500) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdTurno] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Tutor]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Tutor](
+	[IdTutor] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NULL,
+	[Dni] [nvarchar](20) NULL,
+	[Vinculo] [nvarchar](50) NULL,
+	[Contacto] [nvarchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdTutor] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Usuario]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[Usuario](
+	[IdUsuario] [int] IDENTITY(1,1) NOT NULL,
+	[Username] [nvarchar](50) NOT NULL,
+	[PasswordHash] [nvarchar](255) NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdUsuario] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+UNIQUE NONCLUSTERED 
+(
+	[Username] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
+ CONSTRAINT [UQ_Usuario_Mail] UNIQUE NONCLUSTERED 
+(
+	[Mail] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[UsuarioPaciente]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[UsuarioPaciente](
+	[IdUsuario] [int] NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[FechaVinculacion] [date] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdUsuario] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[UsuarioProfesional]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[UsuarioProfesional](
+	[IdUsuario] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[FechaVinculacion] [date] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdUsuario] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[UsuarioRol]    Script Date: 11/5/2026 17:19:59 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[UsuarioRol](
+	[IdUsuario] [int] NOT NULL,
+	[IdRol] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdUsuario] ASC,
+	[IdRol] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+ALTER TABLE [dbo].[Agenda] ADD  DEFAULT ((1)) FOR [Disponible]
+GO
+ALTER TABLE [dbo].[Derivacion] ADD  DEFAULT ('Pendiente') FOR [Estado]
+GO
+ALTER TABLE [dbo].[Especialidad] ADD  DEFAULT ('Activo') FOR [Estado]
+GO
+ALTER TABLE [dbo].[EstadoTurno] ADD  DEFAULT ('Activo') FOR [Estado]
+GO
+ALTER TABLE [dbo].[InteraccionIA] ADD  DEFAULT (getdate()) FOR [Fecha]
+GO
+ALTER TABLE [dbo].[Rol] ADD  DEFAULT ('Activo') FOR [Estado]
+GO
+ALTER TABLE [dbo].[TipoConsentimiento] ADD  DEFAULT ('Activo') FOR [Estado]
+GO
+ALTER TABLE [dbo].[UsuarioPaciente] ADD  DEFAULT (getdate()) FOR [FechaVinculacion]
+GO
+ALTER TABLE [dbo].[UsuarioProfesional] ADD  DEFAULT (getdate()) FOR [FechaVinculacion]
+GO
+ALTER TABLE [dbo].[Agenda]  WITH CHECK ADD  CONSTRAINT [FK_Agenda_Profesional] FOREIGN KEY([IdProfesional])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[Agenda] CHECK CONSTRAINT [FK_Agenda_Profesional]
+GO
+ALTER TABLE [dbo].[Cobertura]  WITH CHECK ADD  CONSTRAINT [FK_Cobertura_ObraSocial] FOREIGN KEY([IdObraSocial])
+REFERENCES [dbo].[ObraSocial] ([IdObraSocial])
+GO
+ALTER TABLE [dbo].[Cobertura] CHECK CONSTRAINT [FK_Cobertura_ObraSocial]
+GO
+ALTER TABLE [dbo].[Cobertura]  WITH CHECK ADD  CONSTRAINT [FK_Cobertura_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[Cobertura] CHECK CONSTRAINT [FK_Cobertura_Paciente]
+GO
+ALTER TABLE [dbo].[Consentimiento]  WITH CHECK ADD  CONSTRAINT [FK_Consentimiento_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[Consentimiento] CHECK CONSTRAINT [FK_Consentimiento_Paciente]
+GO
+ALTER TABLE [dbo].[Consentimiento]  WITH CHECK ADD  CONSTRAINT [FK_Consentimiento_Tipo] FOREIGN KEY([IdTipoConsentimiento])
+REFERENCES [dbo].[TipoConsentimiento] ([IdTipoConsentimiento])
+GO
+ALTER TABLE [dbo].[Consentimiento] CHECK CONSTRAINT [FK_Consentimiento_Tipo]
+GO
+ALTER TABLE [dbo].[Derivacion]  WITH CHECK ADD  CONSTRAINT [FK_Derivacion_Destino] FOREIGN KEY([IdProfesionalDestino])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[Derivacion] CHECK CONSTRAINT [FK_Derivacion_Destino]
+GO
+ALTER TABLE [dbo].[Derivacion]  WITH CHECK ADD  CONSTRAINT [FK_Derivacion_Origen] FOREIGN KEY([IdProfesionalOrigen])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[Derivacion] CHECK CONSTRAINT [FK_Derivacion_Origen]
+GO
+ALTER TABLE [dbo].[Derivacion]  WITH CHECK ADD  CONSTRAINT [FK_Derivacion_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[Derivacion] CHECK CONSTRAINT [FK_Derivacion_Paciente]
+GO
+ALTER TABLE [dbo].[EventoCrisis]  WITH CHECK ADD  CONSTRAINT [FK_Evento_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[EventoCrisis] CHECK CONSTRAINT [FK_Evento_Paciente]
+GO
+ALTER TABLE [dbo].[Evolucion]  WITH CHECK ADD  CONSTRAINT [FK_Evolucion_Historia] FOREIGN KEY([IdHistoria])
+REFERENCES [dbo].[HistoriaClinica] ([IdHistoria])
+GO
+ALTER TABLE [dbo].[Evolucion] CHECK CONSTRAINT [FK_Evolucion_Historia]
+GO
+ALTER TABLE [dbo].[Evolucion]  WITH CHECK ADD  CONSTRAINT [FK_Evolucion_Profesional] FOREIGN KEY([IdProfesional])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[Evolucion] CHECK CONSTRAINT [FK_Evolucion_Profesional]
+GO
+ALTER TABLE [dbo].[Evolucion]  WITH CHECK ADD  CONSTRAINT [FK_Evolucion_Turno] FOREIGN KEY([IdTurno])
+REFERENCES [dbo].[Turno] ([IdTurno])
+GO
+ALTER TABLE [dbo].[Evolucion] CHECK CONSTRAINT [FK_Evolucion_Turno]
+GO
+ALTER TABLE [dbo].[HistoriaClinica]  WITH CHECK ADD  CONSTRAINT [FK_Historia_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[HistoriaClinica] CHECK CONSTRAINT [FK_Historia_Paciente]
+GO
+ALTER TABLE [dbo].[InteraccionIA]  WITH CHECK ADD  CONSTRAINT [FK_InteraccionIA_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[InteraccionIA] CHECK CONSTRAINT [FK_InteraccionIA_Paciente]
+GO
+ALTER TABLE [dbo].[PacienteTutor]  WITH CHECK ADD  CONSTRAINT [FK_PT_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[PacienteTutor] CHECK CONSTRAINT [FK_PT_Paciente]
+GO
+ALTER TABLE [dbo].[PacienteTutor]  WITH CHECK ADD  CONSTRAINT [FK_PT_Tutor] FOREIGN KEY([IdTutor])
+REFERENCES [dbo].[Tutor] ([IdTutor])
+GO
+ALTER TABLE [dbo].[PacienteTutor] CHECK CONSTRAINT [FK_PT_Tutor]
+GO
+ALTER TABLE [dbo].[Profesional]  WITH CHECK ADD  CONSTRAINT [FK_Profesional_Especialidad] FOREIGN KEY([IdEspecialidad])
+REFERENCES [dbo].[Especialidad] ([IdEspecialidad])
+GO
+ALTER TABLE [dbo].[Profesional] CHECK CONSTRAINT [FK_Profesional_Especialidad]
+GO
+ALTER TABLE [dbo].[Turno]  WITH CHECK ADD  CONSTRAINT [FK_Turno_Estado] FOREIGN KEY([IdEstadoTurno])
+REFERENCES [dbo].[EstadoTurno] ([IdEstadoTurno])
+GO
+ALTER TABLE [dbo].[Turno] CHECK CONSTRAINT [FK_Turno_Estado]
+GO
+ALTER TABLE [dbo].[Turno]  WITH CHECK ADD  CONSTRAINT [FK_Turno_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[Turno] CHECK CONSTRAINT [FK_Turno_Paciente]
+GO
+ALTER TABLE [dbo].[Turno]  WITH CHECK ADD  CONSTRAINT [FK_Turno_Profesional] FOREIGN KEY([IdProfesional])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[Turno] CHECK CONSTRAINT [FK_Turno_Profesional]
+GO
+ALTER TABLE [dbo].[UsuarioPaciente]  WITH CHECK ADD  CONSTRAINT [FK_UPa_Paciente] FOREIGN KEY([IdPaciente])
+REFERENCES [dbo].[Paciente] ([IdPaciente])
+GO
+ALTER TABLE [dbo].[UsuarioPaciente] CHECK CONSTRAINT [FK_UPa_Paciente]
+GO
+ALTER TABLE [dbo].[UsuarioPaciente]  WITH CHECK ADD  CONSTRAINT [FK_UPa_Usuario] FOREIGN KEY([IdUsuario])
+REFERENCES [dbo].[Usuario] ([IdUsuario])
+GO
+ALTER TABLE [dbo].[UsuarioPaciente] CHECK CONSTRAINT [FK_UPa_Usuario]
+GO
+ALTER TABLE [dbo].[UsuarioProfesional]  WITH CHECK ADD  CONSTRAINT [FK_UP_Profesional] FOREIGN KEY([IdProfesional])
+REFERENCES [dbo].[Profesional] ([IdProfesional])
+GO
+ALTER TABLE [dbo].[UsuarioProfesional] CHECK CONSTRAINT [FK_UP_Profesional]
+GO
+ALTER TABLE [dbo].[UsuarioProfesional]  WITH CHECK ADD  CONSTRAINT [FK_UP_Usuario] FOREIGN KEY([IdUsuario])
+REFERENCES [dbo].[Usuario] ([IdUsuario])
+GO
+ALTER TABLE [dbo].[UsuarioProfesional] CHECK CONSTRAINT [FK_UP_Usuario]
+GO
+ALTER TABLE [dbo].[UsuarioRol]  WITH CHECK ADD  CONSTRAINT [FK_UR_Rol] FOREIGN KEY([IdRol])
+REFERENCES [dbo].[Rol] ([IdRol])
+GO
+ALTER TABLE [dbo].[UsuarioRol] CHECK CONSTRAINT [FK_UR_Rol]
+GO
+ALTER TABLE [dbo].[UsuarioRol]  WITH CHECK ADD  CONSTRAINT [FK_UR_Usuario] FOREIGN KEY([IdUsuario])
+REFERENCES [dbo].[Usuario] ([IdUsuario])
+GO
+ALTER TABLE [dbo].[UsuarioRol] CHECK CONSTRAINT [FK_UR_Usuario]
+GO
+USE [master]
+GO
+ALTER DATABASE [yosoy] SET  READ_WRITE 
+GO
