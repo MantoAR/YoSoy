@@ -5,7 +5,7 @@ builder.Services.AddCors(opt =>
 var app = builder.Build();
 app.UseCors();
 
-// ── Especialidad ──────────────────────────────────────────
+// Especialidad
 app.MapGet("/especialidades", () =>
     new EspecialidadDAO().ObtenerTodos());
 
@@ -35,7 +35,7 @@ app.MapDelete("/especialidades/{id}", (int id) =>
     return Results.NoContent();
 });
 
-// ── Rol ───────────────────────────────────────────────────
+// Rol
 app.MapGet("/roles", () =>
     new RolDAO().ObtenerTodos());
 
@@ -65,7 +65,7 @@ app.MapDelete("/roles/{id}", (int id) =>
     return Results.NoContent();
 });
 
-// ── EstadoTurno ───────────────────────────────────────────
+// EstadoTurno
 app.MapGet("/estadosturnos", () =>
     new EstadoTurnoDAO().ObtenerTodos());
 
@@ -95,7 +95,7 @@ app.MapDelete("/estadosturnos/{id}", (int id) =>
     return Results.NoContent();
 });
 
-// ── TipoConsentimiento ────────────────────────────────────
+// TipoConsentimiento
 app.MapGet("/tiposconsentimiento", () =>
     new TipoConsentimientoDAO().ObtenerTodos());
 
@@ -122,6 +122,149 @@ app.MapPut("/tiposconsentimiento/{id}", (int id, TipoConsentimiento tc) =>
 app.MapDelete("/tiposconsentimiento/{id}", (int id) =>
 {
     new TipoConsentimientoDAO().Baja(id);
+    return Results.NoContent();
+});
+
+// ObraSocial
+app.MapGet("/obrassociales", () =>
+    new ObraSocialDAO().ObtenerTodos());
+
+app.MapGet("/obrassociales/{id}", (int id) =>
+{
+    var o = new ObraSocialDAO().ObtenerPorId(id);
+    return o is null ? Results.NotFound() : Results.Ok(o);
+});
+
+app.MapPost("/obrassociales", (ObraSocial o) =>
+{
+    new ObraSocialDAO().Insertar(o);
+    return Results.Created("/obrassociales", o);
+});
+
+app.MapPut("/obrassociales/{id}", (int id, ObraSocial o) =>
+{
+    o.IdObraSocial = id;
+    new ObraSocialDAO().Modificar(o);
+    return Results.Ok(o);
+});
+
+// Tutor
+app.MapGet("/tutores", () =>
+    new TutorDAO().ObtenerTodos());
+
+app.MapGet("/tutores/{id}", (int id) =>
+{
+    var t = new TutorDAO().ObtenerPorId(id);
+    return t is null ? Results.NotFound() : Results.Ok(t);
+});
+
+app.MapPost("/tutores", (Tutor t) =>
+{
+    new TutorDAO().Insertar(t);
+    return Results.Created("/tutores", t);
+});
+
+app.MapPut("/tutores/{id}", (int id, Tutor t) =>
+{
+    t.IdTutor = id;
+    new TutorDAO().Modificar(t);
+    return Results.Ok(t);
+});
+
+// Usuario
+app.MapGet("/usuarios", () =>
+    new UsuarioDAO().ObtenerTodos().Select(u => new { u.IdUsuario, u.Username, u.Estado, u.Mail }));
+
+app.MapGet("/usuarios/{id}", (int id) =>
+{
+    var u = new UsuarioDAO().ObtenerPorId(id);
+    return u is null ? Results.NotFound() : Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
+});
+
+app.MapPost("/usuarios", (Usuario u) =>
+{
+    u.Estado = "Activo";
+    u.PasswordHash = Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
+    new UsuarioDAO().Insertar(u);
+    return Results.Created("/usuarios", new { u.IdUsuario, u.Username, u.Estado, u.Mail });
+});
+
+app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
+{
+    u.IdUsuario = id;
+    if (!string.IsNullOrEmpty(u.PasswordHash))
+        u.PasswordHash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
+    new UsuarioDAO().Modificar(u);
+    return Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
+});
+
+app.MapDelete("/usuarios/{id}", (int id) =>
+{
+    new UsuarioDAO().Baja(id);
+    return Results.NoContent();
+});
+
+// Paciente
+app.MapGet("/pacientes", () =>
+    new PacienteDAO().ObtenerTodos());
+
+app.MapGet("/pacientes/{id}", (int id) =>
+{
+    var p = new PacienteDAO().ObtenerPorId(id);
+    return p is null ? Results.NotFound() : Results.Ok(p);
+});
+
+app.MapPost("/pacientes", (Paciente p) =>
+{
+    p.Estado = "Activo";
+    new PacienteDAO().Insertar(p);
+    return Results.Created("/pacientes", p);
+});
+
+app.MapPut("/pacientes/{id}", (int id, Paciente p) =>
+{
+    p.IdPaciente = id;
+    new PacienteDAO().Modificar(p);
+    return Results.Ok(p);
+});
+
+app.MapDelete("/pacientes/{id}", (int id) =>
+{
+    new PacienteDAO().Baja(id);
+    return Results.NoContent();
+});
+
+// Profesional
+app.MapGet("/profesionales", () =>
+    new ProfesionalDAO().ObtenerTodos());
+
+app.MapGet("/profesionales/{id}", (int id) =>
+{
+    var p = new ProfesionalDAO().ObtenerPorId(id);
+    return p is null ? Results.NotFound() : Results.Ok(p);
+});
+
+app.MapPost("/profesionales", (Profesional p) =>
+{
+    p.Estado = "Activo";
+    new ProfesionalDAO().Insertar(p);
+    return Results.Created("/profesionales", p);
+});
+
+app.MapPut("/profesionales/{id}", (int id, Profesional p) =>
+{
+    p.IdProfesional = id;
+    new ProfesionalDAO().Modificar(p);
+    return Results.Ok(p);
+});
+
+app.MapDelete("/profesionales/{id}", (int id) =>
+{
+    new ProfesionalDAO().Baja(id);
     return Results.NoContent();
 });
 

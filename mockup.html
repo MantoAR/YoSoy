@@ -11,21 +11,25 @@
   nav button { background: transparent; color: #ccc; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; font-size: 14px; }
   nav button:hover { background: #4a6278; color: white; }
   nav button.activo { background: #2980b9; color: white; }
-  .pagina { display: none; padding: 24px; max-width: 900px; margin: 0 auto; }
+  .pagina { display: none; padding: 24px; max-width: 1000px; margin: 0 auto; }
   .pagina.visible { display: block; }
   h2 { margin-bottom: 20px; color: #2c3e50; border-bottom: 2px solid #2980b9; padding-bottom: 8px; }
   h3 { margin-bottom: 12px; color: #34495e; }
   .panel { background: white; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  .grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
   label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: bold; color: #555; }
-  input[type=text] { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; margin-bottom: 12px; }
-  input[type=text]:focus { outline: none; border-color: #2980b9; }
-  .fila-botones { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=text], input[type=date], input[type=password], select {
+    width: 100%; padding: 8px 10px; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 14px; margin-bottom: 12px;
+  }
+  input:focus, select:focus { outline: none; border-color: #2980b9; }
+  .fila-botones { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
   button.btn { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; }
-  .btn-guardar  { background: #27ae60; color: white; }
-  .btn-cancelar { background: #7f8c8d; color: white; }
-  .btn-editar   { background: #2980b9; color: white; padding: 4px 10px; font-size: 12px; }
-  .btn-baja     { background: #e74c3c; color: white; padding: 4px 10px; font-size: 12px; }
-  .btn-reactivar{ background: #f39c12; color: white; padding: 4px 10px; font-size: 12px; }
+  .btn-guardar   { background: #27ae60; color: white; }
+  .btn-cancelar  { background: #7f8c8d; color: white; }
+  .btn-editar    { background: #2980b9; color: white; padding: 4px 10px; font-size: 12px; }
+  .btn-baja      { background: #e74c3c; color: white; padding: 4px 10px; font-size: 12px; }
+  .btn-reactivar { background: #f39c12; color: white; padding: 4px 10px; font-size: 12px; }
   button.btn:hover { opacity: 0.88; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th { background: #2c3e50; color: white; padding: 10px 12px; text-align: left; }
@@ -35,6 +39,7 @@
   .badge-activo   { background: #d5f5e3; color: #1e8449; }
   .badge-inactivo { background: #fadbd8; color: #922b21; }
   .error { color: #e74c3c; font-size: 13px; margin-top: 8px; }
+  .col-full { grid-column: 1 / -1; }
 </style>
 </head>
 <body>
@@ -46,6 +51,11 @@
   <button onclick="mostrar('rol', this)">Rol</button>
   <button onclick="mostrar('estadoturno', this)">Estado Turno</button>
   <button onclick="mostrar('tipoconsentimiento', this)">Tipo Consentimiento</button>
+  <button onclick="mostrar('obrasocial', this)">Obra Social</button>
+  <button onclick="mostrar('tutor', this)">Tutor</button>
+  <button onclick="mostrar('usuario', this)">Usuario</button>
+  <button onclick="mostrar('paciente', this)">Paciente</button>
+  <button onclick="mostrar('profesional', this)">Profesional</button>
 </nav>
 
 <!-- ===================== ESPECIALIDAD ===================== -->
@@ -64,10 +74,8 @@
   </div>
   <div class="panel">
     <h3>Listado</h3>
-    <table>
-      <thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody id="esp-tabla"></tbody>
-    </table>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="esp-tabla"></tbody></table>
   </div>
 </div>
 
@@ -87,10 +95,8 @@
   </div>
   <div class="panel">
     <h3>Listado</h3>
-    <table>
-      <thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody id="rol-tabla"></tbody>
-    </table>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="rol-tabla"></tbody></table>
   </div>
 </div>
 
@@ -110,10 +116,8 @@
   </div>
   <div class="panel">
     <h3>Listado</h3>
-    <table>
-      <thead><tr><th>ID</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody id="et-tabla"></tbody>
-    </table>
+    <table><thead><tr><th>ID</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="et-tabla"></tbody></table>
   </div>
 </div>
 
@@ -133,10 +137,131 @@
   </div>
   <div class="panel">
     <h3>Listado</h3>
-    <table>
-      <thead><tr><th>ID</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody id="tc-tabla"></tbody>
-    </table>
+    <table><thead><tr><th>ID</th><th>Descripción</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="tc-tabla"></tbody></table>
+  </div>
+</div>
+
+<!-- ===================== OBRA SOCIAL ===================== -->
+<div id="obrasocial" class="pagina">
+  <h2>ABM Obra Social</h2>
+  <div class="panel">
+    <h3 id="os-titulo">Nueva Obra Social</h3>
+    <input type="hidden" id="os-id">
+    <label>Nombre</label>
+    <input type="text" id="os-nombre" placeholder="Ej: OSDE">
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarObraSocial()">Guardar</button>
+      <button class="btn btn-cancelar" onclick="cancelarObraSocial()">Cancelar</button>
+    </div>
+    <div class="error" id="os-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>Acciones</th></tr></thead>
+    <tbody id="os-tabla"></tbody></table>
+  </div>
+</div>
+
+<!-- ===================== TUTOR ===================== -->
+<div id="tutor" class="pagina">
+  <h2>ABM Tutor</h2>
+  <div class="panel">
+    <h3 id="tut-titulo">Nuevo Tutor</h3>
+    <input type="hidden" id="tut-id">
+    <div class="grilla">
+      <div><label>Nombre</label><input type="text" id="tut-nombre" placeholder="Nombre completo"></div>
+      <div><label>DNI</label><input type="text" id="tut-dni" placeholder="Ej: 30123456"></div>
+      <div><label>Vínculo</label><input type="text" id="tut-vinculo" placeholder="Ej: Madre, Padre"></div>
+      <div><label>Contacto</label><input type="text" id="tut-contacto" placeholder="Teléfono o mail"></div>
+    </div>
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarTutor()">Guardar</button>
+      <button class="btn btn-cancelar" onclick="cancelarTutor()">Cancelar</button>
+    </div>
+    <div class="error" id="tut-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>DNI</th><th>Vínculo</th><th>Contacto</th><th>Acciones</th></tr></thead>
+    <tbody id="tut-tabla"></tbody></table>
+  </div>
+</div>
+
+<!-- ===================== USUARIO ===================== -->
+<div id="usuario" class="pagina">
+  <h2>ABM Usuario</h2>
+  <div class="panel">
+    <h3 id="usu-titulo">Nuevo Usuario</h3>
+    <input type="hidden" id="usu-id">
+    <div class="grilla">
+      <div><label>Username</label><input type="text" id="usu-username" placeholder="Ej: jperez"></div>
+      <div><label>Mail</label><input type="text" id="usu-mail" placeholder="Ej: jperez@mail.com"></div>
+      <div class="col-full"><label>Contraseña</label><input type="password" id="usu-pass" placeholder="Contraseña"></div>
+    </div>
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarUsuario()">Guardar</button>
+      <button class="btn btn-cancelar" onclick="cancelarUsuario()">Cancelar</button>
+    </div>
+    <div class="error" id="usu-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>ID</th><th>Username</th><th>Mail</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="usu-tabla"></tbody></table>
+  </div>
+</div>
+
+<!-- ===================== PACIENTE ===================== -->
+<div id="paciente" class="pagina">
+  <h2>ABM Paciente</h2>
+  <div class="panel">
+    <h3 id="pac-titulo">Nuevo Paciente</h3>
+    <input type="hidden" id="pac-id">
+    <div class="grilla">
+      <div><label>Nombre</label><input type="text" id="pac-nombre" placeholder="Nombre completo"></div>
+      <div><label>DNI</label><input type="text" id="pac-dni" placeholder="Ej: 30123456"></div>
+      <div><label>Fecha de Nacimiento</label><input type="date" id="pac-fecha"></div>
+      <div><label>Teléfono</label><input type="text" id="pac-telefono" placeholder="Ej: 1134567890"></div>
+      <div><label>Mail</label><input type="text" id="pac-mail" placeholder="Ej: paciente@mail.com"></div>
+      <div><label>Domicilio</label><input type="text" id="pac-domicilio" placeholder="Calle y número"></div>
+    </div>
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarPaciente()">Guardar</button>
+      <button class="btn btn-cancelar" onclick="cancelarPaciente()">Cancelar</button>
+    </div>
+    <div class="error" id="pac-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>DNI</th><th>Teléfono</th><th>Mail</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="pac-tabla"></tbody></table>
+  </div>
+</div>
+
+<!-- ===================== PROFESIONAL ===================== -->
+<div id="profesional" class="pagina">
+  <h2>ABM Profesional</h2>
+  <div class="panel">
+    <h3 id="pro-titulo">Nuevo Profesional</h3>
+    <input type="hidden" id="pro-id">
+    <div class="grilla">
+      <div><label>Nombre</label><input type="text" id="pro-nombre" placeholder="Nombre completo"></div>
+      <div><label>Matrícula</label><input type="text" id="pro-matricula" placeholder="Ej: MP12345"></div>
+      <div><label>Especialidad</label><select id="pro-especialidad"><option value="">-- Seleccionar --</option></select></div>
+      <div><label>Teléfono</label><input type="text" id="pro-telefono" placeholder="Ej: 1134567890"></div>
+      <div class="col-full"><label>Mail</label><input type="text" id="pro-mail" placeholder="Ej: prof@mail.com"></div>
+    </div>
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarProfesional()">Guardar</button>
+      <button class="btn btn-cancelar" onclick="cancelarProfesional()">Cancelar</button>
+    </div>
+    <div class="error" id="pro-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>ID</th><th>Nombre</th><th>Matrícula</th><th>Especialidad</th><th>Estado</th><th>Acciones</th></tr></thead>
+    <tbody id="pro-tabla"></tbody></table>
   </div>
 </div>
 
@@ -148,234 +273,346 @@ function mostrar(id, btn) {
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('activo'));
   document.getElementById(id).classList.add('visible');
   btn.classList.add('activo');
+  const cargadores = { especialidad: cargarEspecialidades, rol: cargarRoles, estadoturno: cargarEstadosTurno, tipoconsentimiento: cargarTiposConsentimiento, obrasocial: cargarObrasSociales, tutor: cargarTutores, usuario: cargarUsuarios, paciente: cargarPacientes, profesional: cargarProfesionales };
+  cargadores[id]?.();
 }
 
 function badge(estado) {
   return `<span class="badge badge-${estado.toLowerCase()}">${estado}</span>`;
 }
 
-// ── Especialidad ──────────────────────────────────────────
-async function cargarEspecialidades() {
-  const res = await fetch(`${API}/especialidades`);
-  const lista = await res.json();
-  document.getElementById('esp-tabla').innerHTML = lista.map(e => `
-    <tr>
-      <td>${e.idEspecialidad}</td>
-      <td>${e.nombre}</td>
-      <td>${badge(e.estado)}</td>
-      <td>
-        <button class="btn btn-editar" onclick="editarEspecialidad(${e.idEspecialidad},'${e.nombre}','${e.estado}')">Editar</button>
-        ${e.estado === 'Activo'
-          ? `<button class="btn btn-baja" onclick="bajaEspecialidad(${e.idEspecialidad})">Baja</button>`
-          : `<button class="btn btn-reactivar" onclick="reactivarEspecialidad(${e.idEspecialidad},'${e.nombre}')">Reactivar</button>`}
-      </td>
-    </tr>`).join('');
+function accionesBaja(id, estado, fnEditar, fnBaja, fnReactivar) {
+  return `<button class="btn btn-editar" onclick="${fnEditar}(${id})">Editar</button> ${estado === 'Activo' ? `<button class="btn btn-baja" onclick="${fnBaja}(${id})">Baja</button>` : `<button class="btn btn-reactivar" onclick="${fnReactivar}(${id})">Reactivar</button>`}`;
 }
 
+// Especialidad
+async function cargarEspecialidades() {
+  const lista = await (await fetch(`${API}/especialidades`)).json();
+  document.getElementById('esp-tabla').innerHTML = lista.map(e => `<tr><td>${e.idEspecialidad}</td><td>${e.nombre}</td><td>${badge(e.estado)}</td><td>${accionesBaja(e.idEspecialidad, e.estado, 'editarEspecialidad', 'bajaEspecialidad', 'reactivarEspecialidad')}</td></tr>`).join('');
+}
 async function guardarEspecialidad() {
   const id = document.getElementById('esp-id').value;
   const nombre = document.getElementById('esp-nombre').value.trim();
   if (!nombre) { document.getElementById('esp-error').textContent = 'El nombre es obligatorio.'; return; }
   document.getElementById('esp-error').textContent = '';
-  if (id) {
-    await fetch(`${API}/especialidades/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre, estado: 'Activo' }) });
-  } else {
-    await fetch(`${API}/especialidades`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre }) });
-  }
-  cancelarEspecialidad();
-  cargarEspecialidades();
+  const body = JSON.stringify({ nombre, estado: 'Activo' });
+  id ? await fetch(`${API}/especialidades/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/especialidades`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarEspecialidad(); cargarEspecialidades();
 }
-
-function editarEspecialidad(id, nombre, estado) {
-  document.getElementById('esp-id').value = id;
-  document.getElementById('esp-nombre').value = nombre;
+async function editarEspecialidad(id) {
+  const e = await (await fetch(`${API}/especialidades/${id}`)).json();
+  document.getElementById('esp-id').value = e.idEspecialidad;
+  document.getElementById('esp-nombre').value = e.nombre;
   document.getElementById('esp-titulo').textContent = 'Modificar Especialidad';
 }
-
 async function bajaEspecialidad(id) {
-  if (!confirm('¿Dar de baja esta especialidad?')) return;
-  await fetch(`${API}/especialidades/${id}`, { method: 'DELETE' });
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/especialidades/${id}`, { method: 'DELETE' }); cargarEspecialidades();
+}
+async function reactivarEspecialidad(id) {
+  const e = await (await fetch(`${API}/especialidades/${id}`)).json();
+  await fetch(`${API}/especialidades/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre: e.nombre, estado: 'Activo' }) });
   cargarEspecialidades();
 }
-
-async function reactivarEspecialidad(id, nombre) {
-  await fetch(`${API}/especialidades/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre, estado: 'Activo' }) });
-  cargarEspecialidades();
-}
-
 function cancelarEspecialidad() {
-  document.getElementById('esp-id').value = '';
-  document.getElementById('esp-nombre').value = '';
+  document.getElementById('esp-id').value = ''; document.getElementById('esp-nombre').value = '';
   document.getElementById('esp-titulo').textContent = 'Nueva Especialidad';
 }
 
-// ── Rol ───────────────────────────────────────────────────
+// Rol
 async function cargarRoles() {
-  const res = await fetch(`${API}/roles`);
-  const lista = await res.json();
-  document.getElementById('rol-tabla').innerHTML = lista.map(r => `
-    <tr>
-      <td>${r.idRol}</td>
-      <td>${r.nombre}</td>
-      <td>${badge(r.estado)}</td>
-      <td>
-        <button class="btn btn-editar" onclick="editarRol(${r.idRol},'${r.nombre}','${r.estado}')">Editar</button>
-        ${r.estado === 'Activo'
-          ? `<button class="btn btn-baja" onclick="bajaRol(${r.idRol})">Baja</button>`
-          : `<button class="btn btn-reactivar" onclick="reactivarRol(${r.idRol},'${r.nombre}')">Reactivar</button>`}
-      </td>
-    </tr>`).join('');
+  const lista = await (await fetch(`${API}/roles`)).json();
+  document.getElementById('rol-tabla').innerHTML = lista.map(r => `<tr><td>${r.idRol}</td><td>${r.nombre}</td><td>${badge(r.estado)}</td><td>${accionesBaja(r.idRol, r.estado, 'editarRol', 'bajaRol', 'reactivarRol')}</td></tr>`).join('');
 }
-
 async function guardarRol() {
   const id = document.getElementById('rol-id').value;
   const nombre = document.getElementById('rol-nombre').value.trim();
   if (!nombre) { document.getElementById('rol-error').textContent = 'El nombre es obligatorio.'; return; }
   document.getElementById('rol-error').textContent = '';
-  if (id) {
-    await fetch(`${API}/roles/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre, estado: 'Activo' }) });
-  } else {
-    await fetch(`${API}/roles`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre }) });
-  }
-  cancelarRol();
-  cargarRoles();
+  const body = JSON.stringify({ nombre, estado: 'Activo' });
+  id ? await fetch(`${API}/roles/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/roles`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarRol(); cargarRoles();
 }
-
-function editarRol(id, nombre) {
-  document.getElementById('rol-id').value = id;
-  document.getElementById('rol-nombre').value = nombre;
+async function editarRol(id) {
+  const r = await (await fetch(`${API}/roles/${id}`)).json();
+  document.getElementById('rol-id').value = r.idRol;
+  document.getElementById('rol-nombre').value = r.nombre;
   document.getElementById('rol-titulo').textContent = 'Modificar Rol';
 }
-
 async function bajaRol(id) {
-  if (!confirm('¿Dar de baja este rol?')) return;
-  await fetch(`${API}/roles/${id}`, { method: 'DELETE' });
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/roles/${id}`, { method: 'DELETE' }); cargarRoles();
+}
+async function reactivarRol(id) {
+  const r = await (await fetch(`${API}/roles/${id}`)).json();
+  await fetch(`${API}/roles/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre: r.nombre, estado: 'Activo' }) });
   cargarRoles();
 }
-
-async function reactivarRol(id, nombre) {
-  await fetch(`${API}/roles/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nombre, estado: 'Activo' }) });
-  cargarRoles();
-}
-
 function cancelarRol() {
-  document.getElementById('rol-id').value = '';
-  document.getElementById('rol-nombre').value = '';
+  document.getElementById('rol-id').value = ''; document.getElementById('rol-nombre').value = '';
   document.getElementById('rol-titulo').textContent = 'Nuevo Rol';
 }
 
-// ── EstadoTurno ───────────────────────────────────────────
+// EstadoTurno
 async function cargarEstadosTurno() {
-  const res = await fetch(`${API}/estadosturnos`);
-  const lista = await res.json();
-  document.getElementById('et-tabla').innerHTML = lista.map(et => `
-    <tr>
-      <td>${et.idEstadoTurno}</td>
-      <td>${et.descripcion}</td>
-      <td>${badge(et.estado)}</td>
-      <td>
-        <button class="btn btn-editar" onclick="editarEstadoTurno(${et.idEstadoTurno},'${et.descripcion}')">Editar</button>
-        ${et.estado === 'Activo'
-          ? `<button class="btn btn-baja" onclick="bajaEstadoTurno(${et.idEstadoTurno})">Baja</button>`
-          : `<button class="btn btn-reactivar" onclick="reactivarEstadoTurno(${et.idEstadoTurno},'${et.descripcion}')">Reactivar</button>`}
-      </td>
-    </tr>`).join('');
+  const lista = await (await fetch(`${API}/estadosturnos`)).json();
+  document.getElementById('et-tabla').innerHTML = lista.map(et => `<tr><td>${et.idEstadoTurno}</td><td>${et.descripcion}</td><td>${badge(et.estado)}</td><td>${accionesBaja(et.idEstadoTurno, et.estado, 'editarEstadoTurno', 'bajaEstadoTurno', 'reactivarEstadoTurno')}</td></tr>`).join('');
 }
-
 async function guardarEstadoTurno() {
   const id = document.getElementById('et-id').value;
   const descripcion = document.getElementById('et-desc').value.trim();
   if (!descripcion) { document.getElementById('et-error').textContent = 'La descripción es obligatoria.'; return; }
   document.getElementById('et-error').textContent = '';
-  if (id) {
-    await fetch(`${API}/estadosturnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion, estado: 'Activo' }) });
-  } else {
-    await fetch(`${API}/estadosturnos`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion }) });
-  }
-  cancelarEstadoTurno();
-  cargarEstadosTurno();
+  const body = JSON.stringify({ descripcion, estado: 'Activo' });
+  id ? await fetch(`${API}/estadosturnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/estadosturnos`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarEstadoTurno(); cargarEstadosTurno();
 }
-
-function editarEstadoTurno(id, descripcion) {
-  document.getElementById('et-id').value = id;
-  document.getElementById('et-desc').value = descripcion;
+async function editarEstadoTurno(id) {
+  const et = await (await fetch(`${API}/estadosturnos/${id}`)).json();
+  document.getElementById('et-id').value = et.idEstadoTurno;
+  document.getElementById('et-desc').value = et.descripcion;
   document.getElementById('et-titulo').textContent = 'Modificar Estado Turno';
 }
-
 async function bajaEstadoTurno(id) {
-  if (!confirm('¿Dar de baja este estado?')) return;
-  await fetch(`${API}/estadosturnos/${id}`, { method: 'DELETE' });
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/estadosturnos/${id}`, { method: 'DELETE' }); cargarEstadosTurno();
+}
+async function reactivarEstadoTurno(id) {
+  const et = await (await fetch(`${API}/estadosturnos/${id}`)).json();
+  await fetch(`${API}/estadosturnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion: et.descripcion, estado: 'Activo' }) });
   cargarEstadosTurno();
 }
-
-async function reactivarEstadoTurno(id, descripcion) {
-  await fetch(`${API}/estadosturnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion, estado: 'Activo' }) });
-  cargarEstadosTurno();
-}
-
 function cancelarEstadoTurno() {
-  document.getElementById('et-id').value = '';
-  document.getElementById('et-desc').value = '';
+  document.getElementById('et-id').value = ''; document.getElementById('et-desc').value = '';
   document.getElementById('et-titulo').textContent = 'Nuevo Estado Turno';
 }
 
-// ── TipoConsentimiento ────────────────────────────────────
+// TipoConsentimiento
 async function cargarTiposConsentimiento() {
-  const res = await fetch(`${API}/tiposconsentimiento`);
-  const lista = await res.json();
-  document.getElementById('tc-tabla').innerHTML = lista.map(tc => `
-    <tr>
-      <td>${tc.idTipoConsentimiento}</td>
-      <td>${tc.descripcion}</td>
-      <td>${badge(tc.estado)}</td>
-      <td>
-        <button class="btn btn-editar" onclick="editarTipoConsentimiento(${tc.idTipoConsentimiento},'${tc.descripcion}')">Editar</button>
-        ${tc.estado === 'Activo'
-          ? `<button class="btn btn-baja" onclick="bajaTipoConsentimiento(${tc.idTipoConsentimiento})">Baja</button>`
-          : `<button class="btn btn-reactivar" onclick="reactivarTipoConsentimiento(${tc.idTipoConsentimiento},'${tc.descripcion}')">Reactivar</button>`}
-      </td>
-    </tr>`).join('');
+  const lista = await (await fetch(`${API}/tiposconsentimiento`)).json();
+  document.getElementById('tc-tabla').innerHTML = lista.map(tc => `<tr><td>${tc.idTipoConsentimiento}</td><td>${tc.descripcion}</td><td>${badge(tc.estado)}</td><td>${accionesBaja(tc.idTipoConsentimiento, tc.estado, 'editarTipoConsentimiento', 'bajaTipoConsentimiento', 'reactivarTipoConsentimiento')}</td></tr>`).join('');
 }
-
 async function guardarTipoConsentimiento() {
   const id = document.getElementById('tc-id').value;
   const descripcion = document.getElementById('tc-desc').value.trim();
   if (!descripcion) { document.getElementById('tc-error').textContent = 'La descripción es obligatoria.'; return; }
   document.getElementById('tc-error').textContent = '';
-  if (id) {
-    await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion, estado: 'Activo' }) });
-  } else {
-    await fetch(`${API}/tiposconsentimiento`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion }) });
-  }
-  cancelarTipoConsentimiento();
-  cargarTiposConsentimiento();
+  const body = JSON.stringify({ descripcion, estado: 'Activo' });
+  id ? await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/tiposconsentimiento`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarTipoConsentimiento(); cargarTiposConsentimiento();
 }
-
-function editarTipoConsentimiento(id, descripcion) {
-  document.getElementById('tc-id').value = id;
-  document.getElementById('tc-desc').value = descripcion;
+async function editarTipoConsentimiento(id) {
+  const tc = await (await fetch(`${API}/tiposconsentimiento/${id}`)).json();
+  document.getElementById('tc-id').value = tc.idTipoConsentimiento;
+  document.getElementById('tc-desc').value = tc.descripcion;
   document.getElementById('tc-titulo').textContent = 'Modificar Tipo Consentimiento';
 }
-
 async function bajaTipoConsentimiento(id) {
-  if (!confirm('¿Dar de baja este tipo?')) return;
-  await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'DELETE' });
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'DELETE' }); cargarTiposConsentimiento();
+}
+async function reactivarTipoConsentimiento(id) {
+  const tc = await (await fetch(`${API}/tiposconsentimiento/${id}`)).json();
+  await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion: tc.descripcion, estado: 'Activo' }) });
   cargarTiposConsentimiento();
 }
-
-async function reactivarTipoConsentimiento(id, descripcion) {
-  await fetch(`${API}/tiposconsentimiento/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ descripcion, estado: 'Activo' }) });
-  cargarTiposConsentimiento();
-}
-
 function cancelarTipoConsentimiento() {
-  document.getElementById('tc-id').value = '';
-  document.getElementById('tc-desc').value = '';
+  document.getElementById('tc-id').value = ''; document.getElementById('tc-desc').value = '';
   document.getElementById('tc-titulo').textContent = 'Nuevo Tipo Consentimiento';
 }
 
-// ── Init ──────────────────────────────────────────────────
+// ObraSocial
+async function cargarObrasSociales() {
+  const lista = await (await fetch(`${API}/obrassociales`)).json();
+  document.getElementById('os-tabla').innerHTML = lista.map(o => `<tr><td>${o.idObraSocial}</td><td>${o.nombre}</td><td><button class="btn btn-editar" onclick="editarObraSocial(${o.idObraSocial})">Editar</button></td></tr>`).join('');
+}
+async function guardarObraSocial() {
+  const id = document.getElementById('os-id').value;
+  const nombre = document.getElementById('os-nombre').value.trim();
+  if (!nombre) { document.getElementById('os-error').textContent = 'El nombre es obligatorio.'; return; }
+  document.getElementById('os-error').textContent = '';
+  const body = JSON.stringify({ nombre });
+  id ? await fetch(`${API}/obrassociales/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/obrassociales`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarObraSocial(); cargarObrasSociales();
+}
+async function editarObraSocial(id) {
+  const o = await (await fetch(`${API}/obrassociales/${id}`)).json();
+  document.getElementById('os-id').value = o.idObraSocial;
+  document.getElementById('os-nombre').value = o.nombre;
+  document.getElementById('os-titulo').textContent = 'Modificar Obra Social';
+}
+function cancelarObraSocial() {
+  document.getElementById('os-id').value = ''; document.getElementById('os-nombre').value = '';
+  document.getElementById('os-titulo').textContent = 'Nueva Obra Social';
+}
+
+// Tutor
+async function cargarTutores() {
+  const lista = await (await fetch(`${API}/tutores`)).json();
+  document.getElementById('tut-tabla').innerHTML = lista.map(t => `<tr><td>${t.idTutor}</td><td>${t.nombre||''}</td><td>${t.dni||''}</td><td>${t.vinculo||''}</td><td>${t.contacto||''}</td><td><button class="btn btn-editar" onclick="editarTutor(${t.idTutor})">Editar</button></td></tr>`).join('');
+}
+async function guardarTutor() {
+  const id = document.getElementById('tut-id').value;
+  const body = JSON.stringify({ nombre: document.getElementById('tut-nombre').value.trim(), dni: document.getElementById('tut-dni').value.trim(), vinculo: document.getElementById('tut-vinculo').value.trim(), contacto: document.getElementById('tut-contacto').value.trim() });
+  id ? await fetch(`${API}/tutores/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/tutores`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarTutor(); cargarTutores();
+}
+async function editarTutor(id) {
+  const t = await (await fetch(`${API}/tutores/${id}`)).json();
+  document.getElementById('tut-id').value = t.idTutor;
+  document.getElementById('tut-nombre').value = t.nombre || '';
+  document.getElementById('tut-dni').value = t.dni || '';
+  document.getElementById('tut-vinculo').value = t.vinculo || '';
+  document.getElementById('tut-contacto').value = t.contacto || '';
+  document.getElementById('tut-titulo').textContent = 'Modificar Tutor';
+}
+function cancelarTutor() {
+  ['tut-id','tut-nombre','tut-dni','tut-vinculo','tut-contacto'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('tut-titulo').textContent = 'Nuevo Tutor';
+}
+
+// Usuario
+async function cargarUsuarios() {
+  const lista = await (await fetch(`${API}/usuarios`)).json();
+  document.getElementById('usu-tabla').innerHTML = lista.map(u => `<tr><td>${u.idUsuario}</td><td>${u.username}</td><td>${u.mail||''}</td><td>${badge(u.estado)}</td><td>${accionesBaja(u.idUsuario, u.estado, 'editarUsuario', 'bajaUsuario', 'reactivarUsuario')}</td></tr>`).join('');
+}
+async function guardarUsuario() {
+  const id = document.getElementById('usu-id').value;
+  const username = document.getElementById('usu-username').value.trim();
+  const pass = document.getElementById('usu-pass').value;
+  const mail = document.getElementById('usu-mail').value.trim();
+  if (!username) { document.getElementById('usu-error').textContent = 'El username es obligatorio.'; return; }
+  if (!id && !pass) { document.getElementById('usu-error').textContent = 'La contraseña es obligatoria al crear.'; return; }
+  document.getElementById('usu-error').textContent = '';
+  const body = JSON.stringify({ username, passwordHash: pass, mail, estado: 'Activo' });
+  id ? await fetch(`${API}/usuarios/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/usuarios`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarUsuario(); cargarUsuarios();
+}
+async function editarUsuario(id) {
+  const u = await (await fetch(`${API}/usuarios/${id}`)).json();
+  document.getElementById('usu-id').value = u.idUsuario;
+  document.getElementById('usu-username').value = u.username;
+  document.getElementById('usu-mail').value = u.mail || '';
+  document.getElementById('usu-pass').value = '';
+  document.getElementById('usu-titulo').textContent = 'Modificar Usuario';
+}
+async function bajaUsuario(id) {
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/usuarios/${id}`, { method: 'DELETE' }); cargarUsuarios();
+}
+async function reactivarUsuario(id) {
+  const u = await (await fetch(`${API}/usuarios/${id}`)).json();
+  await fetch(`${API}/usuarios/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ username: u.username, passwordHash: '', mail: u.mail, estado: 'Activo' }) });
+  cargarUsuarios();
+}
+function cancelarUsuario() {
+  ['usu-id','usu-username','usu-mail','usu-pass'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('usu-titulo').textContent = 'Nuevo Usuario';
+}
+
+// Paciente
+async function cargarPacientes() {
+  const lista = await (await fetch(`${API}/pacientes`)).json();
+  document.getElementById('pac-tabla').innerHTML = lista.map(p => `<tr><td>${p.idPaciente}</td><td>${p.nombre}</td><td>${p.dni}</td><td>${p.telefono||''}</td><td>${p.mail||''}</td><td>${badge(p.estado)}</td><td>${accionesBaja(p.idPaciente, p.estado, 'editarPaciente', 'bajaPaciente', 'reactivarPaciente')}</td></tr>`).join('');
+}
+async function guardarPaciente() {
+  const id = document.getElementById('pac-id').value;
+  const nombre = document.getElementById('pac-nombre').value.trim();
+  const dni = document.getElementById('pac-dni').value.trim();
+  if (!nombre || !dni) { document.getElementById('pac-error').textContent = 'Nombre y DNI son obligatorios.'; return; }
+  document.getElementById('pac-error').textContent = '';
+  const body = JSON.stringify({ nombre, dni, fechaNacimiento: document.getElementById('pac-fecha').value || null, telefono: document.getElementById('pac-telefono').value.trim() || null, mail: document.getElementById('pac-mail').value.trim() || null, domicilio: document.getElementById('pac-domicilio').value.trim() || null, estado: 'Activo' });
+  id ? await fetch(`${API}/pacientes/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/pacientes`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarPaciente(); cargarPacientes();
+}
+async function editarPaciente(id) {
+  const p = await (await fetch(`${API}/pacientes/${id}`)).json();
+  document.getElementById('pac-id').value = p.idPaciente;
+  document.getElementById('pac-nombre').value = p.nombre;
+  document.getElementById('pac-dni').value = p.dni;
+  document.getElementById('pac-fecha').value = p.fechaNacimiento ? p.fechaNacimiento.split('T')[0] : '';
+  document.getElementById('pac-telefono').value = p.telefono || '';
+  document.getElementById('pac-mail').value = p.mail || '';
+  document.getElementById('pac-domicilio').value = p.domicilio || '';
+  document.getElementById('pac-titulo').textContent = 'Modificar Paciente';
+}
+async function bajaPaciente(id) {
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/pacientes/${id}`, { method: 'DELETE' }); cargarPacientes();
+}
+async function reactivarPaciente(id) {
+  const p = await (await fetch(`${API}/pacientes/${id}`)).json();
+  p.estado = 'Activo';
+  await fetch(`${API}/pacientes/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) });
+  cargarPacientes();
+}
+function cancelarPaciente() {
+  ['pac-id','pac-nombre','pac-dni','pac-fecha','pac-telefono','pac-mail','pac-domicilio'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pac-titulo').textContent = 'Nuevo Paciente';
+}
+
+// Profesional
+async function cargarProfesionales() {
+  const lista = await (await fetch(`${API}/profesionales`)).json();
+  const especialidades = await (await fetch(`${API}/especialidades`)).json();
+  const mapEsp = Object.fromEntries(especialidades.map(e => [e.idEspecialidad, e.nombre]));
+  document.getElementById('pro-tabla').innerHTML = lista.map(p => `<tr><td>${p.idProfesional}</td><td>${p.nombre}</td><td>${p.matricula}</td><td>${mapEsp[p.idEspecialidad]||p.idEspecialidad}</td><td>${badge(p.estado)}</td><td>${accionesBaja(p.idProfesional, p.estado, 'editarProfesional', 'bajaProfesional', 'reactivarProfesional')}</td></tr>`).join('');
+}
+async function cargarSelectEspecialidades() {
+  const lista = await (await fetch(`${API}/especialidades`)).json();
+  const sel = document.getElementById('pro-especialidad');
+  sel.innerHTML = '<option value="">-- Seleccionar --</option>' + lista.filter(e => e.estado === 'Activo').map(e => `<option value="${e.idEspecialidad}">${e.nombre}</option>`).join('');
+}
+async function guardarProfesional() {
+  const id = document.getElementById('pro-id').value;
+  const nombre = document.getElementById('pro-nombre').value.trim();
+  const matricula = document.getElementById('pro-matricula').value.trim();
+  const idEspecialidad = document.getElementById('pro-especialidad').value;
+  if (!nombre || !matricula || !idEspecialidad) { document.getElementById('pro-error').textContent = 'Nombre, matrícula y especialidad son obligatorios.'; return; }
+  document.getElementById('pro-error').textContent = '';
+  const body = JSON.stringify({ nombre, matricula, idEspecialidad: parseInt(idEspecialidad), mail: document.getElementById('pro-mail').value.trim() || null, telefono: document.getElementById('pro-telefono').value.trim() || null, estado: 'Activo' });
+  id ? await fetch(`${API}/profesionales/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body })
+     : await fetch(`${API}/profesionales`, { method: 'POST', headers: {'Content-Type':'application/json'}, body });
+  cancelarProfesional(); cargarProfesionales();
+}
+async function editarProfesional(id) {
+  await cargarSelectEspecialidades();
+  const p = await (await fetch(`${API}/profesionales/${id}`)).json();
+  document.getElementById('pro-id').value = p.idProfesional;
+  document.getElementById('pro-nombre').value = p.nombre;
+  document.getElementById('pro-matricula').value = p.matricula;
+  document.getElementById('pro-especialidad').value = p.idEspecialidad;
+  document.getElementById('pro-telefono').value = p.telefono || '';
+  document.getElementById('pro-mail').value = p.mail || '';
+  document.getElementById('pro-titulo').textContent = 'Modificar Profesional';
+}
+async function bajaProfesional(id) {
+  if (!confirm('¿Dar de baja?')) return;
+  await fetch(`${API}/profesionales/${id}`, { method: 'DELETE' }); cargarProfesionales();
+}
+async function reactivarProfesional(id) {
+  const p = await (await fetch(`${API}/profesionales/${id}`)).json();
+  p.estado = 'Activo';
+  await fetch(`${API}/profesionales/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p) });
+  cargarProfesionales();
+}
+function cancelarProfesional() {
+  ['pro-id','pro-nombre','pro-matricula','pro-telefono','pro-mail'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pro-especialidad').value = '';
+  document.getElementById('pro-titulo').textContent = 'Nuevo Profesional';
+}
+
+// Init
 cargarEspecialidades();
+cargarSelectEspecialidades();
 </script>
 </body>
 </html>
