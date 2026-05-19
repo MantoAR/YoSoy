@@ -27,8 +27,8 @@ YoSoy es una plataforma integral que combina gestión clínica, turnos y asisten
 - Derivaciones entre profesionales
 - Protocolo de eventos de crisis
 - Consentimiento informado digital
+- Cobertura de obra social
 - Interacciones con IA de apoyo emocional
-- Recetas digitales (psiquiatría)
 
 ---
 
@@ -36,8 +36,8 @@ YoSoy es una plataforma integral que combina gestión clínica, turnos y asisten
 
 | Capa | Tecnología |
 |---|---|
-| Lenguaje | C# (.NET) |
-| UI | HTML |
+| Backend | C# — ASP.NET Minimal API (.NET 9) |
+| Frontend | HTML + JavaScript (Fetch API) |
 | Acceso a datos | ADO.NET |
 | Base de datos | SQL Server Express |
 | Control de versiones | Git / GitHub |
@@ -46,33 +46,65 @@ YoSoy es una plataforma integral que combina gestión clínica, turnos y asisten
 
 ## Base de datos
 
+El script de creación se encuentra en la rama `DataBase` del repositorio.
+
 La base de datos `yosoy` contiene las siguientes entidades:
 
 **Referencia:** `Especialidad`, `Rol`, `EstadoTurno`, `TipoConsentimiento`
 
 **Principales:** `Usuario`, `Paciente`, `Profesional`, `Tutor`
 
-**Operativas:** `Agenda`, `Turno`, `Consentimiento`
+**Operativas:** `Agenda`, `Turno`, `Consentimiento`, `Cobertura`
 
-**Clínicas (inmutables):** `HistoriaClinica`, `Evolucion`, `Derivacion`, `EventoCrisis`, `InteraccionIA`
+**Clínicas:** `HistoriaClinica`, `Evolucion`, `Derivacion`, `EventoCrisis`, `InteraccionIA`
+
+**Relacionales:** `PacienteTutor`, `UsuarioRol`, `UsuarioPaciente`, `UsuarioProfesional`
+
+---
+
+## API REST
+
+El proyecto expone una API REST construida con ASP.NET Minimal API. Todos los endpoints devuelven y reciben JSON.
+
+| Recurso | Endpoints disponibles |
+|---|---|
+| Especialidad | GET, POST, PUT, DELETE |
+| Rol | GET, POST, PUT, DELETE |
+| EstadoTurno | GET, POST, PUT, DELETE |
+| TipoConsentimiento | GET, POST, PUT, DELETE |
+| ObraSocial | GET, POST, PUT |
+| Tutor | GET, POST, PUT |
+| Usuario | GET, POST, PUT, DELETE |
+| Paciente | GET, POST, PUT, DELETE |
+| Profesional | GET, POST, PUT, DELETE |
+| Agenda | GET, POST, PUT, DELETE |
+| Turno | GET, POST, PUT, DELETE |
+| Consentimiento | GET, POST, PUT, DELETE |
+| HistoriaClinica | GET, POST |
+| Evolucion | GET, POST, PUT |
+| Derivacion | GET, POST, PUT |
+| EventoCrisis | GET, POST, PUT |
+| InteraccionIA | GET, POST |
+| Cobertura | GET, POST, PUT, DELETE |
 
 ---
 
 ## Cómo ejecutar el proyecto
 
 ### Requisitos
-- .NET 6 o superior
+- .NET 9
 - SQL Server Express
-- Visual Studio Code
+- SQL Server Management Studio
 
 ### Pasos
+
 1. Clonar el repositorio
 ```bash
 git clone https://github.com/MantoAR/YoSoy.git
 cd YoSoy
 ```
 
-2. Restaurar la base de datos ejecutando el script `yosoy.sql` en SQL Server Management Studio
+2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -84,18 +116,64 @@ private static string cadena = "Server=TU_SERVIDOR;Database=yosoy;Trusted_Connec
 dotnet run
 ```
 
+5. Abrir `mockup.html` en el navegador para usar la interfaz
+
 ---
 
 ## Estructura del proyecto
 
 ```
 YoSoy/
-├── Conexion.cs              # Clase de conexión a SQL Server
-├── EspecialidadDAO.cs       # ABM Especialidad
-├── ...                      # Resto de DAOs
-├── Form1.cs                 # Formulario principal
-├── Program.cs               # Punto de entrada
-└── YoSoy.csproj             # Configuración del proyecto
+├── Conexion.cs
+├── Program.cs
+├── mockup.html
+├── YoSoy.csproj
+├── Models/
+│   ├── Especialidad.cs
+│   ├── Rol.cs
+│   ├── EstadoTurno.cs
+│   ├── TipoConsentimiento.cs
+│   ├── ObraSocial.cs
+│   ├── Tutor.cs
+│   ├── Usuario.cs
+│   ├── Paciente.cs
+│   ├── Profesional.cs
+│   ├── Agenda.cs
+│   ├── Turno.cs
+│   ├── Consentimiento.cs
+│   ├── Cobertura.cs
+│   ├── HistoriaClinica.cs
+│   ├── Evolucion.cs
+│   ├── Derivacion.cs
+│   ├── EventoCrisis.cs
+│   ├── InteraccionIA.cs
+│   ├── PacienteTutor.cs
+│   ├── UsuarioRol.cs
+│   ├── UsuarioPaciente.cs
+│   └── UsuarioProfesional.cs
+└── DAOs/
+    ├── EspecialidadDAO.cs
+    ├── RolDAO.cs
+    ├── EstadoTurnoDAO.cs
+    ├── TipoConsentimientoDAO.cs
+    ├── ObraSocialDAO.cs
+    ├── TutorDAO.cs
+    ├── UsuarioDAO.cs
+    ├── PacienteDAO.cs
+    ├── ProfesionalDAO.cs
+    ├── AgendaDAO.cs
+    ├── TurnoDAO.cs
+    ├── ConsentimientoDAO.cs
+    ├── CoberturaDAO.cs
+    ├── HistoriaClinicaDAO.cs
+    ├── EvolucionDAO.cs
+    ├── DerivacionDAO.cs
+    ├── EventoCrisisDAO.cs
+    ├── InteraccionIADAO.cs
+    ├── PacienteTutorDAO.cs
+    ├── UsuarioRolDAO.cs
+    ├── UsuarioPacienteDAO.cs
+    └── UsuarioProfesionalDAO.cs
 ```
 
 ---
