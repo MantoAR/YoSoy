@@ -178,6 +178,41 @@ YoSoy/
 
 ---
 
+## Trabajo en equipo con Git
+
+### Bajar los últimos cambios del repositorio (pull)
+```bash
+cd "ruta\a\tu\carpeta\YoSoy"
+git pull
+```
+
+### Subir cambios al repositorio (push)
+```bash
+cd "ruta\a\tu\carpeta\YoSoy"
+
+# 1. Agregar los archivos modificados
+git add .
+
+# 2. Crear el commit con una descripción
+git commit -m "descripción de lo que cambiaste"
+
+# 3. Subir al repositorio
+git push
+```
+
+### Agregar un archivo o carpeta específica
+```bash
+# Un archivo
+git add nombre_archivo.html
+
+# Una carpeta completa
+git add nombre_carpeta/
+```
+
+> **Recomendación:** hacer `git pull` siempre antes de empezar a trabajar para tener la última versión del proyecto.
+
+---
+
 ## Materia
 
 **Práctica Profesionalizante I**

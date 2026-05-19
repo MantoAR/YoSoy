@@ -46,7 +46,19 @@
 </head>
 <body>
 
-<header>YoSoy — Sistema de Telemedicina</header>
+<header style="display:flex; justify-content:space-between; align-items:center;">
+  <span>YoSoy — Sistema de Telemedicina</span>
+  <div style="display:flex; gap:10px;">
+    <a href="PANTALLAS/Pantalla_Usuario/Usuario/index.html" target="_blank"
+       style="background:#2980b9; color:white; padding:7px 16px; border-radius:6px; text-decoration:none; font-size:14px; font-weight:bold;">
+      🧑 Login Usuario
+    </a>
+    <a href="PANTALLAS/Pantalla_Configurador/index.html" target="_blank"
+       style="background:#6A5ACD; color:white; padding:7px 16px; border-radius:6px; text-decoration:none; font-size:14px; font-weight:bold;">
+      ⚙️ Login Configurador
+    </a>
+  </div>
+</header>
 
 <nav>
   <button class="activo" onclick="mostrar('especialidad', this)">Especialidad</button>
