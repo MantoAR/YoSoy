@@ -9,7 +9,7 @@
 - [API REST](#api-rest)
 - [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
 - [Estructura del proyecto](#estructura-del-proyecto)
-- [Trabajo en equipo con Git](#trabajo-en-equipo-con-git)
+- [Como usar git desde CMD](#como-usar-git-desde-cmd)
 - [Materia](#materia)
 
 ---
@@ -192,7 +192,7 @@ YoSoy/
 
 ---
 
-## Trabajo en equipo con Git
+## Como usar git desde CMD
 
 ### Bajar los últimos cambios del repositorio (pull)
 ```bash
