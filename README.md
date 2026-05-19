@@ -1,5 +1,19 @@
 # YoSoy — Plataforma de Telemedicina en Salud Mental
 
+## Índice
+
+- [Equipo](#equipo)
+- [Descripción](#descripción)
+- [Stack tecnológico](#stack-tecnológico)
+- [Base de datos](#base-de-datos)
+- [API REST](#api-rest)
+- [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
+- [Estructura del proyecto](#estructura-del-proyecto)
+- [Trabajo en equipo con Git](#trabajo-en-equipo-con-git)
+- [Materia](#materia)
+
+---
+
 Sistema de gestión clínica y telemedicina orientado a la atención en salud mental, desarrollado como proyecto académico para la **Tecnicatura Superior en Análisis de Sistemas de Computación** en el Instituto Cervantes.
 
 ---
