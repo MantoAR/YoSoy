@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Registro Paciente</title>
+
+    <link rel="stylesheet"
+          href="css/estilos.css">
+
+</head>
+
+<body>
+
+    <div class="contenedor-registro">
+
+        <div class="card-registro">
+
+            <img src="img/logo_SINFONDO.png"
+                 class="logo-registro">
+
+            <h1>Registro del Paciente</h1>
+
+            <form id="formRegistro">
+
+                <!-- =====================================
+                     DATOS PACIENTE
+                ===================================== -->
+
+                <!-- NOMBRE -->
+
+                <div class="grupo-input">
+
+                    <label>Nombre *</label>
+
+                    <input type="text"
+                           id="nombre"
+                           required>
+
+                </div>
+
+                <!-- SEGUNDO NOMBRE -->
+
+                <div class="grupo-input">
+
+                    <label>Segundo Nombre</label>
+
+                    <input type="text"
+                           id="segundoNombre">
+
+                </div>
+
+                <!-- APELLIDO -->
+
+                <div class="grupo-input">
+
+                    <label>Apellido *</label>
+
+                    <input type="text"
+                           id="apellido"
+                           required>
+
+                </div>
+
+                <!-- SEGUNDO APELLIDO -->
+
+                <div class="grupo-input">
+
+                    <label>Segundo Apellido</label>
+
+                    <input type="text"
+                           id="segundoApellido">
+
+                </div>
+
+                <!-- DNI -->
+
+                <div class="grupo-input">
+
+                    <label>DNI *</label>
+
+                    <input type="text"
+                           id="dni"
+                           required>
+
+                </div>
+
+                <!-- SEXO -->
+
+                <div class="grupo-input">
+
+                    <label>Sexo *</label>
+
+                    <select id="sexo"
+                            required>
+
+                        <option value="">
+                            Seleccione
+                        </option>
+
+                        <option>
+                            Masculino
+                        </option>
+
+                        <option>
+                            Femenino
+                        </option>
+
+                        <option>
+                            Otros
+                        </option>
+
+                    </select>
+
+                </div>
+
+                <!-- FECHA NACIMIENTO -->
+
+                <div class="grupo-input">
+
+                    <label>Fecha Nacimiento *</label>
+
+                    <input type="date"
+                           id="fechaNacimiento"
+                           required>
+
+                </div>
+
+                <!-- EMAIL -->
+
+                <div class="grupo-input">
+
+                    <label>Email *</label>
+
+                    <input type="email"
+                           id="email"
+                           required>
+
+                </div>
+
+                <!-- TELEFONO -->
+                <div class="grupo-input">
+
+                    <label>Teléfono</label>
+
+                    <input type="text"
+                           id="telefono">
+
+                </div> 
+
+
+                <!-- DOMICILIO -->
+
+                <div class="grupo-input">
+
+                    <label>Domicilio *</label>
+
+                    <input type="text"
+                           id="domicilio"
+                           required>
+
+                </div>
+
+                <!-- NUMERO -->
+
+                <div class="grupo-input">
+
+                    <label>Número *</label>
+
+                    <input type="number"
+                           id="numero"
+                           required>
+
+                </div>
+
+                <!-- PROVINCIA -->
+
+                <div class="grupo-input">
+
+                    <label>Provincia *</label>
+
+                    <input type="text"
+                           id="provincia"
+                           required>
+
+                </div>
+
+                <!-- =====================================
+                     DATOS TUTOR
+                ===================================== -->
+
+                <div id="seccionTutor"
+                     class="seccion-tutor">
+
+                    <h2>
+                        Datos del Tutor Responsable
+                    </h2>
+
+                    <!-- NOMBRE -->
+
+                    <div class="grupo-input">
+
+                        <label>Nombre *</label>
+
+                        <input type="text"
+                               id="tutorNombre">
+
+                    </div>
+
+                    <!-- SEGUNDO NOMBRE -->
+
+                    <div class="grupo-input">
+
+                        <label>Segundo Nombre</label>
+
+                        <input type="text"
+                               id="tutorSegundoNombre">
+
+                    </div>
+
+                    <!-- APELLIDO -->
+
+                    <div class="grupo-input">
+
+                        <label>Apellido *</label>
+
+                        <input type="text"
+                               id="tutorApellido">
+
+                    </div>
+
+                    <!-- SEGUNDO APELLIDO -->
+
+                    <div class="grupo-input">
+
+                        <label>Segundo Apellido</label>
+
+                        <input type="text"
+                               id="tutorSegundoApellido">
+
+                    </div>
+
+                    <!-- SEXO -->
+
+                    <div class="grupo-input">
+
+                        <label>Sexo *</label>
+
+                        <select id="tutorSexo">
+
+                            <option value="">
+                                Seleccione
+                            </option>
+
+                            <option>
+                                Masculino
+                            </option>
+
+                            <option>
+                                Femenino
+                            </option>
+
+                            <option>
+                                Otros
+                            </option>
+
+                        </select>
+
+                    </div>
+
+                    <!-- FECHA NACIMIENTO -->
+
+                    <div class="grupo-input">
+
+                        <label>Fecha Nacimiento *</label>
+
+                        <input type="date"
+                               id="tutorFechaNacimiento">
+
+                    </div>
+
+                    <!-- EMAIL -->
+
+                    <div class="grupo-input">
+
+                        <label>Email *</label>
+
+                        <input type="email"
+                               id="tutorEmail">
+
+                    </div>
+
+                    <!-- DOMICILIO -->
+
+                    <div class="grupo-input">
+
+                        <label>Domicilio *</label>
+
+                        <input type="text"
+                               id="tutorDomicilio">
+
+                    </div>
+
+                    <!-- PARENTEZCO -->
+
+                    <div class="grupo-input">
+
+                        <label>Parentezco *</label>
+
+                        <input type="text"
+                               id="parentesco">
+
+                    </div>
+
+                </div>
+
+                <!-- =====================================
+                     BOTON
+                ===================================== -->
+
+                <button type="submit"
+                        class="boton">
+
+                    Continuar
+
+                </button>
+
+            </form>
+
+        </div>
+
+    </div>
+
+    <script src="js/app.js"></script>
+
+</body>
+
+</html>

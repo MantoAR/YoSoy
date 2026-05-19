@@ -193,3 +193,118 @@ body{
 
     transform:scale(1.05);
 }
+
+/* =========================================
+   REGISTRO
+========================================= */
+
+.contenedor-registro{
+
+    min-height:100vh;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    padding:40px;
+
+    background: linear-gradient(
+        135deg,
+        #f8f5ff,
+        #e6d6ff,
+        #c9a7ff
+    );
+}
+
+.card-registro{
+
+    width:700px;
+
+    background:white;
+
+    padding:40px;
+
+    border-radius:25px;
+
+    box-shadow:0px 10px 30px rgba(0,0,0,0.1);
+}
+
+.logo-registro{
+
+    width:150px;
+
+    display:block;
+
+    margin:auto;
+
+    margin-bottom:20px;
+}
+
+.card-registro h1{
+
+    text-align:center;
+
+    color:#6A5ACD;
+
+    margin-bottom:30px;
+}
+
+.grupo-input{
+
+    display:flex;
+
+    flex-direction:column;
+
+    margin-bottom:20px;
+}
+
+.grupo-input label{
+
+    margin-bottom:8px;
+
+    font-weight:bold;
+
+    color:#555;
+}
+
+.grupo-input input,
+.grupo-input select{
+
+    padding:14px;
+
+    border:1px solid #ccc;
+
+    border-radius:10px;
+
+    font-size:16px;
+}
+
+/* =========================================
+   TUTOR
+========================================= */
+
+.seccion-tutor{
+
+    margin-top:40px;
+
+    padding:30px;
+
+    border-radius:20px;
+
+    background:#f7f1ff;
+
+    border:2px solid #d7b8ff;
+
+    display:none;
+}
+
+.seccion-tutor h2{
+
+    text-align:center;
+
+    color:#6A5ACD;
+
+    margin-bottom:25px;
+}
