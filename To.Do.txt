@@ -1,3 +1,0 @@
-Eliminar tablas usuarios y usar la estructura de Jorge. 
-Rehacer la lógica de Login según los cambios de la BD.
-Reconectar las APIS.
