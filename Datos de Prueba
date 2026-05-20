@@ -1,0 +1,150 @@
+USE [yosoy]
+GO
+
+-- =============================================
+-- ROLES
+-- =============================================
+SET IDENTITY_INSERT [dbo].[Rol] ON
+INSERT INTO [dbo].[Rol] ([IdRol], [Nombre], [Estado]) VALUES (1, 'Configurador', 'Activo')
+INSERT INTO [dbo].[Rol] ([IdRol], [Nombre], [Estado]) VALUES (2, 'Profesional',  'Activo')
+INSERT INTO [dbo].[Rol] ([IdRol], [Nombre], [Estado]) VALUES (3, 'Paciente',     'Activo')
+SET IDENTITY_INSERT [dbo].[Rol] OFF
+GO
+
+-- =============================================
+-- ESPECIALIDADES
+-- =============================================
+SET IDENTITY_INSERT [dbo].[Especialidad] ON
+INSERT INTO [dbo].[Especialidad] ([IdEspecialidad], [Nombre], [Estado]) VALUES (1, 'Psicología',        'Activo')
+INSERT INTO [dbo].[Especialidad] ([IdEspecialidad], [Nombre], [Estado]) VALUES (2, 'Psiquiatría',       'Activo')
+INSERT INTO [dbo].[Especialidad] ([IdEspecialidad], [Nombre], [Estado]) VALUES (3, 'Trabajo Social',    'Activo')
+INSERT INTO [dbo].[Especialidad] ([IdEspecialidad], [Nombre], [Estado]) VALUES (4, 'Terapia Ocupacional','Activo')
+SET IDENTITY_INSERT [dbo].[Especialidad] OFF
+GO
+
+-- =============================================
+-- ESTADOS DE TURNO
+-- =============================================
+SET IDENTITY_INSERT [dbo].[EstadoTurno] ON
+INSERT INTO [dbo].[EstadoTurno] ([IdEstadoTurno], [Descripcion], [Estado]) VALUES (1, 'Pendiente',   'Activo')
+INSERT INTO [dbo].[EstadoTurno] ([IdEstadoTurno], [Descripcion], [Estado]) VALUES (2, 'Confirmado',  'Activo')
+INSERT INTO [dbo].[EstadoTurno] ([IdEstadoTurno], [Descripcion], [Estado]) VALUES (3, 'Cancelado',   'Activo')
+INSERT INTO [dbo].[EstadoTurno] ([IdEstadoTurno], [Descripcion], [Estado]) VALUES (4, 'Completado',  'Activo')
+SET IDENTITY_INSERT [dbo].[EstadoTurno] OFF
+GO
+
+-- =============================================
+-- TIPOS DE CONSENTIMIENTO
+-- =============================================
+SET IDENTITY_INSERT [dbo].[TipoConsentimiento] ON
+INSERT INTO [dbo].[TipoConsentimiento] ([IdTipoConsentimiento], [Descripcion], [Estado]) VALUES (1, 'Consentimiento Informado General',     'Activo')
+INSERT INTO [dbo].[TipoConsentimiento] ([IdTipoConsentimiento], [Descripcion], [Estado]) VALUES (2, 'Consentimiento Tratamiento de Datos',  'Activo')
+SET IDENTITY_INSERT [dbo].[TipoConsentimiento] OFF
+GO
+
+-- =============================================
+-- OBRAS SOCIALES
+-- =============================================
+SET IDENTITY_INSERT [dbo].[ObraSocial] ON
+INSERT INTO [dbo].[ObraSocial] ([IdObraSocial], [Nombre]) VALUES (1, 'OSDE')
+INSERT INTO [dbo].[ObraSocial] ([IdObraSocial], [Nombre]) VALUES (2, 'Swiss Medical')
+INSERT INTO [dbo].[ObraSocial] ([IdObraSocial], [Nombre]) VALUES (3, 'PAMI')
+INSERT INTO [dbo].[ObraSocial] ([IdObraSocial], [Nombre]) VALUES (4, 'Particular')
+SET IDENTITY_INSERT [dbo].[ObraSocial] OFF
+GO
+
+-- =============================================
+-- USUARIOS
+-- admin  / admin    → configurador
+-- smanto / yosoy123 → profesional
+-- paciente de prueba (usuario vinculado al paciente)
+-- Hashes SHA-256 UTF-8 en mayúsculas
+-- =============================================
+SET IDENTITY_INSERT [dbo].[Usuario] ON
+INSERT INTO [dbo].[Usuario] ([IdUsuario], [Username], [PasswordHash], [Estado], [Mail])
+VALUES (1, 'admin',   '8C6976E5B5410415BDE908BD4DEE15DFB167A9C873FC4BB8A81F6F2AB448A918', 'Activo', 'admin@yosoy.com')
+
+INSERT INTO [dbo].[Usuario] ([IdUsuario], [Username], [PasswordHash], [Estado], [Mail])
+VALUES (2, 'smanto',  '217D06B8CDCAB4A6B02A635C8D131FC4153645D59FA41D8A881E4BEE5A8B1673', 'Activo', 'smanto@yosoy.com')
+
+INSERT INTO [dbo].[Usuario] ([IdUsuario], [Username], [PasswordHash], [Estado], [Mail])
+VALUES (3, 'paciente1', '8C6976E5B5410415BDE908BD4DEE15DFB167A9C873FC4BB8A81F6F2AB448A918', 'Activo', 'paciente1@yosoy.com')
+SET IDENTITY_INSERT [dbo].[Usuario] OFF
+GO
+
+-- =============================================
+-- ROL: admin → Configurador
+-- =============================================
+INSERT INTO [dbo].[UsuarioRol] ([IdUsuario], [IdRol]) VALUES (1, 1)
+GO
+
+-- =============================================
+-- PROFESIONAL (vinculado a smanto)
+-- =============================================
+SET IDENTITY_INSERT [dbo].[Profesional] ON
+INSERT INTO [dbo].[Profesional]
+    ([IdProfesional], [Nombre], [Apellido], [Dni], [Matricula], [IdEspecialidad],
+     [Estado], [Mail], [Telefono], [Sexo], [FechaNacimiento], [Provincia], [FechaSolicitud])
+VALUES
+    (1, 'Santiago', 'Manto', '40000001', 'MP-12345', 1,
+     'Activo', 'smanto@yosoy.com', '1100000001', 'Masculino', '1999-01-15', 'Buenos Aires', GETDATE())
+SET IDENTITY_INSERT [dbo].[Profesional] OFF
+GO
+
+INSERT INTO [dbo].[UsuarioProfesional] ([IdUsuario], [IdProfesional], [FechaVinculacion])
+VALUES (2, 1, GETDATE())
+GO
+
+INSERT INTO [dbo].[UsuarioRol] ([IdUsuario], [IdRol]) VALUES (2, 2)
+GO
+
+-- =============================================
+-- AGENDA del profesional (lunes a viernes 9-18)
+-- =============================================
+INSERT INTO [dbo].[Agenda] ([IdProfesional], [Dia], [HoraInicio], [HoraFin], [Disponible])
+VALUES
+    (1, 'lunes',     '09:00', '18:00', 1),
+    (1, 'martes',    '09:00', '18:00', 1),
+    (1, 'miercoles', '09:00', '18:00', 1),
+    (1, 'jueves',    '09:00', '18:00', 1),
+    (1, 'viernes',   '09:00', '18:00', 1)
+GO
+
+-- =============================================
+-- PACIENTE DE PRUEBA
+-- =============================================
+SET IDENTITY_INSERT [dbo].[Paciente] ON
+INSERT INTO [dbo].[Paciente]
+    ([IdPaciente], [Nombre], [Dni], [FechaNacimiento], [Domicilio], [Telefono], [Mail], [Estado])
+VALUES
+    (1, 'Juan García', '30000001', '1990-05-10', 'Av. Corrientes 1234', '1155550001', 'paciente1@yosoy.com', 'Activo')
+SET IDENTITY_INSERT [dbo].[Paciente] OFF
+GO
+
+INSERT INTO [dbo].[UsuarioPaciente] ([IdUsuario], [IdPaciente], [FechaVinculacion])
+VALUES (3, 1, GETDATE())
+GO
+
+INSERT INTO [dbo].[UsuarioRol] ([IdUsuario], [IdRol]) VALUES (3, 3)
+GO
+
+-- Asignar paciente al profesional
+INSERT INTO [dbo].[PacienteProfesional] ([IdPaciente], [IdProfesional], [FechaAsignacion])
+VALUES (1, 1, GETDATE())
+GO
+
+-- Historia clínica del paciente
+SET IDENTITY_INSERT [dbo].[HistoriaClinica] ON
+INSERT INTO [dbo].[HistoriaClinica] ([IdHistoria], [IdPaciente], [FechaApertura])
+VALUES (1, 1, GETDATE())
+SET IDENTITY_INSERT [dbo].[HistoriaClinica] OFF
+GO
+
+-- Turno de prueba (pendiente, próxima semana)
+SET IDENTITY_INSERT [dbo].[Turno] ON
+INSERT INTO [dbo].[Turno]
+    ([IdTurno], [IdPaciente], [IdProfesional], [IdEstadoTurno], [Fecha], [Hora], [Modalidad], [Motivo])
+VALUES
+    (1, 1, 1, 1, DATEADD(DAY, 7, CAST(GETDATE() AS DATE)), '10:00', 'Virtual', 'Primera consulta')
+SET IDENTITY_INSERT [dbo].[Turno] OFF
+GO
