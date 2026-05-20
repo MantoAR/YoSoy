@@ -4,6 +4,31 @@ builder.Services.AddCors(opt =>
 
 var app = builder.Build();
 app.UseCors();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        Path.Combine(builder.Environment.ContentRootPath, "PANTALLAS")),
+    RequestPath = "/pantallas"
+});
+
+// Login
+app.MapPost("/login", (LoginRequest req) =>
+{
+    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
+    var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
+    if (usuario == null || usuario.PasswordHash.ToUpper() != hash || usuario.Estado != "Activo")
+        return Results.Unauthorized();
+
+    var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
+    if (up != null)
+        return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente });
+
+    var upro = new UsuarioProfesionalDAO().ObtenerPorUsuario(usuario.IdUsuario);
+    if (upro != null)
+        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional });
+
+    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario });
+});
 
 // Especialidad
 app.MapGet("/especialidades", () =>
@@ -250,7 +275,7 @@ app.MapGet("/profesionales/{id}", (int id) =>
 
 app.MapPost("/profesionales", (Profesional p) =>
 {
-    p.Estado = "Activo";
+    p.Estado = "Pendiente";
     new ProfesionalDAO().Insertar(p);
     return Results.Created("/profesionales", p);
 });
@@ -266,6 +291,27 @@ app.MapDelete("/profesionales/{id}", (int id) =>
 {
     new ProfesionalDAO().Baja(id);
     return Results.NoContent();
+});
+
+app.MapGet("/profesionales/solicitudes", () =>
+    new ProfesionalDAO().ObtenerTodos().Where(p => p.Estado == "Pendiente").ToList());
+
+app.MapPut("/profesionales/{id}/aprobar", (int id) =>
+{
+    var p = new ProfesionalDAO().ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    p.Estado = "Activo";
+    new ProfesionalDAO().Modificar(p);
+    return Results.Ok(p);
+});
+
+app.MapPut("/profesionales/{id}/rechazar", (int id) =>
+{
+    var p = new ProfesionalDAO().ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    p.Estado = "Rechazado";
+    new ProfesionalDAO().Modificar(p);
+    return Results.Ok(p);
 });
 
 // Agenda
@@ -313,11 +359,58 @@ app.MapGet("/turnos/{id}", (int id) =>
 app.MapGet("/pacientes/{id}/turnos", (int id) =>
     new TurnoDAO().ObtenerPorPaciente(id));
 
+app.MapGet("/pacientes/{id}/turnos-detalle", (int id) =>
+    new TurnoDetalleDAO().ObtenerPorPaciente(id));
+
+app.MapGet("/pacientes/{id}/proximo-turno", (int id) =>
+{
+    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id);
+    return t is null ? Results.NotFound() : Results.Ok(t);
+});
+
+app.MapGet("/pacientes/{id}/mis-profesionales", (int id) =>
+    new PacienteProfesionalDAO().ObtenerProfesionalesDePaciente(id));
+
+app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp) =>
+{
+    new PacienteProfesionalDAO().Asignar(id, pp.IdProfesional);
+    return Results.Ok();
+});
+
+app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idProf) =>
+{
+    new PacienteProfesionalDAO().Desasignar(idPac, idProf);
+    return Results.Ok();
+});
+
+app.MapPut("/turnos/{id}/cancelar", (int id) =>
+{
+    var t = new TurnoDAO().ObtenerPorId(id);
+    if (t is null) return Results.NotFound();
+    t.IdEstadoTurno = 3; // Cancelado
+    new TurnoDAO().Modificar(t);
+    return Results.Ok();
+});
+
 app.MapGet("/profesionales/{id}/turnos", (int id) =>
     new TurnoDAO().ObtenerPorProfesional(id));
 
 app.MapPost("/turnos", (Turno t) =>
 {
+    new TurnoDAO().Insertar(t);
+    return Results.Created("/turnos", t);
+});
+
+// Solicitud de turno desde el paciente — estado siempre Pendiente
+app.MapPost("/turnos/solicitar", (Turno t) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new Microsoft.Data.SqlClient.SqlCommand(
+        "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = 'Pendiente'", con);
+    var result = cmd.ExecuteScalar();
+    if (result is null) return Results.Problem("No existe el estado 'Pendiente' en EstadoTurno.");
+    t.IdEstadoTurno = (int)result;
     new TurnoDAO().Insertar(t);
     return Results.Created("/turnos", t);
 });
@@ -420,6 +513,12 @@ app.MapPut("/evoluciones/{id}", (int id, Evolucion e) =>
 app.MapGet("/derivaciones", () =>
     new DerivacionDAO().ObtenerTodos());
 
+app.MapGet("/derivaciones/pendientes", () =>
+    new DerivacionDetalleDAO().ObtenerPendientes());
+
+app.MapGet("/derivaciones/detalle", () =>
+    new DerivacionDetalleDAO().ObtenerTodosConDetalle());
+
 app.MapGet("/derivaciones/{id}", (int id) =>
 {
     var d = new DerivacionDAO().ObtenerPorId(id);
@@ -431,6 +530,8 @@ app.MapGet("/pacientes/{id}/derivaciones", (int id) =>
 
 app.MapPost("/derivaciones", (Derivacion d) =>
 {
+    d.Fecha  = DateTime.Now;
+    d.Estado = "Pendiente";
     new DerivacionDAO().Insertar(d);
     return Results.Created("/derivaciones", d);
 });
@@ -441,6 +542,59 @@ app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
     new DerivacionDAO().Modificar(d);
     return Results.Ok(d);
 });
+
+app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req) =>
+{
+    var d = new DerivacionDAO().ObtenerPorId(id);
+    if (d is null) return Results.NotFound();
+    d.IdProfesionalDestino = req.IdProfesionalDestino;
+    d.Estado = "Aceptada";
+    new DerivacionDAO().Modificar(d);
+
+    // Actualizar asignación directa paciente-profesional
+    var dao = new PacienteProfesionalDAO();
+    dao.Desasignar(d.IdPaciente, d.IdProfesionalOrigen);
+    dao.Asignar(d.IdPaciente, req.IdProfesionalDestino);
+
+    return Results.Ok();
+});
+
+app.MapPut("/derivaciones/{id}/rechazar", (int id) =>
+{
+    var d = new DerivacionDAO().ObtenerPorId(id);
+    if (d is null) return Results.NotFound();
+    d.Estado = "Rechazada";
+    new DerivacionDAO().Modificar(d);
+    return Results.Ok(d);
+});
+
+// Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
+app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+
+    // Registrar derivación con estado Aceptada
+    var insert = new Microsoft.Data.SqlClient.SqlCommand(@"
+        INSERT INTO Derivacion (IdPaciente, IdProfesionalOrigen, IdProfesionalDestino, Fecha, Motivo, Estado)
+        VALUES (@IdPac, @IdOrigen, @IdDestino, GETDATE(), @Motivo, 'Aceptada')", con);
+    insert.Parameters.AddWithValue("@IdPac",    req.IdPaciente);
+    insert.Parameters.AddWithValue("@IdOrigen", req.IdProfesionalOrigen);
+    insert.Parameters.AddWithValue("@IdDestino",req.IdProfesionalDestino);
+    insert.Parameters.AddWithValue("@Motivo",   (object?)req.Motivo ?? DBNull.Value);
+    insert.ExecuteNonQuery();
+
+    // Actualizar asignación directa paciente-profesional
+    var dao = new PacienteProfesionalDAO();
+    dao.Desasignar(req.IdPaciente, req.IdProfesionalOrigen);
+    dao.Asignar(req.IdPaciente, req.IdProfesionalDestino);
+
+    return Results.Ok();
+});
+
+app.MapGet("/profesionales/activos/especialidad/{idEsp}", (int idEsp) =>
+    new ProfesionalDAO().ObtenerPorEspecialidad(idEsp)
+        .Where(p => p.Estado == "Activo").ToList());
 
 // EventoCrisis
 app.MapGet("/eventoscrisis", () =>

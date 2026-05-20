@@ -208,7 +208,14 @@
             <div class="campo">
                 <label>Contraseña</label>
                 <input type="password" id="contrasena" class="input" placeholder="Ingrese su contraseña" required>
-                <span class="ojo" onclick="togglePassword()">👁️</span>
+                <span class="ojo" id="btnOjo" onclick="togglePassword()">
+                    <svg id="iconoOjoAbierto" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    <svg id="iconoOjoCerrado" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                </span>
             </div>
 
             <div class="error-msg" id="errorMsg">Usuario o contraseña incorrectos.</div>
@@ -219,6 +226,9 @@
 
         <span class="link-registro" id="linkRegistro">
             ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html">Registrate</a>
+        </span>
+        <span class="link-registro" id="linkRegistroProfesional" style="display:none">
+            ¿Sos profesional? <a href="Pantalla_Usuario/Usuario/registro_profesional.html">Registrate acá</a>
         </span>
 
     </div>
@@ -232,37 +242,63 @@
             document.getElementById(`tab-${rol}`).classList.add("activo");
             document.getElementById("errorMsg").style.display = "none";
 
-            // Solo paciente puede registrarse
             document.getElementById("linkRegistro").style.display =
                 rol === "paciente" ? "block" : "none";
+            document.getElementById("linkRegistroProfesional").style.display =
+                rol === "profesional" ? "block" : "none";
         }
 
         function togglePassword() {
             const input = document.getElementById("contrasena");
-            input.type = input.type === "password" ? "text" : "password";
+            const mostrar = input.type === "password";
+            input.type = mostrar ? "text" : "password";
+            document.getElementById("iconoOjoAbierto").style.display = mostrar ? "none" : "";
+            document.getElementById("iconoOjoCerrado").style.display = mostrar ? "" : "none";
         }
 
-        function iniciarSesion(e) {
+        async function iniciarSesion(e) {
             e.preventDefault();
             const usuario = document.getElementById("usuario").value;
             const contrasena = document.getElementById("contrasena").value;
+            const errorMsg = document.getElementById("errorMsg");
+            errorMsg.style.display = "none";
 
-            // Login temporal hardcodeado por rol
-            const credenciales = {
-                paciente:      { user: "paciente",      pass: "123456" },
-                profesional:   { user: "profesional",   pass: "123456" },
-                configurador:  { user: "admin",          pass: "admin"  },
-            };
+            try {
+                const res = await fetch("http://localhost:5167/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: usuario, password: contrasena })
+                });
 
-            const cred = credenciales[rolActual];
-            if (usuario === cred.user && contrasena === cred.pass) {
-                if (rolActual === "configurador") {
-                    window.location.href = "Pantalla_Configurador/dashboard.html";
-                } else {
-                    alert(`Bienvenido, ${rolActual}. Panel en construcción.`);
+                if (!res.ok) {
+                    errorMsg.style.display = "block";
+                    return;
                 }
-            } else {
-                document.getElementById("errorMsg").style.display = "block";
+
+                const data = await res.json();
+
+                if (data.rol !== rolActual) {
+                    errorMsg.textContent = "Rol incorrecto para este usuario.";
+                    errorMsg.style.display = "block";
+                    return;
+                }
+
+                localStorage.setItem("idUsuario", data.idUsuario);
+                localStorage.setItem("rol", data.rol);
+
+                if (data.rol === "paciente") {
+                    localStorage.setItem("idPaciente", data.idPaciente);
+                    window.location.href = "Pantalla_Paciente/dashboard.html";
+                } else if (data.rol === "profesional") {
+                    localStorage.setItem("idProfesional", data.idProfesional);
+                    window.location.href = "Pantalla_Profesional/dashboard.html";
+                } else {
+                    window.location.href = "Pantalla_Configurador/dashboard.html";
+                }
+
+            } catch {
+                errorMsg.textContent = "No se pudo conectar con el servidor.";
+                errorMsg.style.display = "block";
             }
         }
     </script>

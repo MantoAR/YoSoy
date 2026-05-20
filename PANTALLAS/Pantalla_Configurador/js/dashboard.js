@@ -1,15 +1,52 @@
-const API = "http://localhost:5000";
+const API = "http://localhost:5167";
+
+function toast(msg, tipo = "ok", duracion = 3500) {
+    let cont = document.getElementById("toast-container");
+    if (!cont) {
+        cont = document.createElement("div");
+        cont.id = "toast-container";
+        document.body.appendChild(cont);
+    }
+    const iconos = { ok: "✔", error: "✖", warn: "⚠" };
+    const t = document.createElement("div");
+    t.className = `toast toast-${tipo}`;
+    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
+    cont.appendChild(t);
+    setTimeout(() => {
+        t.classList.add("saliendo");
+        t.addEventListener("animationend", () => t.remove());
+    }, duracion);
+}
+
+function confirmar(msg) {
+    return new Promise(resolve => {
+        let overlay = document.getElementById("confirmOverlay");
+        if (!overlay) {
+            overlay = document.createElement("div");
+            overlay.id = "confirmOverlay";
+            overlay.innerHTML = `
+                <div class="confirm-box">
+                    <p class="confirm-msg" id="confirmMsg"></p>
+                    <div class="confirm-btns">
+                        <button class="confirm-btn-no" id="confirmNo">Cancelar</button>
+                        <button class="confirm-btn-si" id="confirmSi">Aceptar</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+        document.getElementById("confirmMsg").textContent = msg;
+        overlay.classList.add("visible");
+        const cerrar = (val) => { overlay.classList.remove("visible"); resolve(val); };
+        document.getElementById("confirmSi").onclick = () => cerrar(true);
+        document.getElementById("confirmNo").onclick = () => cerrar(false);
+    });
+}
 
 const SOLO_LECTURA = ["evoluciones", "eventoscrisis"];
 
 const campos = {
-    usuarios:        ["username", "mail", "estado"],
-    pacientes:       ["nombre", "dni", "fechaNacimiento", "domicilio", "telefono", "mail", "estado"],
-    profesionales:   ["nombre", "matricula", "idEspecialidad", "estado", "mail", "telefono"],
-    tutores:         ["nombre", "dni", "vinculo", "contacto"],
     turnos:          ["idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad", "motivo"],
     agendas:         ["idProfesional", "dia", "horaInicio", "horaFin", "disponible"],
-    derivaciones:    ["idPaciente", "idProfesionalOrigen", "idProfesionalDestino", "fecha", "motivo", "estado"],
     roles:           ["nombre", "estado"],
     especialidades:  ["nombre", "estado"],
     coberturas:      ["idPaciente", "idObraSocial", "nroAfiliado", "planCobertura", "estado"],
@@ -17,13 +54,8 @@ const campos = {
 };
 
 const idCampo = {
-    usuarios:        "idUsuario",
-    pacientes:       "idPaciente",
-    profesionales:   "idProfesional",
-    tutores:         "idTutor",
     turnos:          "idTurno",
     agendas:         "idAgenda",
-    derivaciones:    "idDerivacion",
     roles:           "idRol",
     especialidades:  "idEspecialidad",
     coberturas:      "idCobertura",
@@ -31,13 +63,8 @@ const idCampo = {
 };
 
 const columnas = {
-    usuarios:        ["idUsuario", "username", "mail", "estado"],
-    pacientes:       ["idPaciente", "nombre", "dni", "telefono", "estado", "HC"],
-    profesionales:   ["idProfesional", "nombre", "matricula", "estado"],
-    tutores:         ["idTutor", "nombre", "dni", "vinculo", "contacto"],
     turnos:          ["idTurno", "idPaciente", "idProfesional", "fecha", "hora", "modalidad"],
     agendas:         ["idAgenda", "idProfesional", "dia", "horaInicio", "horaFin", "disponible"],
-    derivaciones:    ["idDerivacion", "idPaciente", "idProfesionalOrigen", "idProfesionalDestino", "fecha", "estado"],
     evoluciones:     ["idEvolucion", "idHistoria", "idProfesional", "fecha", "diagnostico"],
     eventoscrisis:   ["idEvento", "idPaciente", "fecha", "nivelRiesgo", "acciones"],
     roles:           ["idRol", "nombre", "estado"],
@@ -48,12 +75,10 @@ const columnas = {
 
 const titulos = {
     usuarios:        "Usuarios",
-    pacientes:       "Pacientes",
-    profesionales:   "Profesionales",
-    tutores:         "Tutores",
+    solicitudes:     "Solicitudes de Registro",
+    derivaciones:    "Solicitudes de Cambio de Profesional",
     turnos:          "Turnos",
     agendas:         "Agenda",
-    derivaciones:    "Derivaciones",
     evoluciones:     "Evoluciones",
     eventoscrisis:   "Eventos de Crisis",
     roles:           "Roles",
@@ -64,7 +89,9 @@ const titulos = {
 
 let tabActual = null;
 let datosActuales = [];
+let filaEnEdicion = null;
 
+// ── SIDEBAR ──────────────────────────────────────────────────
 function toggleGrupo(id) {
     const lista = document.getElementById(`grupo-${id}`);
     const flecha = document.getElementById(`flecha-${id}`);
@@ -78,6 +105,7 @@ function marcarActivo(tab) {
     });
 }
 
+// ── TAB ROUTING ──────────────────────────────────────────────
 async function mostrarTab(tab) {
     tabActual = tab;
     marcarActivo(tab);
@@ -86,32 +114,385 @@ async function mostrarTab(tab) {
     contenido.innerHTML = `<div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>`;
 
     try {
-        let datos = await fetch(`${API}/${tab}`).then(r => r.json());
+        if (tab === "usuarios")     return await renderUsuarios(contenido);
+        if (tab === "solicitudes")  return await renderSolicitudes(contenido);
+        if (tab === "derivaciones") return await renderDerivaciones(contenido);
 
-        if (tab === "pacientes") {
-            datos = await Promise.all(datos.map(async p => {
-                const res = await fetch(`${API}/pacientes/${p.idPaciente}/historiaclinica`);
-                p.HC = res.ok ? "✅ Sí" : "❌ No";
-                return p;
-            }));
-        }
-
+        const datos = await fetch(`${API}/${tab}`).then(r => r.json());
         datosActuales = datos;
-        renderTabla(titulos[tab], columnas[tab], datos, tab);
+        renderTabla(titulos[tab], columnas[tab], datos, tab, contenido);
 
-    } catch (e) {
-        contenido.innerHTML = `
-            <div class="error-api">
-                <div class="error-icono">⚠️</div>
-                <div class="error-titulo">No se puede conectar con la API</div>
-                <div class="error-desc">El servidor no está disponible en <strong>${API}</strong>.<br>Iniciá la API y volvé a intentarlo.</div>
-                <button class="btn-reintentar" onclick="mostrarTab('${tabActual}')">↺ Reintentar</button>
-            </div>`;
+    } catch {
+        contenido.innerHTML = errorHtml(tab);
     }
 }
 
-function renderTabla(titulo, cols, datos, tab) {
-    const contenido = document.getElementById("contenido");
+// ── USUARIOS ─────────────────────────────────────────────────
+async function renderUsuarios(c) {
+    const [pacientes, profesionales] = await Promise.all([
+        fetch(`${API}/pacientes`).then(r => r.json()),
+        fetch(`${API}/profesionales`).then(r => r.json()),
+    ]);
+
+    const pacProfs = {};
+    const profPacs  = {};
+    await Promise.all(pacientes.map(async p => {
+        const profs = await fetch(`${API}/pacientes/${p.idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
+        pacProfs[p.idPaciente] = new Set(profs.map(pr => pr.idProfesional));
+        profs.forEach(pr => {
+            if (!profPacs[pr.idProfesional]) profPacs[pr.idProfesional] = new Set();
+            profPacs[pr.idProfesional].add(p.idPaciente);
+        });
+    }));
+
+    const pacCards = pacientes.map(p => `
+        <div class="usr-card" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
+            <div class="usr-nombre">${p.nombre ?? "-"}</div>
+            <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
+        </div>`).join("");
+
+    const profCards = profesionales.map(p => `
+        <div class="usr-card" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
+            <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
+            <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
+        </div>`).join("");
+
+    c.innerHTML = `
+        <div class="titulo-seccion">${titulos["usuarios"]}</div>
+        <div class="split-view">
+            <div class="split-col">
+                <div class="split-header">Pacientes <span class="split-badge">${pacientes.length}</span></div>
+                <div class="split-list" id="listaPacientes">${pacCards}</div>
+            </div>
+            <div class="split-col">
+                <div class="split-header">Profesionales <span class="split-badge">${profesionales.length}</span></div>
+                <div class="split-list" id="listaProfesionales">${profCards}</div>
+            </div>
+        </div>
+        <div class="split-info" id="splitInfo"></div>`;
+
+    // store maps for click handlers
+    window._pacProfs = pacProfs;
+    window._profPacs = profPacs;
+    window._pacientes = pacientes;
+    window._profesionales = profesionales;
+}
+
+function seleccionarPaciente(idPac) {
+    window._pacSeleccionado = idPac;
+    window._profSeleccionado = null;
+
+    document.querySelectorAll(".usr-card").forEach(el => el.classList.remove("seleccionado", "relacionado"));
+    document.getElementById(`pac-${idPac}`)?.classList.add("seleccionado");
+
+    const relacionados = window._pacProfs[idPac] ?? new Set();
+    document.querySelectorAll("#listaProfesionales .usr-card").forEach(el => {
+        const idProf = parseInt(el.id.replace("prof-", ""));
+        if (relacionados.has(idProf)) el.classList.add("relacionado");
+    });
+
+    const pac = window._pacientes.find(p => p.idPaciente === idPac);
+    const nombres = [...relacionados].map(idP => {
+        const pro = window._profesionales.find(p => p.idProfesional === idP);
+        return pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
+    });
+
+    const btnCambio = relacionados.size
+        ? `<button class="btn-cambio-prof" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>`
+        : "";
+    const btnAsignar = `<button class="btn-cambio-prof" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>`;
+
+    document.getElementById("splitInfo").innerHTML = relacionados.size
+        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar}`
+        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar}`;
+}
+
+function seleccionarProfesional(idProf) {
+    document.querySelectorAll(".usr-card").forEach(el => el.classList.remove("seleccionado", "relacionado"));
+    document.getElementById(`prof-${idProf}`)?.classList.add("seleccionado");
+
+    const relacionados = window._profPacs[idProf] ?? new Set();
+    document.querySelectorAll("#listaPacientes .usr-card").forEach(el => {
+        const idPac = parseInt(el.id.replace("pac-", ""));
+        if (relacionados.has(idPac)) el.classList.add("relacionado");
+    });
+
+    const prof = window._profesionales.find(p => p.idProfesional === idProf);
+    const nombres = [...relacionados].map(idPac => {
+        const pac = window._pacientes.find(p => p.idPaciente === idPac);
+        return pac?.nombre ?? idPac;
+    });
+    document.getElementById("splitInfo").innerHTML = relacionados.size
+        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}`
+        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados.`;
+}
+
+// ── SOLICITUDES DE REGISTRO ──────────────────────────────────
+async function renderSolicitudes(c) {
+    const datos = await fetch(`${API}/profesionales/solicitudes`).then(r => r.json());
+
+    if (!datos.length) {
+        c.innerHTML = `<div class="titulo-seccion">${titulos["solicitudes"]}</div>
+            <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
+        return;
+    }
+
+    const cols = ["idProfesional", "nombre", "apellido", "dni", "mail", "matricula", "provincia", "fechaSolicitud"];
+    const headers = cols.map(col => `<th>${col}</th>`).join("") + "<th>Acciones</th>";
+    const filas = datos.map(row => {
+        const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
+        return `<tr>${celdas}<td>
+            <button class="btn-ok" onclick="aprobarSolicitud(${row.idProfesional})">Aprobar</button>
+            <button class="btn-ko" onclick="rechazarSolicitud(${row.idProfesional})">Rechazar</button>
+        </td></tr>`;
+    }).join("");
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["solicitudes"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudes')">↺ Actualizar</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>${headers}</tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+}
+
+async function aprobarSolicitud(id) {
+    if (!await confirmar("¿Aprobar esta solicitud?")) return;
+    await fetch(`${API}/profesionales/${id}/aprobar`, { method: "PUT" });
+    toast("Solicitud aprobada.");
+    mostrarTab("solicitudes");
+}
+
+async function rechazarSolicitud(id) {
+    if (!await confirmar("¿Rechazar esta solicitud?")) return;
+    await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT" });
+    toast("Solicitud rechazada.", "warn");
+    mostrarTab("solicitudes");
+}
+
+// ── SOLICITUDES DE CAMBIO ────────────────────────────────────
+async function renderDerivaciones(c) {
+    const datos = await fetch(`${API}/derivaciones/detalle`).then(r => r.json());
+
+    if (!datos.length) {
+        c.innerHTML = `<div class="titulo-seccion">${titulos["derivaciones"]}</div>
+            <div class="alert alert-info">No hay solicitudes de cambio.</div>`;
+        return;
+    }
+
+    const filas = datos.map(d => {
+        const fecha = new Date(d.fecha).toLocaleDateString("es-AR");
+        const acciones = d.estado === "Pendiente" ? `
+            <button class="btn-ok" onclick="abrirModalDeriv(${d.idDerivacion}, ${d.idEspecialidad}, ${d.idProfesionalOrigen})">Aceptar</button>
+            <button class="btn-ko" onclick="rechazarDerivacion(${d.idDerivacion})">Rechazar</button>` : "-";
+        return `<tr>
+            <td>${d.idDerivacion}</td>
+            <td>${d.nombrePaciente}</td>
+            <td>${d.nombreProfesionalOrigen}</td>
+            <td>${d.nombreProfesionalDestino}</td>
+            <td>${d.especialidad}</td>
+            <td>${fecha}</td>
+            <td>${d.motivo ?? "-"}</td>
+            <td><span class="estado-badge estado-${d.estado.toLowerCase()}">${d.estado}</span></td>
+            <td>${acciones}</td>
+        </tr>`;
+    }).join("");
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["derivaciones"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('derivaciones')">↺ Actualizar</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>
+                    <th>#</th><th>Paciente</th><th>Prof. Actual</th><th>Prof. Solicitado</th>
+                    <th>Especialidad</th><th>Fecha</th><th>Motivo</th><th>Estado</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+}
+
+// ── ASIGNAR PROFESIONAL DIRECTO ──────────────────────────────
+async function abrirModalAsignar(idPac) {
+    window._cambioPaciente = idPac;
+    window._modoDirecto = false;
+    window._modoAsignar = true;
+    const pac = window._pacientes.find(p => p.idPaciente === idPac);
+    const yaAsignados = window._pacProfs[idPac] ?? new Set();
+
+    const opciones = window._profesionales
+        .filter(p => p.estado === "Activo" && !yaAsignados.has(p.idProfesional))
+        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — ${p.especialidad ?? ""}</option>`)
+        .join("");
+
+    document.getElementById("modalDerivBody").innerHTML = `
+        <p style="color:#555;margin-bottom:16px">Asignar profesional a: <strong>${pac?.nombre}</strong></p>
+        <div class="campo-modal">
+            <label>Profesional</label>
+            <select id="selectProfAsignar" class="input-modal">
+                ${opciones || '<option value="">Todos los profesionales ya están asignados</option>'}
+            </select>
+        </div>`;
+
+    document.getElementById("modalDerivOverlay").classList.add("visible");
+    document.getElementById("modalDerivPanel").classList.add("visible");
+}
+
+// ── CAMBIO DIRECTO ───────────────────────────────────────────
+async function abrirModalCambioDirecto(idPac) {
+    window._cambioPaciente = idPac;
+    const pac = window._pacientes.find(p => p.idPaciente === idPac);
+    const relacionados = [...(window._pacProfs[idPac] ?? new Set())];
+
+    const opcionesOrigen = relacionados.map(idP => {
+        const pro = window._profesionales.find(p => p.idProfesional === idP);
+        const nombre = pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
+        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${nombre}</option>`;
+    }).join("");
+
+    document.getElementById("modalDerivBody").innerHTML = `
+        <p style="color:#555;margin-bottom:16px">Cambio para: <strong>${pac?.nombre}</strong></p>
+        <div class="campo-modal" style="margin-bottom:14px">
+            <label>Profesional actual</label>
+            <select id="selectProfOrigen" class="input-modal" onchange="cargarProfesionalesDestino()">
+                ${opcionesOrigen}
+            </select>
+        </div>
+        <div class="campo-modal" style="margin-bottom:14px">
+            <label>Nuevo profesional</label>
+            <select id="selectProfDestino" class="input-modal"><option>Cargando...</option></select>
+        </div>
+        <div class="campo-modal">
+            <label>Motivo</label>
+            <textarea id="motivoCambioDir" rows="2" class="input-modal" style="height:auto;padding:10px"></textarea>
+        </div>`;
+
+    document.getElementById("modalDerivOverlay").classList.add("visible");
+    document.getElementById("modalDerivPanel").classList.add("visible");
+    window._derivIdActual = null;
+    window._modoDirecto = true;
+
+    await cargarProfesionalesDestino();
+}
+
+async function cargarProfesionalesDestino() {
+    const sel = document.getElementById("selectProfOrigen");
+    const idEsp = parseInt(sel.options[sel.selectedIndex]?.dataset.esp ?? 0);
+    const idOrigen = parseInt(sel.value);
+
+    if (!idEsp) return;
+    const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
+    const opciones = profs
+        .filter(p => p.idProfesional !== idOrigen)
+        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""}</option>`)
+        .join("");
+    document.getElementById("selectProfDestino").innerHTML = opciones || '<option value="">Sin profesionales disponibles</option>';
+}
+
+let _derivIdActual = null;
+
+async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
+    window._modoDirecto = false;
+    _derivIdActual = idDeriv;
+
+    const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
+    const opciones = profs
+        .filter(p => p.idProfesional !== idProfOrigen)
+        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — Mat. ${p.matricula ?? "-"}</option>`)
+        .join("");
+
+    document.getElementById("modalDerivBody").innerHTML = `
+        <p style="color:#555;margin-bottom:16px">Seleccioná el profesional que atenderá al paciente:</p>
+        <div class="campo-modal">
+            <label>Profesional destino</label>
+            <select id="selectProfDeriv" class="input-modal">
+                ${opciones || '<option value="">Sin profesionales disponibles</option>'}
+            </select>
+        </div>`;
+
+    document.getElementById("modalDerivOverlay").classList.add("visible");
+    document.getElementById("modalDerivPanel").classList.add("visible");
+}
+
+function cerrarModalDeriv() {
+    document.getElementById("modalDerivOverlay").classList.remove("visible");
+    document.getElementById("modalDerivPanel").classList.remove("visible");
+    _derivIdActual = null;
+    window._modoDirecto = false;
+    window._modoAsignar = false;
+}
+
+async function confirmarAceptarDeriv() {
+    if (window._modoAsignar) {
+        const idProf = parseInt(document.getElementById("selectProfAsignar").value);
+        if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
+        const res = await fetch(`${API}/pacientes/${window._cambioPaciente}/profesionales`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idProfesional: idProf })
+        });
+        cerrarModalDeriv();
+        if (res.ok) { toast("Profesional asignado correctamente."); mostrarTab("usuarios"); }
+        else toast("Error al asignar.", "error");
+        return;
+    }
+
+    if (window._modoDirecto) {
+        const idOrigen  = parseInt(document.getElementById("selectProfOrigen").value);
+        const idDestino = parseInt(document.getElementById("selectProfDestino").value);
+        const motivo    = document.getElementById("motivoCambioDir").value || null;
+        if (!idDestino) { toast("Seleccioná un profesional destino.", "warn"); return; }
+
+        const res = await fetch(`${API}/derivaciones/cambio-directo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                idPaciente:           window._cambioPaciente,
+                idProfesionalOrigen:  idOrigen,
+                idProfesionalDestino: idDestino,
+                motivo
+            })
+        });
+        cerrarModalDeriv();
+        if (res.ok) {
+            toast("Cambio realizado. El profesional fue asignado correctamente.");
+            mostrarTab("usuarios");
+        } else toast("Error al realizar el cambio.", "error");
+        return;
+    }
+
+    // Aceptar solicitud de derivación pendiente
+    const idProf = parseInt(document.getElementById("selectProfDeriv").value);
+    if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
+
+    const res = await fetch(`${API}/derivaciones/${_derivIdActual}/aceptar`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idProfesionalDestino: idProf })
+    });
+
+    cerrarModalDeriv();
+    if (res.ok) {
+        toast("Solicitud aceptada. El profesional fue asignado correctamente.");
+        mostrarTab("derivaciones");
+    } else toast("Error al aceptar la solicitud.", "error");
+}
+
+async function rechazarDerivacion(id) {
+    if (!await confirmar("¿Rechazar esta solicitud de cambio?")) return;
+    await fetch(`${API}/derivaciones/${id}/rechazar`, { method: "PUT" });
+    toast("Solicitud rechazada.", "warn");
+    mostrarTab("derivaciones");
+}
+
+// ── TABLA GENÉRICA ───────────────────────────────────────────
+function renderTabla(titulo, cols, datos, tab, contenido) {
     const editable = !SOLO_LECTURA.includes(tab);
 
     if (!datos || datos.length === 0) {
@@ -125,20 +506,18 @@ function renderTabla(titulo, cols, datos, tab) {
     const filas = datos.map(row => {
         const id = row[idCampo[tab]];
         const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
-        const acciones = editable ? `
-            <td>
-                <button class="btn-accion btn-editar" onclick='abrirModal(${JSON.stringify(row)})'>✏️</button>
-                <button class="btn-accion btn-eliminar" onclick="eliminar('${tab}', ${id})">🗑️</button>
-            </td>` : "";
+        const acciones = editable ? `<td>
+            <button class="btn-accion btn-editar" onclick='abrirModal(${JSON.stringify(row)})'>✏️</button>
+            <button class="btn-accion btn-eliminar" onclick="eliminar('${tab}', ${id})">🗑️</button>
+        </td>` : "";
         return `<tr>${celdas}${acciones}</tr>`;
     }).join("");
 
-    const badgeSL = SOLO_LECTURA.includes(tab)
-        ? `<span class="badge bg-secondary ms-2" style="font-size:11px">Solo lectura</span>` : "";
-
     contenido.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulo} <span class="badge bg-secondary" style="font-size:13px">${datos.length}</span>${badgeSL}</div>
+            <div class="titulo-seccion mb-0">${titulo} <span class="badge bg-secondary">${datos.length}</span>
+                ${SOLO_LECTURA.includes(tab) ? '<span class="badge bg-secondary ms-2" style="font-size:11px">Solo lectura</span>' : ""}
+            </div>
             <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('${tab}')">↺ Actualizar</button>
         </div>
         <div class="table-responsive">
@@ -146,39 +525,23 @@ function renderTabla(titulo, cols, datos, tab) {
                 <thead><tr>${headers}</tr></thead>
                 <tbody>${filas}</tbody>
             </table>
-        </div>
-
-        <div class="modal-overlay" id="modalOverlay" onclick="cerrarModal()"></div>
-        <div class="modal-panel" id="modalPanel">
-            <div class="modal-header-custom">
-                <span id="modalTitulo">Editar</span>
-                <button class="btn-cerrar-modal" onclick="cerrarModal()">✕</button>
-            </div>
-            <div class="modal-body-custom" id="modalBody"></div>
-            <div class="modal-footer-custom">
-                <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
-                <button class="btn btn-guardar" onclick="guardar()">Guardar cambios</button>
-            </div>
         </div>`;
 }
 
-let filaEnEdicion = null;
-
+// ── MODAL EDICIÓN ────────────────────────────────────────────
 function abrirModal(row) {
     filaEnEdicion = row;
     const tab = tabActual;
-    const camposTab = campos[tab];
 
     document.getElementById("modalTitulo").textContent = `Editar — ${titulos[tab]}`;
 
     const body = document.getElementById("modalBody");
-    body.innerHTML = camposTab.map(c => {
+    body.innerHTML = (campos[tab] ?? []).map(c => {
         const val = row[c] ?? "";
-        return `
-            <div class="campo-modal">
-                <label>${c}</label>
-                <input type="text" id="field_${c}" value="${val}" class="input-modal">
-            </div>`;
+        return `<div class="campo-modal">
+            <label>${c}</label>
+            <input type="text" id="field_${c}" value="${val}" class="input-modal">
+        </div>`;
     }).join("");
 
     document.getElementById("modalOverlay").classList.add("visible");
@@ -193,11 +556,10 @@ function cerrarModal() {
 
 async function guardar() {
     const tab = tabActual;
-    const camposTab = campos[tab];
     const id = filaEnEdicion[idCampo[tab]];
-
     const body = { ...filaEnEdicion };
-    camposTab.forEach(c => {
+
+    (campos[tab] ?? []).forEach(c => {
         const val = document.getElementById(`field_${c}`)?.value;
         if (val !== undefined) body[c] = val;
     });
@@ -208,33 +570,29 @@ async function guardar() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
-
-        if (res.ok) {
-            cerrarModal();
-            mostrarTab(tab);
-        } else {
-            alert("Error al guardar. Verificá los datos.");
-        }
-    } catch {
-        alert("No se pudo conectar con la API.");
-    }
+        if (res.ok) { cerrarModal(); mostrarTab(tab); }
+        else toast("Error al guardar.", "error");
+    } catch { toast("No se pudo conectar con la API.", "error"); }
 }
 
 async function eliminar(tab, id) {
-    if (!confirm("¿Eliminar este registro?")) return;
-
+    if (!await confirmar("¿Eliminar este registro?")) return;
     try {
         const res = await fetch(`${API}/${tab}/${id}`, { method: "DELETE" });
-        if (res.ok || res.status === 204) {
-            mostrarTab(tab);
-        } else {
-            alert("No se pudo eliminar.");
-        }
-    } catch {
-        alert("No se pudo conectar con la API.");
-    }
+        if (res.ok || res.status === 204) { toast("Registro eliminado."); mostrarTab(tab); }
+        else toast("No se pudo eliminar.", "error");
+    } catch { toast("No se pudo conectar con la API.", "error"); }
 }
 
-function cerrarSesion() {
-    if (confirm("¿Cerrar sesión?")) window.location.href = "index.html";
+// ── UTILS ────────────────────────────────────────────────────
+function errorHtml(tab) {
+    return `<div class="error-api">
+        <div class="error-titulo">No se puede conectar con la API</div>
+        <div class="error-desc">El servidor no está disponible en <strong>${API}</strong>.</div>
+        <button class="btn-reintentar" onclick="mostrarTab('${tab}')">↺ Reintentar</button>
+    </div>`;
+}
+
+async function cerrarSesion() {
+    if (await confirmar("¿Cerrar sesión?")) window.location.href = "../index.html";
 }

@@ -1,5 +1,22 @@
-function aceptar(){
+function toast(msg, tipo = "ok", duracion = 3500) {
+    let cont = document.getElementById("toast-container");
+    if (!cont) {
+        cont = document.createElement("div");
+        cont.id = "toast-container";
+        document.body.appendChild(cont);
+    }
+    const iconos = { ok: "✔", error: "✖", warn: "⚠" };
+    const t = document.createElement("div");
+    t.className = `toast toast-${tipo}`;
+    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
+    cont.appendChild(t);
+    setTimeout(() => {
+        t.classList.add("saliendo");
+        t.addEventListener("animationend", () => t.remove());
+    }, duracion);
+}
 
+function aceptar(){
     window.location.href = "registro.html";
 }
 
@@ -92,9 +109,7 @@ document.getElementById("formRegistro")
 
         tutor.style.display = "block";
 
-        alert(
-            "Paciente menor de edad. Debe completar los datos del tutor responsable."
-        );
+        toast("Paciente menor de edad. Debe completar los datos del tutor responsable.", "warn");
     }
 
     const paciente = {
@@ -164,33 +179,20 @@ document.getElementById("formRegistro")
         );
 
         if(respuesta.ok){
-
-            alert(
-                "Paciente registrado correctamente"
-            );
-
+            toast("Paciente registrado correctamente");
         }else{
-
-            alert(
-                "Error al registrar paciente"
-            );
+            toast("Error al registrar paciente", "error");
         }
 
     } catch(error){
-
         console.error(error);
-
-        alert(
-            "No se pudo conectar con la API"
-        );
+        toast("No se pudo conectar con la API", "error");
     }
 
 });
 
 function rechazar(){
-
-    alert("Debe aceptar el consentimiento para continuar");
-
-    window.location.href = "index.html";
+    toast("Debe aceptar el consentimiento para continuar", "warn");
+    setTimeout(() => window.location.href = "index.html", 2000);
 }
 

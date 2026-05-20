@@ -27,26 +27,24 @@
 
             <div class="grupo">
                 <div class="grupo-titulo" onclick="toggleGrupo('cuentas')">
-                    <span>👤 Cuentas</span>
+                    <span>Cuentas</span>
                     <span class="flecha" id="flecha-cuentas">▼</span>
                 </div>
                 <ul class="grupo-items" id="grupo-cuentas">
                     <li onclick="mostrarTab('usuarios')">Usuarios</li>
-                    <li onclick="mostrarTab('pacientes')">Pacientes</li>
-                    <li onclick="mostrarTab('profesionales')">Profesionales</li>
-                    <li onclick="mostrarTab('tutores')">Tutores</li>
+                    <li onclick="mostrarTab('solicitudes')">Solicitudes de Registro</li>
+                    <li onclick="mostrarTab('derivaciones')">Solicitudes de Cambio</li>
                 </ul>
             </div>
 
             <div class="grupo">
                 <div class="grupo-titulo" onclick="toggleGrupo('clinico')">
-                    <span>🩺 Clínico</span>
+                    <span>Clínico</span>
                     <span class="flecha" id="flecha-clinico">▶</span>
                 </div>
                 <ul class="grupo-items oculto" id="grupo-clinico">
                     <li onclick="mostrarTab('turnos')">Turnos</li>
                     <li onclick="mostrarTab('agendas')">Agenda</li>
-                    <li onclick="mostrarTab('derivaciones')">Derivaciones</li>
                     <li onclick="mostrarTab('evoluciones')">Evoluciones</li>
                     <li onclick="mostrarTab('eventoscrisis')">Eventos de Crisis</li>
                 </ul>
@@ -54,7 +52,7 @@
 
             <div class="grupo">
                 <div class="grupo-titulo" onclick="toggleGrupo('sistema')">
-                    <span>⚙️ Sistema</span>
+                    <span>Sistema</span>
                     <span class="flecha" id="flecha-sistema">▶</span>
                 </div>
                 <ul class="grupo-items oculto" id="grupo-sistema">
@@ -74,6 +72,34 @@
             </div>
         </main>
 
+    </div>
+
+    <!-- MODAL ACEPTAR DERIVACION -->
+    <div class="modal-overlay" id="modalDerivOverlay" onclick="cerrarModalDeriv()"></div>
+    <div class="modal-panel" id="modalDerivPanel">
+        <div class="modal-header-custom">
+            <span>Aceptar Solicitud de Cambio</span>
+            <button class="btn-cerrar-modal" onclick="cerrarModalDeriv()">✕</button>
+        </div>
+        <div class="modal-body-custom" id="modalDerivBody"></div>
+        <div class="modal-footer-custom">
+            <button class="btn btn-secondary" onclick="cerrarModalDeriv()">Cancelar</button>
+            <button class="btn btn-guardar" onclick="confirmarAceptarDeriv()">Confirmar</button>
+        </div>
+    </div>
+
+    <!-- MODAL EDITAR REGISTRO -->
+    <div class="modal-overlay" id="modalOverlay" onclick="cerrarModal()"></div>
+    <div class="modal-panel" id="modalPanel">
+        <div class="modal-header-custom">
+            <span id="modalTitulo">Editar</span>
+            <button class="btn-cerrar-modal" onclick="cerrarModal()">✕</button>
+        </div>
+        <div class="modal-body-custom" id="modalBody"></div>
+        <div class="modal-footer-custom">
+            <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
+            <button class="btn btn-guardar" onclick="guardar()">Guardar cambios</button>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
