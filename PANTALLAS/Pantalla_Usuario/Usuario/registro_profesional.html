@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro Profesional - YoSoy</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #f8f5ff, #ddd0f5, #c0a8ee);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 24px;
+            padding: 40px 36px;
+            width: 520px;
+            box-shadow: 0 12px 40px rgba(100, 80, 180, 0.18);
+        }
+
+        .logo {
+            display: block;
+            width: 80px;
+            margin: 0 auto 10px;
+        }
+
+        .titulo {
+            text-align: center;
+            font-size: 28px;
+            font-weight: bold;
+            color: #0d6efd;
+            margin-bottom: 2px;
+        }
+
+        .subtitulo {
+            text-align: center;
+            font-size: 12px;
+            color: #9D6BCF;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 28px;
+        }
+
+        .seccion-titulo {
+            font-size: 13px;
+            font-weight: bold;
+            color: #6A5ACD;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid #e0d4f5;
+            padding-bottom: 6px;
+            margin: 24px 0 16px;
+        }
+
+        .campo {
+            text-align: left;
+            margin-bottom: 16px;
+        }
+
+        .campo label {
+            display: block;
+            font-size: 12px;
+            font-weight: bold;
+            color: #6A5ACD;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+        }
+
+        .input {
+            width: 100%;
+            height: 46px;
+            border: 2px solid #e0d4f5;
+            border-radius: 12px;
+            padding: 0 14px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .input:focus { border-color: #6A5ACD; }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-row .campo { flex: 1; }
+
+        select.input { cursor: pointer; color: #333; }
+
+        textarea.input {
+            height: 90px;
+            padding: 12px 14px;
+            resize: vertical;
+        }
+
+
+        .aviso {
+            background: #f3eeff;
+            border: 2px solid #d4b8f5;
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-size: 13px;
+            color: #6A5ACD;
+            margin: 24px 0 8px;
+            line-height: 1.5;
+        }
+
+        .aviso strong { display: block; margin-bottom: 4px; }
+
+        .boton {
+            width: 100%;
+            height: 52px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(to right, #0d6efd, #6A5ACD);
+            color: white;
+            font-size: 17px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-top: 8px;
+        }
+
+        .boton:hover { opacity: 0.88; transform: scale(1.02); }
+
+        .link-volver {
+            display: block;
+            text-align: center;
+            margin-top: 14px;
+            font-size: 13px;
+            color: #999;
+            text-decoration: none;
+        }
+
+        .link-volver:hover { color: #6A5ACD; }
+
+        .input.invalido {
+            border-color: #e74c3c;
+        }
+
+        .campo .msg-error {
+            color: #e74c3c;
+            font-size: 12px;
+            margin-top: 4px;
+            display: none;
+        }
+
+        .error-msg {
+            color: #e74c3c;
+            font-size: 13px;
+            margin-top: 8px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+
+        <img src="img/logo_SINFONDO.png" alt="Logo YoSoy" class="logo">
+        <div class="titulo">YoSoy</div>
+        <div class="subtitulo">Registro de Profesional</div>
+
+        <form id="formProfesional" novalidate>
+
+            <!-- DATOS PERSONALES -->
+            <div class="seccion-titulo">Datos Personales</div>
+
+            <div class="input-row">
+                <div class="campo">
+                    <label>Nombre *</label>
+                    <input type="text" id="nombre" class="input">
+                    <span class="msg-error" id="err-nombre">Ingresá tu nombre.</span>
+                </div>
+                <div class="campo">
+                    <label>Segundo Nombre</label>
+                    <input type="text" id="segundoNombre" class="input">
+                </div>
+            </div>
+
+            <div class="input-row">
+                <div class="campo">
+                    <label>Apellido *</label>
+                    <input type="text" id="apellido" class="input">
+                    <span class="msg-error" id="err-apellido">Ingresá tu apellido.</span>
+                </div>
+                <div class="campo">
+                    <label>Segundo Apellido</label>
+                    <input type="text" id="segundoApellido" class="input">
+                </div>
+            </div>
+
+            <div class="input-row">
+                <div class="campo">
+                    <label>DNI *</label>
+                    <input type="text" id="dni" class="input">
+                    <span class="msg-error" id="err-dni">Ingresá tu DNI.</span>
+                </div>
+                <div class="campo">
+                    <label>Sexo *</label>
+                    <select id="sexo" class="input">
+                        <option value="" disabled selected hidden>Seleccione</option>
+                        <option>Masculino</option>
+                        <option>Femenino</option>
+                        <option>Otro</option>
+                    </select>
+                    <span class="msg-error" id="err-sexo">Seleccioná una opción.</span>
+                </div>
+            </div>
+
+            <div class="input-row">
+                <div class="campo">
+                    <label>Fecha de Nacimiento *</label>
+                    <input type="date" id="fechaNacimiento" class="input">
+                    <span class="msg-error" id="err-fechaNacimiento">Ingresá tu fecha de nacimiento.</span>
+                </div>
+                <div class="campo">
+                    <label>Teléfono</label>
+                    <input type="text" id="telefono" class="input">
+                </div>
+            </div>
+
+            <div class="campo">
+                <label>Email *</label>
+                <input type="email" id="email" class="input">
+                <span class="msg-error" id="err-email">Ingresá un email válido.</span>
+            </div>
+
+            <!-- DATOS PROFESIONALES -->
+            <div class="seccion-titulo">Datos Profesionales</div>
+
+            <div class="campo">
+                <label>Especialidad *</label>
+                <select id="especialidad" class="input">
+                    <option value="" disabled selected hidden>Seleccione</option>
+                </select>
+                <span class="msg-error" id="err-especialidad">Seleccioná tu especialidad.</span>
+            </div>
+
+            <div class="input-row">
+                <div class="campo">
+                    <label>Número de Matrícula *</label>
+                    <input type="text" id="matricula" class="input">
+                    <span class="msg-error" id="err-matricula">Ingresá tu número de matrícula.</span>
+                </div>
+                <div class="campo">
+                    <label>Provincia *</label>
+                    <input type="text" id="provincia" class="input">
+                    <span class="msg-error" id="err-provincia">Ingresá tu provincia.</span>
+                </div>
+            </div>
+
+            <!-- COMO NOS CONOCIO -->
+            <div class="campo">
+                <label>¿Cómo nos conociste? *</label>
+                <select id="conocio" class="input" onchange="toggleOtro(this)">
+                    <option value="" disabled selected hidden>Seleccione</option>
+                    <option value="amigo">Un amigo me lo recomendó</option>
+                    <option value="online">Lo encontré online</option>
+                    <option value="otro">Otro</option>
+                </select>
+                <span class="msg-error" id="err-conocio">Seleccioná cómo nos conociste.</span>
+            </div>
+
+            <div class="campo" id="campoOtro" style="display:none;">
+                <label>Contanos más *</label>
+                <textarea id="textoOtro" class="input" placeholder="Contanos cómo llegaste a YoSoy..."></textarea>
+                <span class="msg-error" id="err-textoOtro">Por favor escribí cómo llegaste a YoSoy.</span>
+            </div>
+
+            <div class="error-msg" id="errorMsg">Por favor completá todos los campos obligatorios.</div>
+
+            <button type="submit" class="boton">Enviar Solicitud</button>
+
+        </form>
+
+        <div id="pantallaConfirmacion" style="display:none; text-align:center; padding: 20px 0;">
+            <div style="font-size: 52px; margin-bottom: 16px;">✅</div>
+            <div style="font-size: 20px; font-weight: bold; color: #0d6efd; margin-bottom: 10px;">Solicitud enviada</div>
+            <p style="color: #555; font-size: 15px; line-height: 1.7; margin-bottom: 24px;">
+                Tu cuenta se encuentra <strong>pendiente de aprobación</strong>.<br>
+                Recibirás un correo electrónico con tus credenciales de acceso<br>
+                una vez que tu solicitud haya sido revisada y aprobada.
+            </p>
+            <a href="../../index.html" class="boton" style="display:inline-block; text-decoration:none; line-height:52px; width:260px;">Volver al inicio de sesión</a>
+        </div>
+
+        <a href="../../index.html" class="link-volver" id="linkVolver">← Volver al inicio de sesión</a>
+
+    </div>
+
+    <script>
+        fetch("http://localhost:5000/especialidades")
+            .then(r => r.json())
+            .then(lista => {
+                const sel = document.getElementById("especialidad");
+                lista.forEach(e => {
+                    const opt = document.createElement("option");
+                    opt.value = e.idEspecialidad;
+                    opt.textContent = e.nombre;
+                    sel.appendChild(opt);
+                });
+            });
+
+        function toggleOtro(select) {
+            document.getElementById("campoOtro").style.display =
+                select.value === "otro" ? "block" : "none";
+            limpiarError("conocio");
+        }
+
+        // Marca un campo como inválido o válido y muestra/oculta su mensaje
+        function marcarError(id, mostrar) {
+            const campo = document.getElementById(id);
+            const msg   = document.getElementById("err-" + id);
+            if (!campo) return;
+            campo.classList.toggle("invalido", mostrar);
+            if (msg) msg.style.display = mostrar ? "block" : "none";
+        }
+
+        function limpiarError(id) { marcarError(id, false); }
+
+        // Limpia errores al empezar a escribir
+        ["nombre","apellido","dni","email","matricula","provincia"].forEach(id => {
+            document.getElementById(id)?.addEventListener("input", () => limpiarError(id));
+        });
+        ["sexo","especialidad","conocio"].forEach(id => {
+            document.getElementById(id)?.addEventListener("change", () => limpiarError(id));
+        });
+        document.getElementById("fechaNacimiento")?.addEventListener("change", () => limpiarError("fechaNacimiento"));
+        document.getElementById("textoOtro")?.addEventListener("input", () => limpiarError("textoOtro"));
+
+        function validar() {
+            const campos = [
+                { id: "nombre",          check: v => v.trim() !== "" },
+                { id: "apellido",        check: v => v.trim() !== "" },
+                { id: "dni",             check: v => v.trim() !== "" },
+                { id: "sexo",            check: v => v !== "" },
+                { id: "fechaNacimiento", check: v => v !== "" },
+                { id: "email",           check: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
+                { id: "especialidad",    check: v => v !== "" },
+                { id: "matricula",       check: v => v.trim() !== "" },
+                { id: "provincia",       check: v => v.trim() !== "" },
+                { id: "conocio",         check: v => v !== "" },
+            ];
+
+            let valido = true;
+            campos.forEach(({ id, check }) => {
+                const el = document.getElementById(id);
+                const ok = el && check(el.value);
+                marcarError(id, !ok);
+                if (!ok) valido = false;
+            });
+
+            const conocioVal = document.getElementById("conocio").value;
+            if (conocioVal === "otro") {
+                const texto = document.getElementById("textoOtro").value.trim();
+                marcarError("textoOtro", !texto);
+                if (!texto) valido = false;
+            }
+
+            return valido;
+        }
+
+        document.getElementById("formProfesional").addEventListener("submit", async function (e) {
+            e.preventDefault();
+
+            if (!validar()) {
+                document.getElementById("errorMsg").style.display = "block";
+                document.getElementById("errorMsg").textContent = "Por favor completá todos los campos obligatorios.";
+                return;
+            }
+
+            document.getElementById("errorMsg").style.display = "none";
+
+            const conocioVal = document.getElementById("conocio").value;
+            const conocio = conocioVal === "otro"
+                ? document.getElementById("textoOtro").value.trim()
+                : conocioVal;
+
+            const profesional = {
+                nombre:          document.getElementById("nombre").value,
+                segundoNombre:   document.getElementById("segundoNombre").value,
+                apellido:        document.getElementById("apellido").value,
+                segundoApellido: document.getElementById("segundoApellido").value,
+                dni:             document.getElementById("dni").value,
+                sexo:            document.getElementById("sexo").value,
+                fechaNacimiento: document.getElementById("fechaNacimiento").value,
+                matricula:       document.getElementById("matricula").value,
+                idEspecialidad:  parseInt(document.getElementById("especialidad").value),
+                provincia:       document.getElementById("provincia").value,
+                origenContacto:  conocio,
+                estado:          "Pendiente",
+                mail:            document.getElementById("email").value,
+                telefono:        document.getElementById("telefono").value,
+                fechaSolicitud:  new Date().toISOString()
+            };
+
+            try {
+                const respuesta = await fetch("http://localhost:5000/profesionales", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(profesional)
+                });
+
+                if (respuesta.ok) {
+                    document.getElementById("formProfesional").style.display = "none";
+                    document.getElementById("linkVolver").style.display = "none";
+                    document.getElementById("pantallaConfirmacion").style.display = "block";
+                } else {
+                    const texto = await respuesta.text();
+                    alert("Error " + respuesta.status + ": " + texto);
+                }
+
+            } catch (error) {
+                console.error(error);
+                alert("No se pudo conectar con la API.");
+            }
+        });
+    </script>
+
+</body>
+</html>

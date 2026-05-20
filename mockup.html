@@ -49,17 +49,9 @@
 <header style="display:flex; justify-content:space-between; align-items:center;">
   <span>YoSoy — Sistema de Telemedicina</span>
   <div style="display:flex; gap:10px;">
-    <a href="PANTALLAS/index.html" target="_blank"
+    <a href="http://localhost:5000/pantallas/index.html" target="_blank"
        style="background:#6A5ACD; color:white; padding:7px 16px; border-radius:6px; text-decoration:none; font-size:14px; font-weight:bold;">
-      🔐 Login
-    </a>
-    <a href="PANTALLAS/Pantalla_Usuario/Usuario/index.html" target="_blank"
-       style="background:#2980b9; color:white; padding:7px 16px; border-radius:6px; text-decoration:none; font-size:14px; font-weight:bold;">
-      🧑 Login Usuario
-    </a>
-    <a href="PANTALLAS/Pantalla_Configurador/index.html" target="_blank"
-       style="background:#4a3a9e; color:white; padding:7px 16px; border-radius:6px; text-decoration:none; font-size:14px; font-weight:bold;">
-      ⚙️ Login Configurador
+      Login
     </a>
   </div>
 </header>
@@ -83,6 +75,7 @@
   <button onclick="mostrar('eventocrisis', this)">Evento Crisis</button>
   <button onclick="mostrar('interaccionia', this)">Interacción IA</button>
   <button onclick="mostrar('cobertura', this)">Cobertura</button>
+  <button onclick="mostrar('pacienteprofesional', this)">Paciente-Profesional</button>
 </nav>
 
 <!-- ===================== ESPECIALIDAD ===================== -->
@@ -536,6 +529,27 @@
   </div>
 </div>
 
+<!-- ===================== PACIENTE-PROFESIONAL ===================== -->
+<div id="pacienteprofesional" class="pagina">
+  <h2>Asignaciones Paciente-Profesional</h2>
+  <div class="panel">
+    <h3 id="pp-titulo">Nueva Asignación</h3>
+    <div class="grilla">
+      <div><label>Paciente</label><select id="pp-paciente"><option value="">-- Seleccionar --</option></select></div>
+      <div><label>Profesional</label><select id="pp-profesional"><option value="">-- Seleccionar --</option></select></div>
+    </div>
+    <div class="fila-botones">
+      <button class="btn btn-guardar" onclick="guardarPacienteProfesional()">Asignar</button>
+    </div>
+    <div class="error" id="pp-error"></div>
+  </div>
+  <div class="panel">
+    <h3>Listado</h3>
+    <table><thead><tr><th>Paciente</th><th>Profesional</th><th>Acciones</th></tr></thead>
+    <tbody id="pp-tabla"></tbody></table>
+  </div>
+</div>
+
 <script>
 const API = "http://localhost:5000";
 
@@ -552,7 +566,8 @@ function mostrar(id, btn) {
     consentimiento: cargarConsentimientos, historiaclinica: cargarHistoriasClinicas,
     evolucion: cargarEvoluciones, derivacion: cargarDerivaciones,
     eventocrisis: cargarEventosCrisis, interaccionia: cargarInteraccionesIA,
-    cobertura: cargarCoberturas
+    cobertura: cargarCoberturas,
+    pacienteprofesional: cargarPacienteProfesional
   };
   cargadores[id]?.();
 }
@@ -1251,6 +1266,39 @@ function cancelarCobertura() {
   document.getElementById('cob-paciente').value = '';
   document.getElementById('cob-obrasocial').value = '';
   document.getElementById('cob-titulo').textContent = 'Nueva Cobertura';
+}
+
+// PacienteProfesional
+async function cargarPacienteProfesional() {
+  const [pacientes, profesionales] = await Promise.all([
+    (await fetch(`${API}/pacientes`)).json(),
+    (await fetch(`${API}/profesionales`)).json()
+  ]);
+  const mapPac = Object.fromEntries(pacientes.map(p => [p.idPaciente, p.nombre]));
+  const mapPro = Object.fromEntries(profesionales.map(p => [p.idProfesional, p.nombre]));
+  document.getElementById('pp-paciente').innerHTML = '<option value="">-- Seleccionar --</option>' + pacientes.filter(p => p.estado === 'Activo').map(p => `<option value="${p.idPaciente}">${p.nombre}</option>`).join('');
+  document.getElementById('pp-profesional').innerHTML = '<option value="">-- Seleccionar --</option>' + profesionales.filter(p => p.estado === 'Activo').map(p => `<option value="${p.idProfesional}">${p.nombre}</option>`).join('');
+  const filas = [];
+  for (const pac of pacientes) {
+    const profs = await (await fetch(`${API}/pacientes/${pac.idPaciente}/mis-profesionales`)).json().catch(() => []);
+    for (const pro of profs) {
+      filas.push(`<tr><td>${mapPac[pac.idPaciente]||pac.idPaciente}</td><td>${pro.nombre} — ${pro.especialidad}</td><td><button class="btn btn-baja" onclick="desasignarPP(${pac.idPaciente},${pro.idProfesional})">Desasignar</button></td></tr>`);
+    }
+  }
+  document.getElementById('pp-tabla').innerHTML = filas.join('') || '<tr><td colspan="3">Sin asignaciones</td></tr>';
+}
+async function guardarPacienteProfesional() {
+  const idPac = document.getElementById('pp-paciente').value;
+  const idPro = document.getElementById('pp-profesional').value;
+  if (!idPac || !idPro) { document.getElementById('pp-error').textContent = 'Seleccioná paciente y profesional.'; return; }
+  document.getElementById('pp-error').textContent = '';
+  await fetch(`${API}/pacientes/${idPac}/profesionales`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ idProfesional: parseInt(idPro) }) });
+  cargarPacienteProfesional();
+}
+async function desasignarPP(idPac, idPro) {
+  if (!confirm('¿Desasignar este profesional del paciente?')) return;
+  await fetch(`${API}/pacientes/${idPac}/profesionales/${idPro}`, { method: 'DELETE' });
+  cargarPacienteProfesional();
 }
 
 // Init
