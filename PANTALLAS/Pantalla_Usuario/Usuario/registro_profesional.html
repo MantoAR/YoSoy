@@ -301,7 +301,7 @@
     </div>
 
     <script>
-        fetch("http://localhost:5167/especialidades")
+        fetch("http://localhost:5000/especialidades")
             .then(r => r.json())
             .then(lista => {
                 const sel = document.getElementById("especialidad");
@@ -407,7 +407,7 @@
             };
 
             try {
-                const respuesta = await fetch("http://localhost:5167/profesionales", {
+                const respuesta = await fetch("http://localhost:5000/profesionales", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(profesional)
