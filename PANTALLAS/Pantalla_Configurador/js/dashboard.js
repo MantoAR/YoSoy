@@ -677,7 +677,6 @@ async function cerrarSesion() {
     if (await confirmar("¿Cerrar sesión?")) window.location.href = "../index.html";
 }
 
-// ── AUDITORÍA ────────────────────────────────────────────────
 async function renderAuditoria(c, pagina = 1) {
     const datos = await fetch(`${API}/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
 
@@ -715,7 +714,6 @@ async function renderAuditoria(c, pagina = 1) {
         </div>`;
 }
 
-// ── RECUPERACIÓN DE CONTRASEÑA ───────────────────────────────
 async function renderRecuperacion(c) {
     const datos = await fetch(`${API}/recuperacion-password/pendientes`).then(r => r.json());
 

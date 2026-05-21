@@ -8,8 +8,6 @@
 
     let timerExpiracion;
     let timerAviso;
-    let modalAviso = null;
-    let modalExpiracion = null;
 
     function crearModal(id, html) {
         if (document.getElementById(id)) return;

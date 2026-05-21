@@ -800,11 +800,9 @@ app.MapDelete("/usuarioprofesionales/{idUsuario}", (int idUsuario) =>
     return Results.NoContent();
 });
 
-// Auditoría
 app.MapGet("/auditoria", (int pagina = 1, int cantidad = 50) =>
     new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad));
 
-// Recuperación de contraseña
 app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
 {
     var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
