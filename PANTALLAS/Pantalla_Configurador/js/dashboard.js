@@ -205,10 +205,11 @@ function seleccionarPaciente(idPac) {
         ? `<button class="btn-cambio-prof" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>`
         : "";
     const btnAsignar = `<button class="btn-cambio-prof" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>`;
+    const btnBaja = `<button class="btn-ko" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar}`
-        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar}`;
+        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar} ${btnBaja}`
+        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnBaja}`;
 }
 
 function seleccionarProfesional(idProf) {
@@ -226,9 +227,36 @@ function seleccionarProfesional(idProf) {
         const pac = window._pacientes.find(p => p.idPaciente === idPac);
         return pac?.nombre ?? idPac;
     });
+    const btnBajaProf = `<button class="btn-ko" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
+
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}`
-        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados.`;
+        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnBajaProf}`
+        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados. ${btnBajaProf}`;
+}
+
+async function darDeBajaPaciente(idPac) {
+    const pac = window._pacientes.find(p => p.idPaciente === idPac);
+    if (!await confirmar(`¿Dar de baja a ${pac?.nombre ?? "este paciente"}?`)) return;
+    const res = await fetch(`${API}/pacientes/${idPac}`, { method: "DELETE", headers: auditorHeaders() });
+    if (res.ok || res.status === 204) {
+        toast("Paciente dado de baja.");
+        mostrarTab("usuarios");
+    } else {
+        toast("Error al dar de baja.", "error");
+    }
+}
+
+async function darDeBajaProfesional(idProf) {
+    const prof = window._profesionales.find(p => p.idProfesional === idProf);
+    const nombre = prof ? `${prof.nombre}${prof.apellido ? " " + prof.apellido : ""}` : "este profesional";
+    if (!await confirmar(`¿Dar de baja a ${nombre}?`)) return;
+    const res = await fetch(`${API}/profesionales/${idProf}`, { method: "DELETE", headers: auditorHeaders() });
+    if (res.ok || res.status === 204) {
+        toast("Profesional dado de baja.");
+        mostrarTab("usuarios");
+    } else {
+        toast("Error al dar de baja.", "error");
+    }
 }
 
 // ── SOLICITUDES DE REGISTRO ──────────────────────────────────
