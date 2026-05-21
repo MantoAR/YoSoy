@@ -230,8 +230,8 @@ function seleccionarPaciente(idPac) {
 
     const esInactivo = pac?.estado === "Inactivo";
     const btnAccion = esInactivo
-        ? `<button class="btn-ok" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
-        : `<button class="btn-ko" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
+        ? `<button class="btn-cambio-alta" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
+        : `<button class="btn-cambio-baja" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
     const btnCambio = (!esInactivo && relacionados.size)
         ? `<button class="btn-cambio-prof" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>`
         : "";
@@ -261,8 +261,8 @@ function seleccionarProfesional(idProf) {
     });
     const esInactivoProf = prof?.estado === "Inactivo";
     const btnAccionProf = esInactivoProf
-        ? `<button class="btn-ok" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
-        : `<button class="btn-ko" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
+        ? `<button class="btn-cambio-alta" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
+        : `<button class="btn-cambio-baja" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
         ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnAccionProf}`
