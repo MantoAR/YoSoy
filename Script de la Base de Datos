@@ -1,441 +1,480 @@
 USE [yosoy]
 GO
-/****** Object:  Table [dbo].[Agenda]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Agenda]    Script Date: 21/5/2026 20:41:51 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Agenda](
-    [IdAgenda] [int] IDENTITY(1,1) NOT NULL,
-    [IdProfesional] [int] NOT NULL,
-    [Dia] [nvarchar](20) NULL,
-    [HoraInicio] [time](7) NULL,
-    [HoraFin] [time](7) NULL,
-    [Disponible] [bit] NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdAgenda] [int] IDENTITY(1,1) NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[Dia] [nvarchar](20) NULL,
+	[HoraInicio] [time](7) NULL,
+	[HoraFin] [time](7) NULL,
+	[Disponible] [bit] NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdAgenda] ASC
+	[IdAgenda] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Cobertura]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Cobertura]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Cobertura](
-    [IdCobertura] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [IdObraSocial] [int] NOT NULL,
-    [NroAfiliado] [nvarchar](50) NULL,
-    [PlanCobertura] [nvarchar](50) NULL,
-    [Estado] [nvarchar](50) NULL,
-PRIMARY KEY CLUSTERED
+	[IdCobertura] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdObraSocial] [int] NOT NULL,
+	[NroAfiliado] [nvarchar](50) NULL,
+	[PlanCobertura] [nvarchar](50) NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdCobertura] ASC
+	[IdCobertura] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Consentimiento]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Consentimiento]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Consentimiento](
-    [IdConsentimiento] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [IdTipoConsentimiento] [int] NOT NULL,
-    [Version] [nvarchar](20) NULL,
-    [FechaFirma] [date] NOT NULL,
-    [Estado] [nvarchar](50) NULL,
-PRIMARY KEY CLUSTERED
+	[IdConsentimiento] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdTipoConsentimiento] [int] NOT NULL,
+	[Version] [nvarchar](20) NULL,
+	[FechaFirma] [date] NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdConsentimiento] ASC
+	[IdConsentimiento] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Derivacion]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Derivacion]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Derivacion](
-    [IdDerivacion] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [IdProfesionalOrigen] [int] NOT NULL,
-    [IdProfesionalDestino] [int] NOT NULL,
-    [Fecha] [date] NOT NULL,
-    [Motivo] [nvarchar](max) NULL,
-    [Estado] [nvarchar](50) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdDerivacion] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdProfesionalOrigen] [int] NOT NULL,
+	[IdProfesionalDestino] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[Motivo] [nvarchar](max) NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdDerivacion] ASC
+	[IdDerivacion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Especialidad]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Especialidad]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Especialidad](
-    [IdEspecialidad] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](100) NOT NULL,
-    [Estado] [nvarchar](50) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdEspecialidad] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdEspecialidad] ASC
+	[IdEspecialidad] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Nombre] ASC
+	[Nombre] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[EstadoTurno]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[EstadoTurno]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[EstadoTurno](
-    [IdEstadoTurno] [int] IDENTITY(1,1) NOT NULL,
-    [Descripcion] [nvarchar](50) NOT NULL,
-    [Estado] [nvarchar](50) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdEstadoTurno] [int] IDENTITY(1,1) NOT NULL,
+	[Descripcion] [nvarchar](50) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdEstadoTurno] ASC
+	[IdEstadoTurno] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Descripcion] ASC
+	[Descripcion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[EventoCrisis]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[EventoCrisis]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[EventoCrisis](
-    [IdEvento] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [Fecha] [date] NOT NULL,
-    [NivelRiesgo] [nvarchar](50) NULL,
-    [Acciones] [nvarchar](max) NULL,
-PRIMARY KEY CLUSTERED
+	[IdEvento] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[NivelRiesgo] [nvarchar](50) NULL,
+	[Acciones] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdEvento] ASC
+	[IdEvento] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Evolucion]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Evolucion]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Evolucion](
-    [IdEvolucion] [int] IDENTITY(1,1) NOT NULL,
-    [IdHistoria] [int] NOT NULL,
-    [IdProfesional] [int] NOT NULL,
-    [IdTurno] [int] NULL,
-    [Fecha] [date] NOT NULL,
-    [Diagnostico] [nvarchar](max) NULL,
-    [Observaciones] [nvarchar](max) NULL,
-    [PlanTratamiento] [nvarchar](max) NULL,
-PRIMARY KEY CLUSTERED
+	[IdEvolucion] [int] IDENTITY(1,1) NOT NULL,
+	[IdHistoria] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[IdTurno] [int] NULL,
+	[Fecha] [date] NOT NULL,
+	[Diagnostico] [nvarchar](max) NULL,
+	[Observaciones] [nvarchar](max) NULL,
+	[PlanTratamiento] [nvarchar](max) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdEvolucion] ASC
+	[IdEvolucion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[HistoriaClinica]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[HistoriaClinica]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[HistoriaClinica](
-    [IdHistoria] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [FechaApertura] [date] NULL,
-PRIMARY KEY CLUSTERED
+	[IdHistoria] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[FechaApertura] [date] NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdHistoria] ASC
+	[IdHistoria] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [IdPaciente] ASC
+	[IdPaciente] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[InteraccionIA]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[InteraccionIA]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[InteraccionIA](
-    [IdInteraccion] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [Fecha] [datetime] NOT NULL,
-    [Consulta] [nvarchar](max) NOT NULL,
-    [Respuesta] [nvarchar](max) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdInteraccion] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[Fecha] [datetime] NOT NULL,
+	[Consulta] [nvarchar](max) NOT NULL,
+	[Respuesta] [nvarchar](max) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdInteraccion] ASC
+	[IdInteraccion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY] TEXTIMAGE_ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[ObraSocial]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[LogAuditoria]    Script Date: 21/5/2026 20:41:52 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[LogAuditoria](
+	[IdLog] [int] IDENTITY(1,1) NOT NULL,
+	[IdUsuario] [int] NOT NULL,
+	[Accion] [nvarchar](100) NOT NULL,
+	[Entidad] [nvarchar](50) NOT NULL,
+	[IdEntidad] [int] NULL,
+	[Detalle] [nvarchar](500) NULL,
+	[FechaHora] [datetime] NOT NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdLog] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[ObraSocial]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[ObraSocial](
-    [IdObraSocial] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](100) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdObraSocial] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdObraSocial] ASC
+	[IdObraSocial] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Nombre] ASC
+	[Nombre] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Paciente]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Paciente]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Paciente](
-    [IdPaciente] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](100) NOT NULL,
-    [Dni] [nvarchar](20) NOT NULL,
-    [FechaNacimiento] [date] NULL,
-    [Domicilio] [nvarchar](200) NULL,
-    [Telefono] [nvarchar](50) NULL,
-    [Mail] [nvarchar](100) NULL,
-    [Estado] [nvarchar](50) NULL,
-PRIMARY KEY CLUSTERED
+	[IdPaciente] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Dni] [nvarchar](20) NOT NULL,
+	[FechaNacimiento] [date] NULL,
+	[Domicilio] [nvarchar](200) NULL,
+	[Telefono] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+	[Estado] [nvarchar](50) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdPaciente] ASC
+	[IdPaciente] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Dni] ASC
+	[Dni] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[PacienteProfesional]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[PacienteProfesional]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[PacienteProfesional](
-    [IdPacienteProfesional] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [IdProfesional] [int] NOT NULL,
-    [FechaAsignacion] [datetime] NULL,
-PRIMARY KEY CLUSTERED
+	[IdPacienteProfesional] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[FechaAsignacion] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdPacienteProfesional] ASC
+	[IdPacienteProfesional] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
- CONSTRAINT [UQ_PacProf] UNIQUE NONCLUSTERED
+ CONSTRAINT [UQ_PacProf] UNIQUE NONCLUSTERED 
 (
-    [IdPaciente] ASC,
-    [IdProfesional] ASC
+	[IdPaciente] ASC,
+	[IdProfesional] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[PacienteTutor]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[PacienteTutor]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[PacienteTutor](
-    [IdPaciente] [int] NOT NULL,
-    [IdTutor] [int] NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdPaciente] [int] NOT NULL,
+	[IdTutor] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdPaciente] ASC,
-    [IdTutor] ASC
+	[IdPaciente] ASC,
+	[IdTutor] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Profesional]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Profesional]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Profesional](
-    [IdProfesional] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](100) NOT NULL,
-    [Matricula] [nvarchar](50) NOT NULL,
-    [IdEspecialidad] [int] NOT NULL,
-    [Estado] [nvarchar](50) NULL,
-    [Mail] [nvarchar](100) NULL,
-    [Telefono] [nvarchar](50) NULL,
-    [Apellido] [nvarchar](100) NULL,
-    [SegundoNombre] [nvarchar](100) NULL,
-    [SegundoApellido] [nvarchar](100) NULL,
-    [Dni] [nvarchar](20) NULL,
-    [Sexo] [nvarchar](20) NULL,
-    [FechaNacimiento] [date] NULL,
-    [Provincia] [nvarchar](100) NULL,
-    [OrigenContacto] [nvarchar](200) NULL,
-    [FechaSolicitud] [datetime] NULL,
-PRIMARY KEY CLUSTERED
+	[IdProfesional] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NOT NULL,
+	[Matricula] [nvarchar](50) NOT NULL,
+	[IdEspecialidad] [int] NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+	[Telefono] [nvarchar](50) NULL,
+	[Apellido] [nvarchar](100) NULL,
+	[SegundoNombre] [nvarchar](100) NULL,
+	[SegundoApellido] [nvarchar](100) NULL,
+	[Dni] [nvarchar](20) NULL,
+	[Sexo] [nvarchar](20) NULL,
+	[FechaNacimiento] [date] NULL,
+	[Provincia] [nvarchar](100) NULL,
+	[OrigenContacto] [nvarchar](200) NULL,
+	[FechaSolicitud] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdProfesional] ASC
+	[IdProfesional] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Matricula] ASC
+	[Matricula] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Rol]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[RecuperacionPassword]    Script Date: 21/5/2026 20:41:52 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE TABLE [dbo].[RecuperacionPassword](
+	[IdRecuperacion] [int] IDENTITY(1,1) NOT NULL,
+	[IdUsuario] [int] NOT NULL,
+	[FechaSolicitud] [datetime] NOT NULL,
+	[Estado] [nvarchar](20) NOT NULL,
+	[PasswordTemporal] [nvarchar](255) NULL,
+	[FechaResolucion] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
+(
+	[IdRecuperacion] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
+) ON [PRIMARY]
+GO
+/****** Object:  Table [dbo].[Rol]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Rol](
-    [IdRol] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](50) NOT NULL,
-    [Estado] [nvarchar](50) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdRol] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](50) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdRol] ASC
+	[IdRol] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Nombre] ASC
+	[Nombre] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[TipoConsentimiento]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[TipoConsentimiento]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[TipoConsentimiento](
-    [IdTipoConsentimiento] [int] IDENTITY(1,1) NOT NULL,
-    [Descripcion] [nvarchar](100) NOT NULL,
-    [Estado] [nvarchar](50) NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdTipoConsentimiento] [int] IDENTITY(1,1) NOT NULL,
+	[Descripcion] [nvarchar](100) NOT NULL,
+	[Estado] [nvarchar](50) NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdTipoConsentimiento] ASC
+	[IdTipoConsentimiento] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Descripcion] ASC
+	[Descripcion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Turno]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Turno]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Turno](
-    [IdTurno] [int] IDENTITY(1,1) NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [IdProfesional] [int] NOT NULL,
-    [IdEstadoTurno] [int] NOT NULL,
-    [Fecha] [date] NOT NULL,
-    [Hora] [time](7) NOT NULL,
-    [Modalidad] [nvarchar](50) NULL,
-    [Motivo] [nvarchar](500) NULL,
-PRIMARY KEY CLUSTERED
+	[IdTurno] [int] IDENTITY(1,1) NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[IdEstadoTurno] [int] NOT NULL,
+	[Fecha] [date] NOT NULL,
+	[Hora] [time](7) NOT NULL,
+	[Modalidad] [nvarchar](50) NULL,
+	[Motivo] [nvarchar](500) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdTurno] ASC
+	[IdTurno] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Tutor]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Tutor]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Tutor](
-    [IdTutor] [int] IDENTITY(1,1) NOT NULL,
-    [Nombre] [nvarchar](100) NULL,
-    [Dni] [nvarchar](20) NULL,
-    [Vinculo] [nvarchar](50) NULL,
-    [Contacto] [nvarchar](100) NULL,
-PRIMARY KEY CLUSTERED
+	[IdTutor] [int] IDENTITY(1,1) NOT NULL,
+	[Nombre] [nvarchar](100) NULL,
+	[Dni] [nvarchar](20) NULL,
+	[Vinculo] [nvarchar](50) NULL,
+	[Contacto] [nvarchar](100) NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdTutor] ASC
+	[IdTutor] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[Usuario]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[Usuario]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[Usuario](
-    [IdUsuario] [int] IDENTITY(1,1) NOT NULL,
-    [Username] [nvarchar](50) NOT NULL,
-    [PasswordHash] [nvarchar](255) NOT NULL,
-    [Estado] [nvarchar](50) NULL,
-    [Mail] [nvarchar](100) NULL,
-PRIMARY KEY CLUSTERED
+	[IdUsuario] [int] IDENTITY(1,1) NOT NULL,
+	[Username] [nvarchar](50) NOT NULL,
+	[PasswordHash] [nvarchar](255) NOT NULL,
+	[Estado] [nvarchar](50) NULL,
+	[Mail] [nvarchar](100) NULL,
+	[IntentosFallidos] [int] NOT NULL,
+	[BloqueadoHasta] [datetime] NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdUsuario] ASC
+	[IdUsuario] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
-UNIQUE NONCLUSTERED
+UNIQUE NONCLUSTERED 
 (
-    [Username] ASC
+	[Username] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],
- CONSTRAINT [UQ_Usuario_Mail] UNIQUE NONCLUSTERED
+ CONSTRAINT [UQ_Usuario_Mail] UNIQUE NONCLUSTERED 
 (
-    [Mail] ASC
+	[Mail] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[UsuarioPaciente]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[UsuarioPaciente]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[UsuarioPaciente](
-    [IdUsuario] [int] NOT NULL,
-    [IdPaciente] [int] NOT NULL,
-    [FechaVinculacion] [date] NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdUsuario] [int] NOT NULL,
+	[IdPaciente] [int] NOT NULL,
+	[FechaVinculacion] [date] NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdUsuario] ASC
+	[IdUsuario] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[UsuarioProfesional]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[UsuarioProfesional]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[UsuarioProfesional](
-    [IdUsuario] [int] NOT NULL,
-    [IdProfesional] [int] NOT NULL,
-    [FechaVinculacion] [date] NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdUsuario] [int] NOT NULL,
+	[IdProfesional] [int] NOT NULL,
+	[FechaVinculacion] [date] NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdUsuario] ASC
+	[IdUsuario] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
-/****** Object:  Table [dbo].[UsuarioRol]    Script Date: 19/5/2026 23:14:43 ******/
+/****** Object:  Table [dbo].[UsuarioRol]    Script Date: 21/5/2026 20:41:52 ******/
 SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
 CREATE TABLE [dbo].[UsuarioRol](
-    [IdUsuario] [int] NOT NULL,
-    [IdRol] [int] NOT NULL,
-PRIMARY KEY CLUSTERED
+	[IdUsuario] [int] NOT NULL,
+	[IdRol] [int] NOT NULL,
+PRIMARY KEY CLUSTERED 
 (
-    [IdUsuario] ASC,
-    [IdRol] ASC
+	[IdUsuario] ASC,
+	[IdRol] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
 ) ON [PRIMARY]
 GO
@@ -449,11 +488,19 @@ ALTER TABLE [dbo].[EstadoTurno] ADD  DEFAULT ('Activo') FOR [Estado]
 GO
 ALTER TABLE [dbo].[InteraccionIA] ADD  DEFAULT (getdate()) FOR [Fecha]
 GO
+ALTER TABLE [dbo].[LogAuditoria] ADD  DEFAULT (getdate()) FOR [FechaHora]
+GO
 ALTER TABLE [dbo].[PacienteProfesional] ADD  DEFAULT (getdate()) FOR [FechaAsignacion]
+GO
+ALTER TABLE [dbo].[RecuperacionPassword] ADD  DEFAULT (getdate()) FOR [FechaSolicitud]
+GO
+ALTER TABLE [dbo].[RecuperacionPassword] ADD  DEFAULT ('Pendiente') FOR [Estado]
 GO
 ALTER TABLE [dbo].[Rol] ADD  DEFAULT ('Activo') FOR [Estado]
 GO
 ALTER TABLE [dbo].[TipoConsentimiento] ADD  DEFAULT ('Activo') FOR [Estado]
+GO
+ALTER TABLE [dbo].[Usuario] ADD  DEFAULT ((0)) FOR [IntentosFallidos]
 GO
 ALTER TABLE [dbo].[UsuarioPaciente] ADD  DEFAULT (getdate()) FOR [FechaVinculacion]
 GO
@@ -529,6 +576,9 @@ REFERENCES [dbo].[Paciente] ([IdPaciente])
 GO
 ALTER TABLE [dbo].[InteraccionIA] CHECK CONSTRAINT [FK_InteraccionIA_Paciente]
 GO
+ALTER TABLE [dbo].[LogAuditoria]  WITH CHECK ADD FOREIGN KEY([IdUsuario])
+REFERENCES [dbo].[Usuario] ([IdUsuario])
+GO
 ALTER TABLE [dbo].[PacienteProfesional]  WITH CHECK ADD FOREIGN KEY([IdPaciente])
 REFERENCES [dbo].[Paciente] ([IdPaciente])
 GO
@@ -549,6 +599,9 @@ ALTER TABLE [dbo].[Profesional]  WITH CHECK ADD  CONSTRAINT [FK_Profesional_Espe
 REFERENCES [dbo].[Especialidad] ([IdEspecialidad])
 GO
 ALTER TABLE [dbo].[Profesional] CHECK CONSTRAINT [FK_Profesional_Especialidad]
+GO
+ALTER TABLE [dbo].[RecuperacionPassword]  WITH CHECK ADD FOREIGN KEY([IdUsuario])
+REFERENCES [dbo].[Usuario] ([IdUsuario])
 GO
 ALTER TABLE [dbo].[Turno]  WITH CHECK ADD  CONSTRAINT [FK_Turno_Estado] FOREIGN KEY([IdEstadoTurno])
 REFERENCES [dbo].[EstadoTurno] ([IdEstadoTurno])
