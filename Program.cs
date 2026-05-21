@@ -14,10 +14,27 @@ app.UseStaticFiles(new StaticFileOptions
 // Login
 app.MapPost("/login", (LoginRequest req) =>
 {
-    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
-    var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
-    if (usuario == null || usuario.PasswordHash.ToUpper() != hash || usuario.Estado != "Activo")
+    var dao = new UsuarioDAO();
+    var usuario = dao.ObtenerPorUsername(req.Username);
+
+    if (usuario == null || usuario.Estado != "Activo")
         return Results.Unauthorized();
+
+    if (usuario.BloqueadoHasta.HasValue && usuario.BloqueadoHasta.Value > DateTime.Now)
+        return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+
+    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
+
+    if (usuario.PasswordHash.ToUpper() != hash)
+    {
+        dao.RegistrarIntentoFallido(usuario.IdUsuario);
+        var actualizado = dao.ObtenerPorUsername(req.Username);
+        if (actualizado?.BloqueadoHasta.HasValue == true && actualizado.BloqueadoHasta.Value > DateTime.Now)
+            return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+        return Results.Unauthorized();
+    }
+
+    dao.ResetearIntentos(usuario.IdUsuario);
 
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
     if (up != null)
@@ -206,13 +223,15 @@ app.MapGet("/usuarios/{id}", (int id) =>
     return u is null ? Results.NotFound() : Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 });
 
-app.MapPost("/usuarios", (Usuario u) =>
+app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     u.Estado = "Activo";
     u.PasswordHash = Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
     new UsuarioDAO().Insertar(u);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", Detalle = u.Username });
     return Results.Created("/usuarios", new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 });
 
@@ -227,9 +246,11 @@ app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
     return Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 });
 
-app.MapDelete("/usuarios/{id}", (int id) =>
+app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     new UsuarioDAO().Baja(id);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Usuario", Entidad = "Usuario", IdEntidad = id });
     return Results.NoContent();
 });
 
@@ -257,9 +278,11 @@ app.MapPut("/pacientes/{id}", (int id, Paciente p) =>
     return Results.Ok(p);
 });
 
-app.MapDelete("/pacientes/{id}", (int id) =>
+app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     new PacienteDAO().Baja(id);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Paciente", Entidad = "Paciente", IdEntidad = id });
     return Results.NoContent();
 });
 
@@ -273,10 +296,12 @@ app.MapGet("/profesionales/{id}", (int id) =>
     return p is null ? Results.NotFound() : Results.Ok(p);
 });
 
-app.MapPost("/profesionales", (Profesional p) =>
+app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     p.Estado = "Pendiente";
     new ProfesionalDAO().Insertar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
     return Results.Created("/profesionales", p);
 });
 
@@ -287,30 +312,36 @@ app.MapPut("/profesionales/{id}", (int id, Profesional p) =>
     return Results.Ok(p);
 });
 
-app.MapDelete("/profesionales/{id}", (int id) =>
+app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     new ProfesionalDAO().Baja(id);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.NoContent();
 });
 
 app.MapGet("/profesionales/solicitudes", () =>
     new ProfesionalDAO().ObtenerTodos().Where(p => p.Estado == "Pendiente").ToList());
 
-app.MapPut("/profesionales/{id}/aprobar", (int id) =>
+app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
     new ProfesionalDAO().Modificar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aprobación Solicitud Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
 });
 
-app.MapPut("/profesionales/{id}/rechazar", (int id) =>
+app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Rechazado";
     new ProfesionalDAO().Modificar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Solicitud Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
 });
 
@@ -543,38 +574,42 @@ app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
     return Results.Ok(d);
 });
 
-app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req) =>
+app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.IdProfesionalDestino = req.IdProfesionalDestino;
     d.Estado = "Aceptada";
     new DerivacionDAO().Modificar(d);
 
-    // Actualizar asignación directa paciente-profesional
     var dao = new PacienteProfesionalDAO();
     dao.Desasignar(d.IdPaciente, d.IdProfesionalOrigen);
     dao.Asignar(d.IdPaciente, req.IdProfesionalDestino);
 
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aceptación Derivación", Entidad = "Derivacion", IdEntidad = id });
     return Results.Ok();
 });
 
-app.MapPut("/derivaciones/{id}/rechazar", (int id) =>
+app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.Estado = "Rechazada";
     new DerivacionDAO().Modificar(d);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Derivación", Entidad = "Derivacion", IdEntidad = id });
     return Results.Ok(d);
 });
 
 // Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
-app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req) =>
+app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpContext ctx) =>
 {
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
 
-    // Registrar derivación con estado Aceptada
     var insert = new Microsoft.Data.SqlClient.SqlCommand(@"
         INSERT INTO Derivacion (IdPaciente, IdProfesionalOrigen, IdProfesionalDestino, Fecha, Motivo, Estado)
         VALUES (@IdPac, @IdOrigen, @IdDestino, GETDATE(), @Motivo, 'Aceptada')", con);
@@ -584,11 +619,11 @@ app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req) =>
     insert.Parameters.AddWithValue("@Motivo",   (object?)req.Motivo ?? DBNull.Value);
     insert.ExecuteNonQuery();
 
-    // Actualizar asignación directa paciente-profesional
     var dao = new PacienteProfesionalDAO();
     dao.Desasignar(req.IdPaciente, req.IdProfesionalOrigen);
     dao.Asignar(req.IdPaciente, req.IdProfesionalDestino);
 
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Cambio Directo Profesional", Entidad = "Derivacion", Detalle = req.Motivo });
     return Results.Ok();
 });
 
@@ -741,6 +776,69 @@ app.MapDelete("/usuarioprofesionales/{idUsuario}", (int idUsuario) =>
 {
     new UsuarioProfesionalDAO().Eliminar(idUsuario);
     return Results.NoContent();
+});
+
+// Auditoría
+app.MapGet("/auditoria", (int pagina = 1, int cantidad = 50) =>
+    new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad));
+
+// Recuperación de contraseña
+app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
+{
+    var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
+    if (usuario == null) return Results.NotFound(new { mensaje = "Usuario no encontrado." });
+
+    var dao = new RecuperacionPasswordDAO();
+    if (dao.TienePendiente(usuario.IdUsuario))
+        return Results.Conflict(new { mensaje = "Ya tenés una solicitud pendiente." });
+
+    dao.Insertar(usuario.IdUsuario);
+    return Results.Ok();
+});
+
+app.MapGet("/recuperacion-password/pendientes", () =>
+    new RecuperacionPasswordDAO().ObtenerPendientes());
+
+app.MapPut("/recuperacion-password/{id}/aceptar", (int id) =>
+{
+    var recDAO = new RecuperacionPasswordDAO();
+    var idUsuario = recDAO.ObtenerIdUsuario(id);
+    if (idUsuario == null) return Results.NotFound();
+
+    const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(8);
+    var passTemp = new string(bytes.Select(b => chars[b % chars.Length]).ToArray());
+
+    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(passTemp)));
+
+    var uDAO = new UsuarioDAO();
+    var usuario = uDAO.ObtenerPorId(idUsuario.Value);
+    if (usuario == null) return Results.NotFound();
+    usuario.PasswordHash = hash;
+    uDAO.Modificar(usuario);
+    uDAO.ResetearIntentos(idUsuario.Value);
+
+    recDAO.Aceptar(id, passTemp);
+    return Results.Ok(new { passwordTemporal = passTemp });
+});
+
+app.MapPut("/recuperacion-password/{id}/rechazar", (int id) =>
+{
+    var dao = new RecuperacionPasswordDAO();
+    if (dao.ObtenerIdUsuario(id) == null) return Results.NotFound();
+    dao.Rechazar(id);
+    return Results.Ok();
+});
+
+app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
+{
+    var rec = new RecuperacionPasswordDAO().ObtenerUltimaPorUsername(username);
+    if (rec == null) return Results.NotFound(new { mensaje = "No hay solicitudes para este usuario." });
+
+    if (rec.Estado == "Aceptada")
+        return Results.Ok(new { estado = rec.Estado, passwordTemporal = rec.PasswordTemporal });
+
+    return Results.Ok(new { estado = rec.Estado, passwordTemporal = (string)null });
 });
 
 app.Run();

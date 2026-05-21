@@ -5,4 +5,6 @@ public class Usuario
     public string PasswordHash { get; set; }
     public string Estado { get; set; }
     public string Mail { get; set; }
+    public int IntentosFallidos { get; set; }
+    public DateTime? BloqueadoHasta { get; set; }
 }

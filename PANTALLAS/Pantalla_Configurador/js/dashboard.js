@@ -85,6 +85,8 @@ const titulos = {
     especialidades:  "Especialidades",
     coberturas:      "Coberturas",
     interaccionesia: "Interacciones IA",
+    auditoria:       "Log de Auditoría",
+    recuperacion:    "Recuperación de Contraseña",
 };
 
 let tabActual = null;
@@ -117,6 +119,8 @@ async function mostrarTab(tab) {
         if (tab === "usuarios")     return await renderUsuarios(contenido);
         if (tab === "solicitudes")  return await renderSolicitudes(contenido);
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
+        if (tab === "auditoria")    return await renderAuditoria(contenido);
+        if (tab === "recuperacion") return await renderRecuperacion(contenido);
 
         const datos = await fetch(`${API}/${tab}`).then(r => r.json());
         datosActuales = datos;
@@ -260,16 +264,20 @@ async function renderSolicitudes(c) {
         </div>`;
 }
 
+function auditorHeaders() {
+    return { "Content-Type": "application/json", "X-Usuario-Id": localStorage.getItem("idUsuario") ?? "0" };
+}
+
 async function aprobarSolicitud(id) {
     if (!await confirmar("¿Aprobar esta solicitud?")) return;
-    await fetch(`${API}/profesionales/${id}/aprobar`, { method: "PUT" });
+    await fetch(`${API}/profesionales/${id}/aprobar`, { method: "PUT", headers: auditorHeaders() });
     toast("Solicitud aprobada.");
     mostrarTab("solicitudes");
 }
 
 async function rechazarSolicitud(id) {
     if (!await confirmar("¿Rechazar esta solicitud?")) return;
-    await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT" });
+    await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     toast("Solicitud rechazada.", "warn");
     mostrarTab("solicitudes");
 }
@@ -434,7 +442,7 @@ async function confirmarAceptarDeriv() {
         if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
         const res = await fetch(`${API}/pacientes/${window._cambioPaciente}/profesionales`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: auditorHeaders(),
             body: JSON.stringify({ idProfesional: idProf })
         });
         cerrarModalDeriv();
@@ -451,7 +459,7 @@ async function confirmarAceptarDeriv() {
 
         const res = await fetch(`${API}/derivaciones/cambio-directo`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: auditorHeaders(),
             body: JSON.stringify({
                 idPaciente:           window._cambioPaciente,
                 idProfesionalOrigen:  idOrigen,
@@ -473,7 +481,7 @@ async function confirmarAceptarDeriv() {
 
     const res = await fetch(`${API}/derivaciones/${_derivIdActual}/aceptar`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: auditorHeaders(),
         body: JSON.stringify({ idProfesionalDestino: idProf })
     });
 
@@ -486,7 +494,7 @@ async function confirmarAceptarDeriv() {
 
 async function rechazarDerivacion(id) {
     if (!await confirmar("¿Rechazar esta solicitud de cambio?")) return;
-    await fetch(`${API}/derivaciones/${id}/rechazar`, { method: "PUT" });
+    await fetch(`${API}/derivaciones/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     toast("Solicitud rechazada.", "warn");
     mostrarTab("derivaciones");
 }
@@ -567,7 +575,7 @@ async function guardar() {
     try {
         const res = await fetch(`${API}/${tab}/${id}`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: auditorHeaders(),
             body: JSON.stringify(body)
         });
         if (res.ok) { cerrarModal(); mostrarTab(tab); }
@@ -578,7 +586,7 @@ async function guardar() {
 async function eliminar(tab, id) {
     if (!await confirmar("¿Eliminar este registro?")) return;
     try {
-        const res = await fetch(`${API}/${tab}/${id}`, { method: "DELETE" });
+        const res = await fetch(`${API}/${tab}/${id}`, { method: "DELETE", headers: auditorHeaders() });
         if (res.ok || res.status === 204) { toast("Registro eliminado."); mostrarTab(tab); }
         else toast("No se pudo eliminar.", "error");
     } catch { toast("No se pudo conectar con la API.", "error"); }
@@ -595,4 +603,96 @@ function errorHtml(tab) {
 
 async function cerrarSesion() {
     if (await confirmar("¿Cerrar sesión?")) window.location.href = "../index.html";
+}
+
+// ── AUDITORÍA ────────────────────────────────────────────────
+async function renderAuditoria(c, pagina = 1) {
+    const datos = await fetch(`${API}/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
+
+    if (!datos.length) {
+        c.innerHTML = `<div class="titulo-seccion">${titulos["auditoria"]}</div>
+            <div class="alert alert-info">No hay registros de auditoría.</div>`;
+        return;
+    }
+
+    const filas = datos.map(d => {
+        const fecha = new Date(d.fechaHora).toLocaleString("es-AR");
+        return `<tr>
+            <td>${fecha}</td>
+            <td>${d.accion}</td>
+            <td>${d.entidad}</td>
+            <td>${d.idEntidad ?? "-"}</td>
+            <td>${d.detalle ?? "-"}</td>
+            <td>${d.idUsuario}</td>
+        </tr>`;
+    }).join("");
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["auditoria"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('auditoria')">↺ Actualizar</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>
+                    <th>Fecha/Hora</th><th>Acción</th><th>Entidad</th>
+                    <th>ID Entidad</th><th>Detalle</th><th>ID Usuario</th>
+                </tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+}
+
+// ── RECUPERACIÓN DE CONTRASEÑA ───────────────────────────────
+async function renderRecuperacion(c) {
+    const datos = await fetch(`${API}/recuperacion-password/pendientes`).then(r => r.json());
+
+    if (!datos.length) {
+        c.innerHTML = `<div class="titulo-seccion">${titulos["recuperacion"]}</div>
+            <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
+        return;
+    }
+
+    const filas = datos.map(d => {
+        const fecha = new Date(d.fechaSolicitud).toLocaleString("es-AR");
+        return `<tr>
+            <td>${d.username ?? "-"}</td>
+            <td>${d.mail ?? "-"}</td>
+            <td>${fecha}</td>
+            <td>
+                <button class="btn-ok" onclick="aceptarRecuperacion(${d.idRecuperacion})">Aceptar</button>
+                <button class="btn-ko" onclick="rechazarRecuperacion(${d.idRecuperacion})">Rechazar</button>
+            </td>
+        </tr>`;
+    }).join("");
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["recuperacion"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('recuperacion')">↺ Actualizar</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>
+                    <th>Usuario</th><th>Mail</th><th>Fecha Solicitud</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+}
+
+async function aceptarRecuperacion(id) {
+    if (!await confirmar("¿Generar contraseña temporal para este usuario?")) return;
+    const res = await fetch(`${API}/recuperacion-password/${id}/aceptar`, { method: "PUT" });
+    if (!res.ok) { toast("Error al procesar la solicitud.", "error"); return; }
+    const data = await res.json();
+    toast(`Solicitud aceptada. Contraseña temporal: ${data.passwordTemporal}`, "ok", 8000);
+    mostrarTab("recuperacion");
+}
+
+async function rechazarRecuperacion(id) {
+    if (!await confirmar("¿Rechazar esta solicitud de recuperación?")) return;
+    const res = await fetch(`${API}/recuperacion-password/${id}/rechazar`, { method: "PUT" });
+    if (res.ok) { toast("Solicitud rechazada.", "warn"); mostrarTab("recuperacion"); }
+    else toast("Error al rechazar.", "error");
 }

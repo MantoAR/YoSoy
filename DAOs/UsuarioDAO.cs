@@ -46,7 +46,7 @@ public class UsuarioDAO
         var lista = new List<Usuario>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand("SELECT IdUsuario, Username, PasswordHash, Estado, Mail FROM Usuario", con);
+        var cmd = new SqlCommand("SELECT IdUsuario, Username, PasswordHash, Estado, Mail, IntentosFallidos, BloqueadoHasta FROM Usuario", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -58,7 +58,7 @@ public class UsuarioDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdUsuario, Username, PasswordHash, Estado, Mail FROM Usuario WHERE IdUsuario = @Id", con);
+            "SELECT IdUsuario, Username, PasswordHash, Estado, Mail, IntentosFallidos, BloqueadoHasta FROM Usuario WHERE IdUsuario = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -69,18 +69,45 @@ public class UsuarioDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdUsuario, Username, PasswordHash, Estado, Mail FROM Usuario WHERE Username = @Username", con);
+            "SELECT IdUsuario, Username, PasswordHash, Estado, Mail, IntentosFallidos, BloqueadoHasta FROM Usuario WHERE Username = @Username", con);
         cmd.Parameters.AddWithValue("@Username", username);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
     }
 
+    public void RegistrarIntentoFallido(int idUsuario)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE Usuario
+            SET IntentosFallidos = IntentosFallidos + 1,
+                BloqueadoHasta = CASE WHEN IntentosFallidos + 1 >= 3
+                                      THEN DATEADD(MINUTE, 15, GETDATE())
+                                      ELSE BloqueadoHasta END
+            WHERE IdUsuario = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idUsuario);
+        cmd.ExecuteNonQuery();
+    }
+
+    public void ResetearIntentos(int idUsuario)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Usuario SET IntentosFallidos = 0, BloqueadoHasta = NULL WHERE IdUsuario = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idUsuario);
+        cmd.ExecuteNonQuery();
+    }
+
     private Usuario Mapear(SqlDataReader r) => new Usuario
     {
-        IdUsuario    = (int)r["IdUsuario"],
-        Username     = (string)r["Username"],
-        PasswordHash = (string)r["PasswordHash"],
-        Estado       = r["Estado"] == DBNull.Value ? null : (string)r["Estado"],
-        Mail         = r["Mail"]   == DBNull.Value ? null : (string)r["Mail"]
+        IdUsuario         = (int)r["IdUsuario"],
+        Username          = (string)r["Username"],
+        PasswordHash      = (string)r["PasswordHash"],
+        Estado            = r["Estado"] == DBNull.Value ? null : (string)r["Estado"],
+        Mail              = r["Mail"]   == DBNull.Value ? null : (string)r["Mail"],
+        IntentosFallidos  = r["IntentosFallidos"] == DBNull.Value ? 0 : (int)r["IntentosFallidos"],
+        BloqueadoHasta    = r["BloqueadoHasta"]   == DBNull.Value ? null : (DateTime?)r["BloqueadoHasta"]
     };
 }

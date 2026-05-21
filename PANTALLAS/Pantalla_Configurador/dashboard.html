@@ -34,6 +34,17 @@
                     <li onclick="mostrarTab('usuarios')">Usuarios</li>
                     <li onclick="mostrarTab('solicitudes')">Solicitudes de Registro</li>
                     <li onclick="mostrarTab('derivaciones')">Solicitudes de Cambio</li>
+                    <li onclick="mostrarTab('recuperacion')">Recuperación de Contraseña</li>
+                </ul>
+            </div>
+
+            <div class="grupo">
+                <div class="grupo-titulo" onclick="toggleGrupo('auditoria')">
+                    <span>Auditoría</span>
+                    <span class="flecha" id="flecha-auditoria">▶</span>
+                </div>
+                <ul class="grupo-items oculto" id="grupo-auditoria">
+                    <li onclick="mostrarTab('auditoria')">Log de acciones</li>
                 </ul>
             </div>
 
@@ -103,6 +114,7 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="../js/sesion.js"></script>
     <script src="js/dashboard.js"></script>
 </body>
 </html>
