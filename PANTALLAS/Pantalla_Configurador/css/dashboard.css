@@ -350,6 +350,11 @@ body {
     border-color: #6A5ACD;
 }
 
+.usr-card-inactivo {
+    opacity: 0.55;
+    border-style: dashed;
+}
+
 .usr-card.relacionado {
     background: #e8f4ff;
     border-color: #0d6efd;

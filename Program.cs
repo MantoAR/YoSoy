@@ -286,6 +286,17 @@ app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
     return Results.NoContent();
 });
 
+app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
+{
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    var p = new PacienteDAO().ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    p.Estado = "Activo";
+    new PacienteDAO().Modificar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Paciente", Entidad = "Paciente", IdEntidad = id });
+    return Results.Ok(p);
+});
+
 // Profesional
 app.MapGet("/profesionales", () =>
     new ProfesionalDAO().ObtenerTodos());
@@ -318,6 +329,17 @@ app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
     new ProfesionalDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.NoContent();
+});
+
+app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
+{
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    var p = new ProfesionalDAO().ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    p.Estado = "Activo";
+    new ProfesionalDAO().Modificar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", IdEntidad = id });
+    return Results.Ok(p);
 });
 
 app.MapGet("/profesionales/solicitudes", () =>

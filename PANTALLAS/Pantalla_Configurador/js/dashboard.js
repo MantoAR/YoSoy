@@ -139,7 +139,7 @@ async function renderUsuarios(c) {
     ]);
 
     const pacProfs = {};
-    const profPacs  = {};
+    const profPacs = {};
     await Promise.all(pacientes.map(async p => {
         const profs = await fetch(`${API}/pacientes/${p.idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
         pacProfs[p.idPaciente] = new Set(profs.map(pr => pr.idProfesional));
@@ -149,37 +149,64 @@ async function renderUsuarios(c) {
         });
     }));
 
-    const pacCards = pacientes.map(p => `
-        <div class="usr-card" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
-            <div class="usr-nombre">${p.nombre ?? "-"}</div>
-            <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
-        </div>`).join("");
-
-    const profCards = profesionales.map(p => `
-        <div class="usr-card" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
-            <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
-            <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
-        </div>`).join("");
-
-    c.innerHTML = `
-        <div class="titulo-seccion">${titulos["usuarios"]}</div>
-        <div class="split-view">
-            <div class="split-col">
-                <div class="split-header">Pacientes <span class="split-badge">${pacientes.length}</span></div>
-                <div class="split-list" id="listaPacientes">${pacCards}</div>
-            </div>
-            <div class="split-col">
-                <div class="split-header">Profesionales <span class="split-badge">${profesionales.length}</span></div>
-                <div class="split-list" id="listaProfesionales">${profCards}</div>
-            </div>
-        </div>
-        <div class="split-info" id="splitInfo"></div>`;
-
-    // store maps for click handlers
     window._pacProfs = pacProfs;
     window._profPacs = profPacs;
     window._pacientes = pacientes;
     window._profesionales = profesionales;
+    window._mostrarDadosDeBaja = false;
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["usuarios"]}</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;cursor:pointer">
+                <input type="checkbox" id="chkDadosDeBaja" onchange="toggleDadosDeBaja()"
+                    style="width:16px;height:16px;cursor:pointer">
+                Mostrar dados de baja
+            </label>
+        </div>
+        <div class="split-view">
+            <div class="split-col">
+                <div class="split-header">Pacientes <span class="split-badge" id="badgePacientes"></span></div>
+                <div class="split-list" id="listaPacientes"></div>
+            </div>
+            <div class="split-col">
+                <div class="split-header">Profesionales <span class="split-badge" id="badgeProfesionales"></span></div>
+                <div class="split-list" id="listaProfesionales"></div>
+            </div>
+        </div>
+        <div class="split-info" id="splitInfo"></div>`;
+
+    renderCardsUsuarios();
+}
+
+function renderCardsUsuarios() {
+    const mostrarBaja = window._mostrarDadosDeBaja;
+    const pacientes = window._pacientes.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
+    const profesionales = window._profesionales.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
+
+    document.getElementById("badgePacientes").textContent = pacientes.length;
+    document.getElementById("badgeProfesionales").textContent = profesionales.length;
+
+    document.getElementById("listaPacientes").innerHTML = pacientes.map(p => `
+        <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
+            <div class="usr-nombre">${p.nombre ?? "-"}</div>
+            <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
+        </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
+
+    document.getElementById("listaProfesionales").innerHTML = profesionales.map(p => `
+        <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
+            <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
+            <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
+        </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
+
+    document.getElementById("splitInfo").innerHTML = "";
+}
+
+function toggleDadosDeBaja() {
+    window._mostrarDadosDeBaja = document.getElementById("chkDadosDeBaja").checked;
+    window._pacSeleccionado = null;
+    window._profSeleccionado = null;
+    renderCardsUsuarios();
 }
 
 function seleccionarPaciente(idPac) {
@@ -201,15 +228,20 @@ function seleccionarPaciente(idPac) {
         return pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
     });
 
-    const btnCambio = relacionados.size
+    const esInactivo = pac?.estado === "Inactivo";
+    const btnAccion = esInactivo
+        ? `<button class="btn-ok" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
+        : `<button class="btn-ko" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
+    const btnCambio = (!esInactivo && relacionados.size)
         ? `<button class="btn-cambio-prof" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>`
         : "";
-    const btnAsignar = `<button class="btn-cambio-prof" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>`;
-    const btnBaja = `<button class="btn-ko" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
+    const btnAsignar = !esInactivo
+        ? `<button class="btn-cambio-prof" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>`
+        : "";
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar} ${btnBaja}`
-        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnBaja}`;
+        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar} ${btnAccion}`
+        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
 }
 
 function seleccionarProfesional(idProf) {
@@ -227,23 +259,30 @@ function seleccionarProfesional(idProf) {
         const pac = window._pacientes.find(p => p.idPaciente === idPac);
         return pac?.nombre ?? idPac;
     });
-    const btnBajaProf = `<button class="btn-ko" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
+    const esInactivoProf = prof?.estado === "Inactivo";
+    const btnAccionProf = esInactivoProf
+        ? `<button class="btn-ok" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
+        : `<button class="btn-ko" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnBajaProf}`
-        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados. ${btnBajaProf}`;
+        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnAccionProf}`
+        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados. ${btnAccionProf}`;
 }
 
 async function darDeBajaPaciente(idPac) {
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
     if (!await confirmar(`¿Dar de baja a ${pac?.nombre ?? "este paciente"}?`)) return;
     const res = await fetch(`${API}/pacientes/${idPac}`, { method: "DELETE", headers: auditorHeaders() });
-    if (res.ok || res.status === 204) {
-        toast("Paciente dado de baja.");
-        mostrarTab("usuarios");
-    } else {
-        toast("Error al dar de baja.", "error");
-    }
+    if (res.ok || res.status === 204) { toast("Paciente dado de baja."); mostrarTab("usuarios"); }
+    else toast("Error al dar de baja.", "error");
+}
+
+async function darDeAltaPaciente(idPac) {
+    const pac = window._pacientes.find(p => p.idPaciente === idPac);
+    if (!await confirmar(`¿Dar de alta a ${pac?.nombre ?? "este paciente"}?`)) return;
+    const res = await fetch(`${API}/pacientes/${idPac}/alta`, { method: "PUT", headers: auditorHeaders() });
+    if (res.ok) { toast("Paciente dado de alta."); mostrarTab("usuarios"); }
+    else toast("Error al dar de alta.", "error");
 }
 
 async function darDeBajaProfesional(idProf) {
@@ -251,12 +290,17 @@ async function darDeBajaProfesional(idProf) {
     const nombre = prof ? `${prof.nombre}${prof.apellido ? " " + prof.apellido : ""}` : "este profesional";
     if (!await confirmar(`¿Dar de baja a ${nombre}?`)) return;
     const res = await fetch(`${API}/profesionales/${idProf}`, { method: "DELETE", headers: auditorHeaders() });
-    if (res.ok || res.status === 204) {
-        toast("Profesional dado de baja.");
-        mostrarTab("usuarios");
-    } else {
-        toast("Error al dar de baja.", "error");
-    }
+    if (res.ok || res.status === 204) { toast("Profesional dado de baja."); mostrarTab("usuarios"); }
+    else toast("Error al dar de baja.", "error");
+}
+
+async function darDeAltaProfesional(idProf) {
+    const prof = window._profesionales.find(p => p.idProfesional === idProf);
+    const nombre = prof ? `${prof.nombre}${prof.apellido ? " " + prof.apellido : ""}` : "este profesional";
+    if (!await confirmar(`¿Dar de alta a ${nombre}?`)) return;
+    const res = await fetch(`${API}/profesionales/${idProf}/alta`, { method: "PUT", headers: auditorHeaders() });
+    if (res.ok) { toast("Profesional dado de alta."); mostrarTab("usuarios"); }
+    else toast("Error al dar de alta.", "error");
 }
 
 // ── SOLICITUDES DE REGISTRO ──────────────────────────────────
