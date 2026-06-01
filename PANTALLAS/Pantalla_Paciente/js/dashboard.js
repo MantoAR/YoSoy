@@ -72,6 +72,7 @@ function mostrarSeccion(id) {
     else if (id === "agenda")        renderAgenda(c);
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
+    else if (id === "sesion")        c.innerHTML = `<iframe src="../Pantalla_Paciente/sesion_video.html" style="width:100%;height:calc(100vh - 120px);border:none;"></iframe>`;  // NUEVO
 }
 
 async function cerrarSesion() {

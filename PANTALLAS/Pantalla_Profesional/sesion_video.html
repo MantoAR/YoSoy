@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Sesión con Paciente - YoSoy</title>
+    <script src="face-api.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f5f5f3; margin: 0; padding: 16px; }
+        .card { background: white; border-radius: 12px; padding: 16px; border: 1px solid #eee; }
+        .card h3 { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing:.05em; margin-bottom: 10px; }
+        .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 12px; }
+        .video-principal { position: relative; background: #111; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; }
+        .video-principal video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.65); color: white; font-size: 14px; padding: 6px 12px; border-radius: 8px; font-weight: 500; }
+        .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,0.6); color: white; font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .mini-video { width: 100%; border-radius: 8px; margin-top: 10px; }
+        .panel { display: flex; flex-direction: column; gap: 10px; }
+        .emo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; font-size: 12px; }
+        .emo-label { width: 72px; color: #555; }
+        .emo-track { flex: 1; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+        .emo-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .emo-val { width: 30px; text-align: right; color: #aaa; font-size: 11px; }
+        .tl { max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+        .tl-row { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+        .tl-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .tl-time { color: #aaa; min-width: 35px; }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stat-box { background: #f5f5f3; border-radius: 8px; padding: 10px; }
+        .stat-num { font-size: 20px; font-weight: 600; color: #1a1a1a; }
+        .stat-lbl { font-size: 11px; color: #888; margin-top: 2px; }
+        .controles { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+        .btn-rojo { background: #A32D2D; color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-gris { background: #eee; color: #555; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-gris:disabled { opacity: 0.5; cursor: default; }
+        .btn-verde { background: #185FA5; color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .estado { font-size: 12px; color: #888; }
+        /* Caja del código de sala */
+        .sala-box { background: #f0f4ff; border-radius: 10px; padding: 16px; margin-top: 16px; display: none; }
+        .sala-box-titulo { font-size: 12px; color: #888; margin-bottom: 8px; }
+        .sala-codigo-wrap { display: flex; align-items: center; gap: 10px; }
+        .sala-codigo { font-size: 22px; font-weight: 700; color: #185FA5; letter-spacing: 3px; }
+        .btn-copiar { background: white; border: 1px solid #185FA5; color: #185FA5; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-copiar:hover { background: #185FA5; color: white; }
+        .sala-hint { font-size: 12px; color: #888; margin-top: 8px; }
+    </style>
+</head>
+<body>
+
+    <!-- PANTALLA DE CONEXIÓN -->
+    <div id="pantalla-conexion">
+        <div class="card">
+            <h3>Iniciar sesión con paciente</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px">
+                Creá la sala y compartí el código con tu paciente para que se una.
+            </p>
+            <button class="btn-verde" id="btn-crear" onclick="crearSala()">
+                📹 Crear sala
+            </button>
+            <div id="estado-conexion" style="font-size:13px;color:#888;margin-top:10px"></div>
+
+            <!-- Código generado -->
+            <div class="sala-box" id="sala-box">
+                <div class="sala-box-titulo">Código de sala — compartilo con tu paciente</div>
+                <div class="sala-codigo-wrap">
+                    <span class="sala-codigo" id="sala-codigo-display">—</span>
+                    <button class="btn-copiar" onclick="copiarCodigo()">📋 Copiar</button>
+                </div>
+                <div class="sala-hint">El paciente debe ingresar este código para unirse a la sesión.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANTALLA DE SESIÓN -->
+    <div id="pantalla-sesion" style="display:none">
+        <div class="main-grid">
+            <!-- VIDEO PACIENTE + ANÁLISIS -->
+            <div>
+                <div class="video-principal">
+                    <video id="vid-paciente" autoplay playsinline></video>
+                    <canvas id="overlay"></canvas>
+                    <div class="emo-live" id="emo-live">😐 Esperando...</div>
+                    <span class="video-label">Paciente</span>
+                </div>
+                <video id="vid-propio" autoplay playsinline muted class="mini-video" style="height:100px;object-fit:cover;background:#111"></video>
+            </div>
+
+            <!-- PANEL ANÁLISIS -->
+            <div class="panel">
+                <div class="card">
+                    <h3>Expresiones del paciente</h3>
+                    <div id="emo-bars">
+                        <div class="emo-row"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="b-neutral" style="width:0%;background:#888780"></div></div><span class="emo-val" id="v-neutral">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Felicidad</span><div class="emo-track"><div class="emo-fill" id="b-happy" style="width:0%;background:#639922"></div></div><span class="emo-val" id="v-happy">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Tristeza</span><div class="emo-track"><div class="emo-fill" id="b-sad" style="width:0%;background:#378ADD"></div></div><span class="emo-val" id="v-sad">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Enojo</span><div class="emo-track"><div class="emo-fill" id="b-angry" style="width:0%;background:#E24B4A"></div></div><span class="emo-val" id="v-angry">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Miedo</span><div class="emo-track"><div class="emo-fill" id="b-fearful" style="width:0%;background:#7F77DD"></div></div><span class="emo-val" id="v-fearful">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Sorpresa</span><div class="emo-track"><div class="emo-fill" id="b-surprised" style="width:0%;background:#EF9F27"></div></div><span class="emo-val" id="v-surprised">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Disgusto</span><div class="emo-track"><div class="emo-fill" id="b-disgusted" style="width:0%;background:#D4537E"></div></div><span class="emo-val" id="v-disgusted">0%</span></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Estadísticas</h3>
+                    <div class="stats-grid">
+                        <div class="stat-box"><div class="stat-num" id="stat-dur">0:00</div><div class="stat-lbl">Duración</div></div>
+                        <div class="stat-box"><div class="stat-num" id="stat-muestras">0</div><div class="stat-lbl">Muestras</div></div>
+                        <div class="stat-box" style="grid-column:1/-1"><div class="stat-num" id="stat-dom" style="font-size:13px">—</div><div class="stat-lbl">Emoción dominante</div></div>
+                    </div>
+                </div>
+
+                <div class="card" style="flex:1">
+                    <h3>Historial de cambios</h3>
+                    <div class="tl" id="tl"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controles">
+            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
+            <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
+            <span class="estado" id="estado-txt">Conectando...</span>
+        </div>
+    </div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const API = 'http://localhost:5000';
+const SIGNAL = 'http://localhost:3001';
+const EMOCIONES = {
+    neutral:{label:'Neutral',color:'#888780',emoji:'😐'},
+    happy:{label:'Felicidad',color:'#639922',emoji:'😄'},
+    sad:{label:'Tristeza',color:'#378ADD',emoji:'😢'},
+    angry:{label:'Enojo',color:'#E24B4A',emoji:'😠'},
+    fearful:{label:'Miedo',color:'#7F77DD',emoji:'😨'},
+    surprised:{label:'Sorpresa',color:'#EF9F27',emoji:'😲'},
+    disgusted:{label:'Disgusto',color:'#D4537E',emoji:'🤢'}
+};
+
+let pc, stream, socket, detectionTimer, timerInterval, sessionStart;
+let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
+let modelsListo = false;
+let sala = '';
+
+// Cargar modelos al abrir la página
+Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri('../models'),
+    faceapi.nets.faceLandmark68TinyNet.loadFromUri('../models'),
+    faceapi.nets.faceExpressionNet.loadFromUri('../models')
+]).then(() => {
+    modelsListo = true;
+    document.getElementById('estado-conexion').textContent = 'Modelos listos. Podés crear la sala.';
+}).catch(() => {
+    document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
+});
+
+// ─── CREAR SALA (el profesional genera el código) ────────
+function crearSala() {
+    const idProfesional = localStorage.getItem('idProfesional') || '1';
+    sala = 'SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase();
+
+    // Mostrar el código para compartir
+    document.getElementById('sala-codigo-display').textContent = sala;
+    document.getElementById('sala-box').style.display = 'block';
+    document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';
+    document.getElementById('btn-crear').onclick = entrarASala;
+    document.getElementById('estado-conexion').textContent = 'Compartí el código con tu paciente y luego entrá.';
+}
+
+function copiarCodigo() {
+    navigator.clipboard.writeText(sala).then(() => {
+        const btn = document.querySelector('.btn-copiar');
+        btn.textContent = '✅ Copiado';
+        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
+    });
+}
+
+// ─── ENTRAR A LA SALA (después de compartir el código) ───
+async function entrarASala() {
+    if (!modelsListo) { alert('Esperá que carguen los modelos de IA.'); return; }
+    if (!sala) { alert('Primero creá la sala.'); return; }
+
+    document.getElementById('pantalla-conexion').style.display = 'none';
+    document.getElementById('pantalla-sesion').style.display = 'block';
+    document.getElementById('estado-txt').textContent = 'Esperando al paciente...';
+
+    // Cámara y micrófono del profesional
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('vid-propio').srcObject = stream;
+
+    // Conectar al servidor de señalización
+    socket = io(SIGNAL);
+    socket.emit('join-room', { roomId: sala, role: 'profesional' });
+
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+    // Cuando llega el video del paciente → arrancar análisis
+    pc.ontrack = e => {
+        const vidPaciente = document.getElementById('vid-paciente');
+        vidPaciente.srcObject = e.streams[0];
+        document.getElementById('estado-txt').textContent = '🟢 Sesión activa';
+        sessionStart = Date.now();
+        muestras = 0; totales = {}; historial = []; ultimaEmo = null;
+        iniciarDeteccion(vidPaciente);
+        iniciarTimer();
+    };
+
+    pc.onicecandidate = e => {
+        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
+    };
+
+    socket.on('offer', async ({ offer }) => {
+        await pc.setRemoteDescription(offer);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', { roomId: sala, answer });
+    });
+
+    socket.on('ice-candidate', async ({ candidate }) => {
+        try { await pc.addIceCandidate(candidate); } catch {}
+    });
+
+    socket.on('user-left', () => {
+        document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
+    });
+}
+
+// ─── DETECCIÓN DE EXPRESIONES ────────────────────────────
+function iniciarDeteccion(video) {
+    const canvas = document.getElementById('overlay');
+    async function detectar() {
+        if (!video || video.readyState < 2) {
+            detectionTimer = setTimeout(detectar, 500); return;
+        }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+        const result = await faceapi.detectSingleFace(video, opts)
+            .withFaceLandmarks(true).withFaceExpressions();
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (result) {
+            const { box } = result.detection;
+            ctx.strokeStyle = '#185FA5';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+            const exps = result.expressions;
+            muestras++;
+            for (const [k,v] of Object.entries(exps)) totales[k] = (totales[k]||0) + v;
+
+            for (const k of Object.keys(EMOCIONES)) {
+                const pct = Math.round((exps[k]||0)*100);
+                document.getElementById(`b-${k}`).style.width = pct+'%';
+                document.getElementById(`v-${k}`).textContent = pct+'%';
+            }
+            document.getElementById('stat-muestras').textContent = muestras;
+
+            const dom = Object.entries(exps).sort((a,b) => b[1]-a[1])[0];
+            document.getElementById('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
+
+            let dk='neutral', dv=0;
+            for (const [k,v] of Object.entries(totales)) { if(v>dv){dk=k;dv=v;} }
+            document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
+
+            if (dom[0] !== ultimaEmo) {
+                ultimaEmo = dom[0];
+                const elapsed = Date.now() - sessionStart;
+                const t = `${String(Math.floor(elapsed/60000)).padStart(2,'0')}:${String(Math.floor((elapsed%60000)/1000)).padStart(2,'0')}`;
+                historial.push({ tiempo:t, emocion:dom[0], label:EMOCIONES[dom[0]].label, intensidad:Math.round(dom[1]*100), ts:new Date().toISOString() });
+                const tl = document.getElementById('tl');
+                const row = document.createElement('div');
+                row.className = 'tl-row';
+                row.innerHTML = `<span class="tl-dot" style="background:${EMOCIONES[dom[0]].color}"></span><span class="tl-time">${t}</span><span>${EMOCIONES[dom[0]].label} (${Math.round(dom[1]*100)}%)</span>`;
+                tl.appendChild(row);
+                tl.scrollTop = tl.scrollHeight;
+            }
+        }
+        detectionTimer = setTimeout(detectar, 500);
+    }
+    detectionTimer = setTimeout(detectar, 1000);
+}
+
+function iniciarTimer() {
+    timerInterval = setInterval(() => {
+        const elapsed = Date.now() - sessionStart;
+        const m = String(Math.floor(elapsed/60000)).padStart(2,'0');
+        const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
+        document.getElementById('stat-dur').textContent = `${m}:${s}`;
+    }, 1000);
+}
+
+// ─── FINALIZAR ────────────────────────────────────────────
+async function finalizarSesion() {
+    clearTimeout(detectionTimer);
+    clearInterval(timerInterval);
+    stream?.getTracks().forEach(t => t.stop());
+    pc?.close();
+    socket?.disconnect();
+
+    const duracion = Math.floor((Date.now() - sessionStart) / 1000);
+    const n = muestras || 1;
+    const resumen = {};
+    for (const [k,v] of Object.entries(totales)) resumen[k] = Math.round(v/n*100);
+
+    const idProfesional = localStorage.getItem('idProfesional');
+    try {
+        await fetch(`${API}/sesiones-emociones`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idProfesional, sala, duracion, resumen, historial })
+        });
+    } catch(e) { console.error(e); }
+
+    document.getElementById('btn-exportar').disabled = false;
+    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${muestras} muestras registradas.`;
+}
+
+// ─── EXPORTAR REPORTE ─────────────────────────────────────
+function exportarReporte() {
+    const duracion = Math.floor((Date.now() - sessionStart) / 1000);
+    const n = muestras || 1;
+    const reporte = {
+        fecha: new Date().toLocaleDateString('es-AR'),
+        sala,
+        duracion_segundos: duracion,
+        total_muestras: muestras,
+        promedio_emociones: Object.fromEntries(
+            Object.entries(totales).map(([k,v]) => [EMOCIONES[k]?.label||k, Math.round(v/n*100)+'%'])
+        ),
+        historial_cambios: historial
+    };
+    const blob = new Blob([JSON.stringify(reporte, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `reporte_sesion_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+}
+</script>
+</body>
+</html>
