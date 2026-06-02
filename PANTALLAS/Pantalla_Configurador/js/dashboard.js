@@ -63,15 +63,79 @@ const idCampo = {
 };
 
 const columnas = {
-    turnos:          ["idTurno", "idPaciente", "idProfesional", "fecha", "hora", "modalidad"],
+    turnos:          ["idTurno", "idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad"],
     agendas:         ["idAgenda", "idProfesional", "dia", "horaInicio", "horaFin", "disponible"],
     evoluciones:     ["idEvolucion", "idHistoria", "idProfesional", "fecha", "diagnostico"],
     eventoscrisis:   ["idEvento", "idPaciente", "fecha", "nivelRiesgo", "acciones"],
     roles:           ["idRol", "nombre", "estado"],
     especialidades:  ["idEspecialidad", "nombre", "estado"],
-    coberturas:      ["idCobertura", "idPaciente", "nroAfiliado", "planCobertura", "estado"],
+    coberturas:      ["idCobertura", "idPaciente", "idObraSocial", "nroAfiliado", "planCobertura", "estado"],
     interaccionesia: ["idInteraccion", "idPaciente", "fecha", "consulta"],
 };
+
+const ETIQUETAS = {
+    idTurno: "Turno", idAgenda: "Agenda", idEvolucion: "Evolución", idEvento: "Evento",
+    idRol: "Rol", idEspecialidad: "Especialidad", idCobertura: "Cobertura", idInteraccion: "Interacción",
+    idPaciente: "Paciente", idProfesional: "Profesional",
+    idEstadoTurno: "Estado", idObraSocial: "Obra social", idHistoria: "Historia clínica",
+    fecha: "Fecha", hora: "Hora", horaInicio: "Hora inicio", horaFin: "Hora fin",
+    dia: "Día", modalidad: "Modalidad", motivo: "Motivo", disponible: "Disponible",
+    nombre: "Nombre", apellido: "Apellido", estado: "Estado", descripcion: "Descripción",
+    diagnostico: "Diagnóstico", nivelRiesgo: "Nivel de riesgo", acciones: "Acciones",
+    nroAfiliado: "N° afiliado", planCobertura: "Plan", consulta: "Consulta", respuesta: "Respuesta",
+    mail: "Mail", matricula: "Matrícula", provincia: "Provincia", fechaSolicitud: "Fecha de solicitud",
+    dni: "DNI", username: "Usuario",
+};
+
+function etiqueta(col) {
+    return ETIQUETAS[col] ?? col;
+}
+
+const LOOKUPS = { pacientes: {}, profesionales: {}, estados: {}, obras: {} };
+let _lookupsCargados = false;
+
+async function cargarLookups() {
+    if (_lookupsCargados) return;
+    const get = url => fetch(`${API}${url}`).then(r => r.json()).catch(() => []);
+    const [pacientes, profesionales, estados, obras] = await Promise.all([
+        get("/pacientes"), get("/profesionales"), get("/estadosturnos"), get("/obrassociales"),
+    ]);
+    pacientes.forEach(p => LOOKUPS.pacientes[p.idPaciente] = p.nombre ?? `#${p.idPaciente}`);
+    profesionales.forEach(p => LOOKUPS.profesionales[p.idProfesional] =
+        `${p.nombre ?? ""}${p.apellido ? " " + p.apellido : ""}`.trim() || `#${p.idProfesional}`);
+    estados.forEach(e => LOOKUPS.estados[e.idEstadoTurno] = e.descripcion ?? `#${e.idEstadoTurno}`);
+    obras.forEach(o => LOOKUPS.obras[o.idObraSocial] = o.nombre ?? `#${o.idObraSocial}`);
+    _lookupsCargados = true;
+}
+
+const RESOLVERS = {
+    idPaciente:    v => LOOKUPS.pacientes[v]     ?? `#${v}`,
+    idProfesional: v => LOOKUPS.profesionales[v] ?? `#${v}`,
+    idEstadoTurno: v => LOOKUPS.estados[v]       ?? `#${v}`,
+    idObraSocial:  v => LOOKUPS.obras[v]         ?? `#${v}`,
+};
+
+const PK = new Set(["idTurno", "idAgenda", "idEvolucion", "idEvento", "idRol", "idEspecialidad", "idCobertura", "idInteraccion"]);
+
+function formatearCelda(col, valor) {
+    if (valor === null || valor === undefined || valor === "") return "-";
+    if (RESOLVERS[col]) return RESOLVERS[col](valor);
+    if (PK.has(col)) return `<span class="celda-id">#${valor}</span>`;
+    if (col === "fecha") return new Date(valor).toLocaleDateString("es-AR");
+    if (col === "hora" || col === "horaInicio" || col === "horaFin")
+        return typeof valor === "string" ? valor.slice(0, 5) : valor;
+    if (col === "disponible")
+        return valor === true || valor === "true" || valor === 1
+            ? `<span class="estado-badge estado-aceptada">Sí</span>`
+            : `<span class="estado-badge estado-rechazada">No</span>`;
+    return String(valor);
+}
+
+function valorCelda(col, valor) {
+    if (RESOLVERS[col]) return RESOLVERS[col](valor);
+    if (col === "fecha" && valor) return new Date(valor).toLocaleDateString("es-AR");
+    return valor ?? "";
+}
 
 const titulos = {
     usuarios:        "Usuarios",
@@ -122,6 +186,7 @@ async function mostrarTab(tab) {
         if (tab === "auditoria")    return await renderAuditoria(contenido);
         if (tab === "recuperacion") return await renderRecuperacion(contenido);
 
+        await cargarLookups();
         const datos = await fetch(`${API}/${tab}`).then(r => r.json());
         datosActuales = datos;
         renderTabla(titulos[tab], columnas[tab], datos, tab, contenido);
@@ -182,7 +247,7 @@ async function renderUsuarios(c) {
 function renderCardsUsuarios() {
     const mostrarBaja = window._mostrarDadosDeBaja;
     const pacientes = window._pacientes.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
-    const profesionales = window._profesionales.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
+    const profesionales = window._profesionales.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado === "Activo");
 
     document.getElementById("badgePacientes").textContent = pacientes.length;
     document.getElementById("badgeProfesionales").textContent = profesionales.length;
@@ -313,10 +378,13 @@ async function renderSolicitudes(c) {
         return;
     }
 
-    const cols = ["idProfesional", "nombre", "apellido", "dni", "mail", "matricula", "provincia", "fechaSolicitud"];
-    const headers = cols.map(col => `<th>${col}</th>`).join("") + "<th>Acciones</th>";
+    const cols = ["nombre", "apellido", "dni", "mail", "matricula", "provincia", "fechaSolicitud"];
+    const headers = cols.map(col => `<th>${etiqueta(col)}</th>`).join("") + "<th>Acciones</th>";
     const filas = datos.map(row => {
-        const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
+        const celdas = cols.map(c => {
+            if (c === "fechaSolicitud") return `<td>${row[c] ? new Date(row[c]).toLocaleDateString("es-AR") : "-"}</td>`;
+            return `<td>${row[c] ?? "-"}</td>`;
+        }).join("");
         return `<tr>${celdas}<td>
             <button class="btn-ok" onclick="aprobarSolicitud(${row.idProfesional})">Aprobar</button>
             <button class="btn-ko" onclick="rechazarSolicitud(${row.idProfesional})">Rechazar</button>
@@ -326,7 +394,7 @@ async function renderSolicitudes(c) {
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulos["solicitudes"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudes')">↺ Actualizar</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudes')">Actualizar</button>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
@@ -385,7 +453,7 @@ async function renderDerivaciones(c) {
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulos["derivaciones"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('derivaciones')">↺ Actualizar</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('derivaciones')">Actualizar</button>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
@@ -572,8 +640,10 @@ async function rechazarDerivacion(id) {
 }
 
 // ── TABLA GENÉRICA ───────────────────────────────────────────
+let _tabla = { tab: null, cols: [], datos: [], busqueda: "", orden: { col: null, dir: 1 } };
+
 function renderTabla(titulo, cols, datos, tab, contenido) {
-    const editable = !SOLO_LECTURA.includes(tab);
+    _tabla = { tab, cols, datos: datos ?? [], busqueda: "", orden: { col: null, dir: 1 } };
 
     if (!datos || datos.length === 0) {
         contenido.innerHTML = `<div class="titulo-seccion">${titulo}</div>
@@ -581,31 +651,86 @@ function renderTabla(titulo, cols, datos, tab, contenido) {
         return;
     }
 
-    const headers = cols.map(c => `<th>${c}</th>`).join("") + (editable ? "<th>Acciones</th>" : "");
-
-    const filas = datos.map(row => {
-        const id = row[idCampo[tab]];
-        const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
-        const acciones = editable ? `<td>
-            <button class="btn-accion btn-editar" onclick='abrirModal(${JSON.stringify(row)})'>✏️</button>
-            <button class="btn-accion btn-eliminar" onclick="eliminar('${tab}', ${id})">🗑️</button>
-        </td>` : "";
-        return `<tr>${celdas}${acciones}</tr>`;
-    }).join("");
-
     contenido.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulo} <span class="badge bg-secondary">${datos.length}</span>
                 ${SOLO_LECTURA.includes(tab) ? '<span class="badge bg-secondary ms-2" style="font-size:11px">Solo lectura</span>' : ""}
             </div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('${tab}')">↺ Actualizar</button>
+            <div class="tabla-acciones">
+                <input type="text" id="buscadorTabla" class="tabla-buscador" placeholder="Buscar..."
+                    oninput="filtrarTabla(this.value)">
+                <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('${tab}')">Actualizar</button>
+            </div>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
-                <thead><tr>${headers}</tr></thead>
-                <tbody>${filas}</tbody>
+                <thead><tr id="tablaHead"></tr></thead>
+                <tbody id="tablaBody"></tbody>
             </table>
         </div>`;
+
+    pintarTabla();
+}
+
+function pintarTabla() {
+    const { tab, cols, orden } = _tabla;
+    const editable = !SOLO_LECTURA.includes(tab);
+
+    const head = document.getElementById("tablaHead");
+    head.innerHTML = cols.map(c => {
+        const flecha = orden.col === c ? (orden.dir === 1 ? " ▲" : " ▼") : "";
+        return `<th class="th-ordenable" onclick="ordenarTabla('${c}')">${etiqueta(c)}${flecha}</th>`;
+    }).join("") + (editable ? "<th>Acciones</th>" : "");
+
+    let filas = _tabla.datos.slice();
+
+    const q = _tabla.busqueda.trim().toLowerCase();
+    if (q) {
+        filas = filas.filter(row =>
+            cols.some(c => String(valorCelda(c, row[c])).toLowerCase().includes(q)));
+    }
+
+    if (orden.col) {
+        const c = orden.col;
+        filas.sort((a, b) => {
+            const va = valorCelda(c, a[c]), vb = valorCelda(c, b[c]);
+            const na = parseFloat(va), nb = parseFloat(vb);
+            const cmp = (!isNaN(na) && !isNaN(nb))
+                ? na - nb
+                : String(va).localeCompare(String(vb), "es", { sensitivity: "base" });
+            return cmp * orden.dir;
+        });
+    }
+
+    const body = document.getElementById("tablaBody");
+    if (!filas.length) {
+        body.innerHTML = `<tr><td colspan="${cols.length + (editable ? 1 : 0)}" class="tabla-sin-resultados">Sin resultados.</td></tr>`;
+        return;
+    }
+
+    body.innerHTML = filas.map(row => {
+        const id = row[idCampo[tab]];
+        const celdas = cols.map(c => {
+            const num = (PK.has(c) || ["hora", "horaInicio", "horaFin", "nroAfiliado"].includes(c)) ? " class=\"col-num\"" : "";
+            return `<td${num}>${formatearCelda(c, row[c])}</td>`;
+        }).join("");
+        const acciones = editable ? `<td class="col-acciones">
+            <button class="btn-tabla btn-tabla-editar" onclick='abrirModal(${JSON.stringify(row)})'>Editar</button>
+            <button class="btn-tabla btn-tabla-eliminar" onclick="eliminar('${tab}', ${id})">Eliminar</button>
+        </td>` : "";
+        return `<tr>${celdas}${acciones}</tr>`;
+    }).join("");
+}
+
+function filtrarTabla(valor) {
+    _tabla.busqueda = valor;
+    pintarTabla();
+}
+
+function ordenarTabla(col) {
+    if (_tabla.orden.col === col) _tabla.orden.dir *= -1;
+    else _tabla.orden = { col, dir: 1 };
+    pintarTabla();
 }
 
 // ── MODAL EDICIÓN ────────────────────────────────────────────
@@ -619,13 +744,33 @@ function abrirModal(row) {
     body.innerHTML = (campos[tab] ?? []).map(c => {
         const val = row[c] ?? "";
         return `<div class="campo-modal">
-            <label>${c}</label>
-            <input type="text" id="field_${c}" value="${val}" class="input-modal">
+            <label>${etiqueta(c)}</label>
+            ${campoModal(c, val)}
         </div>`;
     }).join("");
 
     document.getElementById("modalOverlay").classList.add("visible");
     document.getElementById("modalPanel").classList.add("visible");
+}
+
+function campoModal(c, val) {
+    const opcionesSelect = mapa => Object.entries(mapa)
+        .map(([id, txt]) => `<option value="${id}" ${String(id) === String(val) ? "selected" : ""}>${txt}</option>`).join("");
+
+    if (c === "idPaciente")    return `<select id="field_${c}" class="input-modal">${opcionesSelect(LOOKUPS.pacientes)}</select>`;
+    if (c === "idProfesional") return `<select id="field_${c}" class="input-modal">${opcionesSelect(LOOKUPS.profesionales)}</select>`;
+    if (c === "idEstadoTurno") return `<select id="field_${c}" class="input-modal">${opcionesSelect(LOOKUPS.estados)}</select>`;
+    if (c === "idObraSocial")  return `<select id="field_${c}" class="input-modal">${opcionesSelect(LOOKUPS.obras)}</select>`;
+    if (c === "estado")        return `<select id="field_${c}" class="input-modal">
+        <option ${val === "Activo" ? "selected" : ""}>Activo</option>
+        <option ${val === "Inactivo" ? "selected" : ""}>Inactivo</option></select>`;
+    if (c === "disponible")    return `<select id="field_${c}" class="input-modal">
+        <option value="true"  ${(val === true || val === "true") ? "selected" : ""}>Sí</option>
+        <option value="false" ${(val === false || val === "false") ? "selected" : ""}>No</option></select>`;
+    if (c === "fecha")  return `<input type="date" id="field_${c}" value="${String(val).slice(0, 10)}" class="input-modal">`;
+    if (c === "hora" || c === "horaInicio" || c === "horaFin")
+        return `<input type="time" id="field_${c}" value="${String(val).slice(0, 5)}" class="input-modal">`;
+    return `<input type="text" id="field_${c}" value="${val}" class="input-modal">`;
 }
 
 function cerrarModal() {
@@ -669,7 +814,7 @@ function errorHtml(tab) {
     return `<div class="error-api">
         <div class="error-titulo">No se puede conectar con la API</div>
         <div class="error-desc">El servidor no está disponible en <strong>${API}</strong>.</div>
-        <button class="btn-reintentar" onclick="mostrarTab('${tab}')">↺ Reintentar</button>
+        <button class="btn-reintentar" onclick="mostrarTab('${tab}')">Reintentar</button>
     </div>`;
 }
 
@@ -701,7 +846,7 @@ async function renderAuditoria(c, pagina = 1) {
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulos["auditoria"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('auditoria')">↺ Actualizar</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('auditoria')">Actualizar</button>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
@@ -739,7 +884,7 @@ async function renderRecuperacion(c) {
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulos["recuperacion"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('recuperacion')">↺ Actualizar</button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('recuperacion')">Actualizar</button>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
