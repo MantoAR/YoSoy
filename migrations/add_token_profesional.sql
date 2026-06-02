@@ -1,0 +1,2 @@
+ALTER TABLE Profesional
+ADD Token NVARCHAR(64) NULL;

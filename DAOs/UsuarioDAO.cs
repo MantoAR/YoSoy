@@ -17,6 +17,19 @@ public class UsuarioDAO
         cmd.ExecuteNonQuery();
     }
 
+    public int InsertarYObtenerID(Usuario u)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "INSERT INTO Usuario (Username, PasswordHash, Estado, Mail) VALUES (@Username, @PasswordHash, @Estado, @Mail); SELECT SCOPE_IDENTITY();", con);
+        cmd.Parameters.AddWithValue("@Username",     u.Username);
+        cmd.Parameters.AddWithValue("@PasswordHash", u.PasswordHash);
+        cmd.Parameters.AddWithValue("@Estado",       u.Estado);
+        cmd.Parameters.AddWithValue("@Mail",         (object?)u.Mail ?? DBNull.Value);
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
     public void Modificar(Usuario u)
     {
         using var con = Conexion.ObtenerConexion();

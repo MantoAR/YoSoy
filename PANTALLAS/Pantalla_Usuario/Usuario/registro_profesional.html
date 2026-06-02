@@ -372,8 +372,10 @@
             return valido;
         }
 
+        let enviando = false;
         document.getElementById("formProfesional").addEventListener("submit", async function (e) {
             e.preventDefault();
+            if (enviando) return;
 
             if (!validar()) {
                 document.getElementById("errorMsg").style.display = "block";
@@ -381,6 +383,7 @@
                 return;
             }
 
+            enviando = true;
             document.getElementById("errorMsg").style.display = "none";
 
             const conocioVal = document.getElementById("conocio").value;
@@ -419,12 +422,19 @@
                     document.getElementById("pantallaConfirmacion").style.display = "block";
                 } else {
                     const texto = await respuesta.text();
-                    alert("Error " + respuesta.status + ": " + texto);
+                    let mensaje;
+                    try { mensaje = JSON.parse(texto).mensaje ?? texto; } catch { mensaje = texto; }
+                    const mensajeError = "Error " + respuesta.status + ": " + mensaje;
+                    navigator.clipboard?.writeText(mensajeError).catch(() => {});
+                    alert(mensajeError);
+                    enviando = false;
                 }
 
             } catch (error) {
-                console.error(error);
-                alert("No se pudo conectar con la API.");
+                const mensajeError = "No se pudo conectar con la API: " + error.message;
+                navigator.clipboard?.writeText(mensajeError).catch(() => {});
+                alert(mensajeError);
+                enviando = false;
             }
         });
     </script>

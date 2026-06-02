@@ -220,7 +220,12 @@
 
             <div class="error-msg" id="errorMsg">Usuario o contraseña incorrectos.</div>
 
-            <button type="submit" class="boton">Ingresar</button>
+            <div style="display:flex;gap:10px">
+                <button type="submit" class="boton" style="flex:1">Ingresar</button>
+                <button type="button" id="btnNuevoDashboard" class="boton" onclick="ingresarNuevoDashboard()" style="display:none;flex:1;background:white;color:#6A5ACD;border:2px solid #6A5ACD;white-space:nowrap">
+                    Nuevo panel
+                </button>
+            </div>
 
         </form>
 
@@ -235,8 +240,6 @@
         <div id="seccionRecuperacion" style="margin-top:14px">
             <span class="link-registro">
                 <a href="#" onclick="toggleRecuperacion(event)">¿Olvidé mi contraseña?</a>
-                &nbsp;·&nbsp;
-                <a href="#" onclick="toggleConsultarSolicitud(event)">Consultar solicitud</a>
             </span>
 
             <div id="formRecuperacion" style="display:none;margin-top:12px">
@@ -245,20 +248,9 @@
                     <input type="text" id="userRecuperacion" class="input" placeholder="Tu nombre de usuario">
                 </div>
                 <button type="button" class="boton" style="height:42px;font-size:15px" onclick="enviarRecuperacion()">
-                    Enviar solicitud
+                    Enviar link de recuperación
                 </button>
                 <div id="msgRecuperacion" style="margin-top:8px;font-size:13px"></div>
-            </div>
-
-            <div id="formConsultarSolicitud" style="display:none;margin-top:12px">
-                <div class="campo">
-                    <label>Usuario</label>
-                    <input type="text" id="userConsulta" class="input" placeholder="Tu nombre de usuario">
-                </div>
-                <button type="button" class="boton" style="height:42px;font-size:15px" onclick="consultarSolicitud()">
-                    Consultar
-                </button>
-                <div id="msgConsulta" style="margin-top:8px;font-size:13px"></div>
             </div>
         </div>
 
@@ -276,6 +268,8 @@
             document.getElementById("linkRegistro").style.display =
                 rol === "paciente" ? "block" : "none";
             document.getElementById("linkRegistroProfesional").style.display =
+                rol === "profesional" ? "block" : "none";
+            document.getElementById("btnNuevoDashboard").style.display =
                 rol === "profesional" ? "block" : "none";
 
             const esUserFinal = rol === "paciente" || rol === "profesional";
@@ -348,22 +342,38 @@
             }
         }
 
+        async function ingresarNuevoDashboard() {
+            const usuario = document.getElementById("usuario").value.trim();
+            const contrasena = document.getElementById("contrasena").value;
+            const errorMsg = document.getElementById("errorMsg");
+            errorMsg.style.display = "none";
+            if (!usuario || !contrasena) { errorMsg.textContent = "Completá usuario y contraseña."; errorMsg.style.display = "block"; return; }
+            try {
+                const res = await fetch("http://localhost:5000/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: usuario, password: contrasena })
+                });
+                if (res.status === 423) { const d = await res.json().catch(() => ({})); errorMsg.textContent = d.mensaje ?? "Cuenta bloqueada."; errorMsg.style.display = "block"; return; }
+                if (!res.ok) { errorMsg.textContent = "Usuario o contraseña incorrectos."; errorMsg.style.display = "block"; return; }
+                const data = await res.json();
+                if (data.rol !== "profesional") { errorMsg.textContent = "Este acceso es solo para profesionales."; errorMsg.style.display = "block"; return; }
+                localStorage.setItem("idUsuario", data.idUsuario);
+                localStorage.setItem("rol", data.rol);
+                localStorage.setItem("idProfesional", data.idProfesional);
+                window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
+            } catch {
+                errorMsg.textContent = "No se pudo conectar con el servidor.";
+                errorMsg.style.display = "block";
+            }
+        }
+
         function toggleRecuperacion(e) {
             e.preventDefault();
             const f = document.getElementById("formRecuperacion");
             const visible = f.style.display !== "none";
             f.style.display = visible ? "none" : "block";
-            document.getElementById("formConsultarSolicitud").style.display = "none";
             document.getElementById("msgRecuperacion").textContent = "";
-        }
-
-        function toggleConsultarSolicitud(e) {
-            e.preventDefault();
-            const f = document.getElementById("formConsultarSolicitud");
-            const visible = f.style.display !== "none";
-            f.style.display = visible ? "none" : "block";
-            document.getElementById("formRecuperacion").style.display = "none";
-            document.getElementById("msgConsulta").textContent = "";
         }
 
         async function enviarRecuperacion() {
@@ -376,46 +386,22 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ username })
                 });
+                const data = await res.json().catch(() => ({}));
                 if (res.ok) {
                     msg.style.color = "#27ae60";
-                    msg.textContent = "Solicitud enviada. El administrador la revisará.";
+                    msg.textContent = data.mensaje ?? "Te enviamos un link a tu mail para restablecer la contraseña.";
                 } else if (res.status === 409) {
                     msg.style.color = "#e74c3c";
                     msg.textContent = "Ya tenés una solicitud pendiente.";
                 } else if (res.status === 404) {
                     msg.style.color = "#e74c3c";
                     msg.textContent = "Usuario no encontrado.";
+                } else if (res.status === 400) {
+                    msg.style.color = "#e74c3c";
+                    msg.textContent = data.mensaje ?? "El usuario no tiene mail registrado.";
                 } else {
                     msg.style.color = "#e74c3c";
-                    msg.textContent = "Error al enviar la solicitud.";
-                }
-            } catch {
-                msg.style.color = "#e74c3c";
-                msg.textContent = "No se pudo conectar con el servidor.";
-            }
-        }
-
-        async function consultarSolicitud() {
-            const username = document.getElementById("userConsulta").value.trim();
-            const msg = document.getElementById("msgConsulta");
-            if (!username) { msg.textContent = "Ingresá tu usuario."; msg.style.color = "#e74c3c"; return; }
-            try {
-                const res = await fetch(`http://localhost:5000/recuperacion-password/estado/${encodeURIComponent(username)}`);
-                if (res.status === 404) {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "No hay solicitudes para este usuario.";
-                    return;
-                }
-                const data = await res.json();
-                if (data.estado === "Pendiente") {
-                    msg.style.color = "#888";
-                    msg.textContent = "Tu solicitud está siendo revisada por el administrador.";
-                } else if (data.estado === "Aceptada") {
-                    msg.style.color = "#27ae60";
-                    msg.innerHTML = `Tu nueva contraseña temporal es: <strong>${data.passwordTemporal}</strong>. Ingresá con ella y cambiala cuanto antes.`;
-                } else if (data.estado === "Rechazada") {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "Tu solicitud fue rechazada. Contactá al administrador.";
+                    msg.textContent = "Error al enviar el mail. Intentá más tarde.";
                 }
             } catch {
                 msg.style.color = "#e74c3c";

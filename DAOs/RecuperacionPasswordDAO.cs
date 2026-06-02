@@ -3,13 +3,41 @@ using System.Collections.Generic;
 
 public class RecuperacionPasswordDAO
 {
-    public void Insertar(int idUsuario)
+    public void Insertar(int idUsuario, string token, DateTime expiracion)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO RecuperacionPassword (IdUsuario) VALUES (@IdUsuario)", con);
+            "INSERT INTO RecuperacionPassword (IdUsuario, Token, TokenExpiracion) VALUES (@IdUsuario, @Token, @Exp)", con);
         cmd.Parameters.AddWithValue("@IdUsuario", idUsuario);
+        cmd.Parameters.AddWithValue("@Token", token);
+        cmd.Parameters.AddWithValue("@Exp", expiracion);
+        cmd.ExecuteNonQuery();
+    }
+
+    public RecuperacionPassword? ObtenerPorToken(string token)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT TOP 1 r.IdRecuperacion, r.IdUsuario, r.FechaSolicitud, r.Estado,
+                   r.PasswordTemporal, r.FechaResolucion, r.Token, r.TokenExpiracion,
+                   u.Username, u.Mail
+            FROM RecuperacionPassword r
+            JOIN Usuario u ON r.IdUsuario = u.IdUsuario
+            WHERE r.Token = @Token AND r.Estado = 'Pendiente'", con);
+        cmd.Parameters.AddWithValue("@Token", token);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? Mapear(reader) : null;
+    }
+
+    public void MarcarUsado(int idRecuperacion)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE RecuperacionPassword SET Estado = 'Aceptada', FechaResolucion = GETDATE() WHERE IdRecuperacion = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idRecuperacion);
         cmd.ExecuteNonQuery();
     }
 
@@ -102,6 +130,8 @@ public class RecuperacionPasswordDAO
         PasswordTemporal = r["PasswordTemporal"] == DBNull.Value ? null : (string)r["PasswordTemporal"],
         FechaResolucion  = r["FechaResolucion"]  == DBNull.Value ? null : (DateTime?)r["FechaResolucion"],
         Username         = r["Username"] == DBNull.Value ? null : (string)r["Username"],
-        Mail             = r["Mail"]     == DBNull.Value ? null : (string)r["Mail"]
+        Mail             = r["Mail"]     == DBNull.Value ? null : (string)r["Mail"],
+        Token            = r.HasColumn("Token") && r["Token"] != DBNull.Value ? (string)r["Token"] : null,
+        TokenExpiracion  = r.HasColumn("TokenExpiracion") && r["TokenExpiracion"] != DBNull.Value ? (DateTime?)r["TokenExpiracion"] : null
     };
 }

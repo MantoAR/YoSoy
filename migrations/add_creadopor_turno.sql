@@ -1,0 +1,2 @@
+ALTER TABLE Turno
+ADD CreadoPor NVARCHAR(20) NULL;

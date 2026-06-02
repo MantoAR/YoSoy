@@ -72,7 +72,7 @@ function mostrarSeccion(id) {
     else if (id === "agenda")        renderAgenda(c);
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
-    else if (id === "sesion")        c.innerHTML = `<iframe src="../Pantalla_Paciente/sesion_video.html" style="width:100%;height:calc(100vh - 120px);border:none;"></iframe>`;  // NUEVO
+    else if (id === "sesion")        c.innerHTML = `<iframe src="../Pantalla_Paciente/sesion_video.html" allow="camera; microphone" style="width:100%;height:calc(100vh - 120px);border:none;"></iframe>`;  // NUEVO
 }
 
 async function cerrarSesion() {
@@ -88,11 +88,13 @@ async function renderInicio(c) {
         const res = await fetch(`${API}/pacientes/${idPaciente}/proximo-turno`);
 
         if (res.status === 404) {
+            const pendientesHtml = await renderTurnosPendientesProfesional();
             c.innerHTML = `
                 <div class="titulo-seccion">Inicio</div>
                 <div class="card">
                     <p class="sin-turnos">No tenés turnos próximos.</p>
-                </div>`;
+                </div>
+                ${pendientesHtml}`;
             return;
         }
 
@@ -100,6 +102,7 @@ async function renderInicio(c) {
         const fecha = new Date(t.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
         const hora  = t.hora.substring(0,5);
 
+        const pendientesHtml = await renderTurnosPendientesProfesional();
         c.innerHTML = `
             <div class="titulo-seccion">Inicio</div>
             <div class="card" style="background:linear-gradient(135deg,#0d6efd,#6A5ACD);border-radius:20px;padding:32px;color:white;max-width:680px">
@@ -116,18 +119,68 @@ async function renderInicio(c) {
                         <div style="font-size:16px;font-weight:600">${t.especialidad}</div>
                     </div>
                     <div>
-                        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Modalidad</div>
-                        <div style="font-size:16px;font-weight:600">${t.modalidad ?? "-"}</div>
-                    </div>
-                    <div>
                         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Estado</div>
                         <div style="font-size:16px;font-weight:600">${t.estadoDescripcion}</div>
                     </div>
                 </div>
-            </div>`;
+            </div>
+            ${pendientesHtml}`;
     } catch {
         c.innerHTML = `<div class="titulo-seccion">Inicio</div><p style="color:#e74c3c">Error al cargar los datos.</p>`;
     }
+}
+
+async function renderTurnosPendientesProfesional() {
+    let turnos = [];
+    try {
+        const r = await fetch(`${API}/pacientes/${idPaciente}/turnos`);
+        turnos = await r.json();
+    } catch { return ''; }
+
+    const pendientes = turnos.filter(t => t.idEstadoTurno === 1 && t.creadoPor === 'profesional');
+    if (!pendientes.length) return '';
+
+    const profMap = {};
+    await Promise.all(pendientes.map(async t => {
+        if (!profMap[t.idProfesional]) {
+            try { profMap[t.idProfesional] = await (await fetch(`${API}/profesionales/${t.idProfesional}`)).json(); } catch {}
+        }
+    }));
+
+    const filas = pendientes.map(t => {
+        const fecha = new Date(t.fecha);
+        const p = profMap[t.idProfesional];
+        return `
+        <div style="display:flex;align-items:center;gap:16px;padding:14px;background:#faf7ff;border-radius:12px;border-left:4px solid #0d6efd;margin-bottom:10px;flex-wrap:wrap">
+            <div style="background:linear-gradient(135deg,#0d6efd,#6A5ACD);color:white;border-radius:10px;padding:10px 14px;text-align:center;min-width:56px">
+                <div style="font-size:20px;font-weight:bold;line-height:1">${fecha.getDate()}</div>
+                <div style="font-size:11px;text-transform:uppercase">${fecha.toLocaleString('es-AR',{month:'short'})}</div>
+            </div>
+            <div style="flex:1">
+                <div style="font-size:15px;font-weight:bold;color:#222">${p ? p.nombre+' '+(p.apellido??'') : 'Profesional #'+t.idProfesional}</div>
+                <div style="font-size:13px;color:#888">${t.hora?.substring(0,5) ?? ''} · ${t.modalidad ?? ''}</div>
+            </div>
+            <button onclick="responderTurnoPaciente(${t.idTurno}, true)"  style="padding:6px 16px;border:none;border-radius:8px;background:#d1fae5;color:#065f46;font-weight:bold;cursor:pointer">Aceptar</button>
+            <button onclick="responderTurnoPaciente(${t.idTurno}, false)" style="padding:6px 16px;border:none;border-radius:8px;background:#fee2e2;color:#991b1b;font-weight:bold;cursor:pointer">Rechazar</button>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="card" style="margin-top:20px">
+            <p style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#9D6BCF;margin-bottom:16px">Turnos propuestos por tu profesional</p>
+            ${filas}
+        </div>`;
+}
+
+async function responderTurnoPaciente(id, aceptar) {
+    try {
+        const r = await fetch(`${API}/turnos/${id}`);
+        const turno = await r.json();
+        turno.idEstadoTurno = aceptar ? 2 : 3;
+        const res = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        if (res.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); mostrarSeccion('agenda'); }
+        else toast('Error al responder', 'error');
+    } catch { toast('Error de conexión', 'error'); }
 }
 
 // ── AGENDA / CALENDARIO ────────────────────────────────────
@@ -208,8 +261,10 @@ function dibujarCalendario() {
             onclick = valido ? `onclick="seleccionarDiaReprog(${dia})"` : "";
         } else {
             const soloCancelado = tieneT && turnosPorDia[dia].every(t => t.estadoDescripcion === "Cancelado");
+            const yoPedi      = tieneT && turnosPorDia[dia].some(t => t.estadoDescripcion === "Pendiente" && t.creadoPor === 'paciente');
+            const mePidieron  = tieneT && turnosPorDia[dia].some(t => t.estadoDescripcion === "Pendiente" && t.creadoPor === 'profesional');
             const claseT = tieneT
-                ? (soloCancelado ? "con-turno-cancelado" : pendiente ? "con-turno-pendiente" : "con-turno")
+                ? (soloCancelado ? "con-turno-cancelado" : mePidieron ? "con-turno-pendiente-ellos" : yoPedi ? "con-turno-pendiente-yo" : "con-turno")
                 : (esPasado ? "pasado" : "futuro");
             clases  = ["cal-dia", claseT, esHoy ? "hoy" : ""].join(" ").trim();
             onclick = !esPasado ? `onclick="mostrarPanelDia(${dia})"` : "";
@@ -264,11 +319,13 @@ async function mostrarPanelDia(dia) {
                 </div>
                 <span class="panel-estado-badge" style="background:${estadoBg};color:${estadoTxt}">${t.estadoDescripcion}</span>
             </div>
-            <div class="panel-chips">
-                <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${t.modalidad ?? "-"}</span></div>
-                ${t.motivo ? `<div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div>` : ""}
-            </div>
-            ${puedeAccionar ? `
+            ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div></div>` : ""}
+            ${t.estadoDescripcion === 'Pendiente' && t.creadoPor === 'profesional' ? `
+            <div class="panel-acciones">
+                <button class="btn-accion btn-guardar" onclick="responderTurnoPaciente(${t.idTurno}, true)">Aceptar turno</button>
+                <button class="btn-accion btn-cancelar" onclick="responderTurnoPaciente(${t.idTurno}, false)">Rechazar</button>
+            </div>` : ''}
+            ${puedeAccionar && t.creadoPor !== 'profesional' ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-cancelar" onclick="cancelarTurno(${t.idTurno})">Cancelar turno</button>
                 <button class="btn-accion btn-reprogramar" id="btnReprogramar" onclick="abrirFormReprogramar(${t.idTurno}, ${t.idProfesional})">Reprogramar</button>
@@ -296,7 +353,17 @@ async function mostrarPanelDia(dia) {
 
     const tieneActivo = turnosDia.some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado");
 
-    html += !tieneActivo ? `<div class="panel-solicitar-bloque">
+    let hayDisponibilidad = false;
+    if (!tieneActivo) {
+        const diaSem = new Date(fechaStr + "T12:00:00").getDay();
+        const profs  = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
+        const agendas = await Promise.all(profs.map(p =>
+            fetch(`${API}/profesionales/${p.idProfesional}/agenda`).then(r => r.json()).catch(() => [])
+        ));
+        hayDisponibilidad = agendas.some(ag => ag.some(a => a.disponible && DIA_DB_NUM[normalizar(a.dia)] === diaSem));
+    }
+
+    html += (!tieneActivo && hayDisponibilidad) ? `<div class="panel-solicitar-bloque">
         <button class="btn-solicitar-dia" onclick="abrirFormSolicitud('${fechaStr}')">+ Solicitar turno para este día</button>
     </div>
     <div class="form-solicitar-dia" id="formSolicitar">
@@ -320,7 +387,7 @@ async function mostrarPanelDia(dia) {
     </div>` : "";
 
     panel.innerHTML = html;
-    if (!tieneActivo) cargarProfesionalesSolicitud(fechaStr);
+    if (!tieneActivo && hayDisponibilidad) cargarProfesionalesSolicitud(fechaStr);
 }
 
 async function abrirFormSolicitud(fechaStr) {
@@ -379,10 +446,9 @@ async function cargarHorasSolicitud(fechaStr) {
 }
 
 async function confirmarSolicitudDia(fechaStr) {
-    const idProf    = parseInt(document.getElementById("solProf").value);
-    const hora      = document.getElementById("solHora").value;
-    const modalidad = "Virtual";
-    const motivo    = document.getElementById("solMotivo").value || null;
+    const idProf = parseInt(document.getElementById("solProf").value);
+    const hora   = document.getElementById("solHora").value;
+    const motivo = document.getElementById("solMotivo").value || null;
 
     if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
     if (!hora)   { toast("Seleccioná un horario.", "warn"); return; }
@@ -395,7 +461,6 @@ async function confirmarSolicitudDia(fechaStr) {
             idProfesional: idProf,
             fecha:         new Date(fechaStr + "T12:00:00").toISOString(),
             hora:          hora + ":00",
-            modalidad,
             motivo
         })
     });
