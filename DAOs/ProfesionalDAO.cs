@@ -86,6 +86,38 @@ public class ProfesionalDAO
         return reader.Read() ? Mapear(reader) : null;
     }
 
+    public void GuardarToken(int idProfesional, string token)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Profesional SET Token = @Token WHERE IdProfesional = @Id", con);
+        cmd.Parameters.AddWithValue("@Token", token);
+        cmd.Parameters.AddWithValue("@Id",    idProfesional);
+        cmd.ExecuteNonQuery();
+    }
+
+    public Profesional? ObtenerPorToken(string token)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, Token FROM Profesional WHERE Token = @Token", con);
+        cmd.Parameters.AddWithValue("@Token", token);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? MapearConToken(reader) : null;
+    }
+
+    public void LimpiarToken(int idProfesional)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Profesional SET Token = NULL WHERE IdProfesional = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idProfesional);
+        cmd.ExecuteNonQuery();
+    }
+
     public List<Profesional> ObtenerPorEspecialidad(int idEspecialidad)
     {
         var lista = new List<Profesional>();
@@ -119,4 +151,11 @@ public class ProfesionalDAO
         Telefono        = r["Telefono"]        == DBNull.Value ? null : (string)r["Telefono"],
         FechaSolicitud  = r["FechaSolicitud"]  == DBNull.Value ? null : (DateTime?)r["FechaSolicitud"]
     };
+
+    private Profesional MapearConToken(SqlDataReader r)
+    {
+        var p = Mapear(r);
+        p.Token = r["Token"] == DBNull.Value ? null : (string)r["Token"];
+        return p;
+    }
 }

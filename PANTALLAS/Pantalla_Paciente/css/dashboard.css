@@ -232,6 +232,22 @@ body {
 
 .cal-dia.con-turno-pendiente:hover { opacity: 0.85; }
 
+.cal-dia.con-turno-pendiente-yo {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+}
+.cal-dia.con-turno-pendiente-yo:hover { opacity: 0.85; }
+
+.cal-dia.con-turno-pendiente-ellos {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+}
+.cal-dia.con-turno-pendiente-ellos:hover { opacity: 0.85; }
+
 .cal-dia.seleccionado {
     outline: 3px solid #6A5ACD;
     outline-offset: 2px;

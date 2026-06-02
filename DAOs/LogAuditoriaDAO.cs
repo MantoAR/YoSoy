@@ -10,7 +10,7 @@ public class LogAuditoriaDAO
         var cmd = new SqlCommand(@"
             INSERT INTO LogAuditoria (IdUsuario, Accion, Entidad, IdEntidad, Detalle)
             VALUES (@IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle)", con);
-        cmd.Parameters.AddWithValue("@IdUsuario", l.IdUsuario);
+        cmd.Parameters.AddWithValue("@IdUsuario", (object?)l.IdUsuario ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Accion",    l.Accion);
         cmd.Parameters.AddWithValue("@Entidad",   l.Entidad);
         cmd.Parameters.AddWithValue("@IdEntidad", (object?)l.IdEntidad ?? DBNull.Value);
@@ -39,7 +39,7 @@ public class LogAuditoriaDAO
     private LogAuditoria Mapear(SqlDataReader r) => new LogAuditoria
     {
         IdLog     = (int)r["IdLog"],
-        IdUsuario = (int)r["IdUsuario"],
+        IdUsuario = r["IdUsuario"] == DBNull.Value ? null : (int?)r["IdUsuario"],
         Accion    = (string)r["Accion"],
         Entidad   = (string)r["Entidad"],
         IdEntidad = r["IdEntidad"] == DBNull.Value ? null : (int?)r["IdEntidad"],

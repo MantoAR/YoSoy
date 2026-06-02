@@ -220,7 +220,12 @@
 
             <div class="error-msg" id="errorMsg">Usuario o contraseña incorrectos.</div>
 
-            <button type="submit" class="boton">Ingresar</button>
+            <div style="display:flex;gap:10px">
+                <button type="submit" class="boton" style="flex:1">Ingresar</button>
+                <button type="button" id="btnNuevoDashboard" class="boton" onclick="ingresarNuevoDashboard()" style="display:none;flex:1;background:white;color:#6A5ACD;border:2px solid #6A5ACD;white-space:nowrap">
+                    Nuevo panel
+                </button>
+            </div>
 
         </form>
 
@@ -263,6 +268,8 @@
             document.getElementById("linkRegistro").style.display =
                 rol === "paciente" ? "block" : "none";
             document.getElementById("linkRegistroProfesional").style.display =
+                rol === "profesional" ? "block" : "none";
+            document.getElementById("btnNuevoDashboard").style.display =
                 rol === "profesional" ? "block" : "none";
 
             const esUserFinal = rol === "paciente" || rol === "profesional";
@@ -329,6 +336,32 @@
                     window.location.href = "Pantalla_Configurador/dashboard.html";
                 }
 
+            } catch {
+                errorMsg.textContent = "No se pudo conectar con el servidor.";
+                errorMsg.style.display = "block";
+            }
+        }
+
+        async function ingresarNuevoDashboard() {
+            const usuario = document.getElementById("usuario").value.trim();
+            const contrasena = document.getElementById("contrasena").value;
+            const errorMsg = document.getElementById("errorMsg");
+            errorMsg.style.display = "none";
+            if (!usuario || !contrasena) { errorMsg.textContent = "Completá usuario y contraseña."; errorMsg.style.display = "block"; return; }
+            try {
+                const res = await fetch("http://localhost:5000/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: usuario, password: contrasena })
+                });
+                if (res.status === 423) { const d = await res.json().catch(() => ({})); errorMsg.textContent = d.mensaje ?? "Cuenta bloqueada."; errorMsg.style.display = "block"; return; }
+                if (!res.ok) { errorMsg.textContent = "Usuario o contraseña incorrectos."; errorMsg.style.display = "block"; return; }
+                const data = await res.json();
+                if (data.rol !== "profesional") { errorMsg.textContent = "Este acceso es solo para profesionales."; errorMsg.style.display = "block"; return; }
+                localStorage.setItem("idUsuario", data.idUsuario);
+                localStorage.setItem("rol", data.rol);
+                localStorage.setItem("idProfesional", data.idProfesional);
+                window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
             } catch {
                 errorMsg.textContent = "No se pudo conectar con el servidor.";
                 errorMsg.style.display = "block";
