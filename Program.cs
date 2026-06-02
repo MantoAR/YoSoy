@@ -366,7 +366,7 @@ app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 
     try
     {
-        new EmailService().EnviarAprobacionProfesional(p.Mail, p.Nombre, token);
+        new EmailService(app.Configuration).EnviarAprobacionProfesional(p.Mail, p.Nombre, token);
     }
     catch { }
 
@@ -895,7 +895,7 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
 
     try
     {
-        new EmailService().EnviarResetPassword(usuario.Mail, token);
+        new EmailService(app.Configuration).EnviarResetPassword(usuario.Mail, token);
     }
     catch
     {

@@ -1,14 +1,25 @@
 using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
+using Microsoft.Extensions.Configuration;
 
 public class EmailService
 {
-    private readonly string _host   = "smtp.gmail.com";
-    private readonly int    _port   = 587;
-    private readonly string _from   = "cervantesyosoycor@gmail.com";
-    private readonly string _pass   = "cgteljwfxzovygdm";
-    private readonly string _appUrl = "http://localhost:5000";
+    private readonly string _host;
+    private readonly int    _port;
+    private readonly string _from;
+    private readonly string _pass;
+    private readonly string _appUrl;
+
+    public EmailService(IConfiguration config)
+    {
+        var email = config.GetSection("Email");
+        _host   = email["Host"]!;
+        _port   = int.Parse(email["Port"]!);
+        _from   = email["From"]!;
+        _pass   = email["Password"]!;
+        _appUrl = email["AppUrl"]!;
+    }
 
     public void EnviarAprobacionProfesional(string destinatario, string nombreProfesional, string token)
     {
