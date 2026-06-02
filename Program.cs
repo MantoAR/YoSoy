@@ -807,13 +807,47 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
 {
     var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
     if (usuario == null) return Results.NotFound(new { mensaje = "Usuario no encontrado." });
+    if (string.IsNullOrWhiteSpace(usuario.Mail)) return Results.BadRequest(new { mensaje = "El usuario no tiene mail registrado." });
 
     var dao = new RecuperacionPasswordDAO();
     if (dao.TienePendiente(usuario.IdUsuario))
         return Results.Conflict(new { mensaje = "Ya tenés una solicitud pendiente." });
 
-    dao.Insertar(usuario.IdUsuario);
-    return Results.Ok();
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    var expiracion = DateTime.UtcNow.AddHours(1);
+    dao.Insertar(usuario.IdUsuario, token, expiracion);
+
+    try
+    {
+        new EmailService().EnviarResetPassword(usuario.Mail, token);
+    }
+    catch
+    {
+        return Results.StatusCode(502);
+    }
+
+    return Results.Ok(new { mensaje = "Te enviamos un link a tu mail para restablecer la contraseña." });
+});
+
+app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
+{
+    var dao = new RecuperacionPasswordDAO();
+    var rec = dao.ObtenerPorToken(req.Token);
+    if (rec == null) return Results.NotFound(new { mensaje = "Link inválido o ya utilizado." });
+    if (rec.TokenExpiracion < DateTime.UtcNow) return Results.BadRequest(new { mensaje = "El link expiró. Solicitá uno nuevo." });
+
+    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(req.NuevaPassword)));
+
+    var uDAO = new UsuarioDAO();
+    var usuario = uDAO.ObtenerPorId(rec.IdUsuario);
+    if (usuario == null) return Results.NotFound();
+    usuario.PasswordHash = hash;
+    uDAO.Modificar(usuario);
+    uDAO.ResetearIntentos(rec.IdUsuario);
+    dao.MarcarUsado(rec.IdRecuperacion);
+
+    return Results.Ok(new { mensaje = "Contraseña actualizada correctamente." });
 });
 
 app.MapGet("/recuperacion-password/pendientes", () =>

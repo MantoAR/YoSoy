@@ -8,4 +8,6 @@ public class RecuperacionPassword
     public DateTime? FechaResolucion { get; set; }
     public string Username { get; set; }
     public string Mail { get; set; }
+    public string? Token { get; set; }
+    public DateTime? TokenExpiracion { get; set; }
 }
