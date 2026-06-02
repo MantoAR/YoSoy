@@ -8,7 +8,9 @@ app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
         Path.Combine(builder.Environment.ContentRootPath, "PANTALLAS")),
-    RequestPath = "/pantallas"
+    RequestPath = "/pantallas",
+    ServeUnknownFileTypes = true,
+    DefaultContentType = "application/octet-stream"
 });
 
 // Login
