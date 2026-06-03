@@ -46,7 +46,6 @@ const SOLO_LECTURA = ["evoluciones", "eventoscrisis"];
 
 const campos = {
     turnos:          ["idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad", "motivo"],
-    agendas:         ["idProfesional", "dia", "horaInicio", "horaFin", "disponible"],
     roles:           ["nombre", "estado"],
     especialidades:  ["nombre", "estado"],
     coberturas:      ["idPaciente", "idObraSocial", "nroAfiliado", "planCobertura", "estado"],
@@ -64,7 +63,6 @@ const idCampo = {
 
 const columnas = {
     turnos:          ["idTurno", "idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad"],
-    agendas:         ["idAgenda", "idProfesional", "dia", "horaInicio", "horaFin", "disponible"],
     evoluciones:     ["idEvolucion", "idHistoria", "idProfesional", "fecha", "diagnostico"],
     eventoscrisis:   ["idEvento", "idPaciente", "fecha", "nivelRiesgo", "acciones"],
     roles:           ["idRol", "nombre", "estado"],
@@ -142,7 +140,7 @@ const titulos = {
     solicitudes:     "Solicitudes de Registro",
     derivaciones:    "Solicitudes de Cambio de Profesional",
     turnos:          "Turnos",
-    agendas:         "Agenda",
+    agendas:         "Agendas",
     evoluciones:     "Evoluciones",
     eventoscrisis:   "Eventos de Crisis",
     roles:           "Roles",
@@ -171,6 +169,434 @@ function marcarActivo(tab) {
     });
 }
 
+// ── AGENDA COMPLETA ──────────────────────────────────────────
+
+const MOTIVOS_BLOQUEO = [
+    "Cambio de adscripción","Capacitación","Comisión oficial","Comisión sindical",
+    "Defunción","Día festivo","Docencia","Doctor enfermo",
+    "Doctor estudios de postgrado","Doctor haciendo clase universidad",
+    "Doctor reunión colegio de doctores","Educación continua","Incapacidad",
+    "Licencia con goce de sueldo","Licencia sin goce de sueldo","Otra",
+    "Prestación laboral","Renuncia","Vacaciones"
+];
+
+const DIAS_SEMANA = ["Lunes","Martes","Miercoles","Jueves","Viernes","Sabado","Domingo"];
+
+async function renderAgendas(c) {
+    const [agendas, servicios, profesionales] = await Promise.all([
+        fetch(`${API}/agendas`).then(r => r.json()).catch(() => []),
+        fetch(`${API}/servicios`).then(r => r.json()).catch(() => []),
+        fetch(`${API}/profesionales`).then(r => r.json()).catch(() => [])
+    ]);
+
+    window._servicios     = servicios;
+    window._profesionales = profesionales;
+
+    const mapaServicios = {};
+    servicios.forEach(s => mapaServicios[s.idServicio] = s.nombre);
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">Agendas</div>
+            <button class="btn btn-guardar btn-sm" onclick="abrirFormAgenda(null)">+ Nueva agenda</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>
+                    <th>#</th><th>Código</th><th>Descripción</th>
+                    <th>Servicio</th><th>Fecha inicio</th><th>Fecha fin</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>
+                ${agendas.length ? agendas.map(a => `
+                    <tr>
+                        <td><span class="celda-id">#${a.idAgenda}</span></td>
+                        <td>${a.codigo ?? '-'}</td>
+                        <td>${a.descripcion ?? '-'}</td>
+                        <td>${mapaServicios[a.idServicio] ?? '-'}</td>
+                        <td>${a.fechaInicio ? new Date(a.fechaInicio).toLocaleDateString('es-AR') : '-'}</td>
+                        <td>${a.fechaFin    ? new Date(a.fechaFin).toLocaleDateString('es-AR')    : '-'}</td>
+                        <td class="col-acciones">
+                            <button class="btn-tabla btn-tabla-editar" onclick="abrirFormAgenda(${a.idAgenda})">Editar</button>
+                            <button class="btn-tabla btn-tabla-eliminar" onclick="eliminarAgenda(${a.idAgenda})">Eliminar</button>
+                        </td>
+                    </tr>`).join('') : `<tr><td colspan="7" class="tabla-sin-resultados">No hay agendas cargadas.</td></tr>`}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+async function abrirFormAgenda(idAgenda) {
+    const c = document.getElementById('contenido');
+    c.innerHTML = `<div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>`;
+
+    const [servicios, profesionales, tiposProfesional] = await Promise.all([
+        fetch(`${API}/servicios`).then(r => r.json()).catch(() => []),
+        fetch(`${API}/profesionales`).then(r => r.json()).catch(() => []),
+        fetch(`${API}/tiposprofesional`).then(r => r.json()).catch(() => [])
+    ]);
+
+    let agenda = { idAgenda: null, codigo: '', descripcion: '', fechaInicio: '', fechaFin: '', idServicio: '' };
+    let propietarios = [];
+    let horarios     = [];
+
+    if (idAgenda) {
+        const [a, p, h] = await Promise.all([
+            fetch(`${API}/agendas/${idAgenda}`).then(r => r.json()).catch(() => null),
+            fetch(`${API}/agendas/${idAgenda}/propietarios`).then(r => r.json()).catch(() => []),
+            fetch(`${API}/agendas/${idAgenda}/horarios`).then(r => r.json()).catch(() => [])
+        ]);
+        if (a) agenda = a;
+        propietarios = p;
+        horarios     = h;
+    }
+
+    window._tiposProfesional  = tiposProfesional;
+    window._profesionalesForm = profesionales;
+
+    c.innerHTML = `
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <button class="btn btn-sm btn-outline-secondary" onclick="renderAgendas(document.getElementById('contenido'))">← Volver</button>
+            <div class="titulo-seccion mb-0">${idAgenda ? 'Editar agenda' : 'Nueva agenda'}</div>
+        </div>
+
+        <!-- CABECERA -->
+        <div class="card mb-3 p-3">
+            <div class="fw-bold mb-2" style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em">Datos de la agenda</div>
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label">Código</label>
+                    <input type="text" id="ag-codigo" class="form-control form-control-sm" value="${agenda.codigo ?? ''}">
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Descripción</label>
+                    <input type="text" id="ag-descripcion" class="form-control form-control-sm" value="${agenda.descripcion ?? ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Servicio</label>
+                    <select id="ag-servicio" class="form-select form-select-sm">
+                        <option value="">-- Seleccioná --</option>
+                        ${servicios.map(s => `<option value="${s.idServicio}" ${agenda.idServicio == s.idServicio ? 'selected' : ''}>${s.nombre}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Fecha inicio</label>
+                    <input type="date" id="ag-finicio" class="form-control form-control-sm" value="${agenda.fechaInicio ? String(agenda.fechaInicio).slice(0,10) : ''}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Fecha fin</label>
+                    <input type="date" id="ag-ffin" class="form-control form-control-sm" value="${agenda.fechaFin ? String(agenda.fechaFin).slice(0,10) : ''}">
+                </div>
+            </div>
+        </div>
+
+        <!-- PROPIETARIOS -->
+        <div class="card mb-3 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-bold" style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em">Propietarios</div>
+                <button class="btn btn-sm btn-outline-primary" onclick="agregarPropietario()">+ Agregar</button>
+            </div>
+            <div id="lista-propietarios">
+                ${propietarios.length ? propietarios.map((p,i) => htmlPropietario(p, i, profesionales, tiposProfesional)).join('') : '<p style="font-size:13px;color:#aaa">Sin propietarios.</p>'}
+            </div>
+        </div>
+
+        <!-- HORARIOS -->
+        <div class="card mb-3 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-bold" style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em">Horarios</div>
+                <button class="btn btn-sm btn-outline-primary" onclick="agregarHorario()">+ Agregar</button>
+            </div>
+            <div id="lista-horarios">
+                ${horarios.length ? horarios.map((h,i) => htmlHorario(h, i)).join('') : '<p style="font-size:13px;color:#aaa">Sin horarios.</p>'}
+            </div>
+        </div>
+
+        <!-- BLOQUEOS (solo si la agenda ya existe) -->
+        ${idAgenda ? `
+        <div class="card mb-3 p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="fw-bold" style="font-size:13px;color:#888;text-transform:uppercase;letter-spacing:.05em">Bloqueos</div>
+                <button class="btn btn-sm btn-outline-danger" onclick="abrirModalBloqueo(${idAgenda})">+ Agregar bloqueo</button>
+            </div>
+            <div id="lista-bloqueos"><p style="font-size:13px;color:#aaa">Cargando...</p></div>
+        </div>` : ''}
+
+        <div class="d-flex gap-2 mb-4">
+            <button class="btn btn-guardar" onclick="guardarAgenda(${idAgenda ?? 'null'})">Guardar agenda</button>
+            <button class="btn btn-secondary btn-sm" onclick="renderAgendas(document.getElementById('contenido'))">Cancelar</button>
+        </div>`;
+
+    if (idAgenda) cargarBloqueosAgenda(idAgenda);
+}
+
+function htmlPropietario(p, i, profesionales, tiposProfesional) {
+    const optsProf = profesionales
+        .filter(pr => pr.estado === 'Activo')
+        .map(pr => `<option value="${pr.idProfesional}" ${p.idProfesional == pr.idProfesional ? 'selected' : ''}>${pr.nombre} ${pr.apellido ?? ''}</option>`).join('');
+    const optsTipo = tiposProfesional
+        .map(t => `<option value="${t.idTipoProfesional}" ${p.idTipoProfesional == t.idTipoProfesional ? 'selected' : ''}>${t.nombre}</option>`).join('');
+
+    return `
+        <div class="row g-2 align-items-center mb-2" id="prop-row-${i}">
+            <div class="col-md-4">
+                <select class="form-select form-select-sm prop-profesional" data-idx="${i}">
+                    <option value="">-- Profesional --</option>${optsProf}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select class="form-select form-select-sm prop-tipo" data-idx="${i}">
+                    <option value="">-- Tipo --</option>${optsTipo}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex align-items-center gap-2">
+                <input type="checkbox" id="prop-urgente-${i}" class="prop-urgente" data-idx="${i}" ${p.puedeCitaUrgente ? 'checked' : ''}>
+                <label for="prop-urgente-${i}" style="font-size:13px;margin:0">Cita urgente</label>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-sm btn-outline-danger w-100" onclick="quitarPropietario(${i})">Quitar</button>
+            </div>
+        </div>`;
+}
+
+function htmlHorario(h, i) {
+    return `
+        <div class="border rounded p-2 mb-2" id="hor-row-${i}">
+            <div class="row g-2 mb-2">
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:12px">Código</label>
+                    <input type="text" class="form-control form-control-sm hor-codigo" data-idx="${i}" value="${h.codigo ?? ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" style="font-size:12px">Descripción</label>
+                    <input type="text" class="form-control form-control-sm hor-descripcion" data-idx="${i}" value="${h.descripcion ?? ''}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:12px">Hora inicio</label>
+                    <input type="time" class="form-control form-control-sm hor-inicio" data-idx="${i}" value="${h.horaInicio ? String(h.horaInicio).slice(0,5) : ''}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:12px">Hora fin</label>
+                    <input type="time" class="form-control form-control-sm hor-fin" data-idx="${i}" value="${h.horaFin ? String(h.horaFin).slice(0,5) : ''}">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label" style="font-size:12px">Intervalo</label>
+                    <input type="number" class="form-control form-control-sm hor-intervalo" data-idx="${i}" value="${h.intervaloMinutos ?? 30}" min="5" max="120">
+                </div>
+                <div class="col-md-1">
+                    <label class="form-label" style="font-size:12px">Máx. citas</label>
+                    <input type="number" class="form-control form-control-sm hor-maxcitas" data-idx="${i}" value="${h.maxCitas ?? 1}" min="1">
+                </div>
+            </div>
+            <div class="row g-2 mb-2">
+                <div class="col-md-3">
+                    <label class="form-label" style="font-size:12px">Fecha inicio</label>
+                    <input type="date" class="form-control form-control-sm hor-finicio" data-idx="${i}" value="${h.fechaInicio ? String(h.fechaInicio).slice(0,10) : ''}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" style="font-size:12px">Fecha fin</label>
+                    <input type="date" class="form-control form-control-sm hor-ffin" data-idx="${i}" value="${h.fechaFin ? String(h.fechaFin).slice(0,10) : ''}">
+                </div>
+                <div class="col-md-6 d-flex align-items-end gap-3 pb-1">
+                    ${DIAS_SEMANA.map(d => `
+                        <div class="d-flex flex-column align-items-center">
+                            <span style="font-size:11px">${d.slice(0,3)}</span>
+                            <input type="checkbox" class="hor-dia" data-dia="${d.toLowerCase()}" data-idx="${i}"
+                                ${h[d.toLowerCase()] ? 'checked' : ''}>
+                        </div>`).join('')}
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <input type="checkbox" id="hor-festivos-${i}" class="hor-festivos" data-idx="${i}" ${h.trabajeFestivos ? 'checked' : ''}>
+                    <label for="hor-festivos-${i}" style="font-size:13px;margin:0">Trabaja festivos</label>
+                </div>
+                <button class="btn btn-sm btn-outline-danger ms-auto" onclick="quitarHorario(${i})">Quitar horario</button>
+            </div>
+        </div>`;
+}
+
+function agregarPropietario() {
+    const lista = document.getElementById('lista-propietarios');
+    const idx = lista.querySelectorAll('[id^="prop-row-"]').length;
+    const profesionales    = window._profesionalesForm ?? [];
+    const tiposProfesional = window._tiposProfesional ?? [];
+    lista.innerHTML = lista.innerHTML.replace('<p style="font-size:13px;color:#aaa">Sin propietarios.</p>', '');
+    lista.insertAdjacentHTML('beforeend', htmlPropietario({}, idx, profesionales, tiposProfesional));
+}
+
+function quitarPropietario(i) {
+    document.getElementById(`prop-row-${i}`)?.remove();
+}
+
+function agregarHorario() {
+    const lista = document.getElementById('lista-horarios');
+    const idx = lista.querySelectorAll('[id^="hor-row-"]').length;
+    lista.innerHTML = lista.innerHTML.replace('<p style="font-size:13px;color:#aaa">Sin horarios.</p>', '');
+    lista.insertAdjacentHTML('beforeend', htmlHorario({}, idx));
+}
+
+function quitarHorario(i) {
+    document.getElementById(`hor-row-${i}`)?.remove();
+}
+
+function leerPropietarios() {
+    const rows = document.querySelectorAll('[id^="prop-row-"]');
+    return [...rows].map(row => {
+        return {
+            idProfesional:     parseInt(row.querySelector('.prop-profesional').value),
+            idTipoProfesional: parseInt(row.querySelector('.prop-tipo').value),
+            puedeCitaUrgente:  row.querySelector('.prop-urgente').checked
+        };
+    }).filter(p => p.idProfesional && p.idTipoProfesional);
+}
+
+function leerHorarios() {
+    const rows = document.querySelectorAll('[id^="hor-row-"]');
+    return [...rows].map(row => {
+        const dias = {};
+        row.querySelectorAll('.hor-dia').forEach(cb => dias[cb.dataset.dia] = cb.checked);
+        return {
+            codigo:           row.querySelector('.hor-codigo').value || null,
+            descripcion:      row.querySelector('.hor-descripcion').value || null,
+            horaInicio:       row.querySelector('.hor-inicio').value,
+            horaFin:          row.querySelector('.hor-fin').value,
+            fechaInicio:      row.querySelector('.hor-finicio').value,
+            fechaFin:         row.querySelector('.hor-ffin').value || null,
+            intervaloMinutos: parseInt(row.querySelector('.hor-intervalo').value) || 30,
+            maxCitas:         parseInt(row.querySelector('.hor-maxcitas').value) || 1,
+            trabajeFestivos:  row.querySelector('.hor-festivos').checked,
+            ...dias
+        };
+    }).filter(h => h.horaInicio && h.horaFin && h.fechaInicio);
+}
+
+async function guardarAgenda(idAgenda) {
+    const body = {
+        codigo:      document.getElementById('ag-codigo').value || null,
+        descripcion: document.getElementById('ag-descripcion').value || null,
+        idServicio:  parseInt(document.getElementById('ag-servicio').value) || null,
+        fechaInicio: document.getElementById('ag-finicio').value || null,
+        fechaFin:    document.getElementById('ag-ffin').value || null,
+        disponible:  true
+    };
+
+    if (!body.descripcion) { toast('La descripción es obligatoria.', 'warn'); return; }
+
+    let idAgendaFinal = idAgenda;
+
+    if (idAgenda) {
+        const res = await fetch(`${API}/agendas/${idAgenda}`, {
+            method: 'PUT', headers: auditorHeaders(), body: JSON.stringify({ ...body, idAgenda })
+        });
+        if (!res.ok) { toast('Error al actualizar la agenda.', 'error'); return; }
+    } else {
+        const res = await fetch(`${API}/agendas`, {
+            method: 'POST', headers: auditorHeaders(), body: JSON.stringify(body)
+        });
+        if (!res.ok) { toast('Error al crear la agenda.', 'error'); return; }
+        const data = await res.json();
+        idAgendaFinal = data.idAgenda;
+    }
+
+    const propietarios = leerPropietarios();
+    for (const p of propietarios) {
+        await fetch(`${API}/agendas/${idAgendaFinal}/propietarios`, {
+            method: 'POST', headers: auditorHeaders(), body: JSON.stringify(p)
+        });
+    }
+
+    const horarios = leerHorarios();
+    for (const h of horarios) {
+        await fetch(`${API}/agendas/${idAgendaFinal}/horarios`, {
+            method: 'POST', headers: auditorHeaders(), body: JSON.stringify(h)
+        });
+    }
+
+    toast('Agenda guardada correctamente.');
+    renderAgendas(document.getElementById('contenido'));
+}
+
+async function eliminarAgenda(id) {
+    if (!await confirmar('¿Eliminar esta agenda?')) return;
+    const res = await fetch(`${API}/agendas/${id}`, { method: 'DELETE', headers: auditorHeaders() });
+    if (res.ok || res.status === 204) { toast('Agenda eliminada.'); renderAgendas(document.getElementById('contenido')); }
+    else toast('Error al eliminar.', 'error');
+}
+
+// ── BLOQUEOS ─────────────────────────────────────────────────
+
+async function cargarBloqueosAgenda(idAgenda) {
+    const agenda = await fetch(`${API}/agendas/${idAgenda}`).then(r => r.json()).catch(() => null);
+    if (!agenda) return;
+    const idProf = agenda.idProfesional;
+    if (!idProf) { document.getElementById('lista-bloqueos').innerHTML = '<p style="font-size:13px;color:#aaa">Sin profesional asignado.</p>'; return; }
+    const bloqueos = await fetch(`${API}/profesionales/${idProf}/bloqueos`).then(r => r.json()).catch(() => []);
+    const lista = document.getElementById('lista-bloqueos');
+    if (!lista) return;
+
+    lista.innerHTML = bloqueos.length ? `
+        <table class="table table-sm tabla-datos">
+            <thead><tr><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Observaciones</th><th></th></tr></thead>
+            <tbody>
+            ${bloqueos.map(b => `
+                <tr>
+                    <td>${new Date(b.fechaDesde).toLocaleDateString('es-AR')}</td>
+                    <td>${new Date(b.fechaHasta).toLocaleDateString('es-AR')}</td>
+                    <td>${b.motivo}</td>
+                    <td>${b.observaciones ?? '-'}</td>
+                    <td><button class="btn-tabla btn-tabla-eliminar" onclick="eliminarBloqueo(${b.idBloqueo}, ${idAgenda})">Quitar</button></td>
+                </tr>`).join('')}
+            </tbody>
+        </table>` : '<p style="font-size:13px;color:#aaa">Sin bloqueos registrados.</p>';
+}
+
+async function abrirModalBloqueo(idAgenda) {
+    const agenda = await fetch(`${API}/agendas/${idAgenda}`).then(r => r.json()).catch(() => null);
+    const idProf = agenda?.idProfesional;
+    if (!idProf) { toast('Primero guardá la agenda con un propietario.', 'warn'); return; }
+
+    const optsMotivo = MOTIVOS_BLOQUEO.map(m => `<option value="${m}">${m}</option>`).join('');
+
+    document.getElementById('modalDerivBody').innerHTML = `
+        <div class="row g-2">
+            <div class="col-6">
+                <label class="form-label">Desde</label>
+                <input type="date" id="blq-desde" class="form-control form-control-sm">
+            </div>
+            <div class="col-6">
+                <label class="form-label">Hasta</label>
+                <input type="date" id="blq-hasta" class="form-control form-control-sm">
+            </div>
+            <div class="col-12">
+                <label class="form-label">Motivo</label>
+                <select id="blq-motivo" class="form-select form-select-sm">
+                    <option value="">-- Seleccioná --</option>${optsMotivo}
+                </select>
+            </div>
+            <div class="col-12">
+                <label class="form-label">Observaciones</label>
+                <textarea id="blq-obs" class="form-control form-control-sm" rows="2"></textarea>
+            </div>
+        </div>`;
+
+    document.getElementById('modalDerivPanel').querySelector('.modal-header-custom span').textContent = 'Nuevo bloqueo';
+    document.getElementById('modalDerivOverlay').classList.add('visible');
+    document.getElementById('modalDerivPanel').classList.add('visible');
+
+    window._bloqueoAgendaId      = idAgenda;
+    window._bloqueoIdProfesional = idProf;
+    window._modoBloqueo  = true;
+    window._modoDirecto  = false;
+    window._modoAsignar  = false;
+}
+
+async function eliminarBloqueo(idBloqueo, idAgenda) {
+    if (!await confirmar('¿Eliminar este bloqueo?')) return;
+    await fetch(`${API}/bloqueos/${idBloqueo}`, { method: 'DELETE', headers: auditorHeaders() });
+    toast('Bloqueo eliminado.');
+    cargarBloqueosAgenda(idAgenda);
+}
+
 // ── TAB ROUTING ──────────────────────────────────────────────
 async function mostrarTab(tab) {
     tabActual = tab;
@@ -185,6 +611,7 @@ async function mostrarTab(tab) {
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
         if (tab === "auditoria")    return await renderAuditoria(contenido);
         if (tab === "recuperacion") return await renderRecuperacion(contenido);
+        if (tab === "agendas")      return await renderAgendas(contenido);
 
         await cargarLookups();
         const datos = await fetch(`${API}/${tab}`).then(r => r.json());
@@ -471,6 +898,7 @@ async function abrirModalAsignar(idPac) {
     window._cambioPaciente = idPac;
     window._modoDirecto = false;
     window._modoAsignar = true;
+    window._modoBloqueo = false;
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
     const yaAsignados = window._pacProfs[idPac] ?? new Set();
 
@@ -495,6 +923,7 @@ async function abrirModalAsignar(idPac) {
 // ── CAMBIO DIRECTO ───────────────────────────────────────────
 async function abrirModalCambioDirecto(idPac) {
     window._cambioPaciente = idPac;
+    window._modoBloqueo = false;
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
     const relacionados = [...(window._pacProfs[idPac] ?? new Set())];
 
@@ -547,6 +976,7 @@ let _derivIdActual = null;
 
 async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
     window._modoDirecto = false;
+    window._modoBloqueo = false;
     _derivIdActual = idDeriv;
 
     const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
@@ -574,9 +1004,30 @@ function cerrarModalDeriv() {
     _derivIdActual = null;
     window._modoDirecto = false;
     window._modoAsignar = false;
+    window._modoBloqueo = false;
 }
 
 async function confirmarAceptarDeriv() {
+
+    if (window._modoBloqueo) {
+        const desde  = document.getElementById('blq-desde').value;
+        const hasta  = document.getElementById('blq-hasta').value;
+        const motivo = document.getElementById('blq-motivo').value;
+        const obs    = document.getElementById('blq-obs').value || null;
+
+        if (!desde || !hasta || !motivo) { toast('Completá todos los campos obligatorios.', 'warn'); return; }
+
+        await fetch(`${API}/profesionales/${window._bloqueoIdProfesional}/bloqueos`, {
+            method: 'POST',
+            headers: auditorHeaders(),
+            body: JSON.stringify({ idAgenda: window._bloqueoAgendaId, fechaDesde: desde, fechaHasta: hasta, motivo, observaciones: obs })
+        });
+        cerrarModalDeriv();
+        toast('Bloqueo registrado.');
+        cargarBloqueosAgenda(window._bloqueoAgendaId);
+        return;
+    }
+
     if (window._modoAsignar) {
         const idProf = parseInt(document.getElementById("selectProfAsignar").value);
         if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
@@ -615,7 +1066,6 @@ async function confirmarAceptarDeriv() {
         return;
     }
 
-    // Aceptar solicitud de derivación pendiente
     const idProf = parseInt(document.getElementById("selectProfDeriv").value);
     if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
 
