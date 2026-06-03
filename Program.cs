@@ -973,4 +973,137 @@ app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
     return Results.Ok(new { estado = rec.Estado, passwordTemporal = (string)null });
 });
 
+// TipoProfesional
+app.MapGet("/tiposprofesional", () =>
+    new TipoProfesionalDAO().ObtenerTodos());
+
+app.MapGet("/tiposprofesional/{id}", (int id) =>
+{
+    var t = new TipoProfesionalDAO().ObtenerPorId(id);
+    return t is null ? Results.NotFound() : Results.Ok(t);
+});
+
+app.MapPost("/tiposprofesional", (TipoProfesional t) =>
+{
+    t.Estado = "Activo";
+    new TipoProfesionalDAO().Insertar(t);
+    return Results.Created("/tiposprofesional", t);
+});
+
+app.MapPut("/tiposprofesional/{id}", (int id, TipoProfesional t) =>
+{
+    t.IdTipoProfesional = id;
+    new TipoProfesionalDAO().Modificar(t);
+    return Results.Ok(t);
+});
+
+// ProfesionalTipo
+app.MapGet("/profesionales/{id}/tipos", (int id) =>
+    new ProfesionalTipoDAO().ObtenerPorProfesional(id));
+
+app.MapPost("/profesionales/{id}/tipos", (int id, ProfesionalTipo pt) =>
+{
+    pt.IdProfesional = id;
+    new ProfesionalTipoDAO().Insertar(pt);
+    return Results.Created($"/profesionales/{id}/tipos", pt);
+});
+
+app.MapDelete("/profesionales/{idProf}/tipos/{idTipo}", (int idProf, int idTipo) =>
+{
+    new ProfesionalTipoDAO().Eliminar(idProf, idTipo);
+    return Results.NoContent();
+});
+
+// Servicio
+app.MapGet("/servicios", () =>
+    new ServicioDAO().ObtenerTodos());
+
+app.MapPost("/servicios", (Servicio s) =>
+{
+    s.Estado = "Activo";
+    new ServicioDAO().Insertar(s);
+    return Results.Created("/servicios", s);
+});
+
+app.MapPut("/servicios/{id}", (int id, Servicio s) =>
+{
+    s.IdServicio = id;
+    new ServicioDAO().Modificar(s);
+    return Results.Ok(s);
+});
+
+// AgendaPropietario
+app.MapGet("/agendas/{id}/propietarios", (int id) =>
+    new AgendaPropietarioDAO().ObtenerPorAgenda(id));
+
+app.MapPost("/agendas/{id}/propietarios", (int id, AgendaPropietario ap) =>
+{
+    ap.IdAgenda = id;
+    new AgendaPropietarioDAO().Insertar(ap);
+    return Results.Created($"/agendas/{id}/propietarios", ap);
+});
+
+app.MapDelete("/agendas/propietarios/{id}", (int id) =>
+{
+    new AgendaPropietarioDAO().Eliminar(id);
+    return Results.NoContent();
+});
+
+// HorarioAgenda
+app.MapGet("/agendas/{id}/horarios", (int id) =>
+    new HorarioAgendaDAO().ObtenerPorAgenda(id));
+
+app.MapPost("/agendas/{id}/horarios", (int id, HorarioAgenda h) =>
+{
+    h.IdAgenda = id;
+    new HorarioAgendaDAO().Insertar(h);
+    return Results.Created($"/agendas/{id}/horarios", h);
+});
+
+app.MapPut("/horarios/{id}", (int id, HorarioAgenda h) =>
+{
+    h.IdHorario = id;
+    new HorarioAgendaDAO().Modificar(h);
+    return Results.Ok(h);
+});
+
+app.MapDelete("/horarios/{id}", (int id) =>
+{
+    new HorarioAgendaDAO().Eliminar(id);
+    return Results.NoContent();
+});
+
+// Festivos
+app.MapGet("/festivos", () =>
+    new FestivoDAO().ObtenerTodos());
+
+app.MapPost("/festivos", (Festivo f) =>
+{
+    new FestivoDAO().Insertar(f);
+    return Results.Created("/festivos", f);
+});
+
+app.MapDelete("/festivos/{id}", (int id) =>
+{
+    new FestivoDAO().Eliminar(id);
+    return Results.NoContent();
+});
+
+// Bloqueos
+app.MapGet("/profesionales/{id}/bloqueos", (int id) =>
+    new BloqueosAgendaDAO().ObtenerPorProfesional(id));
+
+app.MapPost("/profesionales/{id}/bloqueos", (int id, BloqueosAgenda b) =>
+{
+    b.IdProfesional = id;
+    new BloqueosAgendaDAO().Insertar(b);
+    return Results.Created($"/profesionales/{id}/bloqueos", b);
+});
+
+app.MapDelete("/bloqueos/{id}", (int id) =>
+{
+    new BloqueosAgendaDAO().Eliminar(id);
+    return Results.NoContent();
+});
+
 app.Run();
