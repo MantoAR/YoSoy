@@ -8,12 +8,17 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Agenda (IdProfesional, Dia, HoraInicio, HoraFin, Disponible) VALUES (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible)", con);
+            "INSERT INTO Agenda (IdProfesional, Dia, HoraInicio, HoraFin, Disponible, Codigo, Descripcion, FechaInicio, FechaFin, IdServicio) VALUES (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible, @Codigo, @Descripcion, @FechaInicio, @FechaFin, @IdServicio)", con);
         cmd.Parameters.AddWithValue("@IdProfesional", a.IdProfesional);
         cmd.Parameters.AddWithValue("@Dia",           (object)a.Dia        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraInicio",    (object)a.HoraInicio ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraFin",       (object)a.HoraFin    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Disponible",    a.Disponible);
+        cmd.Parameters.AddWithValue("@Codigo",        (object)a.Codigo      ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Descripcion",   (object)a.Descripcion ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaInicio",   (object)a.FechaInicio ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaFin",      (object)a.FechaFin    ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@IdServicio",    (object)a.IdServicio  ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -22,12 +27,17 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "UPDATE Agenda SET IdProfesional = @IdProfesional, Dia = @Dia, HoraInicio = @HoraInicio, HoraFin = @HoraFin, Disponible = @Disponible WHERE IdAgenda = @Id", con);
+            "UPDATE Agenda SET IdProfesional=@IdProfesional, Dia=@Dia, HoraInicio=@HoraInicio, HoraFin=@HoraFin, Disponible=@Disponible, Codigo=@Codigo, Descripcion=@Descripcion, FechaInicio=@FechaInicio, FechaFin=@FechaFin, IdServicio=@IdServicio WHERE IdAgenda=@Id", con);
         cmd.Parameters.AddWithValue("@IdProfesional", a.IdProfesional);
         cmd.Parameters.AddWithValue("@Dia",           (object)a.Dia        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraInicio",    (object)a.HoraInicio ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraFin",       (object)a.HoraFin    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Disponible",    a.Disponible);
+        cmd.Parameters.AddWithValue("@Codigo",        (object)a.Codigo      ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Descripcion",   (object)a.Descripcion ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaInicio",   (object)a.FechaInicio ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaFin",      (object)a.FechaFin    ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@IdServicio",    (object)a.IdServicio  ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Id",            a.IdAgenda);
         cmd.ExecuteNonQuery();
     }
@@ -46,7 +56,7 @@ public class AgendaDAO
         var lista = new List<Agenda>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand("SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda", con);
+        var cmd = new SqlCommand("SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, Codigo, Descripcion, FechaInicio, FechaFin, IdServicio FROM Agenda", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -59,7 +69,7 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda WHERE IdProfesional = @Id", con);
+            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, Codigo, Descripcion, FechaInicio, FechaFin, IdServicio FROM Agenda WHERE IdProfesional = @Id", con);
         cmd.Parameters.AddWithValue("@Id", idProfesional);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -72,7 +82,7 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda WHERE IdAgenda = @Id", con);
+            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, Codigo, Descripcion, FechaInicio, FechaFin, IdServicio FROM Agenda WHERE IdAgenda = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -84,7 +94,12 @@ public class AgendaDAO
         IdProfesional = (int)r["IdProfesional"],
         Dia           = r["Dia"]        == DBNull.Value ? null : (string)r["Dia"],
         HoraInicio    = r["HoraInicio"] == DBNull.Value ? null : (TimeSpan?)r["HoraInicio"],
-        HoraFin       = r["HoraFin"]   == DBNull.Value ? null : (TimeSpan?)r["HoraFin"],
-        Disponible    = (bool)r["Disponible"]
+        HoraFin       = r["HoraFin"]    == DBNull.Value ? null : (TimeSpan?)r["HoraFin"],
+        Disponible    = (bool)r["Disponible"],
+        Codigo        = r["Codigo"]      == DBNull.Value ? null : (string)r["Codigo"],
+        Descripcion   = r["Descripcion"] == DBNull.Value ? null : (string)r["Descripcion"],
+        FechaInicio   = r["FechaInicio"] == DBNull.Value ? null : (DateTime?)r["FechaInicio"],
+        FechaFin      = r["FechaFin"]    == DBNull.Value ? null : (DateTime?)r["FechaFin"],
+        IdServicio    = r["IdServicio"]  == DBNull.Value ? null : (int?)r["IdServicio"]
     };
 }
