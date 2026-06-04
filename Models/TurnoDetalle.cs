@@ -11,6 +11,7 @@ public class TurnoDetalle
     public TimeSpan Hora { get; set; }
     public string? Modalidad { get; set; }
     public string? Motivo { get; set; }
+    public string? CreadoPor { get; set; }
     public string? MailProfesional { get; set; }
     public string? TelefonoProfesional { get; set; }
 }

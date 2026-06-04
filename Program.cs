@@ -584,11 +584,26 @@ app.MapPut("/turnos/{id}/cancelar", (int id) =>
     return Results.Ok();
 });
 
-app.MapPut("/turnos/{id}/confirmar", (int id) =>
+app.MapPut("/turnos/{id}/rechazar", (int id) =>
 {
     var dao = new TurnoDAO();
     var t = dao.ObtenerPorId(id);
     if (t is null) return Results.NotFound();
+    t.IdEstadoTurno = 3; // Cancelado
+    dao.Modificar(t);
+    return Results.Ok(t);
+});
+
+app.MapPut("/turnos/{id}/confirmar", (int id, string? quien) =>
+{
+    var dao = new TurnoDAO();
+    var t = dao.ObtenerPorId(id);
+    if (t is null) return Results.NotFound();
+
+    if ((quien == "paciente" || quien == "profesional") &&
+        string.Equals(quien, t.CreadoPor, StringComparison.OrdinalIgnoreCase))
+        return Results.BadRequest(new { mensaje = "No podés confirmar un turno que vos mismo solicitaste. Debe confirmarlo la otra parte." });
+
     t.IdEstadoTurno = 2; // Confirmado
     dao.Modificar(t);
 

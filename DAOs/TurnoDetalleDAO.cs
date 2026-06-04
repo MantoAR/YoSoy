@@ -8,7 +8,7 @@ public class TurnoDetalleDAO
                p.Nombre + ISNULL(' ' + p.Apellido, '') AS NombreProfesional,
                e.Nombre AS Especialidad,
                t.IdEstadoTurno, et.Descripcion AS EstadoDescripcion,
-               t.Fecha, t.Hora, t.Modalidad, t.Motivo,
+               t.Fecha, t.Hora, t.Modalidad, t.Motivo, t.CreadoPor,
                p.Mail AS MailProfesional, p.Telefono AS TelefonoProfesional
         FROM Turno t
         JOIN Profesional p  ON t.IdProfesional  = p.IdProfesional
@@ -87,6 +87,7 @@ public class TurnoDetalleDAO
         Hora               = (TimeSpan)r["Hora"],
         Modalidad          = r["Modalidad"]        == DBNull.Value ? null : (string)r["Modalidad"],
         Motivo             = r["Motivo"]            == DBNull.Value ? null : (string)r["Motivo"],
+        CreadoPor          = r["CreadoPor"]         == DBNull.Value ? null : (string)r["CreadoPor"],
         MailProfesional    = r["MailProfesional"]   == DBNull.Value ? null : (string)r["MailProfesional"],
         TelefonoProfesional= r["TelefonoProfesional"]==DBNull.Value ? null : (string)r["TelefonoProfesional"]
     };

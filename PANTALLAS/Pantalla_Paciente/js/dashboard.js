@@ -177,13 +177,12 @@ async function responderTurnoPaciente(id, aceptar) {
     try {
         let res;
         if (aceptar) {
-            res = await fetch(`${API}/turnos/${id}/confirmar`, { method:'PUT' });
+            res = await fetch(`${API}/turnos/${id}/confirmar?quien=paciente`, { method:'PUT' });
         } else {
-            const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-            turno.idEstadoTurno = 3;
-            res = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+            res = await fetch(`${API}/turnos/${id}/rechazar`, { method:'PUT' });
         }
         if (res.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); mostrarSeccion('agenda'); }
+        else if (res.status === 400) { const e = await res.json().catch(() => null); toast(e?.mensaje ?? 'No se pudo confirmar', 'error'); }
         else toast('Error al responder', 'error');
     } catch { toast('Error de conexión', 'error'); }
 }
@@ -300,7 +299,7 @@ async function mostrarPanelDia(dia) {
     let html = "";
 
     if (turnosDia.length) {
-        turnoSeleccionado = turnosDia[0];
+        turnoSeleccionado = turnosDia.find(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado") ?? turnosDia[0];
         const t = turnoSeleccionado;
         const hora = t.hora.substring(0, 5);
         const estadoColor = {
