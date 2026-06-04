@@ -27,6 +27,30 @@ public class ProfesionalDAO
         cmd.ExecuteNonQuery();
     }
 
+    public int InsertarYObtenerID(Profesional p)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "INSERT INTO Profesional (Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud) VALUES (@Nombre, @Apellido, @SegundoNombre, @SegundoApellido, @Dni, @Sexo, @FechaNacimiento, @Matricula, @IdEspecialidad, @Provincia, @OrigenContacto, @Estado, @Mail, @Telefono, @FechaSolicitud); SELECT SCOPE_IDENTITY();", con);
+        cmd.Parameters.AddWithValue("@Nombre",          p.Nombre);
+        cmd.Parameters.AddWithValue("@Apellido",        (object?)p.Apellido        ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@SegundoNombre",   (object?)p.SegundoNombre   ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@SegundoApellido", (object?)p.SegundoApellido ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Dni",             (object?)p.Dni             ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Sexo",            (object?)p.Sexo            ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaNacimiento", (object?)p.FechaNacimiento ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Matricula",       p.Matricula);
+        cmd.Parameters.AddWithValue("@IdEspecialidad",  p.IdEspecialidad);
+        cmd.Parameters.AddWithValue("@Provincia",       (object?)p.Provincia       ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@OrigenContacto",  (object?)p.OrigenContacto  ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Estado",          p.Estado);
+        cmd.Parameters.AddWithValue("@Mail",            (object?)p.Mail            ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Telefono",        (object?)p.Telefono        ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FechaSolicitud",  (object?)p.FechaSolicitud  ?? DBNull.Value);
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
     public void Modificar(Profesional p)
     {
         using var con = Conexion.ObtenerConexion();

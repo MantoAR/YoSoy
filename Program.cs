@@ -315,7 +315,7 @@ app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
     p.Estado = "Pendiente";
     try
     {
-        new ProfesionalDAO().Insertar(p);
+        p.IdProfesional = new ProfesionalDAO().InsertarYObtenerID(p);
     }
     catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 2627)
     {
