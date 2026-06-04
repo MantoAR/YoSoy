@@ -1048,15 +1048,17 @@ async function confirmarTurnoLibre() {
         })
     });
 
-    cerrarTurnoLibre();
     if (res.ok) {
+        cerrarTurnoLibre();
         toast('Turno solicitado correctamente. El profesional lo confirmará.');
         mostrarSeccion('agenda');
     } else {
         try {
             const error = await res.json();
+            cerrarTurnoLibre();
             toast(error.mensaje ?? 'Error al solicitar el turno.', 'error');
         } catch {
+            cerrarTurnoLibre();
             toast('Error al solicitar el turno.', 'error');
         }
     }
