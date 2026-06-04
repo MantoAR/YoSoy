@@ -70,6 +70,7 @@ function mostrarSeccion(id) {
 
     if      (id === "inicio")        renderInicio(c);
     else if (id === "agenda")        renderAgenda(c);
+    else if (id === "buscar")        renderBuscarTurno(c);
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
     else if (id === "sesion")        c.innerHTML = `<iframe src="../Pantalla_Paciente/sesion_video.html" allow="camera; microphone" style="width:100%;height:calc(100vh - 120px);border:none;"></iframe>`;  // NUEVO
@@ -845,3 +846,218 @@ async function guardarPerfil(id) {
 
 // ── INIT ────────────────────────────────────────────────────
 mostrarSeccion("inicio");
+
+// ── BUSCAR TURNO ────────────────────────────────────────────
+async function renderBuscarTurno(c) {
+    const servicios = await fetch(`${API}/servicios`).then(r => r.json()).catch(() => []);
+
+    c.innerHTML = `
+        <div class="titulo-seccion">Buscar Turno</div>
+        <div class="card">
+            <p style="font-size:13px;color:#888;margin-bottom:16px">Seleccioná un servicio para ver los profesionales disponibles.</p>
+            <div style="display:flex;flex-wrap:wrap;gap:12px" id="listaServicios">
+                ${servicios.map(s => `
+                    <button onclick="verProfesionalesServicio(${s.idServicio}, '${s.nombre.replace(/'/g,"\\'")}', this)"
+                        style="padding:10px 20px;border:2px solid #e0d4f5;border-radius:12px;background:white;cursor:pointer;font-size:14px;color:#6A5ACD;font-weight:500;transition:all .2s">
+                        ${s.nombre}
+                    </button>`).join('')}
+            </div>
+        </div>
+        <div id="resultadosBusqueda"></div>`;
+}
+
+async function verProfesionalesServicio(idServicio, nombreServicio, btn) {
+    document.querySelectorAll('#listaServicios button').forEach(b => {
+        b.style.background = 'white';
+        b.style.color = '#6A5ACD';
+        b.style.borderColor = '#e0d4f5';
+    });
+    btn.style.background = '#6A5ACD';
+    btn.style.color = 'white';
+    btn.style.borderColor = '#6A5ACD';
+
+    const res = document.getElementById('resultadosBusqueda');
+    res.innerHTML = `<div class="card"><p style="color:#888">Cargando profesionales...</p></div>`;
+
+    const agendas = await fetch(`${API}/agendas`).then(r => r.json()).catch(() => []);
+    const agendasServicio = agendas.filter(a => a.idServicio === idServicio);
+
+    if (!agendasServicio.length) {
+        res.innerHTML = `<div class="card"><p style="color:#888">No hay agendas disponibles para este servicio.</p></div>`;
+        return;
+    }
+
+    const profIds = [...new Set(
+        await Promise.all(agendasServicio.map(a =>
+            fetch(`${API}/agendas/${a.idAgenda}/propietarios`).then(r => r.json()).catch(() => [])
+        )).then(results => results.flat().map(p => p.idProfesional))
+    )];
+
+    if (!profIds.length) {
+        res.innerHTML = `<div class="card"><p style="color:#888">No hay profesionales asignados a este servicio aún.</p></div>`;
+        return;
+    }
+
+    const profesionales = await Promise.all(
+        profIds.map(id => fetch(`${API}/profesionales/${id}`).then(r => r.json()).catch(() => null))
+    ).then(lista => lista.filter(p => p && p.estado === 'Activo'));
+
+    if (!profesionales.length) {
+        res.innerHTML = `<div class="card"><p style="color:#888">No hay profesionales activos para este servicio.</p></div>`;
+        return;
+    }
+
+    res.innerHTML = `
+        <div class="titulo-seccion" style="margin-top:20px">${nombreServicio}</div>
+        <div class="prof-lista">
+            ${profesionales.map(p => `
+                <div class="prof-card">
+                    <div class="prof-nombre">${p.nombre}${p.apellido ? ' ' + p.apellido : ''}</div>
+                    <div class="prof-especialidad">${p.especialidad ?? ''}</div>
+                    ${p.mail     ? `<div class="prof-dato">${p.mail}</div>`     : ''}
+                    ${p.telefono ? `<div class="prof-dato">${p.telefono}</div>` : ''}
+                    <button class="btn-solicitar-cambio"
+                        onclick="abrirSolicitudTurnoLibre(${p.idProfesional}, '${(p.nombre + ' ' + (p.apellido ?? '')).trim().replace(/'/g,"\\'")}')">
+                        Solicitar turno
+                    </button>
+                </div>`).join('')}
+        </div>`;
+}
+
+async function abrirSolicitudTurnoLibre(idProf, nombreProf) {
+    const agenda = await fetch(`${API}/agendas`).then(r => r.json()).catch(() => []);
+    const propietarios = await Promise.all(
+        agenda.map(a => fetch(`${API}/agendas/${a.idAgenda}/propietarios`).then(r => r.json()).catch(() => []))
+    );
+    const agendaProf = agenda.filter((a, i) =>
+        propietarios[i].some(p => p.idProfesional === idProf)
+    );
+
+    const horarios = (await Promise.all(
+        agendaProf.map(a => fetch(`${API}/agendas/${a.idAgenda}/horarios`).then(r => r.json()).catch(() => []))
+    )).flat().filter(h => h.estado === 'Activo');
+
+    if (!horarios.length) {
+        toast('Este profesional no tiene horarios cargados aún.', 'warn');
+        return;
+    }
+
+    const diasDisponibles = [];
+    if (horarios.some(h => h.lunes))     diasDisponibles.push('Lunes');
+    if (horarios.some(h => h.martes))    diasDisponibles.push('Martes');
+    if (horarios.some(h => h.miercoles)) diasDisponibles.push('Miércoles');
+    if (horarios.some(h => h.jueves))    diasDisponibles.push('Jueves');
+    if (horarios.some(h => h.viernes))   diasDisponibles.push('Viernes');
+    if (horarios.some(h => h.sabado))    diasDisponibles.push('Sábado');
+    if (horarios.some(h => h.domingo))   diasDisponibles.push('Domingo');
+
+    window._turnoLibreHorarios = horarios;
+    window._turnoLibreIdProf   = idProf;
+
+    const hoy = new Date().toISOString().split('T')[0];
+
+    const modalHtml = `
+        <div class="modal-overlay-cambio visible" id="modalTurnoLibreOverlay" onclick="cerrarTurnoLibre()"></div>
+        <div class="modal-cambio visible" id="modalTurnoLibre">
+            <div class="modal-cambio-header">
+                <span>Solicitar turno — ${nombreProf}</span>
+                <button onclick="cerrarTurnoLibre()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#999">✕</button>
+            </div>
+            <div style="padding:20px">
+                <p style="font-size:13px;color:#888;margin-bottom:16px">Atiende los días: <strong>${diasDisponibles.join(', ')}</strong></p>
+                <div style="display:flex;flex-direction:column;gap:14px">
+                    <div>
+                        <label class="turno-label">Fecha</label>
+                        <input type="date" id="turnoLibreFecha" class="turno-input" min="${hoy}" onchange="cargarHorasTurnoLibre()">
+                    </div>
+                    <div>
+                        <label class="turno-label">Hora</label>
+                        <select id="turnoLibreHora" class="turno-input" disabled>
+                            <option value="">Elegí una fecha primero</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="turno-label">Motivo (opcional)</label>
+                        <textarea id="turnoLibreMotivo" rows="2" style="width:100%;border:2px solid #e0d4f5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:none"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div style="padding:0 20px 20px;display:flex;gap:10px;justify-content:flex-end">
+                <button class="btn-mc-cancelar" onclick="cerrarTurnoLibre()">Cancelar</button>
+                <button class="btn-mc-enviar" onclick="confirmarTurnoLibre()">Solicitar turno</button>
+            </div>
+        </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function cargarHorasTurnoLibre() {
+    const fechaStr = document.getElementById('turnoLibreFecha').value;
+    const sel      = document.getElementById('turnoLibreHora');
+    if (!fechaStr) return;
+
+    const fecha  = new Date(fechaStr + 'T12:00:00');
+    const diaSem = fecha.getDay();
+
+    const MAP_DIA = { 0:'domingo', 1:'lunes', 2:'martes', 3:'miercoles', 4:'jueves', 5:'viernes', 6:'sabado' };
+    const diaKey  = MAP_DIA[diaSem];
+
+    const horario = window._turnoLibreHorarios.find(h => h[diaKey] === true);
+
+    if (!horario) {
+        sel.innerHTML = `<option value="">El profesional no atiende ese día</option>`;
+        sel.disabled  = true;
+        return;
+    }
+
+    const [hI, mI] = horario.horaInicio.substring(0,5).split(':').map(Number);
+    const [hF, mF] = horario.horaFin.substring(0,5).split(':').map(Number);
+    const intervalo = horario.intervaloMinutos || 30;
+
+    const opciones = [];
+    let cur = hI * 60 + mI;
+    while (cur + intervalo <= hF * 60 + mF) {
+        const hh = String(Math.floor(cur/60)).padStart(2,'0');
+        const mm = String(cur%60).padStart(2,'0');
+        opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
+        cur += intervalo;
+    }
+
+    sel.innerHTML = opciones.length ? opciones.join('') : `<option value="">Sin horarios disponibles</option>`;
+    sel.disabled  = !opciones.length;
+}
+
+async function confirmarTurnoLibre() {
+    const fecha  = document.getElementById('turnoLibreFecha').value;
+    const hora   = document.getElementById('turnoLibreHora').value;
+    const motivo = document.getElementById('turnoLibreMotivo').value || null;
+
+    if (!fecha) { toast('Seleccioná una fecha.', 'warn'); return; }
+    if (!hora)  { toast('Seleccioná un horario.', 'warn'); return; }
+
+    const res = await fetch(`${API}/turnos/solicitar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            idPaciente:    parseInt(idPaciente),
+            idProfesional: window._turnoLibreIdProf,
+            fecha:         new Date(fecha + 'T12:00:00').toISOString(),
+            hora:          hora + ':00',
+            modalidad:     'Virtual',
+            motivo
+        })
+    });
+
+    cerrarTurnoLibre();
+    if (res.ok) {
+        toast('Turno solicitado correctamente. El profesional lo confirmará.');
+        mostrarSeccion('agenda');
+    } else {
+        toast('Error al solicitar el turno.', 'error');
+    }
+}
+
+function cerrarTurnoLibre() {
+    document.getElementById('modalTurnoLibreOverlay')?.remove();
+    document.getElementById('modalTurnoLibre')?.remove();
+}
