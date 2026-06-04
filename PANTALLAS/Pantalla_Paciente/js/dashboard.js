@@ -1053,7 +1053,12 @@ async function confirmarTurnoLibre() {
         toast('Turno solicitado correctamente. El profesional lo confirmará.');
         mostrarSeccion('agenda');
     } else {
-        toast('Error al solicitar el turno.', 'error');
+        try {
+            const error = await res.json();
+            toast(error.mensaje ?? 'Error al solicitar el turno.', 'error');
+        } catch {
+            toast('Error al solicitar el turno.', 'error');
+        }
     }
 }
 
