@@ -606,12 +606,13 @@ async function mostrarTab(tab) {
     contenido.innerHTML = `<div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>`;
 
     try {
-        if (tab === "usuarios")     return await renderUsuarios(contenido);
-        if (tab === "solicitudes")  return await renderSolicitudes(contenido);
-        if (tab === "derivaciones") return await renderDerivaciones(contenido);
-        if (tab === "auditoria")    return await renderAuditoria(contenido);
-        if (tab === "recuperacion") return await renderRecuperacion(contenido);
-        if (tab === "agendas")      return await renderAgendas(contenido);
+        if (tab === "usuarios")          return await renderUsuarios(contenido);
+        if (tab === "solicitudes")        return await renderSolicitudes(contenido);
+        if (tab === "derivaciones")       return await renderDerivaciones(contenido);
+        if (tab === "auditoria")          return await renderAuditoria(contenido);
+        if (tab === "recuperacion")       return await renderRecuperacion(contenido);
+        if (tab === "agendas")            return await renderAgendas(contenido);
+        if (tab === "nuevo-profesional")  return await renderNuevoProfesional(contenido);
 
         await cargarLookups();
         const datos = await fetch(`${API}/${tab}`).then(r => r.json());
@@ -1360,4 +1361,113 @@ async function rechazarRecuperacion(id) {
     const res = await fetch(`${API}/recuperacion-password/${id}/rechazar`, { method: "PUT" });
     if (res.ok) { toast("Solicitud rechazada.", "warn"); mostrarTab("recuperacion"); }
     else toast("Error al rechazar.", "error");
+}
+// ── NUEVO PROFESIONAL ─────────────────────────────────────
+async function renderNuevoProfesional(c) {
+    const [especialidades, tiposProfesional] = await Promise.all([
+        fetch(`${API}/especialidades`).then(r => r.json()).catch(() => []),
+        fetch(`${API}/tiposprofesional`).then(r => r.json()).catch(() => [])
+    ]);
+
+    c.innerHTML = `
+        <div class="titulo-seccion">Nuevo Profesional</div>
+        <div class="card" style="max-width:700px">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Nombre *</label>
+                    <input type="text" id="np-nombre" class="form-control form-control-sm" placeholder="Nombre">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Apellido</label>
+                    <input type="text" id="np-apellido" class="form-control form-control-sm" placeholder="Apellido">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Matrícula *</label>
+                    <input type="text" id="np-matricula" class="form-control form-control-sm" placeholder="MP12345">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Especialidad *</label>
+                    <select id="np-especialidad" class="form-select form-select-sm">
+                        <option value="">-- Seleccioná --</option>
+                        ${especialidades.map(e => `<option value="${e.idEspecialidad}">${e.nombre}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Email *</label>
+                    <input type="email" id="np-mail" class="form-control form-control-sm" placeholder="correo@ejemplo.com">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Teléfono</label>
+                    <input type="text" id="np-telefono" class="form-control form-control-sm" placeholder="3511234567">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Provincia</label>
+                    <input type="text" id="np-provincia" class="form-control form-control-sm" placeholder="Córdoba">
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Tipos de profesional</label>
+                    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">
+                        ${tiposProfesional.map(t => `
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                                <input type="checkbox" class="np-tipo" value="${t.idTipoProfesional}">
+                                ${t.nombre}
+                            </label>`).join('')}
+                    </div>
+                </div>
+                <div class="col-12" style="margin-top:8px">
+                    <button class="btn btn-guardar" onclick="guardarNuevoProfesional()">Crear profesional y enviar email de activación</button>
+                </div>
+            </div>
+        </div>`;
+}
+
+async function guardarNuevoProfesional() {
+    const nombre      = document.getElementById('np-nombre').value.trim();
+    const apellido    = document.getElementById('np-apellido').value.trim();
+    const matricula   = document.getElementById('np-matricula').value.trim();
+    const idEsp       = parseInt(document.getElementById('np-especialidad').value);
+    const mail        = document.getElementById('np-mail').value.trim();
+    const telefono    = document.getElementById('np-telefono').value.trim();
+    const provincia   = document.getElementById('np-provincia').value.trim();
+    const tipos       = [...document.querySelectorAll('.np-tipo:checked')].map(cb => parseInt(cb.value));
+
+    if (!nombre)    { toast('El nombre es obligatorio.', 'warn'); return; }
+    if (!matricula) { toast('La matrícula es obligatoria.', 'warn'); return; }
+    if (!idEsp)     { toast('Seleccioná una especialidad.', 'warn'); return; }
+    if (!mail)      { toast('El email es obligatorio.', 'warn'); return; }
+
+    // 1. Crear el profesional
+    const resProf = await fetch(`${API}/profesionales`, {
+        method: 'POST',
+        headers: auditorHeaders(),
+        body: JSON.stringify({ nombre, apellido, matricula, idEspecialidad: idEsp, mail, telefono, provincia, estado: 'Pendiente' })
+    });
+
+    if (resProf.status === 409) { toast('Ya existe un profesional con esa matrícula.', 'error'); return; }
+    if (!resProf.ok) { toast('Error al crear el profesional.', 'error'); return; }
+
+    const prof = await resProf.json();
+
+    // 2. Asignar tipos de profesional
+    for (const idTipo of tipos) {
+        await fetch(`${API}/profesionales/${prof.idProfesional}/tipos`, {
+            method: 'POST',
+            headers: auditorHeaders(),
+            body: JSON.stringify({ idTipoProfesional: idTipo })
+        });
+    }
+
+    // 3. Aprobar y enviar email de activación
+    const resAprob = await fetch(`${API}/profesionales/${prof.idProfesional}/aprobar`, {
+        method: 'PUT',
+        headers: auditorHeaders()
+    });
+
+    if (resAprob.ok) {
+        toast(`Profesional creado. Se envió el email de activación a ${mail}.`);
+        mostrarTab('usuarios');
+    } else {
+        toast('Profesional creado pero hubo un error al enviar el email.', 'warn');
+        mostrarTab('usuarios');
+    }
 }
