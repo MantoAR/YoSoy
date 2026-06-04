@@ -123,9 +123,7 @@ async function renderTurnosPendientes() {
 
 async function confirmarTurno(id) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-        turno.idEstadoTurno = 2;
-        const r = await fetch(`${API}/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
+        const r = await fetch(`${API}/turnos/${id}/confirmar`, { method: 'PUT' });
         if (r.ok) { toast('Turno confirmado'); activarTab('inicio'); }
         else toast('Error al confirmar', 'error');
     } catch { toast('Error al confirmar', 'error'); }
@@ -282,9 +280,14 @@ async function eliminarHorario(id) {
 
 async function responderTurno(id, aceptar) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-        turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        let r;
+        if (aceptar) {
+            r = await fetch(`${API}/turnos/${id}/confirmar`, { method:'PUT' });
+        } else {
+            const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+            turno.idEstadoTurno = 3;
+            r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        }
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); activarTab('agenda'); }
         else toast('Error al responder', 'error');
     } catch { toast('Error de conexión', 'error'); }
@@ -548,9 +551,14 @@ async function guardarPerfil() {
 
 async function responderTurnoDesdeCal(id, aceptar) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-        turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        let r;
+        if (aceptar) {
+            r = await fetch(`${API}/turnos/${id}/confirmar`, { method:'PUT' });
+        } else {
+            const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+            turno.idEstadoTurno = 3;
+            r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        }
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); await renderCalendario(); mostrarPanelDiaProfesional(_diaSeleccionadoProf); }
         else toast('Error', 'error');
     } catch { toast('Error de conexión', 'error'); }
@@ -664,10 +672,7 @@ async function dibujarCalendarioProfesional() {
             if (mePidieron && yoPedi) {
                 turnosPorDia[dia].filter(t => t.idEstadoTurno === 1).forEach(t => {
                     autoconfirmarPromesas.push(
-                        fetch(`${API}/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
-                            turno.idEstadoTurno = 2;
-                            return fetch(`${API}/turnos/${t.idTurno}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
-                        }).catch(() => {})
+                        fetch(`${API}/turnos/${t.idTurno}/confirmar`, { method:'PUT' }).catch(() => {})
                     );
                 });
             }

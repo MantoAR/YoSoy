@@ -137,7 +137,8 @@ function valorCelda(col, valor) {
 
 const titulos = {
     usuarios:        "Usuarios",
-    solicitudes:     "Solicitudes de Registro",
+    solicitudesprofesionales: "Solicitudes de Profesionales",
+    solicitudespacientes:     "Solicitudes de Pacientes",
     derivaciones:    "Solicitudes de Cambio de Profesional",
     turnos:          "Turnos",
     agendas:         "Agendas",
@@ -607,7 +608,8 @@ async function mostrarTab(tab) {
 
     try {
         if (tab === "usuarios")          return await renderUsuarios(contenido);
-        if (tab === "solicitudes")        return await renderSolicitudes(contenido);
+        if (tab === "solicitudesprofesionales") return await renderSolicitudesProfesionales(contenido);
+        if (tab === "solicitudespacientes")     return await renderSolicitudesPacientes(contenido);
         if (tab === "derivaciones")       return await renderDerivaciones(contenido);
         if (tab === "auditoria")          return await renderAuditoria(contenido);
         if (tab === "recuperacion")       return await renderRecuperacion(contenido);
@@ -796,12 +798,12 @@ async function darDeAltaProfesional(idProf) {
     else toast("Error al dar de alta.", "error");
 }
 
-// ── SOLICITUDES DE REGISTRO ──────────────────────────────────
-async function renderSolicitudes(c) {
+// ── SOLICITUDES DE PROFESIONALES ─────────────────────────────
+async function renderSolicitudesProfesionales(c) {
     const datos = await fetch(`${API}/profesionales/solicitudes`).then(r => r.json());
 
     if (!datos.length) {
-        c.innerHTML = `<div class="titulo-seccion">${titulos["solicitudes"]}</div>
+        c.innerHTML = `<div class="titulo-seccion">${titulos["solicitudesprofesionales"]}</div>
             <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
         return;
     }
@@ -814,15 +816,15 @@ async function renderSolicitudes(c) {
             return `<td>${row[c] ?? "-"}</td>`;
         }).join("");
         return `<tr>${celdas}<td>
-            <button class="btn-ok" onclick="aprobarSolicitud(${row.idProfesional})">Aprobar</button>
-            <button class="btn-ko" onclick="rechazarSolicitud(${row.idProfesional})">Rechazar</button>
+            <button class="btn-ok" onclick="aprobarProfesional(${row.idProfesional})">Aprobar</button>
+            <button class="btn-ko" onclick="rechazarProfesional(${row.idProfesional})">Rechazar</button>
         </td></tr>`;
     }).join("");
 
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["solicitudes"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudes')">Actualizar</button>
+            <div class="titulo-seccion mb-0">${titulos["solicitudesprofesionales"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudesprofesionales')">Actualizar</button>
         </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
@@ -836,18 +838,88 @@ function auditorHeaders() {
     return { "Content-Type": "application/json", "X-Usuario-Id": localStorage.getItem("idUsuario") ?? "0" };
 }
 
-async function aprobarSolicitud(id) {
+async function aprobarProfesional(id) {
     if (!await confirmar("¿Aprobar esta solicitud?")) return;
     await fetch(`${API}/profesionales/${id}/aprobar`, { method: "PUT", headers: auditorHeaders() });
     toast("Solicitud aprobada.");
-    mostrarTab("solicitudes");
+    mostrarTab("solicitudesprofesionales");
 }
 
-async function rechazarSolicitud(id) {
+async function rechazarProfesional(id) {
     if (!await confirmar("¿Rechazar esta solicitud?")) return;
     await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     toast("Solicitud rechazada.", "warn");
-    mostrarTab("solicitudes");
+    mostrarTab("solicitudesprofesionales");
+}
+
+// ── SOLICITUDES DE PACIENTES ─────────────────────────────────
+async function renderSolicitudesPacientes(c) {
+    const [datos, profesionales] = await Promise.all([
+        fetch(`${API}/pacientes/solicitudes`).then(r => r.json()),
+        fetch(`${API}/profesionales`).then(r => r.json()),
+    ]);
+
+    const activos = profesionales.filter(p => p.estado === "Activo");
+
+    if (!datos.length) {
+        c.innerHTML = `<div class="titulo-seccion">${titulos["solicitudespacientes"]}</div>
+            <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
+        return;
+    }
+
+    const opcionesProf = activos.map(p =>
+        `<option value="${p.idProfesional}">${p.nombre ?? ""}${p.apellido ? " " + p.apellido : ""}</option>`).join("");
+
+    const cols = ["nombre", "dni", "mail", "telefono"];
+    const headers = cols.map(col => `<th>${etiqueta(col)}</th>`).join("") + "<th>Profesional asignado</th><th>Acciones</th>";
+    const filas = datos.map(row => {
+        const celdas = cols.map(col => `<td>${row[col] ?? "-"}</td>`).join("");
+        const selector = activos.length
+            ? `<select class="form-select form-select-sm" id="selProf-${row.idPaciente}"><option value="">Seleccioná...</option>${opcionesProf}</select>`
+            : `<span class="estado-badge estado-rechazada">Sin profesionales activos</span>`;
+        return `<tr>${celdas}<td>${selector}</td><td>
+            <button class="btn-ok" onclick="aprobarPaciente(${row.idPaciente})">Aprobar</button>
+            <button class="btn-ko" onclick="rechazarPaciente(${row.idPaciente})">Rechazar</button>
+        </td></tr>`;
+    }).join("");
+
+    c.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="titulo-seccion mb-0">${titulos["solicitudespacientes"]} <span class="badge bg-secondary">${datos.length}</span></div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudespacientes')">Actualizar</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover tabla-datos">
+                <thead><tr>${headers}</tr></thead>
+                <tbody>${filas}</tbody>
+            </table>
+        </div>`;
+}
+
+async function aprobarPaciente(id) {
+    const sel = document.getElementById(`selProf-${id}`);
+    const idProfesional = parseInt(sel?.value);
+    if (!idProfesional) { toast("Asigná un profesional antes de aprobar.", "warn"); return; }
+    if (!await confirmar("¿Aprobar esta solicitud y asignar el profesional?")) return;
+
+    const res = await fetch(`${API}/pacientes/${id}/aprobar`, {
+        method: "PUT",
+        headers: auditorHeaders(),
+        body: JSON.stringify({ idProfesional })
+    });
+
+    if (res.ok) { toast("Solicitud aprobada."); mostrarTab("solicitudespacientes"); }
+    else {
+        const err = await res.json().catch(() => null);
+        toast(err?.mensaje || "Error al aprobar la solicitud.", "error");
+    }
+}
+
+async function rechazarPaciente(id) {
+    if (!await confirmar("¿Rechazar esta solicitud?")) return;
+    await fetch(`${API}/pacientes/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
+    toast("Solicitud rechazada.", "warn");
+    mostrarTab("solicitudespacientes");
 }
 
 // ── SOLICITUDES DE CAMBIO ────────────────────────────────────

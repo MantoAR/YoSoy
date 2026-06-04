@@ -53,6 +53,68 @@ public class EmailService
         smtp.Disconnect(true);
     }
 
+    public void EnviarAprobacionPaciente(string destinatario, string nombrePaciente, string token)
+    {
+        var link = $"{_appUrl}/pantallas/crear-cuenta-paciente.html?token={token}";
+
+        var mensaje = new MimeMessage();
+        mensaje.From.Add(MailboxAddress.Parse(_from));
+        mensaje.To.Add(MailboxAddress.Parse(destinatario));
+        mensaje.Subject = "Tu cuenta fue aprobada – YoSoy";
+
+        var builder = new BodyBuilder
+        {
+            HtmlBody = $@"
+<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
+  <h2 style=""color:#2c3e50"">¡Te damos la bienvenida a YoSoy!</h2>
+  <p>Hola <strong>{nombrePaciente}</strong>,</p>
+  <p>Tu registro en <strong>YoSoy</strong> fue aprobado y ya tenés un profesional asignado.</p>
+  <p>Hacé clic en el botón para crear tu usuario y contraseña:</p>
+  <a href=""{link}"" style=""display:inline-block;padding:12px 24px;background:#2980b9;color:#fff;text-decoration:none;border-radius:6px;margin:16px 0"">
+    Crear mi cuenta
+  </a>
+  <p style=""font-size:12px;color:#888"">Si no reconocés este mail, podés ignorarlo.</p>
+</div>"
+        };
+        mensaje.Body = builder.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        smtp.Connect(_host, _port, SecureSocketOptions.StartTls);
+        smtp.Authenticate(_from, _pass);
+        smtp.Send(mensaje);
+        smtp.Disconnect(true);
+    }
+
+    public void EnviarConfirmacionTurno(string destinatario, string nombre, string contraparte, string fecha, string hora)
+    {
+        var mensaje = new MimeMessage();
+        mensaje.From.Add(MailboxAddress.Parse(_from));
+        mensaje.To.Add(MailboxAddress.Parse(destinatario));
+        mensaje.Subject = "Turno confirmado – YoSoy";
+
+        var builder = new BodyBuilder
+        {
+            HtmlBody = $@"
+<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
+  <h2 style=""color:#2c3e50"">Tu turno fue confirmado</h2>
+  <p>Hola <strong>{nombre}</strong>,</p>
+  <p>Te confirmamos el turno en <strong>YoSoy</strong> con <strong>{contraparte}</strong>.</p>
+  <p style=""font-size:16px;margin:16px 0"">
+    <strong>Fecha:</strong> {fecha}<br>
+    <strong>Hora:</strong> {hora} hs
+  </p>
+  <p style=""font-size:12px;color:#888"">Si no reconocés este mail, podés ignorarlo.</p>
+</div>"
+        };
+        mensaje.Body = builder.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        smtp.Connect(_host, _port, SecureSocketOptions.StartTls);
+        smtp.Authenticate(_from, _pass);
+        smtp.Send(mensaje);
+        smtp.Disconnect(true);
+    }
+
     public void EnviarResetPassword(string destinatario, string token)
     {
         var link = $"{_appUrl}/pantallas/reset-password.html?token={token}";

@@ -268,9 +268,87 @@ app.MapGet("/pacientes/{id}", (int id) =>
 
 app.MapPost("/pacientes", (Paciente p) =>
 {
-    p.Estado = "Activo";
+    p.Estado = "Pendiente";
     new PacienteDAO().Insertar(p);
     return Results.Created("/pacientes", p);
+});
+
+app.MapGet("/pacientes/solicitudes", () =>
+    new PacienteDAO().ObtenerTodos().Where(p => p.Estado == "Pendiente").ToList());
+
+app.MapPut("/pacientes/{id}/aprobar", (int id, AprobarPacienteRequest req, HttpContext ctx) =>
+{
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
+    var dao = new PacienteDAO();
+    var p = dao.ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    if (req.IdProfesional <= 0) return Results.BadRequest(new { mensaje = "Asigná un profesional antes de aprobar la cuenta." });
+
+    p.Estado = "Activo";
+    dao.Modificar(p);
+
+    new PacienteProfesionalDAO().Asignar(id, req.IdProfesional);
+
+    if (new HistoriaClinicaDAO().ObtenerPorPaciente(id) is null)
+        new HistoriaClinicaDAO().Insertar(new HistoriaClinica { IdPaciente = id, FechaApertura = DateTime.Now });
+
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    dao.GuardarToken(id, token);
+
+    if (!string.IsNullOrWhiteSpace(p.Mail))
+    {
+        try { new EmailService(app.Configuration).EnviarAprobacionPaciente(p.Mail, p.Nombre, token); }
+        catch { }
+    }
+
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aprobación Solicitud Paciente", Entidad = "Paciente", IdEntidad = id });
+    return Results.Ok(p);
+});
+
+app.MapPut("/pacientes/{id}/rechazar", (int id, HttpContext ctx) =>
+{
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
+    var dao = new PacienteDAO();
+    var p = dao.ObtenerPorId(id);
+    if (p is null) return Results.NotFound();
+    p.Estado = "Rechazado";
+    dao.Modificar(p);
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Solicitud Paciente", Entidad = "Paciente", IdEntidad = id });
+    return Results.Ok(p);
+});
+
+app.MapPost("/pacientes/activar-cuenta", (ActivarCuentaPacienteRequest req) =>
+{
+    var dao = new PacienteDAO();
+    var pac = dao.ObtenerPorToken(req.Token);
+    if (pac == null) return Results.NotFound(new { mensaje = "Link inválido o ya utilizado." });
+
+    var uDAO = new UsuarioDAO();
+    if (uDAO.ObtenerPorUsername(req.Username) != null)
+        return Results.Conflict(new { mensaje = "Ese nombre de usuario ya está en uso." });
+
+    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(req.Password)));
+
+    var nuevoUsuario = new Usuario
+    {
+        Username     = req.Username,
+        PasswordHash = hash,
+        Estado       = "Activo",
+        Mail         = pac.Mail
+    };
+    int idUsuario = uDAO.InsertarYObtenerID(nuevoUsuario);
+
+    new UsuarioPacienteDAO().Insertar(new UsuarioPaciente
+    {
+        IdUsuario        = idUsuario,
+        IdPaciente       = pac.IdPaciente,
+        FechaVinculacion = DateTime.Now
+    });
+
+    dao.LimpiarToken(pac.IdPaciente);
+
+    return Results.Ok(new { mensaje = "Cuenta creada correctamente. Ya podés iniciar sesión." });
 });
 
 app.MapPut("/pacientes/{id}", (int id, Paciente p) =>
@@ -495,9 +573,43 @@ app.MapPut("/turnos/{id}/cancelar", (int id) =>
 {
     var t = new TurnoDAO().ObtenerPorId(id);
     if (t is null) return Results.NotFound();
+    if (t.IdEstadoTurno == 1 || t.IdEstadoTurno == 2)
+    {
+        var cuando = t.Fecha.Date + t.Hora;
+        if (cuando < DateTime.Now.AddHours(24))
+            return Results.BadRequest(new { mensaje = "Solo podés cancelar un turno con más de 24 horas de anticipación." });
+    }
     t.IdEstadoTurno = 3; // Cancelado
     new TurnoDAO().Modificar(t);
     return Results.Ok();
+});
+
+app.MapPut("/turnos/{id}/confirmar", (int id) =>
+{
+    var dao = new TurnoDAO();
+    var t = dao.ObtenerPorId(id);
+    if (t is null) return Results.NotFound();
+    t.IdEstadoTurno = 2; // Confirmado
+    dao.Modificar(t);
+
+    try
+    {
+        var paciente    = new PacienteDAO().ObtenerPorId(t.IdPaciente);
+        var profesional = new ProfesionalDAO().ObtenerPorId(t.IdProfesional);
+        var nombrePaciente    = paciente?.Nombre ?? "Paciente";
+        var nombreProfesional = $"{profesional?.Nombre} {profesional?.Apellido}".Trim();
+        var fechaTexto = t.Fecha.ToString("dd/MM/yyyy");
+        var horaTexto  = t.Hora.ToString(@"hh\:mm");
+        var email = new EmailService(app.Configuration);
+
+        if (!string.IsNullOrWhiteSpace(paciente?.Mail))
+            email.EnviarConfirmacionTurno(paciente!.Mail, nombrePaciente, $"Dr/a. {nombreProfesional}", fechaTexto, horaTexto);
+        if (!string.IsNullOrWhiteSpace(profesional?.Mail))
+            email.EnviarConfirmacionTurno(profesional!.Mail, nombreProfesional, nombrePaciente, fechaTexto, horaTexto);
+    }
+    catch { }
+
+    return Results.Ok(t);
 });
 
 app.MapGet("/profesionales/{id}/turnos", (int id) =>
@@ -516,29 +628,55 @@ app.MapPost("/turnos", (Turno t) =>
     return Results.Created("/turnos", t);
 });
 
-app.MapPost("/turnos/solicitar", (Turno t) =>
+static string? ValidarSolicitudTurno(Turno t)
 {
     // RN-05: Anticipación mínima de 24 horas
-    if (t.Fecha < DateTime.Now.AddHours(24))
-        return Results.BadRequest(new { mensaje = "El turno debe solicitarse con al menos 24 horas de anticipación." });
+    var cuando = t.Fecha.Date + t.Hora;
+    if (cuando < DateTime.Now.AddHours(24))
+        return "No podés solicitar un turno con menos de 24 horas de anticipación.";
+
+    static string Norm(string? s) => new string((s ?? "")
+        .ToLowerInvariant()
+        .Normalize(System.Text.NormalizationForm.FormD)
+        .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+        .ToArray());
+
+    var diasEs = new Dictionary<DayOfWeek, string>
+    {
+        [DayOfWeek.Monday]    = "lunes",
+        [DayOfWeek.Tuesday]   = "martes",
+        [DayOfWeek.Wednesday] = "miercoles",
+        [DayOfWeek.Thursday]  = "jueves",
+        [DayOfWeek.Friday]    = "viernes",
+        [DayOfWeek.Saturday]  = "sabado",
+        [DayOfWeek.Sunday]    = "domingo"
+    };
+
+    var diaTurno = diasEs[t.Fecha.DayOfWeek];
+    var agenda = new AgendaDAO().ObtenerPorProfesional(t.IdProfesional);
+    var slot = agenda.FirstOrDefault(a => a.Disponible && Norm(a.Dia) == diaTurno
+        && a.HoraInicio.HasValue && a.HoraFin.HasValue
+        && t.Hora >= a.HoraInicio.Value && t.Hora < a.HoraFin.Value);
+    if (slot is null)
+        return "El horario seleccionado ya no está disponible en la agenda del profesional.";
+
+    var dao = new TurnoDAO();
+    if (dao.ExisteTurnoEnHorario(t.IdProfesional, t.Fecha, t.Hora))
+        return "El horario seleccionado ya no está disponible. Elegí otro.";
+    // RN-07: Sin turnos duplicados el mismo día con el mismo profesional
+    if (dao.ExisteTurnoMismoDia(t.IdPaciente, t.IdProfesional, t.Fecha))
+        return "Ya tenés un turno agendado con este profesional para esa fecha.";
+
+    return null;
+}
+
+app.MapPost("/turnos/solicitar", (Turno t) =>
+{
+    var error = ValidarSolicitudTurno(t);
+    if (error is not null) return Results.BadRequest(new { mensaje = error });
 
     using var con = Conexion.ObtenerConexion();
     con.Open();
-
-    // RN-07: Sin turnos duplicados el mismo día con el mismo profesional
-    var cmdDup = new Microsoft.Data.SqlClient.SqlCommand(
-        @"SELECT COUNT(*) FROM Turno 
-          WHERE IdPaciente = @IdPaciente 
-            AND IdProfesional = @IdProfesional 
-            AND CAST(Fecha AS DATE) = CAST(@Fecha AS DATE)
-            AND IdEstadoTurno NOT IN (SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion IN ('Cancelado', 'Realizado'))", con);
-    cmdDup.Parameters.AddWithValue("@IdPaciente",    t.IdPaciente);
-    cmdDup.Parameters.AddWithValue("@IdProfesional", t.IdProfesional);
-    cmdDup.Parameters.AddWithValue("@Fecha",         t.Fecha);
-    var duplicados = (int)cmdDup.ExecuteScalar();
-    if (duplicados > 0)
-        return Results.BadRequest(new { mensaje = "Ya tenés un turno con este profesional para ese día." });
-
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(
         "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = 'Pendiente'", con);
     var result = cmd.ExecuteScalar();
@@ -551,6 +689,9 @@ app.MapPost("/turnos/solicitar", (Turno t) =>
 
 app.MapPost("/turnos/profesional-solicitar", (Turno t) =>
 {
+    var error = ValidarSolicitudTurno(t);
+    if (error is not null) return Results.BadRequest(new { mensaje = error });
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(
@@ -646,6 +787,10 @@ app.MapGet("/historiasclinicas/{id}/evoluciones", (int id) =>
 
 app.MapPost("/evoluciones", (Evolucion e) =>
 {
+    var cierresValidos = new[] { "Alta", "Seguimiento", "Derivación" };
+    if (string.IsNullOrWhiteSpace(e.TipoCierre) || !cierresValidos.Contains(e.TipoCierre))
+        return Results.BadRequest(new { mensaje = "Debés indicar el tipo de cierre de la consulta: Alta, Seguimiento o Derivación." });
+
     new EvolucionDAO().Insertar(e);
     return Results.Created("/evoluciones", e);
 });

@@ -142,7 +142,8 @@ CREATE TABLE [dbo].[Evolucion](
 	[Diagnostico] [nvarchar](max) NULL,
 	[Observaciones] [nvarchar](max) NULL,
 	[PlanTratamiento] [nvarchar](max) NULL,
-PRIMARY KEY CLUSTERED 
+	[TipoCierre] [nvarchar](20) NULL,
+PRIMARY KEY CLUSTERED
 (
 	[IdEvolucion] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY]
@@ -235,7 +236,8 @@ CREATE TABLE [dbo].[Paciente](
 	[Telefono] [nvarchar](50) NULL,
 	[Mail] [nvarchar](100) NULL,
 	[Estado] [nvarchar](50) NULL,
-PRIMARY KEY CLUSTERED 
+	[Token] [nvarchar](64) NULL,
+PRIMARY KEY CLUSTERED
 (
 	[IdPaciente] ASC
 )WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON, OPTIMIZE_FOR_SEQUENTIAL_KEY = OFF) ON [PRIMARY],

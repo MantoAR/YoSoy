@@ -8,7 +8,7 @@ public class EvolucionDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Evolucion (IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento) VALUES (@IdHistoria, @IdProfesional, @IdTurno, @Fecha, @Diagnostico, @Observaciones, @PlanTratamiento)", con);
+            "INSERT INTO Evolucion (IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento, TipoCierre) VALUES (@IdHistoria, @IdProfesional, @IdTurno, @Fecha, @Diagnostico, @Observaciones, @PlanTratamiento, @TipoCierre)", con);
         cmd.Parameters.AddWithValue("@IdHistoria",      e.IdHistoria);
         cmd.Parameters.AddWithValue("@IdProfesional",   e.IdProfesional);
         cmd.Parameters.AddWithValue("@IdTurno",         (object)e.IdTurno        ?? DBNull.Value);
@@ -16,6 +16,7 @@ public class EvolucionDAO
         cmd.Parameters.AddWithValue("@Diagnostico",     (object)e.Diagnostico    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Observaciones",   (object)e.Observaciones  ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@PlanTratamiento", (object)e.PlanTratamiento ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@TipoCierre",      (object)e.TipoCierre     ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -24,7 +25,7 @@ public class EvolucionDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "UPDATE Evolucion SET IdHistoria = @IdHistoria, IdProfesional = @IdProfesional, IdTurno = @IdTurno, Fecha = @Fecha, Diagnostico = @Diagnostico, Observaciones = @Observaciones, PlanTratamiento = @PlanTratamiento WHERE IdEvolucion = @Id", con);
+            "UPDATE Evolucion SET IdHistoria = @IdHistoria, IdProfesional = @IdProfesional, IdTurno = @IdTurno, Fecha = @Fecha, Diagnostico = @Diagnostico, Observaciones = @Observaciones, PlanTratamiento = @PlanTratamiento, TipoCierre = @TipoCierre WHERE IdEvolucion = @Id", con);
         cmd.Parameters.AddWithValue("@IdHistoria",      e.IdHistoria);
         cmd.Parameters.AddWithValue("@IdProfesional",   e.IdProfesional);
         cmd.Parameters.AddWithValue("@IdTurno",         (object)e.IdTurno        ?? DBNull.Value);
@@ -32,6 +33,7 @@ public class EvolucionDAO
         cmd.Parameters.AddWithValue("@Diagnostico",     (object)e.Diagnostico    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Observaciones",   (object)e.Observaciones  ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@PlanTratamiento", (object)e.PlanTratamiento ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@TipoCierre",      (object)e.TipoCierre     ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Id",              e.IdEvolucion);
         cmd.ExecuteNonQuery();
     }
@@ -42,7 +44,7 @@ public class EvolucionDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento FROM Evolucion", con);
+            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento, TipoCierre FROM Evolucion", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -54,7 +56,7 @@ public class EvolucionDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento FROM Evolucion WHERE IdEvolucion = @Id", con);
+            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento, TipoCierre FROM Evolucion WHERE IdEvolucion = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -66,7 +68,7 @@ public class EvolucionDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento FROM Evolucion WHERE IdHistoria = @Id ORDER BY Fecha DESC", con);
+            "SELECT IdEvolucion, IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento, TipoCierre FROM Evolucion WHERE IdHistoria = @Id ORDER BY Fecha DESC", con);
         cmd.Parameters.AddWithValue("@Id", idHistoria);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -83,6 +85,7 @@ public class EvolucionDAO
         Fecha           = (DateTime)r["Fecha"],
         Diagnostico     = r["Diagnostico"]     == DBNull.Value ? null : (string)r["Diagnostico"],
         Observaciones   = r["Observaciones"]   == DBNull.Value ? null : (string)r["Observaciones"],
-        PlanTratamiento = r["PlanTratamiento"] == DBNull.Value ? null : (string)r["PlanTratamiento"]
+        PlanTratamiento = r["PlanTratamiento"] == DBNull.Value ? null : (string)r["PlanTratamiento"],
+        TipoCierre      = r["TipoCierre"]      == DBNull.Value ? null : (string)r["TipoCierre"]
     };
 }

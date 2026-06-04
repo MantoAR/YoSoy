@@ -1,0 +1,2 @@
+ALTER TABLE Paciente
+ADD Token NVARCHAR(64) NULL;

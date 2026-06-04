@@ -179,7 +179,7 @@ document.getElementById("formRegistro")
         );
 
         if(respuesta.ok){
-            toast("Paciente registrado correctamente");
+            toast("Registro enviado. Te avisaremos por mail cuando tu cuenta sea aprobada.");
         }else{
             toast("Error al registrar paciente", "error");
         }

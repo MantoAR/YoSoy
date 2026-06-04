@@ -8,4 +8,5 @@ public class Evolucion
     public string Diagnostico { get; set; }
     public string Observaciones { get; set; }
     public string PlanTratamiento { get; set; }
+    public string TipoCierre { get; set; }
 }

@@ -81,6 +81,41 @@ public class PacienteDAO
         return reader.Read() ? Mapear(reader) : null;
     }
 
+    public void GuardarToken(int idPaciente, string token)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Paciente SET Token = @Token WHERE IdPaciente = @Id", con);
+        cmd.Parameters.AddWithValue("@Token", token);
+        cmd.Parameters.AddWithValue("@Id",    idPaciente);
+        cmd.ExecuteNonQuery();
+    }
+
+    public Paciente ObtenerPorToken(string token)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT IdPaciente, Nombre, Dni, FechaNacimiento, Domicilio, Telefono, Mail, Estado, Token FROM Paciente WHERE Token = @Token", con);
+        cmd.Parameters.AddWithValue("@Token", token);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+        var p = Mapear(reader);
+        p.Token = reader["Token"] == DBNull.Value ? null : (string)reader["Token"];
+        return p;
+    }
+
+    public void LimpiarToken(int idPaciente)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Paciente SET Token = NULL WHERE IdPaciente = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idPaciente);
+        cmd.ExecuteNonQuery();
+    }
+
     private Paciente Mapear(SqlDataReader r) => new Paciente
     {
         IdPaciente       = (int)r["IdPaciente"],

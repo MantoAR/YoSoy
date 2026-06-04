@@ -99,6 +99,30 @@ public class TurnoDAO
         return lista;
     }
 
+    public bool ExisteTurnoMismoDia(int idPaciente, int idProfesional, DateTime fecha)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT COUNT(*) FROM Turno WHERE IdPaciente = @IdPac AND IdProfesional = @IdProf AND Fecha = @Fecha AND IdEstadoTurno IN (1, 2)", con);
+        cmd.Parameters.AddWithValue("@IdPac",  idPaciente);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        return (int)cmd.ExecuteScalar() > 0;
+    }
+
+    public bool ExisteTurnoEnHorario(int idProfesional, DateTime fecha, TimeSpan hora)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT COUNT(*) FROM Turno WHERE IdProfesional = @IdProf AND Fecha = @Fecha AND Hora = @Hora AND IdEstadoTurno IN (1, 2)", con);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        cmd.Parameters.AddWithValue("@Hora",   hora);
+        return (int)cmd.ExecuteScalar() > 0;
+    }
+
     public void CancelarTurnosPacienteProfesional(int idPaciente, int idProfesional)
     {
         using var con = Conexion.ObtenerConexion();

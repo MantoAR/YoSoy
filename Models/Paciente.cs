@@ -8,4 +8,5 @@ public class Paciente
     public string Telefono { get; set; }
     public string Mail { get; set; }
     public string Estado { get; set; }
+    public string Token { get; set; }
 }

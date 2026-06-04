@@ -175,10 +175,14 @@ async function renderTurnosPendientesProfesional() {
 
 async function responderTurnoPaciente(id, aceptar) {
     try {
-        const r = await fetch(`${API}/turnos/${id}`);
-        const turno = await r.json();
-        turno.idEstadoTurno = aceptar ? 2 : 3;
-        const res = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        let res;
+        if (aceptar) {
+            res = await fetch(`${API}/turnos/${id}/confirmar`, { method:'PUT' });
+        } else {
+            const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+            turno.idEstadoTurno = 3;
+            res = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        }
         if (res.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); mostrarSeccion('agenda'); }
         else toast('Error al responder', 'error');
     } catch { toast('Error de conexión', 'error'); }
