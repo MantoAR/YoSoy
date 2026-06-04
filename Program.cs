@@ -518,8 +518,27 @@ app.MapPost("/turnos", (Turno t) =>
 
 app.MapPost("/turnos/solicitar", (Turno t) =>
 {
+    // RN-05: Anticipación mínima de 24 horas
+    if (t.Fecha < DateTime.Now.AddHours(24))
+        return Results.BadRequest(new { mensaje = "El turno debe solicitarse con al menos 24 horas de anticipación." });
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
+
+    // RN-07: Sin turnos duplicados el mismo día con el mismo profesional
+    var cmdDup = new Microsoft.Data.SqlClient.SqlCommand(
+        @"SELECT COUNT(*) FROM Turno 
+          WHERE IdPaciente = @IdPaciente 
+            AND IdProfesional = @IdProfesional 
+            AND CAST(Fecha AS DATE) = CAST(@Fecha AS DATE)
+            AND IdEstadoTurno NOT IN (SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion IN ('Cancelado', 'Realizado'))", con);
+    cmdDup.Parameters.AddWithValue("@IdPaciente",    t.IdPaciente);
+    cmdDup.Parameters.AddWithValue("@IdProfesional", t.IdProfesional);
+    cmdDup.Parameters.AddWithValue("@Fecha",         t.Fecha);
+    var duplicados = (int)cmdDup.ExecuteScalar();
+    if (duplicados > 0)
+        return Results.BadRequest(new { mensaje = "Ya tenés un turno con este profesional para ese día." });
+
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(
         "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = 'Pendiente'", con);
     var result = cmd.ExecuteScalar();
