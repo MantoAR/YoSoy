@@ -1,1 +1,9 @@
-public class AgendaPropietario { public int IdAgendaPropietario{get;set;} public int IdAgenda{get;set;} public int IdProfesional{get;set;} public int IdTipoProfesional{get;set;} public bool PuedeCitaUrgente{get;set;} public string Estado{get;set;} }
+public class AgendaPropietario
+{
+    public int IdAgendaPropietario { get; set; }
+    public int IdAgenda { get; set; }
+    public int IdProfesional { get; set; }
+    public int IdTipoProfesional { get; set; }
+    public bool PuedeCitaUrgente { get; set; }
+    public string Estado { get; set; }
+}

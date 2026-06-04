@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
+
 public class TipoProfesionalDAO
 {
     public List<TipoProfesional> ObtenerTodos()
@@ -9,9 +10,11 @@ public class TipoProfesionalDAO
         con.Open();
         var cmd = new SqlCommand("SELECT IdTipoProfesional, Nombre, Estado FROM TipoProfesional WHERE Estado = 'Activo'", con);
         using var reader = cmd.ExecuteReader();
-        while (reader.Read()) lista.Add(Mapear(reader));
+        while (reader.Read())
+            lista.Add(Mapear(reader));
         return lista;
     }
+
     public TipoProfesional ObtenerPorId(int id)
     {
         using var con = Conexion.ObtenerConexion();
@@ -21,6 +24,7 @@ public class TipoProfesionalDAO
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
     }
+
     public void Insertar(TipoProfesional t)
     {
         using var con = Conexion.ObtenerConexion();
@@ -30,6 +34,7 @@ public class TipoProfesionalDAO
         cmd.Parameters.AddWithValue("@Estado", t.Estado ?? "Activo");
         cmd.ExecuteNonQuery();
     }
+
     public void Modificar(TipoProfesional t)
     {
         using var con = Conexion.ObtenerConexion();
@@ -40,10 +45,11 @@ public class TipoProfesionalDAO
         cmd.Parameters.AddWithValue("@Id", t.IdTipoProfesional);
         cmd.ExecuteNonQuery();
     }
+
     private TipoProfesional Mapear(SqlDataReader r) => new TipoProfesional
     {
         IdTipoProfesional = (int)r["IdTipoProfesional"],
-        Nombre = (string)r["Nombre"],
-        Estado = (string)r["Estado"]
+        Nombre            = (string)r["Nombre"],
+        Estado            = (string)r["Estado"]
     };
 }
