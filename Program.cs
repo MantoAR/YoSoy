@@ -1,9 +1,25 @@
 var builder = WebApplication.CreateBuilder(args);
+
+Conexion.Inicializar(builder.Configuration.GetConnectionString("YoSoy"));
+
+var origenesCors = builder.Configuration.GetSection("Cors:Origenes").Get<string[]>() ?? Array.Empty<string>();
 builder.Services.AddCors(opt =>
-    opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+    opt.AddDefaultPolicy(p =>
+    {
+        if (origenesCors.Length > 0)
+            p.WithOrigins(origenesCors).AllowAnyMethod().AllowAnyHeader();
+        else
+            p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+    }));
 
 var app = builder.Build();
 app.UseCors();
+
+app.MapGet("/config", () => Results.Ok(new
+{
+    signalingUrl = app.Configuration["Signaling:UrlPublica"],
+    stun         = app.Configuration.GetSection("Stun").Get<string[]>() ?? Array.Empty<string>()
+}));
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
