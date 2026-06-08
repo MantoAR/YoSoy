@@ -42,21 +42,12 @@
         <div class="card">
             <h3>Unirse a sesión</h3>
             <p style="font-size:13px;color:#666;">
-                Tu profesional te va a compartir un código. Ingresalo acá para conectarte a la videollamada.
+                Te estamos conectando con tu profesional para la videollamada.
             </p>
-            <div class="codigo-input">
-                <input 
-                    type="text" 
-                    id="input-sala" 
-                    placeholder="SALA-X-XXXXXX" 
-                    maxlength="30"
-                    oninput="this.value = this.value.toUpperCase()"
-                >
-                <button class="btn-verde" id="btn-conectar" onclick="conectarse()">
-                    Conectarme
-                </button>
+            <div class="estado-box" id="estado-espera">Conectando a tu sesión…</div>
+            <div class="controles" id="acciones-espera" style="display:none">
+                <button class="btn-verde" id="btn-reintentar" onclick="iniciar()">Reintentar</button>
             </div>
-            <div class="estado-box" id="estado-espera"></div>
         </div>
     </div>
 
@@ -73,103 +64,233 @@
             </div>
         </div>
         <div class="controles">
-            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
+            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Salir de la sesión</button>
             <span class="estado" id="estado-txt">Conectando...</span>
+            <span class="estado" id="cuenta"></span>
         </div>
     </div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-const SIGNAL = 'http://localhost:3001';
-let pc, stream, socket, sala;
+const params = new URLSearchParams(location.search);
+const linkToken = params.get('link');
+const API = (location.protocol.startsWith('http') && location.port !== '5500')
+    ? location.origin
+    : 'http://localhost:5000';
 
-async function conectarse() {
-    sala = document.getElementById('input-sala').value.trim().toUpperCase();
-    const estadoBox = document.getElementById('estado-espera');
+let cfg = null, sesion = null, pc = null, stream = null, socket = null;
+let countdownTimer = null, finProgramado = null;
+let audioRemoto = null;
 
-    if (!sala) {
-        estadoBox.textContent = 'Ingresá el código de sala.';
-        estadoBox.className = 'estado-box error';
-        return;
+const $ = id => document.getElementById(id);
+const estado = msg => { $('estado-txt').textContent = msg; };
+
+function mostrarEspera(msg, clase) {
+    $('pantalla-espera').style.display = 'block';
+    $('pantalla-sesion').style.display = 'none';
+    const box = $('estado-espera');
+    box.textContent = msg;
+    box.className = 'estado-box' + (clase ? ' ' + clase : '');
+    $('acciones-espera').style.display = clase === 'error' ? 'flex' : 'none';
+}
+
+async function cargarConfig() {
+    try { return await (await fetch(`${API}/config`)).json(); }
+    catch { return null; }
+}
+
+function combinar(fecha, hora) {
+    if (!fecha) return null;
+    const d = new Date(fecha);
+    if (isNaN(d.getTime())) return null;
+    if (typeof hora === 'string') {
+        const [hh, mm, ss] = hora.split(':').map(Number);
+        d.setHours(hh || 0, mm || 0, ss || 0, 0);
     }
+    return d.getTime();
+}
 
-    estadoBox.textContent = 'Conectando...';
-    estadoBox.className = 'estado-box';
-    document.getElementById('btn-conectar').disabled = true;
+// Prioriza la sesión actualmente activa; si no hay, el próximo dentro del margen.
+// El backend igual re-verifica la asignación en /join: esto solo elige el turno.
+async function elegirTurno(url) {
+    let turnos;
+    try { turnos = await (await fetch(url)).json(); } catch { return null; }
+    if (!Array.isArray(turnos)) return null;
+    const ahora = Date.now();
+    const margen = (cfg.margenIngresoMinutos || 5) * 60000;
+    const durDef = cfg.duracionTurnoDefault || 60;
+    const candidatos = [];
+    for (const t of turnos) {
+        if (t.idEstadoTurno === 3) continue;
+        const inicio = combinar(t.fecha, t.hora);
+        if (inicio === null) continue;
+        const fin = inicio + (t.duracionMinutos || durDef) * 60000;
+        if (ahora >= inicio - margen && ahora <= fin)
+            candidatos.push({ id: t.idTurno, inicio, activa: ahora >= inicio && ahora <= fin });
+    }
+    if (!candidatos.length) return null;
+    candidatos.sort((a, b) => (b.activa - a.activa) || (Math.abs(ahora - a.inicio) - Math.abs(ahora - b.inicio)));
+    return candidatos[0].id;
+}
+
+async function procesarRespuestaJoin(r) {
+    if (r.status === 429) { mostrarEspera('Demasiados intentos. Esperá unos minutos.', 'error'); return null; }
+    if (r.status === 401) { mostrarEspera('Tu acceso no es válido. Iniciá sesión nuevamente.', 'error'); return null; }
+    if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        mostrarEspera(d.mensaje || 'No se pudo abrir la sesión.', 'error');
+        return null;
+    }
+    return r.json();
+}
+
+async function joinPorSistema() {
+    const token = localStorage.getItem('token');
+    const idPaciente = localStorage.getItem('idPaciente');
+    if (!token || !idPaciente) {
+        mostrarEspera('Iniciá sesión nuevamente para entrar a la videollamada.', 'error');
+        return null;
+    }
+    const idTurno = await elegirTurno(`${API}/pacientes/${idPaciente}/turnos`);
+    if (!idTurno) {
+        mostrarEspera('No encontramos un turno activo ahora. Entrá a la hora de tu sesión.', 'error');
+        return null;
+    }
+    const r = await fetch(`${API}/sesiones/turno/${idTurno}/join`, {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token }
+    });
+    return procesarRespuestaJoin(r);
+}
+
+async function iniciar() {
+    mostrarEspera('Conectando a tu sesión…');
+    cfg = await cargarConfig();
+    if (!cfg) return mostrarEspera('No se pudo conectar con el servidor.', 'error');
+
+    let data;
+    if (linkToken) {
+        const r = await fetch(`${API}/sesiones/canjear-link`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: linkToken })
+        });
+        data = await procesarRespuestaJoin(r);
+    } else {
+        data = await joinPorSistema();
+    }
+    if (data) iniciarSesion(data);
+}
+
+function armarIceServers(data) {
+    const servers = [];
+    // Modo LAN: sin TURN (el backend devuelve iceServers null). STUN si está configurado.
+    if (Array.isArray(cfg.stun) && cfg.stun.length) servers.push({ urls: cfg.stun });
+    // TURN dinámico con credenciales REST efímeras (solo online).
+    if (data.iceServers && data.iceServers.urls && data.iceServers.urls.length)
+        servers.push({ urls: data.iceServers.urls, username: data.iceServers.username, credential: data.iceServers.credential });
+    return servers;
+}
+
+async function iniciarSesion(data) {
+    sesion = data;
+    finProgramado = data.finProgramado;
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch {
-        estadoBox.textContent = 'No se pudo acceder a la cámara o micrófono.';
-        estadoBox.className = 'estado-box error';
-        document.getElementById('btn-conectar').disabled = false;
+        mostrarEspera('No se pudo acceder a la cámara o micrófono.', 'error');
         return;
     }
 
-    document.getElementById('vid-paciente').srcObject = stream;
-    document.getElementById('pantalla-espera').style.display = 'none';
-    document.getElementById('pantalla-sesion').style.display = 'block';
-    document.getElementById('estado-txt').textContent = 'Conectando con el profesional...';
+    $('pantalla-espera').style.display = 'none';
+    $('pantalla-sesion').style.display = 'block';
+    $('vid-paciente').srcObject = stream;
+    estado('Esperando a que se una tu profesional…');
 
-    // Configurar WebRTC
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    pc = new RTCPeerConnection({ iceServers: armarIceServers(data) });
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
     pc.ontrack = e => {
-        document.getElementById('vid-profesional').srcObject = e.streams[0];
-        document.getElementById('estado-txt').textContent = '🟢 Sesión en curso';
+        $('vid-profesional').srcObject = e.streams[0];
+        estado('🟢 Sesión en curso');
+        engancharAudioRemoto(e.streams[0]);
     };
-
     pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
+        if (e.candidate) socket.emit('ice-candidate', { roomId: sesion.roomId, candidate: e.candidate });
     };
 
-    // Conectar al servidor de señalización
-    socket = io(SIGNAL);
+    socket = io(cfg.signalingUrl, { auth: { token: sesion.token } });
+    socket.on('connect', () => socket.emit('join-room', { roomId: sesion.roomId }));
+    socket.on('joined', enviarOferta);
+    socket.on('user-joined', enviarOferta);
+    socket.on('answer', async ({ answer }) => { await pc.setRemoteDescription(answer); });
+    socket.on('ice-candidate', async ({ candidate }) => { try { await pc.addIceCandidate(candidate); } catch {} });
+    socket.on('user-left', () => estado('⚠ El profesional se desconectó.'));
+    socket.on('sesion-actualizada', refrescarToken);
+    socket.on('rechazado', ({ motivo }) => mostrarEspera(motivo || 'No se pudo unir a la sesión.', 'error'));
+    socket.on('connect_error', () => mostrarEspera('No se pudo conectar al servicio de videollamada.', 'error'));
 
-    // Cuando el socket se conecta, unirse a la sala
-    socket.on('connect', () => {
-        socket.emit('join-room', { roomId: sala, role: 'paciente' });
-    });
+    iniciarCuentaRegresiva();
+}
 
-    // El servidor confirma que nos unimos → mandar offer inmediatamente
-    socket.on('joined', async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId: sala, offer });
-    });
+async function enviarOferta() {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit('offer', { roomId: sesion.roomId, offer });
+}
 
-    // Si el profesional se une después que nosotros → mandar offer
-    socket.on('user-joined', async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId: sala, offer });
-    });
+// ─── Cuenta regresiva según finProgramado ─────────────────────────────────────
+function iniciarCuentaRegresiva() {
+    clearInterval(countdownTimer);
+    actualizarCuenta();
+    countdownTimer = setInterval(actualizarCuenta, 1000);
+}
+function actualizarCuenta() {
+    if (!finProgramado) { $('cuenta').textContent = ''; return; }
+    const restante = new Date(finProgramado).getTime() - Date.now();
+    if (restante <= 0) {
+        clearInterval(countdownTimer);
+        $('cuenta').textContent = '';
+        estado('La sesión finalizó.');
+        return;
+    }
+    const m = String(Math.floor(restante / 60000)).padStart(2, '0');
+    const s = String(Math.floor((restante % 60000) / 1000)).padStart(2, '0');
+    $('cuenta').textContent = `⏳ ${m}:${s}`;
+}
 
-    socket.on('answer', async ({ answer }) => {
-        await pc.setRemoteDescription(answer);
-    });
+// El profesional prolongó la sesión: pedimos token nuevo y reiniciamos la cuenta.
+async function refrescarToken() {
+    try {
+        const r = await fetch(`${API}/sesiones/${sesion.idSesion}/refrescar-token`, {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + sesion.token }
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        sesion.token = d.token;
+        finProgramado = d.finProgramado;
+        iniciarCuentaRegresiva();
+    } catch {}
+}
 
-    socket.on('ice-candidate', async ({ candidate }) => {
-        try { await pc.addIceCandidate(candidate); } catch {}
-    });
-
-    socket.on('user-left', () => {
-        document.getElementById('estado-txt').textContent = '⚠ El profesional se desconectó.';
-    });
+// ─── Enganche de audio remoto para Fase 2 (transcripción / análisis con LLM) ───
+// TODO Fase 2: derivar este stream de audio a transcripción. Por ahora solo se deja
+// accesible en `audioRemoto`; NO se transcribe ni se envía nada todavía.
+function engancharAudioRemoto(remoto) {
+    if (!remoto || !remoto.getAudioTracks().length) return;
+    audioRemoto = remoto;
 }
 
 function finalizarSesion() {
+    clearInterval(countdownTimer);
     stream?.getTracks().forEach(t => t.stop());
     pc?.close();
     socket?.disconnect();
-    document.getElementById('pantalla-sesion').style.display = 'none';
-    document.getElementById('pantalla-espera').style.display = 'block';
-    document.getElementById('input-sala').value = '';
-    document.getElementById('btn-conectar').disabled = false;
-    document.getElementById('estado-espera').textContent = 'Sesión finalizada.';
-    document.getElementById('estado-espera').className = 'estado-box conectado';
+    $('pantalla-sesion').style.display = 'none';
+    mostrarEspera('Saliste de la sesión.', 'conectado');
+    $('acciones-espera').style.display = 'flex';
 }
+
+iniciar();
 </script>
 </body>
 </html>

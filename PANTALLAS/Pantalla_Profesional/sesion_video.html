@@ -43,6 +43,8 @@
         .btn-copiar { background: white; border: 1px solid #185FA5; color: #185FA5; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
         .btn-copiar:hover { background: #185FA5; color: white; }
         .sala-hint { font-size: 12px; color: #888; margin-top: 8px; }
+        .estado-conexion.error { color: #A32D2D; }
+        .estado-conexion.conectado { color: #3B6D11; }
     </style>
 </head>
 <body>
@@ -50,23 +52,13 @@
     <!-- PANTALLA DE CONEXIÓN -->
     <div id="pantalla-conexion">
         <div class="card">
-            <h3>Iniciar sesión con paciente</h3>
+            <h3>Sesión con paciente</h3>
             <p style="font-size:13px;color:#666;margin-bottom:16px">
-                Creá la sala y compartí el código con tu paciente para que se una.
+                Te estamos conectando con tu paciente para la videollamada.
             </p>
-            <button class="btn-verde" id="btn-crear" onclick="crearSala()">
-                📹 Crear sala
-            </button>
-            <div id="estado-conexion" style="font-size:13px;color:#888;margin-top:10px"></div>
-
-            <!-- Código generado -->
-            <div class="sala-box" id="sala-box">
-                <div class="sala-box-titulo">Código de sala — compartilo con tu paciente</div>
-                <div class="sala-codigo-wrap">
-                    <span class="sala-codigo" id="sala-codigo-display">—</span>
-                    <button class="btn-copiar" onclick="copiarCodigo()">📋 Copiar</button>
-                </div>
-                <div class="sala-hint">El paciente debe ingresar este código para unirse a la sesión.</div>
+            <div id="estado-conexion" class="estado-conexion" style="font-size:13px;color:#888;margin-top:10px">Cargando…</div>
+            <div class="controles" id="acciones-conexion" style="display:none">
+                <button class="btn-verde" id="btn-reintentar" onclick="iniciar()">Reintentar</button>
             </div>
         </div>
     </div>
@@ -118,15 +110,21 @@
 
         <div class="controles">
             <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
+            <button class="btn-gris" id="btn-prolongar" onclick="prolongar(15)">➕ 15 min</button>
             <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
             <span class="estado" id="estado-txt">Conectando...</span>
+            <span class="estado" id="cuenta"></span>
         </div>
     </div>
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-const API = 'http://localhost:5000';
-const SIGNAL = 'http://localhost:3001';
+const params = new URLSearchParams(location.search);
+const linkToken = params.get('link');
+const API = (location.protocol.startsWith('http') && location.port !== '5500')
+    ? location.origin
+    : 'http://localhost:5000';
+
 const EMOCIONES = {
     neutral:{label:'Neutral',color:'#888780',emoji:'😐'},
     happy:{label:'Felicidad',color:'#639922',emoji:'😄'},
@@ -137,100 +135,180 @@ const EMOCIONES = {
     disgusted:{label:'Disgusto',color:'#D4537E',emoji:'🤢'}
 };
 
-let pc, stream, socket, detectionTimer, timerInterval, sessionStart;
+let cfg = null, sesion = null, pc = null, stream = null, socket = null;
+let countdownTimer = null, finProgramado = null, audioRemoto = null;
+let detectionTimer, timerInterval, sessionStart;
 let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
 let modelsListo = false;
-let sala = '';
 
-// Cargar modelos al abrir la página
+const $ = id => document.getElementById(id);
+const estado = msg => { $('estado-txt').textContent = msg; };
+
+function mostrarConexion(msg, clase) {
+    $('pantalla-conexion').style.display = 'block';
+    $('pantalla-sesion').style.display = 'none';
+    const box = $('estado-conexion');
+    box.textContent = msg;
+    box.className = 'estado-conexion' + (clase ? ' ' + clase : '');
+    $('acciones-conexion').style.display = clase === 'error' ? 'flex' : 'none';
+}
+
+// Cargar modelos de face-api en paralelo a la conexión.
 Promise.all([
     faceapi.nets.tinyFaceDetector.loadFromUri('../models'),
     faceapi.nets.faceLandmark68TinyNet.loadFromUri('../models'),
     faceapi.nets.faceExpressionNet.loadFromUri('../models')
-]).then(() => {
-    modelsListo = true;
-    document.getElementById('estado-conexion').textContent = 'Modelos listos. Podés crear la sala.';
-}).catch(() => {
-    document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
+]).then(() => { modelsListo = true; }).catch(() => {
+    mostrarConexion('Error cargando los modelos de análisis.', 'error');
 });
 
-// ─── CREAR SALA (el profesional genera el código) ────────
-function crearSala() {
-    const idProfesional = localStorage.getItem('idProfesional') || '1';
-    sala = 'SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase();
-
-    // Mostrar el código para compartir
-    document.getElementById('sala-codigo-display').textContent = sala;
-    document.getElementById('sala-box').style.display = 'block';
-    document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';
-    document.getElementById('btn-crear').onclick = entrarASala;
-    document.getElementById('estado-conexion').textContent = 'Compartí el código con tu paciente y luego entrá.';
+async function cargarConfig() {
+    try { return await (await fetch(`${API}/config`)).json(); }
+    catch { return null; }
 }
 
-function copiarCodigo() {
-    navigator.clipboard.writeText(sala).then(() => {
-        const btn = document.querySelector('.btn-copiar');
-        btn.textContent = '✅ Copiado';
-        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
+function combinar(fecha, hora) {
+    if (!fecha) return null;
+    const d = new Date(fecha);
+    if (isNaN(d.getTime())) return null;
+    if (typeof hora === 'string') {
+        const [hh, mm, ss] = hora.split(':').map(Number);
+        d.setHours(hh || 0, mm || 0, ss || 0, 0);
+    }
+    return d.getTime();
+}
+
+// Prioriza la sesión actualmente activa; si no hay, el próximo dentro del margen.
+async function elegirTurno(url) {
+    let turnos;
+    try { turnos = await (await fetch(url)).json(); } catch { return null; }
+    if (!Array.isArray(turnos)) return null;
+    const ahora = Date.now();
+    const margen = (cfg.margenIngresoMinutos || 5) * 60000;
+    const durDef = cfg.duracionTurnoDefault || 60;
+    const candidatos = [];
+    for (const t of turnos) {
+        if (t.idEstadoTurno === 3) continue;
+        const inicio = combinar(t.fecha, t.hora);
+        if (inicio === null) continue;
+        const fin = inicio + (t.duracionMinutos || durDef) * 60000;
+        if (ahora >= inicio - margen && ahora <= fin)
+            candidatos.push({ id: t.idTurno, inicio, activa: ahora >= inicio && ahora <= fin });
+    }
+    if (!candidatos.length) return null;
+    candidatos.sort((a, b) => (b.activa - a.activa) || (Math.abs(ahora - a.inicio) - Math.abs(ahora - b.inicio)));
+    return candidatos[0].id;
+}
+
+async function procesarRespuestaJoin(r) {
+    if (r.status === 429) { mostrarConexion('Demasiados intentos. Esperá unos minutos.', 'error'); return null; }
+    if (r.status === 401) { mostrarConexion('Tu acceso no es válido. Iniciá sesión nuevamente.', 'error'); return null; }
+    if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        mostrarConexion(d.mensaje || 'No se pudo abrir la sesión.', 'error');
+        return null;
+    }
+    return r.json();
+}
+
+async function joinPorSistema() {
+    const token = localStorage.getItem('token');
+    const idProfesional = localStorage.getItem('idProfesional');
+    if (!token || !idProfesional) {
+        mostrarConexion('Iniciá sesión nuevamente para entrar a la videollamada.', 'error');
+        return null;
+    }
+    const idTurno = await elegirTurno(`${API}/profesionales/${idProfesional}/turnos`);
+    if (!idTurno) {
+        mostrarConexion('No hay un turno activo en este momento. Entrá a la hora de la sesión.', 'error');
+        return null;
+    }
+    const r = await fetch(`${API}/sesiones/turno/${idTurno}/join`, {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + token }
     });
+    return procesarRespuestaJoin(r);
 }
 
-// ─── ENTRAR A LA SALA (después de compartir el código) ───
-async function entrarASala() {
-    if (!modelsListo) { alert('Esperá que carguen los modelos de IA.'); return; }
-    if (!sala) { alert('Primero creá la sala.'); return; }
+async function iniciar() {
+    mostrarConexion('Conectando a la sesión…');
+    cfg = await cargarConfig();
+    if (!cfg) return mostrarConexion('No se pudo conectar con el servidor.', 'error');
 
-    document.getElementById('pantalla-conexion').style.display = 'none';
-    document.getElementById('pantalla-sesion').style.display = 'block';
-    document.getElementById('estado-txt').textContent = 'Esperando al paciente...';
+    let data;
+    if (linkToken) {
+        const r = await fetch(`${API}/sesiones/canjear-link`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: linkToken })
+        });
+        data = await procesarRespuestaJoin(r);
+    } else {
+        data = await joinPorSistema();
+    }
+    if (data) iniciarSesion(data);
+}
 
-    // Cámara y micrófono del profesional
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById('vid-propio').srcObject = stream;
+function armarIceServers(data) {
+    const servers = [];
+    if (Array.isArray(cfg.stun) && cfg.stun.length) servers.push({ urls: cfg.stun });
+    if (data.iceServers && data.iceServers.urls && data.iceServers.urls.length)
+        servers.push({ urls: data.iceServers.urls, username: data.iceServers.username, credential: data.iceServers.credential });
+    return servers;
+}
 
-    // Conectar al servidor de señalización
-    socket = io(SIGNAL);
-    socket.emit('join-room', { roomId: sala, role: 'profesional' });
+async function iniciarSesion(data) {
+    sesion = data;
+    finProgramado = data.finProgramado;
 
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch {
+        mostrarConexion('No se pudo acceder a la cámara o micrófono.', 'error');
+        return;
+    }
+
+    $('pantalla-conexion').style.display = 'none';
+    $('pantalla-sesion').style.display = 'block';
+    $('vid-propio').srcObject = stream;
+    estado('Esperando al paciente…');
+
+    pc = new RTCPeerConnection({ iceServers: armarIceServers(data) });
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-    // Cuando llega el video del paciente → arrancar análisis
     pc.ontrack = e => {
-        const vidPaciente = document.getElementById('vid-paciente');
+        const vidPaciente = $('vid-paciente');
         vidPaciente.srcObject = e.streams[0];
-        document.getElementById('estado-txt').textContent = '🟢 Sesión activa';
+        estado('🟢 Sesión activa');
+        engancharAudioRemoto(e.streams[0]);
         sessionStart = Date.now();
         muestras = 0; totales = {}; historial = []; ultimaEmo = null;
         iniciarDeteccion(vidPaciente);
         iniciarTimer();
     };
-
     pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
+        if (e.candidate) socket.emit('ice-candidate', { roomId: sesion.roomId, candidate: e.candidate });
     };
 
+    socket = io(cfg.signalingUrl, { auth: { token: sesion.token } });
+    socket.on('connect', () => socket.emit('join-room', { roomId: sesion.roomId }));
     socket.on('offer', async ({ offer }) => {
         await pc.setRemoteDescription(offer);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        socket.emit('answer', { roomId: sala, answer });
+        socket.emit('answer', { roomId: sesion.roomId, answer });
     });
+    socket.on('ice-candidate', async ({ candidate }) => { try { await pc.addIceCandidate(candidate); } catch {} });
+    socket.on('user-left', () => estado('⚠ El paciente se desconectó.'));
+    socket.on('rechazado', ({ motivo }) => mostrarConexion(motivo || 'No se pudo unir a la sesión.', 'error'));
+    socket.on('connect_error', () => mostrarConexion('No se pudo conectar al servicio de videollamada.', 'error'));
 
-    socket.on('ice-candidate', async ({ candidate }) => {
-        try { await pc.addIceCandidate(candidate); } catch {}
-    });
-
-    socket.on('user-left', () => {
-        document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
-    });
+    iniciarCuentaRegresiva();
 }
 
 // ─── DETECCIÓN DE EXPRESIONES ────────────────────────────
 function iniciarDeteccion(video) {
-    const canvas = document.getElementById('overlay');
+    const canvas = $('overlay');
     async function detectar() {
-        if (!video || video.readyState < 2) {
+        if (!modelsListo || !video || video.readyState < 2) {
             detectionTimer = setTimeout(detectar, 500); return;
         }
         canvas.width = video.videoWidth;
@@ -254,24 +332,24 @@ function iniciarDeteccion(video) {
 
             for (const k of Object.keys(EMOCIONES)) {
                 const pct = Math.round((exps[k]||0)*100);
-                document.getElementById(`b-${k}`).style.width = pct+'%';
-                document.getElementById(`v-${k}`).textContent = pct+'%';
+                $(`b-${k}`).style.width = pct+'%';
+                $(`v-${k}`).textContent = pct+'%';
             }
-            document.getElementById('stat-muestras').textContent = muestras;
+            $('stat-muestras').textContent = muestras;
 
             const dom = Object.entries(exps).sort((a,b) => b[1]-a[1])[0];
-            document.getElementById('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
+            $('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
 
             let dk='neutral', dv=0;
             for (const [k,v] of Object.entries(totales)) { if(v>dv){dk=k;dv=v;} }
-            document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
+            $('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
 
             if (dom[0] !== ultimaEmo) {
                 ultimaEmo = dom[0];
                 const elapsed = Date.now() - sessionStart;
                 const t = `${String(Math.floor(elapsed/60000)).padStart(2,'0')}:${String(Math.floor((elapsed%60000)/1000)).padStart(2,'0')}`;
                 historial.push({ tiempo:t, emocion:dom[0], label:EMOCIONES[dom[0]].label, intensidad:Math.round(dom[1]*100), ts:new Date().toISOString() });
-                const tl = document.getElementById('tl');
+                const tl = $('tl');
                 const row = document.createElement('div');
                 row.className = 'tl-row';
                 row.innerHTML = `<span class="tl-dot" style="background:${EMOCIONES[dom[0]].color}"></span><span class="tl-time">${t}</span><span>${EMOCIONES[dom[0]].label} (${Math.round(dom[1]*100)}%)</span>`;
@@ -289,19 +367,93 @@ function iniciarTimer() {
         const elapsed = Date.now() - sessionStart;
         const m = String(Math.floor(elapsed/60000)).padStart(2,'0');
         const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
-        document.getElementById('stat-dur').textContent = `${m}:${s}`;
+        $('stat-dur').textContent = `${m}:${s}`;
     }, 1000);
+}
+
+// ─── Cuenta regresiva según finProgramado ─────────────────
+function iniciarCuentaRegresiva() {
+    clearInterval(countdownTimer);
+    actualizarCuenta();
+    countdownTimer = setInterval(actualizarCuenta, 1000);
+}
+function actualizarCuenta() {
+    if (!finProgramado) { $('cuenta').textContent = ''; return; }
+    const restante = new Date(finProgramado).getTime() - Date.now();
+    if (restante <= 0) {
+        clearInterval(countdownTimer);
+        $('cuenta').textContent = '';
+        estado('La ventana de la sesión terminó. Podés prolongarla si seguís en consulta.');
+        return;
+    }
+    const m = String(Math.floor(restante / 60000)).padStart(2, '0');
+    const s = String(Math.floor((restante % 60000) / 1000)).padStart(2, '0');
+    $('cuenta').textContent = `⏳ ${m}:${s}`;
+}
+
+// ─── Prolongar (solo profesional) ─────────────────────────
+async function prolongar(minutos) {
+    if (!sesion) return;
+    $('btn-prolongar').disabled = true;
+    try {
+        const r = await fetch(`${API}/sesiones/${sesion.idSesion}/prolongar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sesion.token },
+            body: JSON.stringify({ minutos })
+        });
+        if (r.ok) {
+            const d = await r.json();
+            finProgramado = d.finProgramado;
+            await refrescarToken();
+            socket?.emit('sesion-actualizada');
+        }
+    } catch {} finally {
+        $('btn-prolongar').disabled = false;
+    }
+}
+
+async function refrescarToken() {
+    try {
+        const r = await fetch(`${API}/sesiones/${sesion.idSesion}/refrescar-token`, {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + sesion.token }
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        sesion.token = d.token;
+        finProgramado = d.finProgramado;
+        iniciarCuentaRegresiva();
+    } catch {}
+}
+
+// ─── Enganche de audio remoto para Fase 2 (transcripción / análisis con LLM) ───
+// TODO Fase 2: derivar este stream de audio a transcripción. Por ahora solo se deja
+// accesible en `audioRemoto`; NO se transcribe ni se envía nada todavía.
+function engancharAudioRemoto(remoto) {
+    if (!remoto || !remoto.getAudioTracks().length) return;
+    audioRemoto = remoto;
 }
 
 // ─── FINALIZAR ────────────────────────────────────────────
 async function finalizarSesion() {
     clearTimeout(detectionTimer);
     clearInterval(timerInterval);
+    clearInterval(countdownTimer);
+
+    if (sesion) {
+        try {
+            await fetch(`${API}/sesiones/${sesion.idSesion}/finalizar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + sesion.token },
+                body: JSON.stringify({ motivo: 'Finalizada por el profesional' })
+            });
+        } catch {}
+    }
+
     stream?.getTracks().forEach(t => t.stop());
     pc?.close();
     socket?.disconnect();
 
-    const duracion = Math.floor((Date.now() - sessionStart) / 1000);
+    const duracion = Math.floor((Date.now() - (sessionStart || Date.now())) / 1000);
     const n = muestras || 1;
     const resumen = {};
     for (const [k,v] of Object.entries(totales)) resumen[k] = Math.round(v/n*100);
@@ -310,13 +462,18 @@ async function finalizarSesion() {
     try {
         await fetch(`${API}/sesiones-emociones`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idProfesional, sala, duracion, resumen, historial })
+            headers: {
+                'Content-Type': 'application/json',
+                ...(sesion ? { 'Authorization': 'Bearer ' + sesion.token } : {})
+            },
+            body: JSON.stringify({ idProfesional, sala: sesion?.roomId, duracion, resumen, historial })
         });
     } catch(e) { console.error(e); }
 
-    document.getElementById('btn-exportar').disabled = false;
-    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${muestras} muestras registradas.`;
+    $('btn-exportar').disabled = false;
+    $('btn-prolongar').disabled = true;
+    estado(`Sesión finalizada. ${muestras} muestras registradas.`);
+    $('cuenta').textContent = '';
 }
 
 // ─── EXPORTAR REPORTE ─────────────────────────────────────
@@ -325,7 +482,7 @@ function exportarReporte() {
     const n = muestras || 1;
     const reporte = {
         fecha: new Date().toLocaleDateString('es-AR'),
-        sala,
+        sala: sesion?.roomId,
         duracion_segundos: duracion,
         total_muestras: muestras,
         promedio_emociones: Object.fromEntries(
@@ -339,6 +496,8 @@ function exportarReporte() {
     a.download = `reporte_sesion_${new Date().toISOString().slice(0,10)}.json`;
     a.click();
 }
+
+iniciar();
 </script>
 </body>
 </html>

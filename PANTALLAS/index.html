@@ -325,6 +325,7 @@
 
                 localStorage.setItem("idUsuario", data.idUsuario);
                 localStorage.setItem("rol", data.rol);
+                localStorage.setItem("token", data.token ?? "");
 
                 if (data.rol === "paciente") {
                     localStorage.setItem("idPaciente", data.idPaciente);
@@ -360,6 +361,7 @@
                 if (data.rol !== "profesional") { errorMsg.textContent = "Este acceso es solo para profesionales."; errorMsg.style.display = "block"; return; }
                 localStorage.setItem("idUsuario", data.idUsuario);
                 localStorage.setItem("rol", data.rol);
+                localStorage.setItem("token", data.token ?? "");
                 localStorage.setItem("idProfesional", data.idProfesional);
                 window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
             } catch {
