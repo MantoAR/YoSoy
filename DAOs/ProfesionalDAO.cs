@@ -110,6 +110,17 @@ public class ProfesionalDAO
         return reader.Read() ? Mapear(reader) : null;
     }
 
+    public void ActualizarDuracionDefault(int idProfesional, int minutos)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Profesional SET DuracionTurnoDefault = @Dur WHERE IdProfesional = @Id", con);
+        cmd.Parameters.AddWithValue("@Dur", minutos);
+        cmd.Parameters.AddWithValue("@Id",  idProfesional);
+        cmd.ExecuteNonQuery();
+    }
+
     public void GuardarToken(int idProfesional, string token)
     {
         using var con = Conexion.ObtenerConexion();

@@ -17,27 +17,43 @@ public class JwtService
         _issuer = jwt["Issuer"] ?? "yosoy";
     }
 
-    public string Generar(int idUsuario, string rol, string roomId, int idTurno, int idSesion, DateTime expiracionUtc)
+    public string GenerarLogin(int idUsuario, string rol, DateTime expiracion)
     {
-        var header = new { alg = "HS256", typ = "JWT" };
-        var payload = new Dictionary<string, object>
+        return Construir(new Dictionary<string, object>
         {
             ["iss"] = _issuer,
             ["idUsuario"] = idUsuario,
             ["rol"] = rol,
+            ["tipo"] = "login",
+            ["exp"] = new DateTimeOffset(expiracion).ToUnixTimeSeconds()
+        });
+    }
+
+    public string GenerarSesion(int idUsuario, string rol, string roomId, int idTurno, int idSesion, DateTime expiracion)
+    {
+        return Construir(new Dictionary<string, object>
+        {
+            ["iss"] = _issuer,
+            ["idUsuario"] = idUsuario,
+            ["rol"] = rol,
+            ["tipo"] = "sesion",
             ["roomId"] = roomId,
             ["idTurno"] = idTurno,
             ["idSesion"] = idSesion,
-            ["exp"] = new DateTimeOffset(expiracionUtc, TimeSpan.Zero).ToUnixTimeSeconds()
-        };
+            ["exp"] = new DateTimeOffset(expiracion).ToUnixTimeSeconds()
+        });
+    }
 
+    private string Construir(Dictionary<string, object> payload)
+    {
+        var header = new { alg = "HS256", typ = "JWT" };
         var h = B64(JsonSerializer.SerializeToUtf8Bytes(header));
         var p = B64(JsonSerializer.SerializeToUtf8Bytes(payload));
         var firma = B64(Firmar($"{h}.{p}"));
         return $"{h}.{p}.{firma}";
     }
 
-    public Dictionary<string, JsonElement>? Validar(string token)
+    public Dictionary<string, JsonElement>? Validar(string token, int graciaSegundos = 0)
     {
         if (string.IsNullOrWhiteSpace(token)) return null;
         var partes = token.Split('.');
@@ -55,7 +71,7 @@ public class JwtService
 
         if (payload.TryGetValue("exp", out var exp) &&
             exp.ValueKind == JsonValueKind.Number &&
-            exp.GetInt64() < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            exp.GetInt64() + graciaSegundos < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
             return null;
 
         return payload;

@@ -115,6 +115,40 @@ public class EmailService
         smtp.Disconnect(true);
     }
 
+    public void EnviarInvitacionSesion(string destinatario, string nombre, string link, string fecha, string hora)
+    {
+        var mensaje = new MimeMessage();
+        mensaje.From.Add(MailboxAddress.Parse(_from));
+        mensaje.To.Add(MailboxAddress.Parse(destinatario));
+        mensaje.Subject = "Tu sesión por videollamada – YoSoy";
+
+        var builder = new BodyBuilder
+        {
+            HtmlBody = $@"
+<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
+  <h2 style=""color:#2c3e50"">Tu sesión está por comenzar</h2>
+  <p>Hola <strong>{nombre}</strong>,</p>
+  <p>Tenés una sesión por videollamada en <strong>YoSoy</strong>.</p>
+  <p style=""font-size:16px;margin:16px 0"">
+    <strong>Fecha:</strong> {fecha}<br>
+    <strong>Hora:</strong> {hora} hs
+  </p>
+  <p>Usá este botón para entrar. El enlace es personal, de un solo uso y solo funciona durante el horario de tu sesión.</p>
+  <a href=""{link}"" style=""display:inline-block;padding:12px 24px;background:#185FA5;color:#fff;text-decoration:none;border-radius:6px;margin:16px 0"">
+    Entrar a la sesión
+  </a>
+  <p style=""font-size:12px;color:#888"">Si no reconocés este mail, podés ignorarlo.</p>
+</div>"
+        };
+        mensaje.Body = builder.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        smtp.Connect(_host, _port, SecureSocketOptions.StartTls);
+        smtp.Authenticate(_from, _pass);
+        smtp.Send(mensaje);
+        smtp.Disconnect(true);
+    }
+
     public void EnviarResetPassword(string destinatario, string token)
     {
         var link = $"{_appUrl}/pantallas/reset-password.html?token={token}";

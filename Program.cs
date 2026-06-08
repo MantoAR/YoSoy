@@ -1,3 +1,6 @@
+using System.Linq;
+using System.Text.Json;
+
 var builder = WebApplication.CreateBuilder(args);
 
 Conexion.Inicializar(builder.Configuration.GetConnectionString("YoSoy"));
@@ -54,15 +57,18 @@ app.MapPost("/login", (LoginRequest req) =>
 
     dao.ResetearIntentos(usuario.IdUsuario);
 
+    string TokenSesion(string rol) =>
+        new JwtService(app.Configuration).GenerarLogin(usuario.IdUsuario, rol, DateTime.Now.AddHours(8));
+
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
     if (up != null)
-        return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente });
+        return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente, token = TokenSesion("paciente") });
 
     var upro = new UsuarioProfesionalDAO().ObtenerPorUsuario(usuario.IdUsuario);
     if (upro != null)
-        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional });
+        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional, token = TokenSesion("profesional") });
 
-    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario });
+    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario, token = TokenSesion("configurador") });
 });
 
 // Especialidad
@@ -1299,6 +1305,303 @@ app.MapDelete("/bloqueos/{id}", (int id) =>
 {
     new BloqueosAgendaDAO().Eliminar(id);
     return Results.NoContent();
+});
+
+// ─── Videollamadas seguras: sesiones de video ────────────────────────────────
+
+static Dictionary<string, JsonElement>? PayloadDeBearer(HttpContext ctx, JwtService jwt, int graciaSegundos = 0)
+{
+    var header = ctx.Request.Headers["Authorization"].ToString();
+    if (string.IsNullOrEmpty(header) || !header.StartsWith("Bearer "))
+        return null;
+    return jwt.Validar(header["Bearer ".Length..], graciaSegundos);
+}
+
+static (DateTime inicio, int duracion) VentanaTurno(Turno t, IConfiguration cfg)
+{
+    int porDefecto = int.TryParse(cfg["Sesion:DuracionTurnoDefaultMinutos"], out var d) ? d : 60;
+    int duracion = t.DuracionMinutos
+        ?? new ProfesionalDAO().ObtenerPorId(t.IdProfesional)?.DuracionTurnoDefault
+        ?? porDefecto;
+    var inicio = t.Fecha.Date + t.Hora;
+    return (inicio, duracion);
+}
+
+static IResult AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cfg, JwtService jwt, TurnCredentialsService turn)
+{
+    var (inicio, duracion) = VentanaTurno(t, cfg);
+    int margen = int.TryParse(cfg["Sesion:MargenIngresoMinutos"], out var m) ? m : 5;
+    var ahora = DateTime.Now;
+
+    if (ahora < inicio.AddMinutes(-margen))
+        return Results.Json(new { mensaje = "Todavía no es horario de la sesión." }, statusCode: 403);
+
+    var dao = new SesionVideoDAO();
+    var sesion = dao.ObtenerOCrearPorTurno(t.IdTurno, inicio.AddMinutes(duracion), out var creada);
+
+    if (sesion.Estado == "finalizada")
+        return Results.Json(new { mensaje = "La sesión ya finalizó." }, statusCode: 403);
+    if (ahora > sesion.FinProgramado)
+        return Results.Json(new { mensaje = "La ventana de la sesión ya expiró." }, statusCode: 403);
+
+    var eventoDao = new SesionVideoEventoDAO();
+    if (creada)
+        eventoDao.Insertar(new SesionVideoEvento { IdSesion = sesion.IdSesion, Tipo = "creada", Detalle = $"Turno {t.IdTurno}" });
+
+    dao.MarcarActiva(sesion.IdSesion);
+    eventoDao.Insertar(new SesionVideoEvento { IdSesion = sesion.IdSesion, Tipo = "ingreso", IdUsuario = idUsuario, Rol = rol });
+
+    var token = jwt.GenerarSesion(idUsuario, rol, sesion.RoomId, t.IdTurno, sesion.IdSesion, sesion.FinProgramado);
+    var ice = turn.GenerarIceServer(idUsuario);
+    bool consentimiento = new ConsentimientoDAO().ObtenerPorPaciente(t.IdPaciente).Any(c => c.Estado == "Activo");
+
+    return Results.Ok(new
+    {
+        roomId = sesion.RoomId,
+        token,
+        idSesion = sesion.IdSesion,
+        rol,
+        finProgramado = sesion.FinProgramado,
+        iceServers = ice,
+        consentimientoOk = consentimiento
+    });
+}
+
+app.MapPost("/sesiones/turno/{idTurno}/join", (int idTurno, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt);
+    if (p == null) return Results.Unauthorized();
+
+    var idUsuario = p["idUsuario"].GetInt32();
+    var rol = p["rol"].GetString();
+
+    var t = new TurnoDAO().ObtenerPorId(idTurno);
+    if (t is null) return Results.NotFound();
+
+    if (rol == "profesional")
+    {
+        var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(idUsuario);
+        if (up == null || up.IdProfesional != t.IdProfesional)
+            return Results.Json(new { mensaje = "No estás asignado a este turno." }, statusCode: 403);
+    }
+    else if (rol == "paciente")
+    {
+        var up = new UsuarioPacienteDAO().ObtenerPorUsuario(idUsuario);
+        if (up == null || up.IdPaciente != t.IdPaciente)
+            return Results.Json(new { mensaje = "No estás asignado a este turno." }, statusCode: 403);
+    }
+    else return Results.Json(new { mensaje = "Rol no autorizado para la sesión." }, statusCode: 403);
+
+    return AbrirSesion(t, rol!, idUsuario, app.Configuration, jwt, new TurnCredentialsService(app.Configuration));
+});
+
+app.MapPost("/sesiones/canjear-link", (CanjearLinkRequest req) =>
+{
+    var dao = new SesionLinkTokenDAO();
+    var link = dao.ObtenerPorToken(req.Token ?? "");
+    if (link == null) return Results.NotFound(new { mensaje = "Link inválido." });
+    if (link.Usado) return Results.BadRequest(new { mensaje = "Este link ya fue utilizado." });
+    if (link.Expiracion < DateTime.Now) return Results.BadRequest(new { mensaje = "El link expiró." });
+    if (!dao.MarcarUsadoSiNoUsado(link.IdLink))
+        return Results.BadRequest(new { mensaje = "Este link ya fue utilizado." });
+
+    var t = new TurnoDAO().ObtenerPorId(link.IdTurno);
+    if (t is null) return Results.NotFound();
+
+    var jwt = new JwtService(app.Configuration);
+    return AbrirSesion(t, link.Rol, link.IdUsuario ?? 0, app.Configuration, jwt, new TurnCredentialsService(app.Configuration));
+});
+
+app.MapPost("/sesiones/{id}/refrescar-token", (int id, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt, 300);
+    if (p == null) return Results.Unauthorized();
+    if (!p.TryGetValue("idSesion", out var sid) || sid.GetInt32() != id)
+        return Results.Json(new { mensaje = "El token no corresponde a esta sesión." }, statusCode: 403);
+
+    var sesion = new SesionVideoDAO().ObtenerPorId(id);
+    if (sesion is null) return Results.NotFound();
+    if (sesion.Estado == "finalizada" || DateTime.Now > sesion.FinProgramado)
+        return Results.Json(new { mensaje = "La sesión no está activa." }, statusCode: 403);
+
+    var token = jwt.GenerarSesion(p["idUsuario"].GetInt32(), p["rol"].GetString()!, sesion.RoomId, sesion.IdTurno, sesion.IdSesion, sesion.FinProgramado);
+    return Results.Ok(new { token, finProgramado = sesion.FinProgramado });
+});
+
+app.MapPost("/sesiones/{id}/prolongar", (int id, ProlongarRequest req, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt, 300);
+    if (p == null) return Results.Unauthorized();
+    if (p["rol"].GetString() != "profesional")
+        return Results.Json(new { mensaje = "Solo el profesional puede prolongar la sesión." }, statusCode: 403);
+    if (req.Minutos <= 0 || req.Minutos > 180)
+        return Results.BadRequest(new { mensaje = "Cantidad de minutos inválida." });
+
+    var sesion = new SesionVideoDAO().ObtenerPorId(id);
+    if (sesion is null) return Results.NotFound();
+    if (sesion.Estado == "finalizada") return Results.BadRequest(new { mensaje = "La sesión ya finalizó." });
+
+    var t = new TurnoDAO().ObtenerPorId(sesion.IdTurno);
+    var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(p["idUsuario"].GetInt32());
+    if (t is null || up == null || up.IdProfesional != t.IdProfesional)
+        return Results.Json(new { mensaje = "No es tu sesión." }, statusCode: 403);
+
+    var nuevoFin = sesion.FinProgramado.AddMinutes(req.Minutos);
+    new SesionVideoDAO().ActualizarFinProgramado(id, nuevoFin);
+    new SesionVideoEventoDAO().Insertar(new SesionVideoEvento
+    {
+        IdSesion = id, Tipo = "extension",
+        Detalle = $"+{req.Minutos} min, nuevo fin {nuevoFin:yyyy-MM-dd HH:mm}",
+        IdUsuario = p["idUsuario"].GetInt32(), Rol = "profesional"
+    });
+    return Results.Ok(new { finProgramado = nuevoFin });
+});
+
+app.MapPost("/sesiones/{id}/finalizar", (int id, FinalizarRequest req, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt, 300);
+    if (p == null) return Results.Unauthorized();
+    if (p["rol"].GetString() != "profesional")
+        return Results.Json(new { mensaje = "Solo el profesional puede finalizar la sesión." }, statusCode: 403);
+
+    var sesion = new SesionVideoDAO().ObtenerPorId(id);
+    if (sesion is null) return Results.NotFound();
+
+    var t = new TurnoDAO().ObtenerPorId(sesion.IdTurno);
+    var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(p["idUsuario"].GetInt32());
+    if (t is null || up == null || up.IdProfesional != t.IdProfesional)
+        return Results.Json(new { mensaje = "No es tu sesión." }, statusCode: 403);
+
+    new SesionVideoDAO().Finalizar(id, req.Motivo);
+    new SesionVideoEventoDAO().Insertar(new SesionVideoEvento
+    {
+        IdSesion = id, Tipo = "finalizada", Detalle = req.Motivo,
+        IdUsuario = p["idUsuario"].GetInt32(), Rol = "profesional"
+    });
+    return Results.Ok(new { mensaje = "Sesión finalizada." });
+});
+
+app.MapGet("/sesiones/{id}/estado", (int id) =>
+{
+    var s = new SesionVideoDAO().ObtenerPorId(id);
+    if (s is null) return Results.NotFound();
+    bool activa = s.Estado != "finalizada" && DateTime.Now <= s.FinProgramado;
+    return Results.Ok(new { estado = s.Estado, finProgramado = s.FinProgramado, activa, roomId = s.RoomId });
+});
+
+app.MapPost("/sesiones-emociones", (SesionEmocionesRequest req, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt, 300);
+    if (p == null) return Results.Unauthorized();
+    if (p["rol"].GetString() != "profesional")
+        return Results.Json(new { mensaje = "Solo el profesional registra el análisis." }, statusCode: 403);
+
+    SesionVideo? sesion = null;
+    if (p.TryGetValue("idSesion", out var sid))
+        sesion = new SesionVideoDAO().ObtenerPorId(sid.GetInt32());
+    if (sesion == null && !string.IsNullOrWhiteSpace(req.Sala))
+        sesion = new SesionVideoDAO().ObtenerPorRoomId(req.Sala);
+
+    if (sesion != null)
+    {
+        var t = new TurnoDAO().ObtenerPorId(sesion.IdTurno);
+        if (t != null && !new ConsentimientoDAO().ObtenerPorPaciente(t.IdPaciente).Any(c => c.Estado == "Activo"))
+            return Results.Json(new { mensaje = "No hay consentimiento activo del paciente para registrar el análisis." }, statusCode: 403);
+    }
+
+    var crypto = new CryptoService(app.Configuration);
+    var resumenJson = req.Resumen.ValueKind == JsonValueKind.Undefined ? "{}" : req.Resumen.GetRawText();
+    var historialJson = req.Historial.ValueKind == JsonValueKind.Undefined ? "[]" : req.Historial.GetRawText();
+
+    new SesionEmocionesDAO().Insertar(new SesionEmociones
+    {
+        IdSesion = sesion?.IdSesion,
+        IdProfesional = req.IdProfesional,
+        RoomId = req.Sala,
+        DuracionSegundos = req.Duracion,
+        Muestras = req.Muestras,
+        Resumen = crypto.Proteger(resumenJson),
+        Historial = crypto.Proteger(historialJson)
+    });
+
+    if (sesion != null)
+        new SesionVideoEventoDAO().Insertar(new SesionVideoEvento
+        {
+            IdSesion = sesion.IdSesion, Tipo = "emociones",
+            Detalle = $"{req.Muestras} muestras", IdUsuario = p["idUsuario"].GetInt32(), Rol = "profesional"
+        });
+
+    return Results.Created("/sesiones-emociones", new { ok = true, cifrado = crypto.CifradoActivo });
+});
+
+app.MapPost("/sesiones/turno/{idTurno}/invitar", (int idTurno, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt);
+    if (p == null) return Results.Unauthorized();
+    if (p["rol"].GetString() != "profesional")
+        return Results.Json(new { mensaje = "Solo el profesional puede enviar invitaciones." }, statusCode: 403);
+
+    var t = new TurnoDAO().ObtenerPorId(idTurno);
+    if (t is null) return Results.NotFound();
+    var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(p["idUsuario"].GetInt32());
+    if (up == null || up.IdProfesional != t.IdProfesional)
+        return Results.Json(new { mensaje = "No es tu turno." }, statusCode: 403);
+
+    var (inicio, duracion) = VentanaTurno(t, app.Configuration);
+    var expira = inicio.AddMinutes(duracion);
+    var dao = new SesionLinkTokenDAO();
+    var dominio = app.Configuration["Dominio"] ?? "http://localhost:5000";
+
+    string CrearLink(string rol, int? idUsuario, string pagina)
+    {
+        var tok = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        dao.Insertar(new SesionLinkToken { IdTurno = idTurno, Rol = rol, IdUsuario = idUsuario, Token = tok, Expiracion = expira });
+        return $"{dominio}/pantallas/{pagina}?link={tok}";
+    }
+
+    var paciente = new PacienteDAO().ObtenerPorId(t.IdPaciente);
+    var profesional = new ProfesionalDAO().ObtenerPorId(t.IdProfesional);
+    var fecha = t.Fecha.ToString("dd/MM/yyyy");
+    var hora = t.Hora.ToString(@"hh\:mm");
+    var email = new EmailService(app.Configuration);
+
+    var linkPaciente = CrearLink("paciente", null, "Pantalla_Paciente/sesion_video.html");
+    var linkProfesional = CrearLink("profesional", up.IdUsuario, "Pantalla_Profesional/sesion_video.html");
+
+    try
+    {
+        if (!string.IsNullOrWhiteSpace(paciente?.Mail))
+            email.EnviarInvitacionSesion(paciente!.Mail, paciente.Nombre, linkPaciente, fecha, hora);
+        if (!string.IsNullOrWhiteSpace(profesional?.Mail))
+            email.EnviarInvitacionSesion(profesional!.Mail, $"{profesional.Nombre} {profesional.Apellido}".Trim(), linkProfesional, fecha, hora);
+    }
+    catch { }
+
+    return Results.Ok(new { mensaje = "Invitaciones enviadas." });
+});
+
+app.MapPut("/profesionales/{id}/duracion-turno", (int id, DuracionTurnoRequest req, HttpContext ctx) =>
+{
+    var jwt = new JwtService(app.Configuration);
+    var p = PayloadDeBearer(ctx, jwt);
+    if (p == null) return Results.Unauthorized();
+    if (p["rol"].GetString() != "profesional")
+        return Results.Json(new { mensaje = "Solo el profesional puede cambiar la duración." }, statusCode: 403);
+
+    var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(p["idUsuario"].GetInt32());
+    if (up == null || up.IdProfesional != id)
+        return Results.Json(new { mensaje = "No es tu perfil." }, statusCode: 403);
+    if (req.Minutos < 10 || req.Minutos > 240)
+        return Results.BadRequest(new { mensaje = "La duración debe estar entre 10 y 240 minutos." });
+
+    new ProfesionalDAO().ActualizarDuracionDefault(id, req.Minutos);
+    return Results.Ok(new { duracionTurnoDefault = req.Minutos });
 });
 
 app.Run();

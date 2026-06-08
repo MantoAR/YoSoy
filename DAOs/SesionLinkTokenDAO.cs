@@ -40,13 +40,13 @@ public class SesionLinkTokenDAO
         };
     }
 
-    public void MarcarUsado(int idLink)
+    public bool MarcarUsadoSiNoUsado(int idLink)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "UPDATE SesionLinkToken SET Usado = 1 WHERE IdLink = @Id", con);
+            "UPDATE SesionLinkToken SET Usado = 1 WHERE IdLink = @Id AND Usado = 0", con);
         cmd.Parameters.AddWithValue("@Id", idLink);
-        cmd.ExecuteNonQuery();
+        return cmd.ExecuteNonQuery() == 1;
     }
 }

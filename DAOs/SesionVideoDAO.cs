@@ -18,6 +18,63 @@ public class SesionVideoDAO
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
+    public SesionVideo ObtenerOCrearPorTurno(int idTurno, DateTime finInicial, out bool creada)
+    {
+        for (int intento = 0; intento < 2; intento++)
+        {
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            using var tran = con.BeginTransaction();
+            try
+            {
+                var sel = new SqlCommand(
+                    @"SELECT IdSesion, IdTurno, RoomId, Estado, InicioReal, FinProgramado,
+                             FinReal, DuracionReal, MotivoFin, FechaCreacion
+                      FROM SesionVideo WITH (UPDLOCK, HOLDLOCK)
+                      WHERE IdTurno = @IdTurno AND Estado <> 'finalizada'", con, tran);
+                sel.Parameters.AddWithValue("@IdTurno", idTurno);
+
+                using (var reader = sel.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        var existente = Mapear(reader);
+                        reader.Close();
+                        tran.Commit();
+                        creada = false;
+                        return existente;
+                    }
+                }
+
+                var roomId = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+                var ins = new SqlCommand(@"
+                    INSERT INTO SesionVideo (IdTurno, RoomId, Estado, FinProgramado)
+                    VALUES (@IdTurno, @RoomId, 'programada', @FinProgramado);
+                    SELECT SCOPE_IDENTITY();", con, tran);
+                ins.Parameters.AddWithValue("@IdTurno",       idTurno);
+                ins.Parameters.AddWithValue("@RoomId",        roomId);
+                ins.Parameters.AddWithValue("@FinProgramado", finInicial);
+                var idSesion = Convert.ToInt32(ins.ExecuteScalar());
+                tran.Commit();
+
+                creada = true;
+                return new SesionVideo
+                {
+                    IdSesion = idSesion, IdTurno = idTurno, RoomId = roomId,
+                    Estado = "programada", FinProgramado = finInicial, FechaCreacion = DateTime.Now
+                };
+            }
+            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
+            {
+                tran.Rollback();
+            }
+        }
+
+        var ya = ObtenerPorTurno(idTurno) ?? throw new InvalidOperationException("No se pudo abrir la sesión del turno.");
+        creada = false;
+        return ya;
+    }
+
     public SesionVideo? ObtenerPorId(int id)
     {
         using var con = Conexion.ObtenerConexion();
