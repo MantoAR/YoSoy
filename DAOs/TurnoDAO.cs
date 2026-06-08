@@ -8,7 +8,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor) VALUES (@IdPaciente, @IdProfesional, @IdEstadoTurno, @Fecha, @Hora, @Modalidad, @Motivo, @CreadoPor)", con);
+            "INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, DuracionMinutos) VALUES (@IdPaciente, @IdProfesional, @IdEstadoTurno, @Fecha, @Hora, @Modalidad, @Motivo, @CreadoPor, @DuracionMinutos)", con);
         cmd.Parameters.AddWithValue("@IdPaciente",    t.IdPaciente);
         cmd.Parameters.AddWithValue("@IdProfesional", t.IdProfesional);
         cmd.Parameters.AddWithValue("@IdEstadoTurno", t.IdEstadoTurno);
@@ -17,6 +17,7 @@ public class TurnoDAO
         cmd.Parameters.AddWithValue("@Modalidad",     (object?)t.Modalidad ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Motivo",        (object?)t.Motivo    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@CreadoPor",     (object?)t.CreadoPor ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@DuracionMinutos", (object?)t.DuracionMinutos ?? DBNull.Value);
         cmd.ExecuteNonQuery();
     }
 
@@ -25,7 +26,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "UPDATE Turno SET IdPaciente = @IdPaciente, IdProfesional = @IdProfesional, IdEstadoTurno = @IdEstadoTurno, Fecha = @Fecha, Hora = @Hora, Modalidad = @Modalidad, Motivo = @Motivo WHERE IdTurno = @Id", con);
+            "UPDATE Turno SET IdPaciente = @IdPaciente, IdProfesional = @IdProfesional, IdEstadoTurno = @IdEstadoTurno, Fecha = @Fecha, Hora = @Hora, Modalidad = @Modalidad, Motivo = @Motivo, DuracionMinutos = @DuracionMinutos WHERE IdTurno = @Id", con);
         cmd.Parameters.AddWithValue("@IdPaciente",    t.IdPaciente);
         cmd.Parameters.AddWithValue("@IdProfesional", t.IdProfesional);
         cmd.Parameters.AddWithValue("@IdEstadoTurno", t.IdEstadoTurno);
@@ -33,6 +34,7 @@ public class TurnoDAO
         cmd.Parameters.AddWithValue("@Hora",          t.Hora);
         cmd.Parameters.AddWithValue("@Modalidad",     (object?)t.Modalidad ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Motivo",        (object?)t.Motivo    ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@DuracionMinutos", (object?)t.DuracionMinutos ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Id",            t.IdTurno);
         cmd.ExecuteNonQuery();
     }
@@ -53,7 +55,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor FROM Turno", con);
+            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, DuracionMinutos FROM Turno", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -65,7 +67,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor FROM Turno WHERE IdTurno = @Id", con);
+            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, DuracionMinutos FROM Turno WHERE IdTurno = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -77,7 +79,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor FROM Turno WHERE IdPaciente = @Id", con);
+            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, DuracionMinutos FROM Turno WHERE IdPaciente = @Id", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -91,7 +93,7 @@ public class TurnoDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor FROM Turno WHERE IdProfesional = @Id", con);
+            "SELECT IdTurno, IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, DuracionMinutos FROM Turno WHERE IdProfesional = @Id", con);
         cmd.Parameters.AddWithValue("@Id", idProfesional);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -144,6 +146,7 @@ public class TurnoDAO
         Hora          = (TimeSpan)r["Hora"],
         Modalidad     = r["Modalidad"] == DBNull.Value ? null : (string)r["Modalidad"],
         Motivo        = r["Motivo"]    == DBNull.Value ? null : (string)r["Motivo"],
-        CreadoPor     = r["CreadoPor"] == DBNull.Value ? null : (string)r["CreadoPor"]
+        CreadoPor     = r["CreadoPor"] == DBNull.Value ? null : (string)r["CreadoPor"],
+        DuracionMinutos = r.HasColumn("DuracionMinutos") && r["DuracionMinutos"] != DBNull.Value ? (int?)r["DuracionMinutos"] : null
     };
 }

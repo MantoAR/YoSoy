@@ -92,7 +92,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional", con);
+            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, DuracionTurnoDefault FROM Profesional", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -104,7 +104,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional WHERE IdProfesional = @Id", con);
+            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, DuracionTurnoDefault FROM Profesional WHERE IdProfesional = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -126,7 +126,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, Token FROM Profesional WHERE Token = @Token", con);
+            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, DuracionTurnoDefault, Token FROM Profesional WHERE Token = @Token", con);
         cmd.Parameters.AddWithValue("@Token", token);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? MapearConToken(reader) : null;
@@ -148,7 +148,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional WHERE IdEspecialidad = @IdEsp", con);
+            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, DuracionTurnoDefault FROM Profesional WHERE IdEspecialidad = @IdEsp", con);
         cmd.Parameters.AddWithValue("@IdEsp", idEspecialidad);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -173,7 +173,8 @@ public class ProfesionalDAO
         Estado          = r["Estado"]          == DBNull.Value ? null : (string)r["Estado"],
         Mail            = r["Mail"]            == DBNull.Value ? null : (string)r["Mail"],
         Telefono        = r["Telefono"]        == DBNull.Value ? null : (string)r["Telefono"],
-        FechaSolicitud  = r["FechaSolicitud"]  == DBNull.Value ? null : (DateTime?)r["FechaSolicitud"]
+        FechaSolicitud  = r["FechaSolicitud"]  == DBNull.Value ? null : (DateTime?)r["FechaSolicitud"],
+        DuracionTurnoDefault = r.HasColumn("DuracionTurnoDefault") && r["DuracionTurnoDefault"] != DBNull.Value ? (int?)r["DuracionTurnoDefault"] : null
     };
 
     private Profesional MapearConToken(SqlDataReader r)

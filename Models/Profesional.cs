@@ -17,4 +17,5 @@ public class Profesional
     public string Telefono { get; set; }
     public DateTime? FechaSolicitud { get; set; }
     public string? Token { get; set; }
+    public int? DuracionTurnoDefault { get; set; }
 }

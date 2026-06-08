@@ -9,4 +9,5 @@ public class Turno
     public string Modalidad { get; set; }
     public string Motivo { get; set; }
     public string? CreadoPor { get; set; }
+    public int? DuracionMinutos { get; set; }
 }
