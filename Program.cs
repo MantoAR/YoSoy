@@ -1485,8 +1485,23 @@ app.MapPost("/sesiones/{id}/finalizar", (int id, FinalizarRequest req, HttpConte
     return Results.Ok(new { mensaje = "Sesión finalizada." });
 });
 
-app.MapGet("/sesiones/{id}/estado", (int id) =>
+app.MapGet("/sesiones/{id}/estado", (int id, HttpContext ctx) =>
 {
+    var secreto = app.Configuration["Signaling:SecretoInterno"];
+    bool modoLan = !bool.TryParse(app.Configuration["Sesion:ModoLan"], out var lan) || lan;
+    if (string.IsNullOrEmpty(secreto))
+    {
+        if (!modoLan) return Results.Unauthorized();
+    }
+    else
+    {
+        var recibido = ctx.Request.Headers["X-Internal-Secret"].ToString();
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(recibido),
+                System.Text.Encoding.UTF8.GetBytes(secreto)))
+            return Results.Unauthorized();
+    }
+
     var s = new SesionVideoDAO().ObtenerPorId(id);
     if (s is null) return Results.NotFound();
     bool activa = s.Estado != "finalizada" && DateTime.Now <= s.FinProgramado;
