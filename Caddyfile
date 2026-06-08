@@ -1,0 +1,32 @@
+# ───────────────────────────────────────────────────────────────────────────
+# Caddy — TLS automático + reverse proxy para YoSoy
+#
+# Sirve el frontend estático y el backend .NET, y hace proxy del WSS del
+# signaling (Socket.IO) por 443. TLS por Let's Encrypt automático.
+#
+# Arranque:  caddy run --config ./Caddyfile
+# ───────────────────────────────────────────────────────────────────────────
+
+comuna31.com.ar {
+	encode gzip
+
+	# WebSocket / Socket.IO del servidor de señalización (WSS por 443 → 3001).
+	@signaling path /socket.io/*
+	reverse_proxy @signaling 127.0.0.1:3001
+
+	# Health del signaling (opcional).
+	reverse_proxy /health 127.0.0.1:3001
+
+	# Todo lo demás va al backend .NET (sirve API + frontend estático en /pantallas).
+	reverse_proxy 127.0.0.1:5000
+}
+
+# ─── ISP que bloquea el puerto 80 entrante ────────────────────────────────────
+# Si Let's Encrypt no puede validar por HTTP-01 (puerto 80 cerrado), usá el
+# challenge DNS-01 con un API token de Cloudflare. Requiere un build de Caddy
+# con el plugin de Cloudflare (xcaddy build --with github.com/caddy-dns/cloudflare).
+# Descomentá el bloque global de abajo y exportá CLOUDFLARE_API_TOKEN.
+#
+# {
+# 	acme_dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+# }

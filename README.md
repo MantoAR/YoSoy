@@ -227,6 +227,24 @@ git add nombre_carpeta/
 
 ---
 
+## Videollamadas seguras
+
+Las sesiones de video (WebRTC + face-api) se documentan aparte:
+
+- **[DEPLOY.md](DEPLOY.md)** — runbook de despliegue: modo LAN/demo y modo online
+  (Caddy + coturn + DDNS), y las tareas manuales de router/Cloudflare/ISP.
+- **[SEGURIDAD.md](SEGURIDAD.md)** — modelo de auth (login-JWT, JWT de sesión,
+  credenciales TURN efímeras, links de un solo uso), cifrado en reposo y límites de Fase 1.
+- **[.env.example](.env.example)** — variables de entorno del backend (placeholders).
+- **[signaling-server/.env.example](signaling-server/.env.example)** y
+  **[signaling-server/turnserver.conf](signaling-server/turnserver.conf)** — config del
+  servidor de señalización y de coturn.
+
+El esquema de base de datos de las sesiones está en
+[sql-local/01_sesiones_video.sql](sql-local/01_sesiones_video.sql).
+
+---
+
 ## Materia
 
 **Práctica Profesionalizante I**
