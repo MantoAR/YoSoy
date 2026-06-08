@@ -87,24 +87,32 @@ async function sesionActivaEnDb(idSesion) {
     }
 }
 
-// ─── Rate limiting simple por IP (conexiones / joins) ─────────────────────────
-const intentos = new Map(); // ip -> [timestamps]
-const VENTANA_MS = 10000;
-const MAX_INTENTOS = 15;
-function limitado(ip) {
-    const ahora = Date.now();
-    const lista = (intentos.get(ip) || []).filter(t => ahora - t < VENTANA_MS);
-    lista.push(ahora);
-    intentos.set(ip, lista);
-    return lista.length > MAX_INTENTOS;
+// ─── Rate limiting simple por IP ──────────────────────────────────────────────
+// In-memory: no sobrevive reinicios ni escala a multi-instancia. Se revisa en cloud.
+function crearLimitador(ventanaMs, maximo) {
+    const intentos = new Map(); // ip -> [timestamps]
+    setInterval(() => {
+        const ahora = Date.now();
+        for (const [ip, lista] of intentos) {
+            const vivos = lista.filter(t => ahora - t < ventanaMs);
+            if (vivos.length) intentos.set(ip, vivos); else intentos.delete(ip);
+        }
+    }, ventanaMs).unref();
+    return (ip) => {
+        const ahora = Date.now();
+        const lista = (intentos.get(ip) || []).filter(t => ahora - t < ventanaMs);
+        lista.push(ahora);
+        intentos.set(ip, lista);
+        return lista.length > maximo;
+    };
 }
-setInterval(() => {
-    const ahora = Date.now();
-    for (const [ip, lista] of intentos) {
-        const vivos = lista.filter(t => ahora - t < VENTANA_MS);
-        if (vivos.length) intentos.set(ip, vivos); else intentos.delete(ip);
-    }
-}, VENTANA_MS).unref();
+
+// Conexiones (handshake): control anti-flood de corto plazo.
+const limitado = crearLimitador(10000, 15);
+// join-room: máximo 5 por 5 minutos por IP (configurable por env).
+const JOIN_VENTANA_MS = parseInt(process.env.JOIN_VENTANA_MS || '300000', 10);
+const JOIN_MAX = parseInt(process.env.JOIN_MAX || '5', 10);
+const limitadoJoin = crearLimitador(JOIN_VENTANA_MS, JOIN_MAX);
 
 // ─── HTTP + Socket.IO ─────────────────────────────────────────────────────────
 const httpServer = createServer((req, res) => {
@@ -142,6 +150,11 @@ io.on('connection', (socket) => {
     const roomId = socket.data.roomId;
 
     socket.on('join-room', async ({ roomId: pedido } = {}) => {
+        if (limitadoJoin(socket.handshake.address)) {
+            socket.emit('rechazado', { motivo: 'Demasiados intentos. Esperá unos minutos.' });
+            return socket.disconnect(true);
+        }
+
         // El cliente no elige sala: si manda una distinta a la del token, se rechaza.
         if (pedido !== undefined && pedido !== roomId) {
             socket.emit('rechazado', { motivo: 'La sala no coincide con tu acceso.' });

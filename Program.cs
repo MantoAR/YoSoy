@@ -20,9 +20,21 @@ app.UseCors();
 
 app.MapGet("/config", () => Results.Ok(new
 {
-    signalingUrl = app.Configuration["Signaling:UrlPublica"],
-    stun         = app.Configuration.GetSection("Stun").Get<string[]>() ?? Array.Empty<string>()
+    signalingUrl          = app.Configuration["Signaling:UrlPublica"],
+    stun                  = app.Configuration.GetSection("Stun").Get<string[]>() ?? Array.Empty<string>(),
+    modoLan               = !bool.TryParse(app.Configuration["Sesion:ModoLan"], out var lan) || lan,
+    margenIngresoMinutos  = int.TryParse(app.Configuration["Sesion:MargenIngresoMinutos"], out var mg) ? mg : 5,
+    duracionTurnoDefault  = int.TryParse(app.Configuration["Sesion:DuracionTurnoDefaultMinutos"], out var dt) ? dt : 60
 }));
+
+static IResult? LimitarTasa(HttpContext ctx, IConfiguration cfg, string bucket, int maximo)
+{
+    var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+    int ventana = int.TryParse(cfg["RateLimit:VentanaSegundos"], out var v) ? v : 300;
+    if (!RateLimiter.Permitido($"{bucket}|{ip}", maximo, ventana))
+        return Results.Json(new { mensaje = "Demasiados intentos. Esperá unos minutos." }, statusCode: 429);
+    return null;
+}
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
@@ -33,8 +45,12 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Login
-app.MapPost("/login", (LoginRequest req) =>
+app.MapPost("/login", (LoginRequest req, HttpContext ctx) =>
 {
+    int maxLogin = int.TryParse(app.Configuration["RateLimit:Login"], out var ml) ? ml : 3;
+    var lim = LimitarTasa(ctx, app.Configuration, "login", maxLogin);
+    if (lim != null) return lim;
+
     var dao = new UsuarioDAO();
     var usuario = dao.ObtenerPorUsername(req.Username);
 
@@ -1369,6 +1385,10 @@ static IResult AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cf
 
 app.MapPost("/sesiones/turno/{idTurno}/join", (int idTurno, HttpContext ctx) =>
 {
+    int maxSesion = int.TryParse(app.Configuration["RateLimit:Sesion"], out var ms) ? ms : 5;
+    var lim = LimitarTasa(ctx, app.Configuration, "sesion-join", maxSesion);
+    if (lim != null) return lim;
+
     var jwt = new JwtService(app.Configuration);
     var p = PayloadDeBearer(ctx, jwt);
     if (p == null) return Results.Unauthorized();
@@ -1396,8 +1416,12 @@ app.MapPost("/sesiones/turno/{idTurno}/join", (int idTurno, HttpContext ctx) =>
     return AbrirSesion(t, rol!, idUsuario, app.Configuration, jwt, new TurnCredentialsService(app.Configuration));
 });
 
-app.MapPost("/sesiones/canjear-link", (CanjearLinkRequest req) =>
+app.MapPost("/sesiones/canjear-link", (CanjearLinkRequest req, HttpContext ctx) =>
 {
+    int maxSesion = int.TryParse(app.Configuration["RateLimit:Sesion"], out var ms) ? ms : 5;
+    var lim = LimitarTasa(ctx, app.Configuration, "sesion-canjear", maxSesion);
+    if (lim != null) return lim;
+
     var dao = new SesionLinkTokenDAO();
     var link = dao.ObtenerPorToken(req.Token ?? "");
     if (link == null) return Results.NotFound(new { mensaje = "Link inválido." });
