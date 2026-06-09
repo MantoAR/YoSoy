@@ -6,3 +6,8 @@ obj/
 *.suo
 To.Do.txt
 sql-local/
+
+# Secretos / config local del modo ONLINE (NO commitear)
+signaling-server/.env
+signaling-server/turnserver.local.conf
+appsettings.Online.json

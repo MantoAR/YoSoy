@@ -541,3 +541,21 @@ tbody tr:hover { background: #faf7ff; }
 .btn-reprogramar:hover { background:#cbb8f0; }
 .form-reprogramar { display:none;margin-top:16px;border-top:1px solid #e0d4f5;padding-top:16px; }
 .form-reprogramar.visible { display:block; }
+
+@media (max-width: 768px) {
+    [class*="modal"] { max-width: 94vw; }
+    .navbar { padding: 0 14px; }
+    .navbar-brand { font-size: 16px; }
+    .tabs-bar {
+        padding: 4px 6px;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 2px;
+    }
+    .tab-btn {
+        padding: 10px 12px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+    .contenido { padding: 16px; }
+}

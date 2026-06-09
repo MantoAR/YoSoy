@@ -26,8 +26,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'CAMBIAR-secreto-compartido-con-el-
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
 const MODO_LAN = (process.env.MODO_LAN || 'true').toLowerCase() === 'true';
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5000,http://localhost:5500')
-    .split(',').map(o => o.trim()).filter(Boolean);
+const CORS_ORIGINS_RAW = process.env.CORS_ORIGINS || 'http://localhost:5000,http://localhost:5500';
+const CORS_ANY = CORS_ORIGINS_RAW.trim() === '*';
+const CORS_ORIGINS = CORS_ANY
+    ? '*'
+    : CORS_ORIGINS_RAW.split(',').map(o => o.trim()).filter(Boolean);
 
 // ─── JWT HS256: verificación manual con algoritmo FIJADO ──────────────────────
 function b64urlDecode(str) {
@@ -111,7 +114,7 @@ function crearLimitador(ventanaMs, maximo) {
 const limitado = crearLimitador(10000, 15);
 // join-room: máximo 5 por 5 minutos por IP (configurable por env).
 const JOIN_VENTANA_MS = parseInt(process.env.JOIN_VENTANA_MS || '300000', 10);
-const JOIN_MAX = parseInt(process.env.JOIN_MAX || '5', 10);
+const JOIN_MAX = parseInt(process.env.JOIN_MAX || '30', 10);
 const limitadoJoin = crearLimitador(JOIN_VENTANA_MS, JOIN_MAX);
 
 // ─── HTTP + Socket.IO ─────────────────────────────────────────────────────────
@@ -146,46 +149,74 @@ io.use((socket, next) => {
     next();
 });
 
+const log = (...a) => console.log(new Date().toISOString(), ...a);
+
 io.on('connection', (socket) => {
     const roomId = socket.data.roomId;
+    const quien = `${socket.data.rol}/sesion=${socket.data.idSesion}/room=${String(roomId).slice(0, 8)}`;
+    log('CONNECT', quien, socket.id.slice(0, 6));
 
     socket.on('join-room', async ({ roomId: pedido } = {}) => {
         if (limitadoJoin(socket.handshake.address)) {
+            log('JOIN rechazado: rate-limit', quien);
             socket.emit('rechazado', { motivo: 'Demasiados intentos. Esperá unos minutos.' });
             return socket.disconnect(true);
         }
 
         // El cliente no elige sala: si manda una distinta a la del token, se rechaza.
         if (pedido !== undefined && pedido !== roomId) {
+            log('JOIN rechazado: sala distinta', quien, 'pedido=', String(pedido).slice(0, 8));
             socket.emit('rechazado', { motivo: 'La sala no coincide con tu acceso.' });
             return socket.disconnect(true);
         }
 
         const activa = await sesionActivaEnDb(socket.data.idSesion);
         if (activa === false) {
+            log('JOIN rechazado: sesion no activa', quien);
             socket.emit('rechazado', { motivo: 'La sesión no está activa.' });
             return socket.disconnect(true);
         }
 
-        // Máximo 2 participantes por sala.
+        // Reconexión: desalojar un socket previo del MISMO rol (fantasma que aún no
+        // expiró por ping-timeout) para que el mismo participante pueda volver a
+        // entrar sin chocar con "sala completa". Se marca 'reemplazado' para que su
+        // 'disconnect' NO le avise 'user-left' al otro peer (no es una salida real).
         const sala = io.sockets.adapter.rooms.get(roomId);
-        if (sala && sala.size >= 2) {
+        if (sala) {
+            for (const sid of [...sala]) {
+                if (sid === socket.id) continue;
+                const previo = io.sockets.sockets.get(sid);
+                if (previo && previo.data.rol === socket.data.rol) {
+                    previo.data.reemplazado = true;
+                    previo.disconnect(true);
+                }
+            }
+        }
+
+        // Máximo 2 participantes por sala (tras desalojar el duplicado del mismo rol).
+        const salaTras = io.sockets.adapter.rooms.get(roomId);
+        if (salaTras && salaTras.size >= 2) {
+            log('JOIN rechazado: sala completa', quien, 'size=', salaTras.size);
             socket.emit('rechazado', { motivo: 'La sala ya está completa.' });
             return socket.disconnect(true);
         }
 
         socket.join(roomId);
+        const total = io.sockets.adapter.rooms.get(roomId)?.size ?? 1;
+        log('JOIN ok', quien, '-> participantes en sala:', total);
         socket.emit('joined', { roomId, rol: socket.data.rol });
         socket.to(roomId).emit('user-joined', { rol: socket.data.rol });
     });
 
     socket.on('offer', ({ offer } = {}) => {
-        if (!descripcionValida(offer)) return;
+        if (!descripcionValida(offer)) { log('OFFER inválida descartada', quien); return; }
+        log('OFFER relay', quien);
         socket.to(roomId).emit('offer', { offer });
     });
 
     socket.on('answer', ({ answer } = {}) => {
-        if (!descripcionValida(answer)) return;
+        if (!descripcionValida(answer)) { log('ANSWER inválida descartada', quien); return; }
+        log('ANSWER relay', quien);
         socket.to(roomId).emit('answer', { answer });
     });
 
@@ -197,17 +228,21 @@ io.on('connection', (socket) => {
     // Disparo de re-emisión de tokens cuando el profesional prolonga la sesión.
     socket.on('sesion-actualizada', () => {
         if (socket.data.rol !== 'profesional') return;
+        const otros = (io.sockets.adapter.rooms.get(roomId)?.size ?? 1) - 1;
+        log('SESION-ACTUALIZADA relay desde profesional -> otros en sala:', otros);
         socket.to(roomId).emit('sesion-actualizada', {});
     });
 
     socket.on('disconnect', () => {
+        if (socket.data.reemplazado) { log('DISCONNECT (reemplazo, sin user-left)', quien); return; }
+        log('DISCONNECT', quien);
         socket.to(roomId).emit('user-left', { rol: socket.data.rol });
     });
 });
 
 if (require.main === module) {
     httpServer.listen(PORT, () => {
-        console.log(`Senalizacion en puerto ${PORT} | CORS: ${CORS_ORIGINS.join(', ')} | modoLan=${MODO_LAN}`);
+        console.log(`Senalizacion en puerto ${PORT} | CORS: ${CORS_ORIGINS_RAW} | modoLan=${MODO_LAN}`);
     });
 }
 

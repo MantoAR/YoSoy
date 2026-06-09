@@ -1,0 +1,24 @@
+# coturn en Docker Desktop (Windows) para el modo ONLINE de YoSoy.
+#
+# Monta la copia REAL gitignoreada turnserver.local.conf (con el static-auth-secret
+# real y la external-ip detectada) y publica los puertos del relay.
+#
+# Levantar:   docker compose -f docker-compose.coturn.yml up -d
+# Logs:       docker compose -f docker-compose.coturn.yml logs -f
+# Bajar:      docker compose -f docker-compose.coturn.yml down
+#
+# NOTA Windows: Docker Desktop no soporta network_mode host, por eso se publican
+# los puertos explícitamente. El external-ip del .conf es lo que hace que los
+# candidatos 'relay' apunten a tu IP pública.
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: yosoy-coturn
+    restart: unless-stopped
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./signaling-server/turnserver.local.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"

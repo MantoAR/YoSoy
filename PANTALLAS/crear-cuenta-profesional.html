@@ -185,7 +185,7 @@
         }
 
         try {
-            const res = await fetch('http://localhost:5000/profesionales/activar-cuenta', {
+            const res = await fetch('/profesionales/activar-cuenta', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token, username, password: pass1 })

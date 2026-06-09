@@ -39,4 +39,21 @@ public class UsuarioProfesionalDAO
             FechaVinculacion = (DateTime)reader["FechaVinculacion"]
         };
     }
+
+    public UsuarioProfesional? ObtenerPorProfesional(int idProfesional)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT TOP 1 IdUsuario, IdProfesional, FechaVinculacion FROM UsuarioProfesional WHERE IdProfesional = @Id ORDER BY FechaVinculacion DESC", con);
+        cmd.Parameters.AddWithValue("@Id", idProfesional);
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return null;
+        return new UsuarioProfesional
+        {
+            IdUsuario        = (int)reader["IdUsuario"],
+            IdProfesional    = (int)reader["IdProfesional"],
+            FechaVinculacion = (DateTime)reader["FechaVinculacion"]
+        };
+    }
 }

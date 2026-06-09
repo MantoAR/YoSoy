@@ -1,4 +1,4 @@
-const API = "http://localhost:5000";
+const API = (location.protocol.startsWith('http') && location.port !== '5500') ? location.origin : 'http://localhost:5000';
 
 function confirmar(msg) {
     return new Promise(resolve => {

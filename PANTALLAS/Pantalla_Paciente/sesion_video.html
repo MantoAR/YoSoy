@@ -7,9 +7,10 @@
         body { font-family: Arial, sans-serif; background: #f5f5f3; margin: 0; padding: 16px; }
         .card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #eee; margin-bottom: 12px; }
         .card h3 { font-size: 12px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing:.05em; margin-bottom: 12px; }
-        .videos-grid { display: grid; grid-template-columns: 1fr 200px; gap: 10px; margin-bottom: 12px; }
+        .videos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        @media (max-width: 640px) { .videos-grid { grid-template-columns: 1fr; } }
         .video-wrap { position: relative; background: #111; border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; }
-        .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-wrap video { width: 100%; height: 100%; object-fit: contain; display: block; }
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,0.6); color: white; font-size: 12px; padding: 2px 8px; border-radius: 4px; }
         .btn-rojo { background: #A32D2D; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; }
         .btn-verde { background: #185FA5; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
@@ -182,11 +183,18 @@ async function iniciar() {
 
 function armarIceServers(data) {
     const servers = [];
-    // Modo LAN: sin TURN (el backend devuelve iceServers null). STUN si está configurado.
-    if (Array.isArray(cfg.stun) && cfg.stun.length) servers.push({ urls: cfg.stun });
-    // TURN dinámico con credenciales REST efímeras (solo online).
-    if (data.iceServers && data.iceServers.urls && data.iceServers.urls.length)
-        servers.push({ urls: data.iceServers.urls, username: data.iceServers.username, credential: data.iceServers.credential });
+    if (Array.isArray(data.iceServers)) {
+        for (const s of data.iceServers) {
+            if (!s || !s.urls) continue;
+            servers.push(s.username ? { urls: s.urls, username: s.username, credential: s.credential } : { urls: s.urls });
+        }
+    }
+    const stun = (Array.isArray(cfg.stun) && cfg.stun.length)
+        ? cfg.stun
+        : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+    servers.push({ urls: stun });
+    const hayTurn = servers.some(s => (Array.isArray(s.urls) ? s.urls : [s.urls]).some(u => String(u).startsWith('turn:') || String(u).startsWith('turns:')));
+    if (!hayTurn) console.warn('TURN no disponible: la videollamada usa solo STUN de Google. Puede fallar entre redes distintas.');
     return servers;
 }
 
@@ -218,10 +226,10 @@ async function iniciarSesion(data) {
         if (e.candidate) socket.emit('ice-candidate', { roomId: sesion.roomId, candidate: e.candidate });
     };
 
-    socket = io(cfg.signalingUrl, { auth: { token: sesion.token } });
+    socket = io(cfg.signalingUrl || API, { auth: { token: sesion.token } });
     socket.on('connect', () => socket.emit('join-room', { roomId: sesion.roomId }));
-    socket.on('joined', enviarOferta);
-    socket.on('user-joined', enviarOferta);
+    socket.on('joined', () => enviarOferta());
+    socket.on('user-joined', () => { estado('🟢 Sesión en curso'); enviarOferta(true); });
     socket.on('answer', async ({ answer }) => { await pc.setRemoteDescription(answer); });
     socket.on('ice-candidate', async ({ candidate }) => { try { await pc.addIceCandidate(candidate); } catch {} });
     socket.on('user-left', () => estado('⚠ El profesional se desconectó.'));
@@ -232,8 +240,8 @@ async function iniciarSesion(data) {
     iniciarCuentaRegresiva();
 }
 
-async function enviarOferta() {
-    const offer = await pc.createOffer();
+async function enviarOferta(iceRestart = false) {
+    const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : {});
     await pc.setLocalDescription(offer);
     socket.emit('offer', { roomId: sesion.roomId, offer });
 }

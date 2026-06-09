@@ -220,12 +220,7 @@
 
             <div class="error-msg" id="errorMsg">Usuario o contraseña incorrectos.</div>
 
-            <div style="display:flex;gap:10px">
-                <button type="submit" class="boton" style="flex:1">Ingresar</button>
-                <button type="button" id="btnNuevoDashboard" class="boton" onclick="ingresarNuevoDashboard()" style="display:none;flex:1;background:white;color:#6A5ACD;border:2px solid #6A5ACD;white-space:nowrap">
-                    Nuevo panel
-                </button>
-            </div>
+            <button type="submit" class="boton" style="width:100%">Ingresar</button>
 
         </form>
 
@@ -269,8 +264,6 @@
                 rol === "paciente" ? "block" : "none";
             document.getElementById("linkRegistroProfesional").style.display =
                 rol === "profesional" ? "block" : "none";
-            document.getElementById("btnNuevoDashboard").style.display =
-                rol === "profesional" ? "block" : "none";
 
             const esUserFinal = rol === "paciente" || rol === "profesional";
             document.getElementById("seccionRecuperacion").style.display = esUserFinal ? "block" : "none";
@@ -296,15 +289,15 @@
             errorMsg.style.display = "none";
 
             try {
-                const res = await fetch("http://localhost:5000/login", {
+                const res = await fetch("/login", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ username: usuario, password: contrasena })
                 });
 
-                if (res.status === 423) {
+                if (res.status === 423 || res.status === 429) {
                     const data = await res.json().catch(() => ({}));
-                    errorMsg.textContent = data.mensaje ?? "Cuenta bloqueada temporalmente. Intentá en 15 minutos.";
+                    errorMsg.textContent = data.mensaje ?? "Demasiados intentos. Esperá unos minutos.";
                     errorMsg.style.display = "block";
                     return;
                 }
@@ -332,38 +325,11 @@
                     window.location.href = "Pantalla_Paciente/dashboard.html";
                 } else if (data.rol === "profesional") {
                     localStorage.setItem("idProfesional", data.idProfesional);
-                    window.location.href = "Pantalla_Profesional/dashboard.html";
+                    window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
                 } else {
                     window.location.href = "Pantalla_Configurador/dashboard.html";
                 }
 
-            } catch {
-                errorMsg.textContent = "No se pudo conectar con el servidor.";
-                errorMsg.style.display = "block";
-            }
-        }
-
-        async function ingresarNuevoDashboard() {
-            const usuario = document.getElementById("usuario").value.trim();
-            const contrasena = document.getElementById("contrasena").value;
-            const errorMsg = document.getElementById("errorMsg");
-            errorMsg.style.display = "none";
-            if (!usuario || !contrasena) { errorMsg.textContent = "Completá usuario y contraseña."; errorMsg.style.display = "block"; return; }
-            try {
-                const res = await fetch("http://localhost:5000/login", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ username: usuario, password: contrasena })
-                });
-                if (res.status === 423) { const d = await res.json().catch(() => ({})); errorMsg.textContent = d.mensaje ?? "Cuenta bloqueada."; errorMsg.style.display = "block"; return; }
-                if (!res.ok) { errorMsg.textContent = "Usuario o contraseña incorrectos."; errorMsg.style.display = "block"; return; }
-                const data = await res.json();
-                if (data.rol !== "profesional") { errorMsg.textContent = "Este acceso es solo para profesionales."; errorMsg.style.display = "block"; return; }
-                localStorage.setItem("idUsuario", data.idUsuario);
-                localStorage.setItem("rol", data.rol);
-                localStorage.setItem("token", data.token ?? "");
-                localStorage.setItem("idProfesional", data.idProfesional);
-                window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
             } catch {
                 errorMsg.textContent = "No se pudo conectar con el servidor.";
                 errorMsg.style.display = "block";
@@ -383,7 +349,7 @@
             const msg = document.getElementById("msgRecuperacion");
             if (!username) { msg.textContent = "Ingresá tu usuario."; msg.style.color = "#e74c3c"; return; }
             try {
-                const res = await fetch("http://localhost:5000/recuperacion-password", {
+                const res = await fetch("/recuperacion-password", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ username })

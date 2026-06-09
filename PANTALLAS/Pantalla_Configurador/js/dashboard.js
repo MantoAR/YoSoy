@@ -1,4 +1,4 @@
-const API = "http://localhost:5000";
+const API = (location.protocol.startsWith('http') && location.port !== '5500') ? location.origin : 'http://localhost:5000';
 
 function toast(msg, tipo = "ok", duracion = 3500) {
     let cont = document.getElementById("toast-container");

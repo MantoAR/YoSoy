@@ -165,7 +165,7 @@ document.getElementById("formRegistro")
     try {
 
         const respuesta = await fetch(
-            "http://localhost:5000/pacientes",
+            "/pacientes",
             {
                 method: "POST",
 

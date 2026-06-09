@@ -15,8 +15,15 @@ builder.Services.AddCors(opt =>
             p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
     }));
 
+builder.Services.AddReverseProxy()
+    .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
+
+builder.Services.AddHostedService<RecordatorioSesionService>();
+
 var app = builder.Build();
+app.UseWebSockets();
 app.UseCors();
+app.MapReverseProxy();
 
 app.MapGet("/config", () => Results.Ok(new
 {
@@ -1343,7 +1350,7 @@ static (DateTime inicio, int duracion) VentanaTurno(Turno t, IConfiguration cfg)
     return (inicio, duracion);
 }
 
-static IResult AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cfg, JwtService jwt, TurnCredentialsService turn)
+static async Task<IResult> AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cfg, JwtService jwt, TurnCredentialsService turn, MeteredTurnService metered)
 {
     var (inicio, duracion) = VentanaTurno(t, cfg);
     int margen = int.TryParse(cfg["Sesion:MargenIngresoMinutos"], out var m) ? m : 5;
@@ -1368,7 +1375,12 @@ static IResult AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cf
     eventoDao.Insertar(new SesionVideoEvento { IdSesion = sesion.IdSesion, Tipo = "ingreso", IdUsuario = idUsuario, Rol = rol });
 
     var token = jwt.GenerarSesion(idUsuario, rol, sesion.RoomId, t.IdTurno, sesion.IdSesion, sesion.FinProgramado);
-    var ice = turn.GenerarIceServer(idUsuario);
+
+    var iceServers = new List<IceServer>();
+    var coturn = turn.GenerarIceServer(idUsuario);
+    if (coturn != null) iceServers.Add(coturn);
+    iceServers.AddRange(await metered.ObtenerAsync());
+
     bool consentimiento = new ConsentimientoDAO().ObtenerPorPaciente(t.IdPaciente).Any(c => c.Estado == "Activo");
 
     return Results.Ok(new
@@ -1378,12 +1390,12 @@ static IResult AbrirSesion(Turno t, string rol, int idUsuario, IConfiguration cf
         idSesion = sesion.IdSesion,
         rol,
         finProgramado = sesion.FinProgramado,
-        iceServers = ice,
+        iceServers,
         consentimientoOk = consentimiento
     });
 }
 
-app.MapPost("/sesiones/turno/{idTurno}/join", (int idTurno, HttpContext ctx) =>
+app.MapPost("/sesiones/turno/{idTurno}/join", async (int idTurno, HttpContext ctx) =>
 {
     int maxSesion = int.TryParse(app.Configuration["RateLimit:Sesion"], out var ms) ? ms : 5;
     var lim = LimitarTasa(ctx, app.Configuration, "sesion-join", maxSesion);
@@ -1413,10 +1425,10 @@ app.MapPost("/sesiones/turno/{idTurno}/join", (int idTurno, HttpContext ctx) =>
     }
     else return Results.Json(new { mensaje = "Rol no autorizado para la sesión." }, statusCode: 403);
 
-    return AbrirSesion(t, rol!, idUsuario, app.Configuration, jwt, new TurnCredentialsService(app.Configuration));
+    return await AbrirSesion(t, rol!, idUsuario, app.Configuration, jwt, new TurnCredentialsService(app.Configuration), new MeteredTurnService(app.Configuration));
 });
 
-app.MapPost("/sesiones/canjear-link", (CanjearLinkRequest req, HttpContext ctx) =>
+app.MapPost("/sesiones/canjear-link", async (CanjearLinkRequest req, HttpContext ctx) =>
 {
     int maxSesion = int.TryParse(app.Configuration["RateLimit:Sesion"], out var ms) ? ms : 5;
     var lim = LimitarTasa(ctx, app.Configuration, "sesion-canjear", maxSesion);
@@ -1434,7 +1446,7 @@ app.MapPost("/sesiones/canjear-link", (CanjearLinkRequest req, HttpContext ctx) 
     if (t is null) return Results.NotFound();
 
     var jwt = new JwtService(app.Configuration);
-    return AbrirSesion(t, link.Rol, link.IdUsuario ?? 0, app.Configuration, jwt, new TurnCredentialsService(app.Configuration));
+    return await AbrirSesion(t, link.Rol, link.IdUsuario ?? 0, app.Configuration, jwt, new TurnCredentialsService(app.Configuration), new MeteredTurnService(app.Configuration));
 });
 
 app.MapPost("/sesiones/{id}/refrescar-token", (int id, HttpContext ctx) =>
@@ -1592,34 +1604,7 @@ app.MapPost("/sesiones/turno/{idTurno}/invitar", (int idTurno, HttpContext ctx) 
     if (up == null || up.IdProfesional != t.IdProfesional)
         return Results.Json(new { mensaje = "No es tu turno." }, statusCode: 403);
 
-    var (inicio, duracion) = VentanaTurno(t, app.Configuration);
-    var expira = inicio.AddMinutes(duracion);
-    var dao = new SesionLinkTokenDAO();
-    var dominio = app.Configuration["Dominio"] ?? "http://localhost:5000";
-
-    string CrearLink(string rol, int? idUsuario, string pagina)
-    {
-        var tok = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
-        dao.Insertar(new SesionLinkToken { IdTurno = idTurno, Rol = rol, IdUsuario = idUsuario, Token = tok, Expiracion = expira });
-        return $"{dominio}/pantallas/{pagina}?link={tok}";
-    }
-
-    var paciente = new PacienteDAO().ObtenerPorId(t.IdPaciente);
-    var profesional = new ProfesionalDAO().ObtenerPorId(t.IdProfesional);
-    var fecha = t.Fecha.ToString("dd/MM/yyyy");
-    var hora = t.Hora.ToString(@"hh\:mm");
-    var email = new EmailService(app.Configuration);
-
-    var linkPaciente = CrearLink("paciente", null, "Pantalla_Paciente/sesion_video.html");
-    var linkProfesional = CrearLink("profesional", up.IdUsuario, "Pantalla_Profesional/sesion_video.html");
-
-    try
-    {
-        if (!string.IsNullOrWhiteSpace(paciente?.Mail))
-            email.EnviarInvitacionSesion(paciente!.Mail, paciente.Nombre, linkPaciente, fecha, hora);
-        if (!string.IsNullOrWhiteSpace(profesional?.Mail))
-            email.EnviarInvitacionSesion(profesional!.Mail, $"{profesional.Nombre} {profesional.Apellido}".Trim(), linkProfesional, fecha, hora);
-    }
+    try { new InvitacionSesionService(app.Configuration).EnviarParaTurno(t, up.IdUsuario); }
     catch { }
 
     return Results.Ok(new { mensaje = "Invitaciones enviadas." });

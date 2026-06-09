@@ -856,3 +856,21 @@ body {
     color: #9D6BCF;
     font-size: 15px;
 }
+
+@media (max-width: 768px) {
+    [class*="modal"] { max-width: 94vw; }
+    .navbar { padding: 0 14px; }
+    .navbar-brand { font-size: 16px; }
+    .tabs-bar {
+        padding: 4px 6px;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 2px;
+    }
+    .tab-btn {
+        padding: 10px 12px;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+    .contenido { padding: 16px; }
+}

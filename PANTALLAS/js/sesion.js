@@ -87,3 +87,33 @@
             document.addEventListener(ev, reiniciarTimer, { passive: true }));
     });
 })();
+
+(function () {
+    const tab = document.querySelector('[data-sec="sesion"]') || document.getElementById('tab-sesion');
+    if (!tab) return;
+    tab.style.display = 'none';
+
+    const apiBase = (location.protocol.startsWith('http') && location.port !== '5500') ? location.origin : 'http://localhost:5000';
+    const idPaciente = localStorage.getItem('idPaciente');
+    const idProfesional = localStorage.getItem('idProfesional');
+    const url = idPaciente
+        ? `${apiBase}/pacientes/${idPaciente}/turnos`
+        : (idProfesional ? `${apiBase}/profesionales/${idProfesional}/turnos` : null);
+    if (!url) return;
+
+    const esHoy = (fecha) => {
+        if (!fecha) return false;
+        const d = new Date(fecha);
+        if (isNaN(d.getTime())) return false;
+        const h = new Date();
+        return d.getFullYear() === h.getFullYear() && d.getMonth() === h.getMonth() && d.getDate() === h.getDate();
+    };
+
+    fetch(url)
+        .then(r => r.json())
+        .then(turnos => {
+            const hayHoy = Array.isArray(turnos) && turnos.some(t => t.idEstadoTurno !== 3 && esHoy(t.fecha));
+            tab.style.display = hayHoy ? '' : 'none';
+        })
+        .catch(() => { tab.style.display = 'none'; });
+})();

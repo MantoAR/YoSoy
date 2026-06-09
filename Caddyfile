@@ -1,13 +1,13 @@
 # ───────────────────────────────────────────────────────────────────────────
 # Caddy — TLS automático + reverse proxy para YoSoy
 #
-# Sirve el frontend estático y el backend .NET, y hace proxy del WSS del
-# signaling (Socket.IO) por 443. TLS por Let's Encrypt automático.
+# Sirve el frontend estático + backend .NET y hace proxy del WSS del signaling
+# (Socket.IO) por 443, todo en el mismo origen. TLS Let's Encrypt automático.
 #
 # Arranque:  caddy run --config ./Caddyfile
 # ───────────────────────────────────────────────────────────────────────────
 
-comuna31.com.ar {
+app.comuna31.com.ar {
 	encode gzip
 
 	# WebSocket / Socket.IO del servidor de señalización (WSS por 443 → 3001).
@@ -17,7 +17,7 @@ comuna31.com.ar {
 	# Health del signaling (opcional).
 	reverse_proxy /health 127.0.0.1:3001
 
-	# Todo lo demás va al backend .NET (sirve API + frontend estático en /pantallas).
+	# Resto: API (/login, /config, /sesiones*, etc.) + frontend estático (/pantallas).
 	reverse_proxy 127.0.0.1:5000
 }
 
