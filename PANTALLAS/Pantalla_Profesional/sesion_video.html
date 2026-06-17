@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Sesión con Paciente - YoSoy</title>
+    <script src="face-api.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f3; margin: 0; padding: 12px; }
+        .card { background: white; border-radius: 12px; padding: 14px; border: 1px solid #eee; }
+        .card h3 { font-size: 11px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing:.05em; margin: 0 0 10px 0; }
+
+        /* Layout principal */
+        .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 10px; }
+
+        /* Video */
+        .video-principal { position: relative; background: #111; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; }
+        .video-principal video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.65); color: white; font-size: 14px; padding: 6px 12px; border-radius: 8px; font-weight: 500; }
+        .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,0.6); color: white; font-size: 12px; padding: 2px 8px; border-radius: 4px; }
+        .mini-video { width: 100%; border-radius: 8px; margin-top: 8px; height: 90px; object-fit: cover; background: #111; }
+
+        /* Panel derecho */
+        .panel { display: flex; flex-direction: column; gap: 8px; }
+
+        /* Emociones */
+        .emo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 11px; }
+        .emo-label { width: 68px; color: #555; }
+        .emo-track { flex: 1; height: 5px; background: #eee; border-radius: 3px; overflow: hidden; }
+        .emo-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .emo-val { width: 28px; text-align: right; color: #aaa; font-size: 10px; }
+
+        /* Stats */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .stat-box { background: #f5f5f3; border-radius: 8px; padding: 8px; }
+        .stat-num { font-size: 18px; font-weight: 600; color: #1a1a1a; }
+        .stat-lbl { font-size: 10px; color: #888; margin-top: 1px; }
+
+        /* Historial de emociones */
+        .tl { max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .tl-row { display: flex; gap: 5px; align-items: center; font-size: 11px; }
+        .tl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .tl-time { color: #aaa; min-width: 32px; }
+
+        /* Panel inferior - transcripción y evolución */
+        .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+        /* Transcripción */
+        .transcripcion-box { height: 180px; overflow-y: auto; background: #fafafa; border-radius: 8px; padding: 10px; font-size: 12px; line-height: 1.6; border: 1px solid #eee; }
+        .msg-medico { color: #185FA5; margin-bottom: 4px; }
+        .msg-paciente { color: #2d8a4e; margin-bottom: 4px; }
+        .msg-label { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+        .mic-btns { display: flex; gap: 6px; margin-top: 8px; }
+        .btn-mic { padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-mic-medico { background: #e8f0fe; color: #185FA5; }
+        .btn-mic-medico.activo { background: #185FA5; color: white; }
+        .btn-mic-paciente { background: #e6f4ea; color: #2d8a4e; }
+        .btn-mic-paciente.activo { background: #2d8a4e; color: white; }
+
+        /* Evolución */
+        .evolucion-box { display: flex; flex-direction: column; gap: 8px; }
+        .evolucion-box textarea { width: 100%; border: 1px solid #e0d4f5; border-radius: 8px; padding: 8px; font-size: 12px; resize: none; outline: none; font-family: Arial, sans-serif; }
+        .evolucion-box textarea:focus { border-color: #6A5ACD; }
+        .tipo-cierre { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tipo-btn { padding: 5px 10px; border: 2px solid #e0d4f5; border-radius: 8px; background: white; cursor: pointer; font-size: 11px; color: #6A5ACD; }
+        .tipo-btn.activo { background: #6A5ACD; color: white; border-color: #6A5ACD; }
+
+        /* Controles */
+        .controles { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+        .btn-rojo { background: #A32D2D; color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-verde { background: #185FA5; color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-gris { background: #eee; color: #555; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-gris:disabled { opacity: 0.5; cursor: default; }
+        .btn-guardar-hc { background: #6A5ACD; color: white; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+        .btn-guardar-hc:disabled { opacity: 0.5; cursor: default; }
+        .estado { font-size: 12px; color: #888; }
+
+        /* Pantalla de conexión */
+        .sala-box { background: #f0f4ff; border-radius: 10px; padding: 16px; margin-top: 16px; display: none; }
+        .sala-box-titulo { font-size: 12px; color: #888; margin-bottom: 8px; }
+        .sala-codigo-wrap { display: flex; align-items: center; gap: 10px; }
+        .sala-codigo { font-size: 22px; font-weight: 700; color: #185FA5; letter-spacing: 3px; }
+        .btn-copiar { background: white; border: 1px solid #185FA5; color: #185FA5; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-copiar:hover { background: #185FA5; color: white; }
+        .sala-hint { font-size: 12px; color: #888; margin-top: 8px; }
+
+        /* Toast */
+        #toast { position: fixed; bottom: 20px; right: 20px; background: #333; color: white; padding: 10px 18px; border-radius: 8px; font-size: 13px; display: none; z-index: 999; }
+    </style>
+</head>
+<body>
+
+    <!-- PANTALLA DE CONEXIÓN -->
+    <div id="pantalla-conexion">
+        <div class="card">
+            <h3>Iniciar sesión con paciente</h3>
+            <p style="font-size:13px;color:#666;margin-bottom:16px">
+                Creá la sala y compartí el código con tu paciente para que se una.
+            </p>
+
+            <!-- Selector de paciente -->
+            <div style="margin-bottom:14px">
+                <label style="font-size:12px;color:#666;display:block;margin-bottom:6px">Paciente de la sesión</label>
+                <select id="sel-paciente" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:8px;font-size:13px">
+                    <option value="">Cargando pacientes...</option>
+                </select>
+            </div>
+
+            <button class="btn-verde" id="btn-crear" onclick="crearSala()">📹 Crear sala</button>
+            <div id="estado-conexion" style="font-size:13px;color:#888;margin-top:10px"></div>
+
+            <div class="sala-box" id="sala-box">
+                <div class="sala-box-titulo">Código de sala — compartilo con tu paciente</div>
+                <div class="sala-codigo-wrap">
+                    <span class="sala-codigo" id="sala-codigo-display">—</span>
+                    <button class="btn-copiar" onclick="copiarCodigo()">📋 Copiar</button>
+                </div>
+                <div class="sala-hint">El paciente debe ingresar este código para unirse a la sesión.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANTALLA DE SESIÓN -->
+    <div id="pantalla-sesion" style="display:none">
+        <div class="main-grid">
+            <!-- VIDEO PACIENTE + ANÁLISIS -->
+            <div>
+                <div class="video-principal">
+                    <video id="vid-paciente" autoplay playsinline></video>
+                    <canvas id="overlay"></canvas>
+                    <div class="emo-live" id="emo-live">😐 Esperando...</div>
+                    <span class="video-label">Paciente</span>
+                </div>
+                <video id="vid-propio" autoplay playsinline muted class="mini-video"></video>
+            </div>
+
+            <!-- PANEL ANÁLISIS -->
+            <div class="panel">
+                <div class="card">
+                    <h3>Expresiones del paciente</h3>
+                    <div id="emo-bars">
+                        <div class="emo-row"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="b-neutral" style="width:0%;background:#888780"></div></div><span class="emo-val" id="v-neutral">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Felicidad</span><div class="emo-track"><div class="emo-fill" id="b-happy" style="width:0%;background:#639922"></div></div><span class="emo-val" id="v-happy">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Tristeza</span><div class="emo-track"><div class="emo-fill" id="b-sad" style="width:0%;background:#378ADD"></div></div><span class="emo-val" id="v-sad">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Enojo</span><div class="emo-track"><div class="emo-fill" id="b-angry" style="width:0%;background:#E24B4A"></div></div><span class="emo-val" id="v-angry">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Miedo</span><div class="emo-track"><div class="emo-fill" id="b-fearful" style="width:0%;background:#7F77DD"></div></div><span class="emo-val" id="v-fearful">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Sorpresa</span><div class="emo-track"><div class="emo-fill" id="b-surprised" style="width:0%;background:#EF9F27"></div></div><span class="emo-val" id="v-surprised">0%</span></div>
+                        <div class="emo-row"><span class="emo-label">Disgusto</span><div class="emo-track"><div class="emo-fill" id="b-disgusted" style="width:0%;background:#D4537E"></div></div><span class="emo-val" id="v-disgusted">0%</span></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Estadísticas</h3>
+                    <div class="stats-grid">
+                        <div class="stat-box"><div class="stat-num" id="stat-dur">0:00</div><div class="stat-lbl">Duración</div></div>
+                        <div class="stat-box"><div class="stat-num" id="stat-muestras">0</div><div class="stat-lbl">Muestras</div></div>
+                        <div class="stat-box" style="grid-column:1/-1"><div class="stat-num" id="stat-dom" style="font-size:13px">—</div><div class="stat-lbl">Emoción dominante</div></div>
+                    </div>
+                </div>
+
+                <div class="card" style="flex:1">
+                    <h3>Historial de cambios</h3>
+                    <div class="tl" id="tl"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL INFERIOR: TRANSCRIPCIÓN + EVOLUCIÓN -->
+        <div class="bottom-grid">
+
+            <!-- TRANSCRIPCIÓN -->
+            <div class="card">
+                <h3>Transcripción de la sesión</h3>
+                <div class="transcripcion-box" id="transcripcion-box">
+                    <div style="color:#ccc;font-style:italic;font-size:11px">La transcripción aparecerá aquí cuando inicies el micrófono...</div>
+                </div>
+                <div class="mic-btns">
+                    <button class="btn-mic btn-mic-medico" id="btn-mic-medico" onclick="toggleMic('medico')">🎤 Mi micrófono</button>
+                    <button class="btn-mic btn-mic-paciente" id="btn-mic-paciente" onclick="toggleMic('paciente')">🎤 Micrófono paciente</button>
+                    <button class="btn-mic btn-gris" onclick="limpiarTranscripcion()" style="margin-left:auto;padding:6px 10px;font-size:11px">🗑 Limpiar</button>
+                </div>
+            </div>
+
+            <!-- EVOLUCIÓN -->
+            <div class="card">
+                <h3>Evolución clínica</h3>
+                <div class="evolucion-box">
+                    <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
+                    <div>
+                        <div style="font-size:11px;color:#888;margin-bottom:6px">Tipo de cierre</div>
+                        <div class="tipo-cierre">
+                            <button class="tipo-btn" onclick="seleccionarCierre('Seguimiento')">📋 Seguimiento</button>
+                            <button class="tipo-btn" onclick="seleccionarCierre('Alta')">✅ Alta</button>
+                            <button class="tipo-btn" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="controles">
+            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
+            <button class="btn-guardar-hc" id="btn-guardar-hc" onclick="guardarEnHC()" disabled>💾 Guardar en HC</button>
+            <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
+            <span class="estado" id="estado-txt">Conectando...</span>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const API = 'http://localhost:5000';
+const SIGNAL = 'http://localhost:3001';
+const EMOCIONES = {
+    neutral:   { label:'Neutral',   color:'#888780', emoji:'😐' },
+    happy:     { label:'Felicidad', color:'#639922', emoji:'😄' },
+    sad:       { label:'Tristeza',  color:'#378ADD', emoji:'😢' },
+    angry:     { label:'Enojo',     color:'#E24B4A', emoji:'😠' },
+    fearful:   { label:'Miedo',     color:'#7F77DD', emoji:'😨' },
+    surprised: { label:'Sorpresa',  color:'#EF9F27', emoji:'😲' },
+    disgusted: { label:'Disgusto',  color:'#D4537E', emoji:'🤢' }
+};
+
+let pc, stream, socket, detectionTimer, timerInterval, sessionStart;
+let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
+let modelsListo = false;
+let sala = '';
+let tipoCierreSeleccionado = null;
+
+// Transcripción
+let recMedico = null, recPaciente = null;
+let micMedicoActivo = false, micPacienteActivo = false;
+let transcripcionLineas = [];
+
+// ─── CARGAR PACIENTES ─────────────────────────────────────
+const idProfesional = localStorage.getItem('idProfesional') || '1';
+
+async function cargarPacientes() {
+    try {
+        const lista = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json());
+        const sel = document.getElementById('sel-paciente');
+        if (!lista.length) {
+            sel.innerHTML = '<option value="">Sin pacientes asignados</option>';
+            return;
+        }
+        sel.innerHTML = '<option value="">-- Seleccioná el paciente --</option>' +
+            lista.map(p => `<option value="${p.idPaciente}">${p.nombre} ${p.apellido ?? ''}</option>`).join('');
+    } catch {
+        document.getElementById('sel-paciente').innerHTML = '<option value="">Error al cargar pacientes</option>';
+    }
+}
+cargarPacientes();
+
+// ─── CARGAR MODELOS ───────────────────────────────────────
+Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri('../models'),
+    faceapi.nets.faceLandmark68TinyNet.loadFromUri('../models'),
+    faceapi.nets.faceExpressionNet.loadFromUri('../models')
+]).then(() => {
+    modelsListo = true;
+    document.getElementById('estado-conexion').textContent = 'Modelos listos. Podés crear la sala.';
+}).catch(() => {
+    document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
+});
+
+// ─── TOAST ────────────────────────────────────────────────
+function toast(msg, dur = 3000) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    setTimeout(() => t.style.display = 'none', dur);
+}
+
+// ─── CREAR SALA ───────────────────────────────────────────
+function crearSala() {
+    sala = 'SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase();
+    document.getElementById('sala-codigo-display').textContent = sala;
+    document.getElementById('sala-box').style.display = 'block';
+    document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';
+    document.getElementById('btn-crear').onclick = entrarASala;
+    document.getElementById('estado-conexion').textContent = 'Compartí el código con tu paciente y luego entrá.';
+}
+
+function copiarCodigo() {
+    navigator.clipboard.writeText(sala).then(() => {
+        const btn = document.querySelector('.btn-copiar');
+        btn.textContent = '✅ Copiado';
+        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
+    });
+}
+
+// ─── ENTRAR A LA SALA ─────────────────────────────────────
+async function entrarASala() {
+    if (!modelsListo) { alert('Esperá que carguen los modelos de IA.'); return; }
+    if (!sala) { alert('Primero creá la sala.'); return; }
+
+    document.getElementById('pantalla-conexion').style.display = 'none';
+    document.getElementById('pantalla-sesion').style.display = 'block';
+    document.getElementById('estado-txt').textContent = 'Esperando al paciente...';
+
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    document.getElementById('vid-propio').srcObject = stream;
+
+    socket = io(SIGNAL);
+    socket.emit('join-room', { roomId: sala, role: 'profesional' });
+
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+    pc.ontrack = e => {
+        const vidPaciente = document.getElementById('vid-paciente');
+        vidPaciente.srcObject = e.streams[0];
+        document.getElementById('estado-txt').textContent = '🟢 Sesión activa';
+        sessionStart = Date.now();
+        muestras = 0; totales = {}; historial = []; ultimaEmo = null;
+        iniciarDeteccion(vidPaciente);
+        iniciarTimer();
+    };
+
+    pc.onicecandidate = e => {
+        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
+    };
+
+    socket.on('offer', async ({ offer }) => {
+        await pc.setRemoteDescription(offer);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', { roomId: sala, answer });
+    });
+
+    socket.on('ice-candidate', async ({ candidate }) => {
+        try { await pc.addIceCandidate(candidate); } catch {}
+    });
+
+    socket.on('user-left', () => {
+        document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
+    });
+}
+
+// ─── DETECCIÓN DE EXPRESIONES ─────────────────────────────
+function iniciarDeteccion(video) {
+    const canvas = document.getElementById('overlay');
+    async function detectar() {
+        if (!video || video.readyState < 2) {
+            detectionTimer = setTimeout(detectar, 500); return;
+        }
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+        const result = await faceapi.detectSingleFace(video, opts)
+            .withFaceLandmarks(true).withFaceExpressions();
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (result) {
+            const { box } = result.detection;
+            ctx.strokeStyle = '#185FA5';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+
+            const exps = result.expressions;
+            muestras++;
+            for (const [k,v] of Object.entries(exps)) totales[k] = (totales[k]||0) + v;
+
+            for (const k of Object.keys(EMOCIONES)) {
+                const pct = Math.round((exps[k]||0)*100);
+                document.getElementById(`b-${k}`).style.width = pct+'%';
+                document.getElementById(`v-${k}`).textContent = pct+'%';
+            }
+            document.getElementById('stat-muestras').textContent = muestras;
+
+            const dom = Object.entries(exps).sort((a,b) => b[1]-a[1])[0];
+            document.getElementById('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
+
+            let dk='neutral', dv=0;
+            for (const [k,v] of Object.entries(totales)) { if(v>dv){dk=k;dv=v;} }
+            document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
+
+            if (dom[0] !== ultimaEmo) {
+                ultimaEmo = dom[0];
+                const elapsed = Date.now() - sessionStart;
+                const t = `${String(Math.floor(elapsed/60000)).padStart(2,'0')}:${String(Math.floor((elapsed%60000)/1000)).padStart(2,'0')}`;
+                historial.push({ tiempo:t, emocion:dom[0], label:EMOCIONES[dom[0]].label, intensidad:Math.round(dom[1]*100), ts:new Date().toISOString() });
+                const tl = document.getElementById('tl');
+                const row = document.createElement('div');
+                row.className = 'tl-row';
+                row.innerHTML = `<span class="tl-dot" style="background:${EMOCIONES[dom[0]].color}"></span><span class="tl-time">${t}</span><span>${EMOCIONES[dom[0]].label} (${Math.round(dom[1]*100)}%)</span>`;
+                tl.appendChild(row);
+                tl.scrollTop = tl.scrollHeight;
+            }
+        }
+        detectionTimer = setTimeout(detectar, 500);
+    }
+    detectionTimer = setTimeout(detectar, 1000);
+}
+
+function iniciarTimer() {
+    timerInterval = setInterval(() => {
+        const elapsed = Date.now() - sessionStart;
+        const m = String(Math.floor(elapsed/60000)).padStart(2,'0');
+        const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
+        document.getElementById('stat-dur').textContent = `${m}:${s}`;
+    }, 1000);
+}
+
+// ─── TRANSCRIPCIÓN ────────────────────────────────────────
+function crearReconocedor(quien) {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        toast('Tu navegador no soporta reconocimiento de voz. Usá Chrome o Edge.');
+        return null;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = 'es-AR';
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onresult = (e) => {
+        let texto = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+            if (e.results[i].isFinal) {
+                texto = e.results[i][0].transcript.trim();
+                if (texto) agregarLinea(quien, texto);
+            }
+        }
+    };
+
+    rec.onerror = (e) => {
+        if (e.error !== 'no-speech') toast(`Error micrófono (${quien}): ${e.error}`);
+    };
+
+    rec.onend = () => {
+        // Si sigue activo, reiniciamos
+        if (quien === 'medico' && micMedicoActivo) rec.start();
+        if (quien === 'paciente' && micPacienteActivo) rec.start();
+    };
+
+    return rec;
+}
+
+function agregarLinea(quien, texto) {
+    const box = document.getElementById('transcripcion-box');
+
+    // Limpiar placeholder si existe
+    const placeholder = box.querySelector('div[style*="italic"]');
+    if (placeholder) placeholder.remove();
+
+    const hora = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
+    const linea = `[${hora}] ${texto}`;
+    transcripcionLineas.push({ quien, texto: linea });
+
+    const div = document.createElement('div');
+    div.className = quien === 'medico' ? 'msg-medico' : 'msg-paciente';
+    div.innerHTML = `<span class="msg-label">${quien === 'medico' ? '👨‍⚕️ Médico' : '🧑 Paciente'}</span>${linea}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function toggleMic(quien) {
+    if (quien === 'medico') {
+        if (!micMedicoActivo) {
+            recMedico = crearReconocedor('medico');
+            if (!recMedico) return;
+            recMedico.start();
+            micMedicoActivo = true;
+            document.getElementById('btn-mic-medico').classList.add('activo');
+            document.getElementById('btn-mic-medico').textContent = '⏹ Detener mi mic';
+        } else {
+            recMedico?.stop();
+            micMedicoActivo = false;
+            document.getElementById('btn-mic-medico').classList.remove('activo');
+            document.getElementById('btn-mic-medico').textContent = '🎤 Mi micrófono';
+        }
+    } else {
+        if (!micPacienteActivo) {
+            recPaciente = crearReconocedor('paciente');
+            if (!recPaciente) return;
+            recPaciente.start();
+            micPacienteActivo = true;
+            document.getElementById('btn-mic-paciente').classList.add('activo');
+            document.getElementById('btn-mic-paciente').textContent = '⏹ Detener mic paciente';
+        } else {
+            recPaciente?.stop();
+            micPacienteActivo = false;
+            document.getElementById('btn-mic-paciente').classList.remove('activo');
+            document.getElementById('btn-mic-paciente').textContent = '🎤 Micrófono paciente';
+        }
+    }
+}
+
+function limpiarTranscripcion() {
+    transcripcionLineas = [];
+    document.getElementById('transcripcion-box').innerHTML =
+        '<div style="color:#ccc;font-style:italic;font-size:11px">La transcripción aparecerá aquí cuando inicies el micrófono...</div>';
+}
+
+// ─── TIPO DE CIERRE ───────────────────────────────────────
+function seleccionarCierre(tipo) {
+    tipoCierreSeleccionado = tipo;
+    document.querySelectorAll('.tipo-btn').forEach(b => b.classList.remove('activo'));
+    event.target.classList.add('activo');
+}
+
+// ─── FINALIZAR ────────────────────────────────────────────
+async function finalizarSesion() {
+    clearTimeout(detectionTimer);
+    clearInterval(timerInterval);
+
+    // Detener micrófonos
+    if (micMedicoActivo) { recMedico?.stop(); micMedicoActivo = false; }
+    if (micPacienteActivo) { recPaciente?.stop(); micPacienteActivo = false; }
+
+    stream?.getTracks().forEach(t => t.stop());
+    pc?.close();
+    socket?.disconnect();
+
+    document.getElementById('btn-exportar').disabled = false;
+    document.getElementById('btn-guardar-hc').disabled = false;
+    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${muestras} muestras registradas.`;
+    toast('Sesión finalizada. Podés guardar en HC o exportar el reporte.');
+}
+
+// ─── GUARDAR EN HC ────────────────────────────────────────
+async function guardarEnHC() {
+    const idPaciente = document.getElementById('sel-paciente').value;
+    if (!idPaciente) { toast('Seleccioná el paciente antes de guardar.'); return; }
+
+    const n = muestras || 1;
+    const promedioEmociones = {};
+    for (const [k,v] of Object.entries(totales))
+        promedioEmociones[EMOCIONES[k]?.label || k] = Math.round(v/n*100);
+
+    const transcripcionTexto = transcripcionLineas
+        .map(l => `[${l.quien === 'medico' ? 'MÉDICO' : 'PACIENTE'}] ${l.texto}`)
+        .join('\n');
+
+    const notas = document.getElementById('notas-evolucion').value;
+
+    const body = {
+        idPaciente:         parseInt(idPaciente),
+        idProfesional:      parseInt(idProfesional),
+        transcripcion:      transcripcionTexto || null,
+        notasEvolucion:     notas || null,
+        historialEmociones: JSON.stringify(promedioEmociones),
+        tipoCierre:         tipoCierreSeleccionado || null
+    };
+
+    try {
+        const res = await fetch(`${API}/sesiones-clinicas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+            toast('✅ Sesión guardada en la Historia Clínica del paciente.');
+            document.getElementById('btn-guardar-hc').disabled = true;
+            document.getElementById('btn-guardar-hc').textContent = '✅ Guardado en HC';
+        } else {
+            toast('❌ Error al guardar en HC.');
+        }
+    } catch {
+        toast('❌ Error de conexión al guardar.');
+    }
+}
+
+// ─── EXPORTAR REPORTE ─────────────────────────────────────
+function exportarReporte() {
+    const n = muestras || 1;
+    const reporte = {
+        fecha: new Date().toLocaleDateString('es-AR'),
+        sala,
+        duracion_segundos: Math.floor((Date.now() - sessionStart) / 1000),
+        total_muestras: muestras,
+        promedio_emociones: Object.fromEntries(
+            Object.entries(totales).map(([k,v]) => [EMOCIONES[k]?.label||k, Math.round(v/n*100)+'%'])
+        ),
+        historial_cambios: historial,
+        transcripcion: transcripcionLineas,
+        notas_evolucion: document.getElementById('notas-evolucion').value,
+        tipo_cierre: tipoCierreSeleccionado
+    };
+    const blob = new Blob([JSON.stringify(reporte, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `sesion_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+}
+</script>
+</body>
+</html>
