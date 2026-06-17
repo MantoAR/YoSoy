@@ -861,4 +861,19 @@ app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
     return Results.Ok(new { estado = rec.Estado, passwordTemporal = (string)null });
 });
 
+// SesionClinica
+app.MapPost("/sesiones-clinicas", (SesionClinica s) =>
+{
+    s.FechaHora = DateTime.Now;
+    int id = new SesionClinicaDAO().Insertar(s);
+    s.IdSesion = id;
+    return Results.Created("/sesiones-clinicas", s);
+});
+
+app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id) =>
+    new SesionClinicaDAO().ObtenerPorPaciente(id));
+
+app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id) =>
+    new SesionClinicaDAO().ObtenerPorProfesional(id));
+
 app.Run();

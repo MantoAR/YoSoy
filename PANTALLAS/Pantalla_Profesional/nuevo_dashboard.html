@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy – Panel Profesional</title>
+    <link rel="stylesheet" href="css/nuevo_dashboard.css">
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="navbar-brand">
+        <img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="Logo" style="width:32px">
+        YoSoy <span class="badge-panel">Profesional</span>
+    </div>
+    <button class="btn-cerrar" onclick="cerrarSesion()">Cerrar sesión</button>
+</nav>
+
+<div class="tabs-bar">
+    <button class="tab-btn" id="tab-inicio"    onclick="activarTab('inicio')">Inicio</button>
+    <button class="tab-btn" id="tab-agenda"    onclick="activarTab('agenda')">Mi Agenda</button>
+    <button class="tab-btn" id="tab-pacientes" onclick="activarTab('pacientes')">Mis Pacientes</button>
+    <button class="tab-btn" id="tab-sesion"    onclick="activarTab('sesion')">Sesión</button>
+    <button class="tab-btn" id="tab-perfil"    onclick="activarTab('perfil')">Mi Perfil</button>
+</div>
+
+<div class="contenido" id="contenido">
+    <div class="spinner">Cargando...</div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="../js/sesion.js"></script>
+<script src="js/nuevo_dashboard.js"></script>
+</body>
+</html>
