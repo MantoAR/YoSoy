@@ -2,11 +2,11 @@
   "profiles": {
     "YoSoy": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:65383;http://localhost:65384"
+      "applicationUrl": "http://localhost:5000"
     }
   }
 }
