@@ -416,29 +416,55 @@ async function verHistoria(idPaciente, nombrePaciente) {
     document.getElementById('modalBody').innerHTML = '<div class="spinner">Cargando...</div>';
     document.getElementById('modalHistoria').classList.add('visible');
 
-    let paciente = null, historia = null, evoluciones = [];
+        let paciente = null, historia = null, evoluciones = [], sesiones = [];
     try { paciente = await (await fetch(`${API}/pacientes/${idPaciente}`)).json(); } catch {}
     try { historia = await (await fetch(`${API}/pacientes/${idPaciente}/historiaclinica`)).json(); } catch {}
     if (historia?.idHistoria) {
         try { evoluciones = await (await fetch(`${API}/historiasclinicas/${historia.idHistoria}/evoluciones`)).json(); } catch {}
     }
+    try { sesiones = await (await fetch(`${API}/pacientes/${idPaciente}/sesiones-clinicas`)).json(); } catch {}
 
     document.getElementById('modalBody').innerHTML = `
         <div class="modal-tabs">
             <button class="modal-tab activo" id="mtab-datos" onclick="modalTab('datos')">Datos del paciente</button>
-            <button class="modal-tab" id="mtab-evoluciones" onclick="modalTab('evoluciones')">Evoluciones e IA</button>
+            <button class="modal-tab" id="mtab-evoluciones" onclick="modalTab('evoluciones')">Evoluciones</button>
+            <button class="modal-tab" id="mtab-sesiones" onclick="modalTab('sesiones')">Sesiones clínicas</button>
         </div>
         <div id="mpanel-datos">${renderDatosPaciente(paciente)}</div>
         <div id="mpanel-evoluciones" style="display:none">${renderEvoluciones(evoluciones)}</div>
+        <div id="mpanel-sesiones" style="display:none">${renderSesionesClinicas(sesiones)}</div>
     `;
 }
 
 function modalTab(nombre) {
-    ['datos','evoluciones'].forEach(t => {
+    ['datos','evoluciones','sesiones'].forEach(t => {
         document.getElementById('mtab-' + t)?.classList.toggle('activo', t === nombre);
         const p = document.getElementById('mpanel-' + t);
         if (p) p.style.display = t === nombre ? 'block' : 'none';
     });
+}
+
+
+function renderSesionesClinicas(lista) {
+    return lista.map(s => {
+        let emociones = '';
+        try {
+            const emo = JSON.parse(s.historialEmociones || '{}');
+            emociones = Object.entries(emo).map(([k,v]) =>
+                '<span style="display:inline-block;background:#f0f0f0;border-radius:6px;padding:3px 10px;font-size:12px;margin:2px">' + k + ': <strong>' + v + '%</strong></span>'
+            ).join('');
+        } catch {}
+        return '<div class="evolucion-item">' +
+            '<div class="evolucion-fecha">' +
+                new Date(s.fechaHora).toLocaleDateString('es-AR', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) +
+                ' &nbsp;·&nbsp; ' + new Date(s.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) +
+                (s.tipoCierre ? ' &nbsp;<span style="background:#e8d5ff;color:#6A5ACD;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">' + s.tipoCierre + '</span>' : '') +
+            '</div>' +
+            (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div style="margin-top:4px">' + emociones + '</div></div>' : '') +
+            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto" style="white-space:pre-line;max-height:180px;overflow-y:auto;font-size:12px">' + s.transcripcion + '</div></div>' : '') +
+            (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + s.notasEvolucion + '</div></div>' : '') +
+        '</div>';
+    }).join('');
 }
 
 function renderDatosPaciente(p) {

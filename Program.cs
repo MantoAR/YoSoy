@@ -424,6 +424,13 @@ app.MapGet("/pacientes/{id}/proximo-turno", (int id) =>
 app.MapGet("/pacientes/{id}/mis-profesionales", (int id) =>
     new PacienteProfesionalDAO().ObtenerProfesionalesDePaciente(id));
 
+app.MapGet("/profesionales/{id}/pacientes", (int id) =>
+{
+    var ids = new PacienteProfesionalDAO().ObtenerIdPacientesDeProfesional(id);
+    var dao = new PacienteDAO();
+    return ids.Select(idPac => dao.ObtenerPorId(idPac)).Where(p => p != null).ToList();
+});
+
 app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp) =>
 {
     new PacienteProfesionalDAO().Asignar(id, pp.IdProfesional);
