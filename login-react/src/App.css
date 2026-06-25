@@ -1,0 +1,229 @@
+/* ── Reset ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
+.login-bg {
+  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f8f5ff, #ddd0f5, #c0a8ee);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.card-login {
+  background: white;
+  border-radius: 24px;
+  padding: 40px 36px;
+  width: 420px;
+  max-width: 100%;
+  box-shadow: 0 12px 40px rgba(100, 80, 180, 0.18);
+  text-align: center;
+}
+
+/* ── Encabezado ─────────────────────────────────────────────────────── */
+.logo {
+  width: 110px;
+  margin-bottom: 12px;
+}
+
+.titulo {
+  font-size: 36px;
+  font-weight: bold;
+  color: #0d6efd;
+  margin-bottom: 2px;
+}
+
+.subtitulo {
+  font-size: 13px;
+  color: #9D6BCF;
+  font-weight: bold;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+
+/* ── Tabs de rol ─────────────────────────────────────────────────────── */
+.roles {
+  display: flex;
+  border: 2px solid #e0d4f5;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.rol-btn {
+  flex: 1;
+  padding: 10px 6px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+  color: #999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.2s, color 0.2s;
+  border-right: 2px solid #e0d4f5;
+}
+
+.rol-btn:last-child { border-right: none; }
+
+.rol-btn .icono { font-size: 22px; }
+
+.rol-btn.activo {
+  background: linear-gradient(to bottom, #0d6efd, #6A5ACD);
+  color: white;
+}
+
+.rol-btn:not(.activo):hover {
+  background: #f0eaff;
+  color: #6A5ACD;
+}
+
+/* ── Campos del formulario ──────────────────────────────────────────── */
+.campo {
+  text-align: left;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.campo label {
+  display: block;
+  font-size: 12px;
+  font-weight: bold;
+  color: #6A5ACD;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  height: 46px;
+  border: 2px solid #e0d4f5;
+  border-radius: 12px;
+  padding: 0 40px 0 14px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input:focus          { border-color: #6A5ACD; }
+.input.input-error    { border-color: #e74c3c; }
+
+/* Mensaje de error de campo individual */
+.field-error {
+  display: block;
+  color: #e74c3c;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* Ojo para mostrar/ocultar contraseña */
+.ojo {
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  font-size: 18px;
+  user-select: none;
+  line-height: 1;
+}
+
+/* ── Botón principal ─────────────────────────────────────────────────── */
+.boton {
+  width: 100%;
+  height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(to right, #0d6efd, #6A5ACD);
+  color: white;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.2s;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boton:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: scale(1.02);
+}
+
+.boton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ── Spinner dentro del botón ───────────────────────────────────────── */
+.spinner-btn {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Error global y animación shake ─────────────────────────────────── */
+.error-msg {
+  color: #e74c3c;
+  font-size: 13px;
+  background: #fff5f5;
+  border: 1px solid #fcc;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+@keyframes shake {
+  0%,  100% { transform: translateX(0); }
+  15%       { transform: translateX(-8px); }
+  30%       { transform: translateX(8px); }
+  45%       { transform: translateX(-6px); }
+  60%       { transform: translateX(6px); }
+  75%       { transform: translateX(-3px); }
+  90%       { transform: translateX(3px); }
+}
+
+.shake { animation: shake 0.5s ease-in-out; }
+
+/* ── Links de pie ────────────────────────────────────────────────────── */
+.link-registro {
+  display: block;
+  margin-top: 16px;
+  font-size: 13px;
+  color: #999;
+}
+
+.link-registro a {
+  color: #6A5ACD;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.link-registro a:hover { text-decoration: underline; }
+
+/* ── Recuperación de contraseña ─────────────────────────────────────── */
+.seccion-recuperacion { margin-top: 14px; }
+
+.form-recuperacion { margin-top: 12px; }
+
+.recup-msg {
+  margin-top: 8px;
+  font-size: 13px;
+}

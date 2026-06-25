@@ -61,6 +61,14 @@ const idCampo = {
     interaccionesia: "idInteraccion",
 };
 
+const REQUERIDOS_EDITOR = {
+    turnos:          ["idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora"],
+    roles:           ["nombre"],
+    especialidades:  ["nombre"],
+    coberturas:      ["idPaciente", "idObraSocial"],
+    interaccionesia: ["idPaciente", "fecha"],
+};
+
 const columnas = {
     turnos:          ["idTurno", "idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad"],
     evoluciones:     ["idEvolucion", "idHistoria", "idProfesional", "fecha", "diagnostico"],
@@ -327,6 +335,8 @@ async function abrirFormAgenda(idAgenda) {
             <button class="btn btn-secondary btn-sm" onclick="renderAgendas(document.getElementById('contenido'))">Cancelar</button>
         </div>`;
 
+    window.Validaciones.conectarLimpieza(['ag-descripcion', 'ag-finicio', 'ag-ffin']);
+
     if (idAgenda) cargarBloqueosAgenda(idAgenda);
 }
 
@@ -472,16 +482,46 @@ function leerHorarios() {
 }
 
 async function guardarAgenda(idAgenda) {
+    const V = window.Validaciones;
+
+    const finicio = document.getElementById('ag-finicio').value;
+    const ffin    = document.getElementById('ag-ffin').value;
+
+    const okCampos = V.validarCampos([
+        { id: 'ag-descripcion', validar: v => V.requerido(v, 'La descripción') },
+    ]);
+
+    let okFechas = true;
+    if (finicio && ffin && finicio > ffin) {
+        V.marcarError('ag-ffin', 'La fecha fin no puede ser anterior a la fecha inicio.');
+        okFechas = false;
+    } else {
+        V.limpiarError('ag-ffin');
+    }
+
+    if (!okCampos || !okFechas) return;
+
+    const propietarios = leerPropietarios();
+    const horarios     = leerHorarios();
+
+    if (!propietarios.length) { toast('Agregá al menos un propietario.', 'warn'); return; }
+    if (!horarios.length)     { toast('Agregá al menos un horario.', 'warn'); return; }
+
+    const horarioInvalido = horarios.find(h =>
+        h.horaInicio > h.horaFin || !(h.intervaloMinutos > 0) || !(h.maxCitas >= 1));
+    if (horarioInvalido) {
+        toast('Revisá los horarios: la hora de inicio debe ser menor o igual a la de fin, el intervalo mayor a 0 y las citas máximas al menos 1.', 'warn');
+        return;
+    }
+
     const body = {
         codigo:      document.getElementById('ag-codigo').value || null,
         descripcion: document.getElementById('ag-descripcion').value || null,
         idServicio:  parseInt(document.getElementById('ag-servicio').value) || null,
-        fechaInicio: document.getElementById('ag-finicio').value || null,
-        fechaFin:    document.getElementById('ag-ffin').value || null,
+        fechaInicio: finicio || null,
+        fechaFin:    ffin || null,
         disponible:  true
     };
-
-    if (!body.descripcion) { toast('La descripción es obligatoria.', 'warn'); return; }
 
     let idAgendaFinal = idAgenda;
 
@@ -499,14 +539,12 @@ async function guardarAgenda(idAgenda) {
         idAgendaFinal = data.idAgenda;
     }
 
-    const propietarios = leerPropietarios();
     for (const p of propietarios) {
         await fetch(`${API}/agendas/${idAgendaFinal}/propietarios`, {
             method: 'POST', headers: auditorHeaders(), body: JSON.stringify(p)
         });
     }
 
-    const horarios = leerHorarios();
     for (const h of horarios) {
         await fetch(`${API}/agendas/${idAgendaFinal}/horarios`, {
             method: 'POST', headers: auditorHeaders(), body: JSON.stringify(h)
@@ -579,6 +617,8 @@ async function abrirModalBloqueo(idAgenda) {
                 <textarea id="blq-obs" class="form-control form-control-sm" rows="2"></textarea>
             </div>
         </div>`;
+
+    window.Validaciones.conectarLimpieza(['blq-desde', 'blq-hasta', 'blq-motivo']);
 
     document.getElementById('modalDerivPanel').querySelector('.modal-header-custom span').textContent = 'Nuevo bloqueo';
     document.getElementById('modalDerivOverlay').classList.add('visible');
@@ -1088,7 +1128,18 @@ async function confirmarAceptarDeriv() {
         const motivo = document.getElementById('blq-motivo').value;
         const obs    = document.getElementById('blq-obs').value || null;
 
-        if (!desde || !hasta || !motivo) { toast('Completá todos los campos obligatorios.', 'warn'); return; }
+        const V = window.Validaciones;
+        const okCampos = V.validarCampos([
+            { id: 'blq-desde',  validar: v => V.requerido(v, 'La fecha desde') },
+            { id: 'blq-hasta',  validar: v => V.requerido(v, 'La fecha hasta') },
+            { id: 'blq-motivo', validar: v => V.requerido(v, 'El motivo') },
+        ]);
+        let okRango = true;
+        if (desde && hasta && desde > hasta) {
+            V.marcarError('blq-hasta', 'La fecha hasta no puede ser anterior a la fecha desde.');
+            okRango = false;
+        }
+        if (!okCampos || !okRango) return;
 
         await fetch(`${API}/profesionales/${window._bloqueoIdProfesional}/bloqueos`, {
             method: 'POST',
@@ -1274,6 +1325,8 @@ function abrirModal(row) {
 
     document.getElementById("modalOverlay").classList.add("visible");
     document.getElementById("modalPanel").classList.add("visible");
+
+    window.Validaciones.conectarLimpieza((campos[tab] ?? []).map(c => `field_${c}`));
 }
 
 function campoModal(c, val) {
@@ -1304,6 +1357,14 @@ function cerrarModal() {
 
 async function guardar() {
     const tab = tabActual;
+
+    const V = window.Validaciones;
+    const okCampos = V.validarCampos((REQUERIDOS_EDITOR[tab] ?? []).map(c => ({
+        id: `field_${c}`,
+        validar: v => V.requerido(v, etiqueta(c))
+    })));
+    if (!okCampos) return;
+
     const id = filaEnEdicion[idCampo[tab]];
     const body = { ...filaEnEdicion };
 
@@ -1491,6 +1552,8 @@ async function renderNuevoProfesional(c) {
                 </div>
             </div>
         </div>`;
+
+    window.Validaciones.conectarLimpieza(['np-nombre', 'np-matricula', 'np-especialidad', 'np-mail', 'np-telefono']);
 }
 
 async function guardarNuevoProfesional() {
@@ -1503,10 +1566,15 @@ async function guardarNuevoProfesional() {
     const provincia   = document.getElementById('np-provincia').value.trim();
     const tipos       = [...document.querySelectorAll('.np-tipo:checked')].map(cb => parseInt(cb.value));
 
-    if (!nombre)    { toast('El nombre es obligatorio.', 'warn'); return; }
-    if (!matricula) { toast('La matrícula es obligatoria.', 'warn'); return; }
-    if (!idEsp)     { toast('Seleccioná una especialidad.', 'warn'); return; }
-    if (!mail)      { toast('El email es obligatorio.', 'warn'); return; }
+    const V = window.Validaciones;
+    const okCampos = V.validarCampos([
+        { id: 'np-nombre',       validar: v => V.requerido(v, 'El nombre') },
+        { id: 'np-matricula',    validar: v => V.requerido(v, 'La matrícula') },
+        { id: 'np-especialidad', validar: v => V.requerido(v, 'La especialidad') },
+        { id: 'np-mail',         validar: v => V.requerido(v, 'El email') || V.email(v) },
+        { id: 'np-telefono',     validar: v => V.telefono(v) },
+    ]);
+    if (!okCampos) return;
 
     // 1. Crear el profesional
     const resProf = await fetch(`${API}/profesionales`, {

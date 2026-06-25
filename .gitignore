@@ -5,9 +5,22 @@ obj/
 *.user
 *.suo
 To.Do.txt
+*.nocommit.txt
 sql-local/
 
 # Secretos / config local del modo ONLINE (NO commitear)
 signaling-server/.env
 signaling-server/turnserver.local.conf
 appsettings.Online.json
+
+# Documentos generados y scripts temporales de generacion
+*.docx
+generar-*.ps1
+generar-*.mjs
+
+# Node - React login app (fuentes en login-react/, build output en PANTALLAS/)
+login-react/node_modules/
+login-react/package-lock.json
+
+# Assets generados por Vite (no commitear, se regeneran con npm run build)
+PANTALLAS/assets/

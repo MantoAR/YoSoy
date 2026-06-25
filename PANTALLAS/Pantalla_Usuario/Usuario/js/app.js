@@ -73,118 +73,60 @@ function aceptar(){
 
 }); */
 
+const V = window.Validaciones;
+
+V.conectarLimpieza(["nombre","dni","email","domicilio","fechaNacimiento","telefono"]);
+
 document.getElementById("formRegistro")
 ?.addEventListener("submit", async function(e){
 
     e.preventDefault();
 
-    const fechaNacimiento =
-        document.getElementById("fechaNacimiento").value;
+    const ok = V.validarCampos([
+        { id: "nombre",          validar: v => V.requerido(v, "El nombre") },
+        { id: "dni",             validar: v => V.requerido(v, "El DNI") || V.dni(v) },
+        { id: "email",           validar: v => V.requerido(v, "El email") || V.email(v) },
+        { id: "domicilio",       validar: v => V.requerido(v, "El domicilio") },
+        { id: "fechaNacimiento", validar: v => V.requerido(v, "La fecha de nacimiento") || V.fechaNoFutura(v, "La fecha de nacimiento") },
+        { id: "telefono",        validar: v => V.telefono(v) },
+    ]);
+    if (!ok) return;
+
+    const fechaNacimiento = document.getElementById("fechaNacimiento").value;
 
     const fecha = new Date(fechaNacimiento);
-
     const hoy = new Date();
+    let edad = hoy.getFullYear() - fecha.getFullYear();
+    const mes = hoy.getMonth() - fecha.getMonth();
+    if (mes < 0 || (mes === 0 && hoy.getDate() < fecha.getDate())) edad--;
 
-    let edad =
-        hoy.getFullYear() - fecha.getFullYear();
-
-    const mes =
-        hoy.getMonth() - fecha.getMonth();
-
-    if(
-        mes < 0 ||
-        (mes === 0 && hoy.getDate() < fecha.getDate())
-    ){
-        edad--;
-    }
-
-    // =====================================
-    // MENOR DE EDAD
-    // =====================================
-
-    if(edad < 18){
-
-        const tutor =
-            document.getElementById("seccionTutor");
-
-        tutor.style.display = "block";
-
+    if (edad < 18) {
+        document.getElementById("seccionTutor").style.display = "block";
         toast("Paciente menor de edad. Debe completar los datos del tutor responsable.", "warn");
     }
 
     const paciente = {
-
-        nombre:
-            document.getElementById("nombre").value,
-
-        segundoNombre:
-            document.getElementById("segundoNombre").value,
-
-        apellido:
-            document.getElementById("apellido").value,
-
-        segundoApellido:
-            document.getElementById("segundoApellido").value,
-
-        dni:
-            document.getElementById("dni").value,
-
-        fechaNacimiento:
-            fechaNacimiento,
-
-        sexo:
-            document.getElementById("sexo").value,
-
-        mail:
-            document.getElementById("email").value,
-
-        mailValidado: false,
-
-        telefono:
-            document.getElementById("telefono").value,
-
-        domicilio:
-            document.getElementById("domicilio").value,
-
-        numero:
-            parseInt(
-                document.getElementById("numero").value
-            ),
-
-        provincia:
-            document.getElementById("provincia").value,
-
-        estado: "Activo",
-
-        esMenorEdad: edad < 18,
-
-        fechaAlta:
-            new Date().toISOString()
+        nombre:          document.getElementById("nombre").value.trim(),
+        dni:             document.getElementById("dni").value.trim(),
+        fechaNacimiento: fechaNacimiento,
+        domicilio:       document.getElementById("domicilio").value.trim(),
+        telefono:        document.getElementById("telefono").value.trim(),
+        mail:            document.getElementById("email").value.trim()
     };
 
     try {
+        const respuesta = await fetch("/pacientes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(paciente)
+        });
 
-        const respuesta = await fetch(
-            "/pacientes",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify(paciente)
-            }
-        );
-
-        if(respuesta.ok){
+        if (respuesta.ok) {
             toast("Registro enviado. Te avisaremos por mail cuando tu cuenta sea aprobada.");
-        }else{
+        } else {
             toast("Error al registrar paciente", "error");
         }
-
-    } catch(error){
+    } catch (error) {
         console.error(error);
         toast("No se pudo conectar con la API", "error");
     }

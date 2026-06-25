@@ -34,9 +34,20 @@ app.MapGet("/config", () => Results.Ok(new
     duracionTurnoDefault  = int.TryParse(app.Configuration["Sesion:DuracionTurnoDefaultMinutos"], out var dt) ? dt : 60
 }));
 
+static string IpCliente(HttpContext ctx)
+{
+    // Detrás del túnel/reverse proxy, RemoteIpAddress es siempre 127.0.0.1 (cloudflared pega a localhost),
+    // así que todos los usuarios compartirían un único cupo. Usar la IP real que reenvía Cloudflare.
+    var cf = ctx.Request.Headers["CF-Connecting-IP"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(cf)) return cf.Trim();
+    var xff = ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(xff)) return xff.Split(',')[0].Trim();
+    return ctx.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+}
+
 static IResult? LimitarTasa(HttpContext ctx, IConfiguration cfg, string bucket, int maximo)
 {
-    var ip = ctx.Connection.RemoteIpAddress?.ToString() ?? "desconocida";
+    var ip = IpCliente(ctx);
     int ventana = int.TryParse(cfg["RateLimit:VentanaSegundos"], out var v) ? v : 300;
     if (!RateLimiter.Permitido($"{bucket}|{ip}", maximo, ventana))
         return Results.Json(new { mensaje = "Demasiados intentos. Esperá unos minutos." }, statusCode: 429);

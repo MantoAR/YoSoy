@@ -518,10 +518,24 @@ async function perfil() {
             </div>
         </div>
     `;
+    window.Validaciones.conectarLimpieza(['pf-nombre', 'pf-apellido', 'pf-dni', 'pf-mail', 'pf-fechaNacimiento', 'pf-provincia', 'pf-especialidad', 'pf-telefono']);
     window._profActual = prof;
 }
 
 async function guardarPerfil() {
+    const V = window.Validaciones;
+    const ok = V.validarCampos([
+        { id: 'pf-nombre',          validar: v => V.requerido(v, 'El nombre') },
+        { id: 'pf-apellido',        validar: v => V.requerido(v, 'El apellido') },
+        { id: 'pf-dni',             validar: v => V.requerido(v, 'El DNI') || V.dni(v) },
+        { id: 'pf-mail',            validar: v => V.requerido(v, 'El email') || V.email(v) },
+        { id: 'pf-fechaNacimiento', validar: v => V.requerido(v, 'La fecha de nacimiento') || V.fechaNoFutura(v, 'La fecha de nacimiento') },
+        { id: 'pf-provincia',       validar: v => V.requerido(v, 'La provincia') },
+        { id: 'pf-especialidad',    validar: v => V.requerido(v, 'La especialidad') },
+        { id: 'pf-telefono',        validar: v => V.telefono(v) },
+    ]);
+    if (!ok) return;
+
     const prof = {
         ...window._profActual,
         nombre:          document.getElementById('pf-nombre').value,
@@ -858,6 +872,9 @@ async function confirmarSolicitudDiaProf(fechaStr) {
 
     if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
     if (!hora)  { toast('Seleccioná un horario.',  'warn'); return; }
+
+    const errAnticip = window.Validaciones.anticipacionHoras(fechaStr, hora, 24);
+    if (errAnticip) { toast(errAnticip, 'warn'); return; }
 
     const res = await fetch(`${API}/turnos/profesional-solicitar`, {
         method: 'POST',

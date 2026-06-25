@@ -1,3 +1,36 @@
+// ── Guardia de ruta: verifica sesion activa al cargar el dashboard ────
+// Si no hay token o ya expiro, redirige al login inmediatamente.
+// Esto complementa la ProtectedRoute del login en React:
+// esa protege dentro de la SPA; esta protege las paginas HTML estaticas.
+(function () {
+    var token = localStorage.getItem('token');
+    var rol   = localStorage.getItem('rol');
+
+    if (!token || !rol) {
+        // Calcula la URL relativa al login desde cualquier nivel de carpeta
+        var depth = (location.pathname.match(/\//g) || []).length - 1;
+        window.location.replace('../'.repeat(depth - 1) + 'index.html');
+        return;
+    }
+
+    // Verifica expiracion del JWT leyendo el claim exp del payload
+    try {
+        var partes = token.split('.');
+        if (partes.length === 3) {
+            var payload = JSON.parse(
+                atob(partes[1].replace(/-/g, '+').replace(/_/g, '/'))
+            );
+            if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+                ['token', 'rol', 'idUsuario', 'idPaciente', 'idProfesional']
+                    .forEach(function (k) { localStorage.removeItem(k); });
+                var depth2 = (location.pathname.match(/\//g) || []).length - 1;
+                window.location.replace('../'.repeat(depth2 - 1) + 'index.html');
+            }
+        }
+    } catch (e) { /* token no parseable: no bloqueamos, sesion.js manejara el timeout */ }
+})();
+
+// ── Timeout de inactividad ────────────────────────────────────────────
 (function () {
     const TIMEOUT_MS   = 10 * 60 * 1000;
     const AVISO_MS     = 9 * 60 * 1000;

@@ -457,6 +457,9 @@ async function confirmarSolicitudDia(fechaStr) {
     if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
     if (!hora)   { toast("Seleccioná un horario.", "warn"); return; }
 
+    const errAnticip = window.Validaciones.anticipacionHoras(fechaStr, hora, 24);
+    if (errAnticip) { toast(errAnticip, "warn"); return; }
+
     const res = await fetch(`${API}/turnos/solicitar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -781,13 +784,20 @@ function cerrarModalCambio() {
 async function enviarSolicitudCambio() {
     const motivo = document.getElementById("motivoCambio").value || null;
 
+    const idPac  = parseInt(idPaciente);
+    const idProf = parseInt(_cambioIdProfOrigen);
+    if (!(idPac > 0) || !(idProf > 0)) {
+        toast("No se pudo identificar al paciente o al profesional. Cerrá y volvé a intentar.", "error");
+        return;
+    }
+
     const res = await fetch(`${API}/derivaciones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-            idPaciente:           parseInt(idPaciente),
-            idProfesionalOrigen:  _cambioIdProfOrigen,
-            idProfesionalDestino: _cambioIdProfOrigen, // el configurador elige el destino al aceptar
+            idPaciente:           idPac,
+            idProfesionalOrigen:  idProf,
+            idProfesionalDestino: idProf,
             motivo
         })
     });
@@ -801,6 +811,7 @@ async function enviarSolicitudCambio() {
 async function renderPerfil(c) {
     try {
         const p = await fetch(`${API}/pacientes/${idPaciente}`).then(r => r.json());
+        window._pacienteActual = p;
         const fn = p.fechaNacimiento ? p.fechaNacimiento.substring(0, 10) : "";
 
         c.innerHTML = `
@@ -815,12 +826,28 @@ async function renderPerfil(c) {
                 <button class="btn-guardar-perfil" onclick="guardarPerfil(${p.idPaciente})">Guardar cambios</button>
                 <div class="msg-ok" id="msgOk">Cambios guardados correctamente.</div>
             </div>`;
+
+        window.Validaciones.conectarLimpieza(["pNombre", "pDni", "pMail", "pDomicilio", "pFechaNac", "pTelefono"]);
     } catch {
         c.innerHTML = `<div class="titulo-seccion">Mi Perfil</div><p style="color:#e74c3c">Error al cargar.</p>`;
     }
 }
 
 async function guardarPerfil(id) {
+    const V = window.Validaciones;
+    const ok = V.validarCampos([
+        { id: "pNombre",    validar: v => V.requerido(v, "El nombre") },
+        { id: "pDni",       validar: v => V.requerido(v, "El DNI") || V.dni(v) },
+        { id: "pMail",      validar: v => V.requerido(v, "El email") || V.email(v) },
+        { id: "pDomicilio", validar: v => V.requerido(v, "El domicilio") },
+        { id: "pFechaNac",  validar: v => V.requerido(v, "La fecha de nacimiento") || V.fechaNoFutura(v, "La fecha de nacimiento") },
+        { id: "pTelefono",  validar: v => V.telefono(v) },
+    ]);
+    if (!ok) return;
+
+    const estadoReal = window._pacienteActual?.estado;
+    if (!estadoReal) { toast("No se pudo determinar el estado del paciente. Recargá e intentá de nuevo.", "error"); return; }
+
     const body = {
         idPaciente:      id,
         nombre:          document.getElementById("pNombre").value,
@@ -829,7 +856,7 @@ async function guardarPerfil(id) {
         domicilio:       document.getElementById("pDomicilio").value,
         telefono:        document.getElementById("pTelefono").value,
         mail:            document.getElementById("pMail").value,
-        estado:          "Activo"
+        estado:          estadoReal
     };
 
     const res = await fetch(`${API}/pacientes/${id}`, {

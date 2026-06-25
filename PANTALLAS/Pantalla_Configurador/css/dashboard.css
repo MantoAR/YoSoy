@@ -662,3 +662,6 @@ body {
         box-shadow: 0 3px 12px rgba(0,0,0,0.07);
     }
 }
+
+.val-error { color: #e74c3c; font-size: 12px; margin-top: 4px; display: block; }
+.invalido { border-color: #e74c3c !important; }

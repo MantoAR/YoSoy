@@ -640,6 +640,9 @@ body {
     display: none;
 }
 
+.val-error { color: #e74c3c; font-size: 12px; margin-top: 4px; display: block; }
+.invalido { border-color: #e74c3c !important; }
+
 /* ── SOLICITAR CAMBIO ───────────────────────────────────── */
 .btn-solicitar-turno {
     margin-top: 12px;

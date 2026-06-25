@@ -35,8 +35,12 @@ for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep -Seconds 1
     foreach ($f in @($errTunel, $logTunel)) {
         if (Test-Path $f) {
-            $m = Select-String -Path $f -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($m) { $urlPublica = $m.Matches[0].Value; break }
+            $matches = Select-String -Path $f -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -AllMatches -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.Matches } |
+                ForEach-Object { $_.Value } |
+                Where-Object { $_ -notmatch '://api\.trycloudflare\.com' } |
+                Select-Object -First 1
+            if ($matches) { $urlPublica = $matches; break }
         }
     }
     if ($urlPublica) { break }

@@ -373,6 +373,9 @@ tbody tr:hover { background: #faf7ff; }
 
 .msg-ok { color: #198754; font-size: 13px; margin-top: 8px; display: none; }
 
+.val-error { color: #e74c3c; font-size: 12px; margin-top: 4px; display: block; }
+.invalido { border-color: #e74c3c !important; }
+
 /* SESION */
 .sesion-iframe-wrapper {
     width: 100%;

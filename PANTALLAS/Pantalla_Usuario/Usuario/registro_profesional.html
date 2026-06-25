@@ -300,6 +300,7 @@
 
     </div>
 
+    <script src="../../js/validaciones.js"></script>
     <script>
         fetch("/especialidades")
             .then(r => r.json())
@@ -313,63 +314,35 @@
                 });
             });
 
+        const V = window.Validaciones;
+
         function toggleOtro(select) {
             document.getElementById("campoOtro").style.display =
                 select.value === "otro" ? "block" : "none";
-            limpiarError("conocio");
+            V.limpiarError("conocio");
         }
 
-        // Marca un campo como inválido o válido y muestra/oculta su mensaje
-        function marcarError(id, mostrar) {
-            const campo = document.getElementById(id);
-            const msg   = document.getElementById("err-" + id);
-            if (!campo) return;
-            campo.classList.toggle("invalido", mostrar);
-            if (msg) msg.style.display = mostrar ? "block" : "none";
-        }
-
-        function limpiarError(id) { marcarError(id, false); }
-
-        // Limpia errores al empezar a escribir
-        ["nombre","apellido","dni","email","matricula","provincia"].forEach(id => {
-            document.getElementById(id)?.addEventListener("input", () => limpiarError(id));
+        V.conectarLimpieza(["nombre","apellido","dni","email","matricula","provincia","textoOtro"]);
+        ["sexo","especialidad","conocio","fechaNacimiento"].forEach(id => {
+            document.getElementById(id)?.addEventListener("change", () => V.limpiarError(id));
         });
-        ["sexo","especialidad","conocio"].forEach(id => {
-            document.getElementById(id)?.addEventListener("change", () => limpiarError(id));
-        });
-        document.getElementById("fechaNacimiento")?.addEventListener("change", () => limpiarError("fechaNacimiento"));
-        document.getElementById("textoOtro")?.addEventListener("input", () => limpiarError("textoOtro"));
 
         function validar() {
-            const campos = [
-                { id: "nombre",          check: v => v.trim() !== "" },
-                { id: "apellido",        check: v => v.trim() !== "" },
-                { id: "dni",             check: v => v.trim() !== "" },
-                { id: "sexo",            check: v => v !== "" },
-                { id: "fechaNacimiento", check: v => v !== "" },
-                { id: "email",           check: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) },
-                { id: "especialidad",    check: v => v !== "" },
-                { id: "matricula",       check: v => v.trim() !== "" },
-                { id: "provincia",       check: v => v.trim() !== "" },
-                { id: "conocio",         check: v => v !== "" },
+            const reglas = [
+                { id: "nombre",          validar: v => V.requerido(v, "El nombre") },
+                { id: "apellido",        validar: v => V.requerido(v, "El apellido") },
+                { id: "dni",             validar: v => V.requerido(v, "El DNI") || V.dni(v) },
+                { id: "sexo",            validar: v => V.requerido(v, "El sexo") },
+                { id: "fechaNacimiento", validar: v => V.requerido(v, "La fecha de nacimiento") || V.fechaNoFutura(v, "La fecha de nacimiento") },
+                { id: "email",           validar: v => V.requerido(v, "El email") || V.email(v) },
+                { id: "especialidad",    validar: v => V.requerido(v, "La especialidad") },
+                { id: "matricula",       validar: v => V.requerido(v, "La matrícula") },
+                { id: "provincia",       validar: v => V.requerido(v, "La provincia") },
+                { id: "conocio",         validar: v => V.requerido(v, "Este campo") },
             ];
-
-            let valido = true;
-            campos.forEach(({ id, check }) => {
-                const el = document.getElementById(id);
-                const ok = el && check(el.value);
-                marcarError(id, !ok);
-                if (!ok) valido = false;
-            });
-
-            const conocioVal = document.getElementById("conocio").value;
-            if (conocioVal === "otro") {
-                const texto = document.getElementById("textoOtro").value.trim();
-                marcarError("textoOtro", !texto);
-                if (!texto) valido = false;
-            }
-
-            return valido;
+            if (document.getElementById("conocio").value === "otro")
+                reglas.push({ id: "textoOtro", validar: v => V.requerido(v, "Este campo") });
+            return V.validarCampos(reglas);
         }
 
         let enviando = false;
