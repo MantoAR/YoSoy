@@ -68,11 +68,11 @@ function mostrarSeccion(id) {
     const c = document.getElementById("contenido");
     c.innerHTML = `<div class="spinner">Cargando...</div>`;
 
-    if (id === "inicio") renderInicio(c);
-    else if (id === "agenda") renderAgenda(c);
+    if      (id === "inicio")        renderInicio(c);
+    else if (id === "agenda")        renderAgenda(c);
     else if (id === "profesionales") renderProfesionales(c);
-    else if (id === "perfil") renderPerfil(c);
-    else if (id === "sesion") c.innerHTML = renderSesion();
+    else if (id === "perfil")        renderPerfil(c);
+    else if (id === "sesion")        c.innerHTML = renderSesion();
 }
 
 async function cerrarSesion() {
@@ -776,30 +776,6 @@ async function guardarPerfil(id) {
     } else {
         toast("Error al guardar los cambios.", "error");
     }
-}
-
-function renderSesion() {
-    return `
-        <div style="padding:30px;max-width:500px;margin:0 auto">
-            <h2 style="margin-bottom:20px">Iniciar sesión de video</h2>
-            <p style="margin-bottom:15px">Ingresá el código de sala que te dio tu profesional:</p>
-            <input type="text" id="codigoSala" placeholder="Código de sala" 
-                style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;margin-bottom:15px">
-            <button onclick="entrarSesion()" 
-                style="width:100%;padding:12px;background:#4a90d9;color:white;border:none;border-radius:6px;font-size:16px;cursor:pointer">
-                Entrar a la sesión
-            </button>
-        </div>
-    `;
-}
-
-function entrarSesion() {
-    const codigo = document.getElementById('codigoSala').value.trim();
-    if (!codigo) {
-        alert('Ingresá el código de sala.');
-        return;
-    }
-    window.location.href = `../Pantalla_Paciente/sesion_video.html?sala=${encodeURIComponent(codigo)}&idPaciente=${idPaciente}`;
 }
 
 // ── INIT ────────────────────────────────────────────────────

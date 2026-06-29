@@ -7,25 +7,21 @@
     <link rel="stylesheet" href="css/dashboard.css">
 </head>
 <body>
-
     <nav class="navbar">
         <div class="navbar-brand">
             <img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="Logo">
             YoSoy <span class="badge-panel">Panel Paciente</span>
         </div>
-        <button class="btn-cerrar" onclick="cerrarSesion()">Cerrar sesión</button>
+        <button class="btn-cerrar" onclick="cerrarSesion()">Cerrar sesion</button>
     </nav>
-
     <div class="tabs-bar">
-        <button class="tab-btn" data-sec="inicio" onclick="mostrarSeccion('inicio')">Inicio</button>
-        <button class="tab-btn" data-sec="agenda" onclick="mostrarSeccion('agenda')">Mi Agenda</button>
+        <button class="tab-btn" data-sec="inicio"        onclick="mostrarSeccion('inicio')">Inicio</button>
+        <button class="tab-btn" data-sec="agenda"        onclick="mostrarSeccion('agenda')">Mi Agenda</button>
         <button class="tab-btn" data-sec="profesionales" onclick="mostrarSeccion('profesionales')">Mis Profesionales</button>
-        <button class="tab-btn" data-sec="perfil" onclick="mostrarSeccion('perfil')">Mi Perfil</button>
-        <button class="tab-btn" data-sec="sesion" onclick="mostrarSeccion('sesion')">Sesión</button>
+        <button class="tab-btn" data-sec="perfil"        onclick="mostrarSeccion('perfil')">Mi Perfil</button>
+        <button class="tab-btn" data-sec="sesion"        onclick="mostrarSeccion('sesion')">Sesion</button>
     </div>
-
     <main class="contenido" id="contenido"></main>
-
     <script src="../js/sesion.js"></script>
     <script src="js/dashboard.js"></script>
 </body>
