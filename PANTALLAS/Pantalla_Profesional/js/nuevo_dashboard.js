@@ -31,18 +31,28 @@ async function inicio() {
         prof = await r.json();
     } catch {}
 
-    const ahora = new Date();
+    // Turnos de hoy confirmados
+    let turnosHoy = [];
+    try {
+        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos-confirmados`);
+        const todos = await r.json();
+        const hoy = new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+        turnosHoy = todos.filter(t => t.fecha === hoy);
+    } catch {}
+
+    // Próximo turno
     let turnos = [];
     try {
         const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
         turnos = await r.json();
     } catch {}
 
+    const ahora = new Date();
     const proximos = turnos
         .filter(t => new Date(t.fecha) >= ahora && t.idEstadoTurno !== 3)
         .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
     const proximo = proximos[0];
+
     let pacNombre = '—';
     if (proximo) {
         try {
@@ -55,11 +65,61 @@ async function inicio() {
     const fecha = proximo ? new Date(proximo.fecha) : null;
     const hora  = proximo ? (proximo.hora?.substring(0, 5) ?? '—') : null;
 
+    // HTML de sesiones de hoy
+    const sesionesHoyHtml = turnosHoy.length ? `
+        <div class="titulo-seccion" style="margin-bottom:12px">📅 Sesiones de hoy</div>
+        <div class="turnos-lista">
+            ${turnosHoy.map(t => `
+            <div class="turno-item" style="align-items:flex-start;flex-direction:column;gap:10px;padding:16px">
+                <div style="display:flex;align-items:center;gap:12px;width:100%">
+                    <div class="turno-fecha-bloque">
+                        <div class="turno-fecha-dia" style="font-size:22px">${t.hora}</div>
+                        <div class="turno-fecha-mes">hs</div>
+                    </div>
+                    <div class="turno-info" style="flex:1">
+                        <div class="turno-paciente">${t.nombrePaciente}</div>
+                        ${t.motivo ? `<div class="turno-meta">${t.motivo}</div>` : ''}
+                    </div>
+                    ${t.codigoSala
+                        ? `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+                            <span style="background:#d4edda;color:#0f5132;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">✅ Sala lista</span>
+                            <code style="background:#f0f4ff;color:#185FA5;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:700">${t.codigoSala}</code>
+                           </div>`
+                        : `<button onclick="generarSalaDesdeInicio(${t.idTurno})" 
+                               style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">
+                               📹 Iniciar sesión
+                           </button>`
+                    }
+                </div>
+                ${t.codigoSala ? `
+                <div style="width:100%;display:flex;gap:8px;align-items:center;background:#f0f4ff;border-radius:8px;padding:10px 14px">
+                    <span style="font-size:12px;color:#666;flex:1">Compartí este código con el paciente:</span>
+                    <code style="font-size:15px;font-weight:700;color:#185FA5;letter-spacing:2px">${t.codigoSala}</code>
+                    <button onclick="copiarCodigo('${t.codigoSala}')" 
+                        style="background:white;border:1px solid #185FA5;color:#185FA5;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+                        📋 Copiar
+                    </button>
+                    <button onclick="activarTab('sesion')"
+                        style="background:#185FA5;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
+                        Entrar a la sala →
+                    </button>
+                </div>` : ''}
+            </div>`).join('')}
+        </div>` : '';
+
     c.innerHTML = `
         <div class="titulo-seccion">Bienvenido, ${prof?.nombre ?? 'Profesional'}</div>
 
-        <div class="card">
-            <div class="titulo-seccion" style="margin-bottom:16px">Próximo turno</div>
+        ${sesionesHoyHtml ? `<div class="card" style="margin-bottom:16px;border-left:4px solid #185FA5">${sesionesHoyHtml}</div>` : ''}
+
+        <div class="card" style="margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <div class="titulo-seccion" style="margin-bottom:0">Próximo turno</div>
+                <button onclick="citaUrgente()" 
+                    style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
+                    ⚡ Cita urgente
+                </button>
+            </div>
             ${proximo ? `
             <div class="turno-proximo">
                 <div class="turno-dato">
@@ -77,11 +137,131 @@ async function inicio() {
             </div>` : '<div class="sin-turnos">No tenés turnos próximos.</div>'}
         </div>
 
-        <div class="card">
+        <div class="card" style="margin-bottom:16px;border-left:4px solid #28a745">
+            <div class="titulo-seccion" style="margin-bottom:16px;color:#0f5132">👥 Pacientes hoy</div>
+            <div id="pacientes-hoy-contenido"><div class="spinner">Cargando...</div></div>
+        </div>
+
+        <div class="card" id="card-pendientes">
             <div class="titulo-seccion" style="margin-bottom:16px">Turnos pendientes de confirmación</div>
-            ${await renderTurnosPendientes()}
+            <div id="pendientes-contenido"><div class="spinner">Cargando...</div></div>
+        </div>
+
+        <!-- Panel cita urgente -->
+        <div id="panel-urgente" style="display:none">
+            <div class="card" style="margin-top:16px;border-left:4px solid #e53935">
+                <div class="titulo-seccion" style="margin-bottom:12px;color:#b71c1c">⚡ Cita urgente</div>
+                <p style="font-size:13px;color:#666;margin-bottom:14px">
+                    Seleccioná el paciente, generá la sala al instante y el código le llega por notificación.
+                </p>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+                    <div style="flex:1;min-width:200px">
+                        <label style="font-size:12px;font-weight:600;color:#6A5ACD;display:block;margin-bottom:4px">Paciente</label>
+                        <select id="urgente-paciente" 
+                            style="width:100%;padding:10px;border:2px solid #e0d4f5;border-radius:10px;font-size:14px">
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                    <button onclick="confirmarCitaUrgente()"
+                        style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:14px;height:44px">
+                        Generar sala y notificar
+                    </button>
+                    <button onclick="document.getElementById('panel-urgente').style.display='none'"
+                        style="background:#eee;color:#555;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px;height:44px">
+                        Cancelar
+                    </button>
+                </div>
+                <div id="urgente-resultado" style="margin-top:12px"></div>
+            </div>
         </div>
     `;
+
+    // Cargar pendientes
+    document.getElementById('pendientes-contenido').innerHTML = await renderTurnosPendientes();
+    // Cargar pacientes de hoy
+    document.getElementById('pacientes-hoy-contenido').innerHTML = await renderPacientesHoy();
+
+
+    // Cargar pacientes para cita urgente
+    try {
+        const r = await fetch(`${API}/profesionales/${idProfesional}/pacientes`);
+        const pacs = await r.json();
+        const sel = document.getElementById('urgente-paciente');
+        if (sel) {
+            sel.innerHTML = pacs.length
+                ? `<option value="">Seleccioná un paciente</option>` + pacs.map(p => `<option value="${p.idPaciente}">${p.nombre ?? ''} ${p.apellido ?? ''}</option>`).join('')
+                : `<option value="">Sin pacientes asignados</option>`;
+        }
+    } catch {}
+}
+
+function copiarCodigo(codigo) {
+    navigator.clipboard.writeText(codigo).then(() => toast('Código copiado al portapapeles'));
+}
+
+async function generarSalaDesdeInicio(idTurno) {
+    try {
+        const r = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+        if (r.ok) {
+            const data = await r.json();
+            toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
+            activarTab('inicio');
+        } else toast('Error al generar la sala.', 'error');
+    } catch { toast('Error de conexión.', 'error'); }
+}
+
+function citaUrgente() {
+    const panel = document.getElementById('panel-urgente');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    panel.scrollIntoView({ behavior: 'smooth' });
+}
+
+async function confirmarCitaUrgente() {
+    const idPac = parseInt(document.getElementById('urgente-paciente').value);
+    if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
+
+    const resultado = document.getElementById('urgente-resultado');
+    resultado.innerHTML = '<div class="spinner">Generando sala...</div>';
+
+    try {
+        const ahora = new Date();
+        const fechaStr = ahora.toISOString().split('T')[0];
+        const horaStr = ahora.toTimeString().substring(0, 8);
+
+        const rTurno = await fetch(`${API}/turnos/profesional-solicitar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                idPaciente: idPac,
+                idProfesional: idProfesional,
+                fecha: fechaStr,
+                hora: horaStr,
+                motivo: 'Cita urgente'
+            })
+        });
+
+        if (!rTurno.ok) { toast('Error al crear el turno urgente.', 'error'); return; }
+
+        const rTurnos = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        const turnos = await rTurnos.json();
+        const turnoUrgente = turnos
+            .filter(t => t.idPaciente === idPac)
+            .sort((a, b) => b.idTurno - a.idTurno)[0];
+
+        if (!turnoUrgente) { toast('Error al obtener el turno.', 'error'); return; }
+
+        await fetch(`${API}/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
+        const rSala = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
+        const data = await rSala.json();
+
+        toast(`Sala generada: ${data.codigoSala}`);
+
+        // Ir a sesión con el paciente preseleccionado
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
+        document.getElementById('tab-sesion').classList.add('activo');
+        sesion(idPac);
+
+    } catch { toast('Error de conexión.', 'error'); resultado.innerHTML = ''; }
 }
 
 async function renderTurnosPendientes() {
@@ -119,6 +299,106 @@ async function renderTurnosPendientes() {
             <button class="btn-confirmar" onclick="confirmarTurno(${t.idTurno})">Confirmar</button>
         </div>`;
     }).join('') + `</div>`;
+}
+
+async function renderPacientesHoy() {
+    let turnos = [];
+    try {
+        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        turnos = await r.json();
+    } catch { return '<div class="sin-turnos">Error al cargar.</div>'; }
+    
+    const hoy = new Date();
+    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+    const turnosHoy = turnos.filter(t => {
+        if (!t.fecha) return false;
+        const fechaTurno = t.fecha.substring(0, 10);
+        return fechaTurno === hoyStr && t.idEstadoTurno !== 3;
+
+    }).sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''));
+
+    if (!turnosHoy.length) return '<div class="sin-turnos">No tenés pacientes programados para hoy.</div>';
+
+    // Enriquecer con nombre del paciente
+    const pacientes = {};
+    await Promise.all(turnosHoy.map(async t => {
+        try {
+            const r = await fetch(`${API}/pacientes/${t.idPaciente}`);
+            pacientes[t.idPaciente] = await r.json();
+        } catch {}
+    }));
+
+    const estadoBadge = {
+        1: 'background:#fff3cd;color:#856404',
+        2: 'background:#d1e7dd;color:#0f5132',
+        4: 'background:#e2e3e5;color:#41464b'
+    };
+    const estadoLabel = { 1: 'Pendiente', 2: 'Confirmado', 4: 'Realizado' };
+
+    return `
+        <div class="tabla-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hora</th>
+                        <th>Paciente</th>
+                        <th>Motivo</th>
+                        <th>Estado</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${turnosHoy.map(t => {
+                        const p = pacientes[t.idPaciente];
+                        const nombre = p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente;
+                        const hora = t.hora?.substring(0, 5) ?? '—';
+                        const estado = estadoLabel[t.idEstadoTurno] ?? '—';
+                        const badge = estadoBadge[t.idEstadoTurno] ?? 'background:#eee;color:#555';
+                        return `
+                        <tr>
+                            <td><strong>${hora} hs</strong></td>
+                            <td>${nombre}</td>
+                            <td>${t.motivo ?? '—'}</td>
+                            <td><span style="${badge};border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">${estado}</span></td>
+                            <td>
+                                <button onclick="irASala(${t.idTurno}, ${t.idPaciente})"
+                                    style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
+                                    📹 Ir a sala
+                                </button>
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
+async function irASala(idTurno, idPaciente) {
+
+    //localStorage.setItem('sesion_idPaciente', idPaciente); //con esto le genera la sala directo al paciente
+
+    // Si el turno no tiene sala, generarla primero
+    try {
+        const r = await fetch(`${API}/turnos/${idTurno}`);
+        const turno = await r.json();
+
+        if (!turno.codigoSala) {
+            // Confirmar y generar sala
+            await fetch(`${API}/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
+            const rSala = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+            if (rSala.ok) {
+                const data = await rSala.json();
+                toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
+            }
+        } else {
+            toast(`Sala ya generada: ${turno.codigoSala}`);
+        }
+    } catch { toast('Error al generar la sala.', 'error'); }
+
+
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
+    document.getElementById('tab-sesion').classList.add('activo');
+    sesion(idPaciente);
 }
 
 async function confirmarTurno(id) {
@@ -163,7 +443,7 @@ async function agenda() {
                 ${!slots.length ? '<div class="sin-turnos">No tenés horarios configurados.</div>' : `
                 <div class="tabla-wrapper">
                     <table>
-                        <thead><tr><th>Día</th><th>Desde</th><th>Hasta</th><th>Disponible</th><th></th></tr></thead>
+                        <thead><tr><th>Día</th><th>Desde</th><th>Hasta</th><th>Intervalo</th><th>Turnos/día</th><th>Disponible</th><th></th></tr></thead>
                         <tbody>
                             ${slots.map(s => `
                             <tr id="slot-row-${s.idAgenda}">
@@ -207,7 +487,21 @@ async function agenda() {
                             <option value="false">No</option>
                         </select>
                     </div>
-                </div>
+
+                    <div class="campo" style="flex:1;min-width:140px">
+                        <label>Intervalo de atención</label>
+                        <select id="fh-intervalo" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white" onchange="actualizarPreviewNuevo()">
+                            <option value="15">15 minutos</option>
+                            <option value="20">20 minutos</option>
+                            <option value="30" selected>30 minutos</option>
+                            <option value="45">45 minutos</option>
+                            <option value="60">60 minutos</option>
+                            <option value="90">90 minutos</option>
+                        
+                        </select>
+                    </div>
+
+                <div id="fh-preview" style="font-size:13px;color:#6A5ACD;margin-top:8px"></div>
                 <div style="display:flex;gap:10px;margin-top:14px">
                     <button class="btn-guardar-perfil" style="flex:1" onclick="guardarHorario()">Guardar</button>
                     <button style="flex:1;height:48px;border:2px solid #e0d4f5;border-radius:10px;background:white;color:#555;font-size:15px;cursor:pointer" onclick="cerrarFormHorario()">Cancelar</button>
@@ -218,6 +512,12 @@ async function agenda() {
     `;
 
     await renderCalendario();
+
+    setTimeout(() => {
+        ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
+        });
+    }, 100);
 }
 
 function abrirFormNuevoHorario() {
@@ -225,23 +525,27 @@ function abrirFormNuevoHorario() {
     document.getElementById('fh-dia').value = 'Lunes';
     document.getElementById('fh-inicio').value = '';
     document.getElementById('fh-fin').value = '';
+    document.getElementById('fh-intervalo').value = '30';
     document.getElementById('fh-disponible').value = 'true';
     document.getElementById('form-horario-titulo').textContent = 'Agregar horario';
     document.getElementById('fh-msg').textContent = '';
+    document.getElementById('fh-preview').textContent = '';
     document.getElementById('form-horario').style.display = 'block';
     document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
 }
 
-function editarHorario(id, dia, inicio, fin, disponible) {
+function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
     document.getElementById('fh-id').value = id;
     document.getElementById('fh-dia').value = dia;
     document.getElementById('fh-inicio').value = inicio;
     document.getElementById('fh-fin').value = fin;
     document.getElementById('fh-disponible').value = disponible ? 'true' : 'false';
+    document.getElementById('fh-intervalo').value = intervalo;
     document.getElementById('form-horario-titulo').textContent = 'Editar horario';
     document.getElementById('fh-msg').textContent = '';
     document.getElementById('form-horario').style.display = 'block';
     document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
+    actualizarPreviewNuevo();
 }
 
 function cerrarFormHorario() {
@@ -249,22 +553,32 @@ function cerrarFormHorario() {
 }
 
 async function guardarHorario() {
-    const msg   = document.getElementById('fh-msg');
-    const id    = document.getElementById('fh-id').value;
-    const dia   = document.getElementById('fh-dia').value;
-    const inicio = document.getElementById('fh-inicio').value;
-    const fin    = document.getElementById('fh-fin').value;
-    const disp   = document.getElementById('fh-disponible').value === 'true';
+    const msg      = document.getElementById('fh-msg');
+    const id       = document.getElementById('fh-id').value;
+    const dia      = document.getElementById('fh-dia').value;
+    const inicio   = document.getElementById('fh-inicio').value;
+    const fin      = document.getElementById('fh-fin').value;
+    const disp     = document.getElementById('fh-disponible').value === 'true';
+    const intervalo = parseInt(document.getElementById('fh-intervalo')?.value ?? 30);
 
     if (!inicio || !fin) { msg.style.color='#e74c3c'; msg.textContent='Completá hora inicio y fin.'; return; }
     if (inicio >= fin)   { msg.style.color='#e74c3c'; msg.textContent='La hora inicio debe ser menor a la hora fin.'; return; }
 
-    const body = { idAgenda: id ? parseInt(id) : 0, idProfesional, dia, horaInicio: inicio+':00', horaFin: fin+':00', disponible: disp };
+    const body = {
+        idAgenda: id ? parseInt(id) : 0,
+        idProfesional,
+        dia,
+        horaInicio: inicio + ':00',
+        horaFin: fin + ':00',
+        disponible: disp,
+        intervaloMinutos: intervalo
+    };
+
     const url    = id ? `${API}/agendas/${id}` : `${API}/agendas`;
     const method = id ? 'PUT' : 'POST';
 
     try {
-        const r = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('agenda'); }
         else { msg.style.color='#e74c3c'; msg.textContent='Error al guardar.'; }
     } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
@@ -500,14 +814,18 @@ function renderEvoluciones(lista) {
     `).join('');
 }
 
-function sesion() {
+function sesion(idPaciente = null) {
+    const src = idPaciente 
+        ? `sesion_video.html?idPaciente=${idPaciente}` 
+        : 'sesion_video.html';
     document.getElementById('contenido').innerHTML = `
         <div class="titulo-seccion">Sesión de video</div>
         <div class="sesion-iframe-wrapper">
-            <iframe src="sesion_video.html" allow="camera; microphone; display-capture"></iframe>
+            <iframe src="${src}" allow="camera; microphone; display-capture"></iframe>
         </div>
     `;
 }
+
 
 async function perfil() {
     const c = document.getElementById('contenido');
@@ -1031,3 +1349,200 @@ async function descargarReporte() {
     link.download = 'mis_atenciones.csv';
     link.click();
 }
+
+// Mis Pacientes v2: asignaciones nuevas, confirmar y derivar
+async function pacientes() {
+    const c = document.getElementById("contenido");
+    let lista = [];
+    try {
+        const r = await fetch(API + "/profesionales/" + idProfesional + "/pacientes-detalle");
+        lista = await r.json();
+    } catch(e) {}
+
+    const filas = lista.map(function(p) {
+        const esNuevo = p.estadoAsignacion === "Nueva";
+        const nombreEsc = (p.nombre || "").split(String.fromCharCode(39)).join("").split(String.fromCharCode(34)).join("");
+        let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ', &quot;' + nombreEsc + '&quot;)">Historia</button> ' +
+            '<button class="btn-sesion" onclick="activarTab(&quot;sesion&quot;)">Sesion</button>';
+        if (esNuevo) {
+            acciones = '<button class="btn-ver" style="background:linear-gradient(to right,#0d6efd,#084298)" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
+                '<button class="btn-ver" style="background:linear-gradient(to right,#198754,#0f5132)" onclick="confirmarNuevoPaciente(' + p.idPaciente + ')">Confirmar</button> ' +
+                '<button class="btn-ver" style="background:linear-gradient(to right,#e53935,#b71c1c)" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
+        }
+        return '<tr>' +
+            '<td>' + p.nombre + (esNuevo ? ' <span style="background:#0d6efd;color:white;border-radius:8px;padding:2px 10px;font-size:11px;font-weight:bold;margin-left:6px">NUEVO</span>' : "") + '</td>' +
+            '<td>' + (p.dni || "-") + '</td>' +
+            '<td>' + (p.mail || "-") + '</td>' +
+            '<td>' + (p.telefono || "-") + '</td>' +
+            '<td>' + acciones + '</td>' +
+            '</tr>';
+    }).join("");
+
+    c.innerHTML = '<div class="titulo-seccion">Mis Pacientes</div>' +
+        '<div class="card">' +
+        (lista.length === 0 ? '<div class="sin-turnos">No tenes pacientes asignados.</div>' :
+        '<div class="tabla-wrapper"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Mail</th><th>Telefono</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>') +
+        '</div>' +
+        '<div id="panelNuevoPaciente"></div>' +
+        '<div class="modal-overlay" id="modalHistoria">' +
+        '<div class="modal-box">' +
+        '<div class="modal-header">' +
+        '<span class="modal-titulo" id="modalTitulo">Historia Clinica</span>' +
+        '<button class="modal-cerrar" onclick="cerrarModal()">X</button>' +
+        '</div>' +
+        '<div class="modal-body" id="modalBody"></div>' +
+        '</div>' +
+        '</div>';
+}
+
+async function verEvolucionAdmision(idPaciente) {
+    let historia = null, evoluciones = [];
+    try { historia = await (await fetch(API + "/pacientes/" + idPaciente + "/historiaclinica")).json(); } catch(e) {}
+    if (historia !== null && historia.idHistoria !== undefined) {
+        try { evoluciones = await (await fetch(API + "/historiasclinicas/" + historia.idHistoria + "/evoluciones")).json(); } catch(e) {}
+    }
+    const deAdmision = evoluciones.filter(function(e) { return ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1); });
+    const panel = document.getElementById("panelNuevoPaciente");
+    if (deAdmision.length === 0) {
+        panel.innerHTML = '<div class="card" style="margin-top:16px"><p style="color:#888">No hay evolucion de admision registrada.</p></div>';
+        return;
+    }
+    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #0d6efd">' +
+        '<h3 style="color:#0d6efd;margin-bottom:12px">Evolucion del Equipo de Admision</h3>' +
+        deAdmision.map(function(e) {
+            return '<div style="background:#f0f6ff;border-radius:10px;padding:14px;margin-bottom:10px">' +
+                '<div style="font-weight:bold;margin-bottom:6px">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
+                (e.observaciones ? '<div style="font-size:14px;margin-bottom:6px">' + e.observaciones + '</div>' : "") +
+                (e.planTratamiento ? '<div style="font-size:13px;color:#084298;font-weight:600">' + e.planTratamiento + '</div>' : "") +
+                '</div>';
+        }).join("") +
+        '</div>';
+    panel.scrollIntoView({ behavior: "smooth" });
+}
+
+function confirmarNuevoPaciente(idPaciente) {
+    const panel = document.getElementById("panelNuevoPaciente");
+    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #198754">' +
+        '<h3 style="color:#0f5132;margin-bottom:12px">Proponer primer turno</h3>' +
+        '<p style="font-size:13px;color:#888;margin-bottom:12px">Elegi una fecha estimativa. Al paciente le llegara como turno pendiente y podra confirmarlo o reprogramarlo segun tu agenda.</p>' +
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">' +
+        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Fecha</label><input type="date" id="npFecha" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
+        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Hora</label><input type="time" id="npHora" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
+        '<button onclick="enviarPrimerTurno(' + idPaciente + ')" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Enviar propuesta</button>' +
+        '</div></div>';
+    panel.scrollIntoView({ behavior: "smooth" });
+}
+
+async function enviarPrimerTurno(idPaciente) {
+    const fecha = document.getElementById("npFecha").value;
+    const hora  = document.getElementById("npHora").value;
+    if (fecha === "" || hora === "") { toast("Completa fecha y hora.", "warn"); return; }
+    try {
+        const r = await fetch(API + "/turnos/profesional-solicitar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, fecha: fecha, hora: hora + ":00", motivo: "Primer turno - derivacion de admision" })
+        });
+        if (r.ok) {
+            await fetch(API + "/asignaciones/estado", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
+            });
+            toast("Propuesta enviada. El paciente podra confirmar o reprogramar el turno.");
+            pacientes();
+        } else toast("Error al crear el turno.", "error");
+    } catch(e) { toast("Error de conexion.", "error"); }
+}
+
+async function derivarNuevoPaciente(idPaciente) {
+    const motivo = prompt("Indica el motivo por el cual no vas a atender a este paciente:");
+    if (motivo === null || motivo.trim() === "") return;
+    try {
+        const r = await fetch(API + "/informes-admision/rechazar", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, motivo: motivo })
+        });
+        if (r.ok) { toast("El caso volvio al equipo de admision para re-derivar.", "warn"); pacientes(); }
+        else toast("Error al derivar.", "error");
+    } catch(e) { toast("Error de conexion.", "error"); }
+}
+
+function calcularTurnos(s) {
+    if (!s.horaInicio || !s.horaFin) return '—';
+    const [hI, mI] = fmtHora(s.horaInicio).split(':').map(Number);
+    const [hF, mF] = fmtHora(s.horaFin).split(':').map(Number);
+    const minTotales = (hF * 60 + mF) - (hI * 60 + mI);
+    const intervalo = s.intervaloMinutos ?? 30;
+    return minTotales > 0 ? Math.floor(minTotales / intervalo) : 0;
+}
+
+function actualizarPreviewNuevo() {
+    const inicio    = document.getElementById('fh-inicio')?.value;
+    const fin       = document.getElementById('fh-fin')?.value;
+    const intervalo = parseInt(document.getElementById('fh-intervalo')?.value ?? 30);
+    const preview   = document.getElementById('fh-preview');
+    if (!preview) return;
+    if (!inicio || !fin) { preview.textContent = ''; return; }
+    const [hI, mI] = inicio.split(':').map(Number);
+    const [hF, mF] = fin.split(':').map(Number);
+    const minTotales = (hF * 60 + mF) - (hI * 60 + mI);
+    if (minTotales <= 0) { preview.textContent = '⚠ La hora fin debe ser mayor a la hora inicio.'; return; }
+    const cantidad = Math.floor(minTotales / intervalo);
+    preview.textContent = `✅ Con este horario podés atender ${cantidad} paciente${cantidad !== 1 ? 's' : ''} por día.`;
+}
+
+// Evoluciones v2: las de admision se muestran en azul
+function renderEvoluciones(lista) {
+    if (lista === null || lista === undefined || lista.length === 0) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
+    return lista.map(function(e) {
+        const esAdmision = ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1);
+        const estilo = esAdmision ? ' style="border-left:5px solid #0d6efd;background:#f0f6ff;border-radius:8px;padding:12px"' : "";
+        return '<div class="evolucion-item"' + estilo + '>' +
+            (esAdmision ? '<div style="color:#0d6efd;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Inicio del proceso - Admision</div>' : "") +
+            '<div class="evolucion-fecha">' + new Date(e.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" }) + '</div>' +
+            (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + e.diagnostico + '</div></div>' : "") +
+            (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + e.observaciones + '</div></div>' : "") +
+            (e.planTratamiento ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">' + (esAdmision ? "Derivacion" : "Plan") + '</div><div class="evolucion-bloque-texto">' + e.planTratamiento + '</div></div>' : "") +
+            '</div>';
+    }).join("");
+}
+
+// Panel de turnos confirmados pendientes de generar sala
+async function cargarTurnosConfirmados() {
+    let lista = [];
+    try { lista = await (await fetch(API + "/profesionales/" + idProfesional + "/turnos-confirmados")).json(); } catch(e) { return; }
+    const sinSala = lista.filter(function(t) { return t.codigoSala === "" || t.codigoSala === null; });
+    if (sinSala.length === 0) return;
+
+    let cont = document.getElementById("panel-confirmados");
+    if (cont === null) {
+        cont = document.createElement("div");
+        cont.id = "panel-confirmados";
+        cont.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9990;max-width:360px;display:flex;flex-direction:column;gap:10px";
+        document.body.appendChild(cont);
+    }
+    cont.innerHTML = sinSala.map(function(t) {
+        return '<div style="background:white;border-left:5px solid #198754;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)">' +
+            '<div style="font-weight:bold;color:#0f5132;margin-bottom:4px">Turno confirmado</div>' +
+            '<div style="font-size:13px;color:#444;margin-bottom:8px">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
+            '<button onclick="generarSalaTurno(' + t.idTurno + ')" style="padding:7px 16px;background:#198754;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold">Generar sala</button>' +
+            '</div>';
+    }).join("");
+}
+
+async function generarSalaTurno(idTurno) {
+    try {
+        const r = await fetch(API + "/turnos/" + idTurno + "/generar-sala", { method: "PUT" });
+        if (r.ok) {
+            const resp = await r.json();
+            toast("Sala generada: " + resp.codigoSala + ". El paciente fue notificado.");
+            const cont = document.getElementById("panel-confirmados");
+            if (cont !== null) cont.innerHTML = "";
+            cargarTurnosConfirmados();
+        } else toast("Error al generar la sala.", "error");
+    } catch(e) { toast("Error de conexion.", "error"); }
+}
+
+cargarTurnosConfirmados();

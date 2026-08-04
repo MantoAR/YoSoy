@@ -247,10 +247,19 @@ async function cargarPacientes() {
         }
         sel.innerHTML = '<option value="">-- Seleccioná el paciente --</option>' +
             lista.map(p => `<option value="${p.idPaciente}">${p.nombre} ${p.apellido ?? ''}</option>`).join('');
+
+        // Preseleccionar paciente si viene por URL
+        const params = new URLSearchParams(window.location.search);
+        const idPreseleccionado = params.get('idPaciente');
+        if (idPreseleccionado) {
+            sel.value = idPreseleccionado;
+        }
+        
     } catch {
         document.getElementById('sel-paciente').innerHTML = '<option value="">Error al cargar pacientes</option>';
     }
 }
+
 cargarPacientes();
 
 // ─── CARGAR MODELOS ───────────────────────────────────────
@@ -275,7 +284,8 @@ function toast(msg, dur = 3000) {
 
 // ─── CREAR SALA ───────────────────────────────────────────
 function crearSala() {
-    sala = 'SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase();
+    const salaURL = new URLSearchParams(window.location.search).get('sala');
+    sala = salaURL ? salaURL : ('SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase());
     document.getElementById('sala-codigo-display').textContent = sala;
     document.getElementById('sala-box').style.display = 'block';
     document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';

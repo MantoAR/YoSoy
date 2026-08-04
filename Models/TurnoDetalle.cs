@@ -13,4 +13,6 @@ public class TurnoDetalle
     public string? Motivo { get; set; }
     public string? MailProfesional { get; set; }
     public string? TelefonoProfesional { get; set; }
+    public bool ConfirmadoPaciente { get; set; }
+    public string? CodigoSala { get; set; }
 }

@@ -1,0 +1,12 @@
+(Araceli Alejandra Armas.js)genera doc botSALUD
+https://drive.google.com/file/d/1uvzjTw7pQbTT2IquIYoG0eucGkhBAMrT/view?usp=drive_link
+
+
+función de dos procesos a la vez
+Terminal 1 (Git Bash en la carpeta del proyecto):
+bashnode src/index.js 3 --excel=datos/permisos.xlsx
+
+Esperá a que termine de loguearse y esté procesando el primer enfermero. 
+
+Terminal 2 (otra ventana de Git Bash, misma carpeta):
+bashnode src/index.js 3 --excel=datos/medicos.xlsx

@@ -8,12 +8,16 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Agenda (IdProfesional, Dia, HoraInicio, HoraFin, Disponible) VALUES (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible)", con);
+            @"INSERT INTO Agenda 
+              (IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos) 
+              VALUES 
+              (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible, @Intervalo)", con);
         cmd.Parameters.AddWithValue("@IdProfesional", a.IdProfesional);
         cmd.Parameters.AddWithValue("@Dia",           (object)a.Dia        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraInicio",    (object)a.HoraInicio ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraFin",       (object)a.HoraFin    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Disponible",    a.Disponible);
+        cmd.Parameters.AddWithValue("@Intervalo",     a.IntervaloMinutos);
         cmd.ExecuteNonQuery();
     }
 
@@ -22,12 +26,20 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "UPDATE Agenda SET IdProfesional = @IdProfesional, Dia = @Dia, HoraInicio = @HoraInicio, HoraFin = @HoraFin, Disponible = @Disponible WHERE IdAgenda = @Id", con);
+            @"UPDATE Agenda 
+              SET IdProfesional    = @IdProfesional,
+                  Dia              = @Dia,
+                  HoraInicio       = @HoraInicio,
+                  HoraFin          = @HoraFin,
+                  Disponible       = @Disponible,
+                  IntervaloMinutos = @Intervalo
+              WHERE IdAgenda = @Id", con);
         cmd.Parameters.AddWithValue("@IdProfesional", a.IdProfesional);
         cmd.Parameters.AddWithValue("@Dia",           (object)a.Dia        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraInicio",    (object)a.HoraInicio ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraFin",       (object)a.HoraFin    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Disponible",    a.Disponible);
+        cmd.Parameters.AddWithValue("@Intervalo",     a.IntervaloMinutos);
         cmd.Parameters.AddWithValue("@Id",            a.IdAgenda);
         cmd.ExecuteNonQuery();
     }
@@ -46,7 +58,8 @@ public class AgendaDAO
         var lista = new List<Agenda>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand("SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda", con);
+        var cmd = new SqlCommand(
+            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos FROM Agenda", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -59,7 +72,7 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda WHERE IdProfesional = @Id", con);
+            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos FROM Agenda WHERE IdProfesional = @Id", con);
         cmd.Parameters.AddWithValue("@Id", idProfesional);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -72,7 +85,7 @@ public class AgendaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible FROM Agenda WHERE IdAgenda = @Id", con);
+            "SELECT IdAgenda, IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos FROM Agenda WHERE IdAgenda = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -80,11 +93,12 @@ public class AgendaDAO
 
     private Agenda Mapear(SqlDataReader r) => new Agenda
     {
-        IdAgenda      = (int)r["IdAgenda"],
-        IdProfesional = (int)r["IdProfesional"],
-        Dia           = r["Dia"]        == DBNull.Value ? null : (string)r["Dia"],
-        HoraInicio    = r["HoraInicio"] == DBNull.Value ? null : (TimeSpan?)r["HoraInicio"],
-        HoraFin       = r["HoraFin"]   == DBNull.Value ? null : (TimeSpan?)r["HoraFin"],
-        Disponible    = (bool)r["Disponible"]
+        IdAgenda         = (int)r["IdAgenda"],
+        IdProfesional    = (int)r["IdProfesional"],
+        Dia              = r["Dia"]        == DBNull.Value ? null : (string)r["Dia"],
+        HoraInicio       = r["HoraInicio"] == DBNull.Value ? null : (TimeSpan?)r["HoraInicio"],
+        HoraFin          = r["HoraFin"]   == DBNull.Value ? null : (TimeSpan?)r["HoraFin"],
+        Disponible       = (bool)r["Disponible"],
+        IntervaloMinutos = r["IntervaloMinutos"] == DBNull.Value ? 30 : (int)r["IntervaloMinutos"]
     };
 }

@@ -109,4 +109,26 @@ public class TurnoDAO
         Modalidad     = r["Modalidad"] == DBNull.Value ? null : (string)r["Modalidad"],
         Motivo        = r["Motivo"]    == DBNull.Value ? null : (string)r["Motivo"]
     };
+
+    public List<object> ObtenerOcupadosPorFecha(int idProfesional, string fecha)
+    {
+        var lista = new List<object>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT CONVERT(VARCHAR(5), Hora, 108) AS Hora
+            FROM Turno
+            WHERE IdProfesional = @IdProfesional
+                AND CONVERT(DATE, Fecha) = @Fecha
+                AND IdEstadoTurno NOT IN (
+                    SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion IN ('Cancelado','Rechazado')
+                )
+        ", con);
+        cmd.Parameters.AddWithValue("@IdProfesional", idProfesional);
+        cmd.Parameters.AddWithValue("@Fecha", fecha);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            lista.Add(new { hora = reader["Hora"].ToString() });
+        return lista;
+    }
 }

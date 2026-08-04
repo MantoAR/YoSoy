@@ -6,4 +6,5 @@ public class Agenda
     public TimeSpan? HoraInicio { get; set; }
     public TimeSpan? HoraFin { get; set; }
     public bool Disponible { get; set; }
+    public int IntervaloMinutos { get; set; } = 30; // NUEVO
 }
