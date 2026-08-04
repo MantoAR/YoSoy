@@ -961,10 +961,12 @@ app.MapGet("/reportes/atenciones", (int? idProfesional) =>
 // usuario autenticado. Hereda el comportamiento de GET /reportes/atenciones.
 // Requiere el esquema de autenticación de la rama videollamadas-seguras.
 // Datos expuestos: nombre, DNI y NHC de pacientes (Ley 25.326).
-app.MapGet("/reportes/atenciones/html", (int? idProfesional) =>
+app.MapGet("/reportes/atenciones/html", (int? idProfesional, HttpContext ctx) =>
 {
-    var datos  = new ReporteAtencionesDAO().Obtener(idProfesional);
-    var html   = ReporteHtmlBuilder.Construir(datos, idProfesional);
+    var (autorizado, idPermitido, motivo) = AutorizacionReporte.ResolverAlcance(ctx, idProfesional);
+    if (!autorizado) return Results.Json(new { mensaje = motivo }, statusCode: 403);
+    var datos  = new ReporteAtencionesDAO().Obtener(idPermitido);
+    var html   = ReporteHtmlBuilder.Construir(datos, idPermitido);
     var nombre = $"Atenciones_por_Profesional_{DateTime.Now:yyyyMMdd_HHmm}.html";
     return Results.File(System.Text.Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8", nombre);
 });

@@ -394,10 +394,16 @@ tbody tr:hover{background:var(--color-fila-hover)}
           .Append("    <div><b>Período de los datos:</b> ").Append(E(periodo)).Append("</div>\n")
           .Append("    <div><b>Generado:</b> ").Append(E(generado)).Append("</div>\n");
 
-        if (!string.IsNullOrWhiteSpace(profesionalFiltrado))
-            sb.Append("    <div><b>Profesional filtrado:</b> ").Append(E(profesionalFiltrado)).Append("</div>\n");
-        else
-            sb.Append("    <div><b>Alcance:</b> todos los profesionales</div>\n");
+        // El archivo declara su propio alcance: quien lo abra sabe qué contiene,
+        // sin depender del contexto en el que se descargó. Si vino acotado a un
+        // profesional pero no hay filas, igual se deja constancia del filtro.
+        var alcance = idProfesional.HasValue
+            ? (string.IsNullOrWhiteSpace(profesionalFiltrado)
+                ? $"profesional #{idProfesional.Value}"
+                : profesionalFiltrado)
+            : "todos los profesionales";
+
+        sb.Append("    <div><b>Alcance:</b> ").Append(E(alcance)).Append("</div>\n");
 
         sb.Append("  </div>\n</header>\n\n");
 
