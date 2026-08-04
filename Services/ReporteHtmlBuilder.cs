@@ -27,13 +27,28 @@ using System.Text.Json;
 //    lo cual un "</script>" dentro de un dato no puede cerrar el bloque.
 public static class ReporteHtmlBuilder
 {
-    // Misma paleta de barras que usa el gráfico del dashboard del configurador.
-    private static readonly string[] PaletaBarras =
+    // ── DIMENSIÓN DE APILADO DEL GRÁFICO ────────────────────────────────────
+    // El gráfico apila cada barra (un profesional) por categoría de cierre.
+    // La paleta es la que ya usa la app; los colores se asignan por POSICIÓN en
+    // la lista ordenada de categorías, calculada una sola vez sobre el conjunto
+    // COMPLETO de datos. Por eso el color de una categoría es estable: no
+    // depende de qué filas queden visibles tras filtrar.
+    private static readonly string[] PaletaCategorias =
     {
-        "#6A5ACD", "#0d6efd", "#fd7e14", "#dc3545", "#20c997", "#6610f2", "#0dcaf0"
+        "#6A5ACD", "#0d6efd", "#20c997", "#fd7e14", "#6610f2", "#0dcaf0", "#dc3545"
     };
 
+    // Las atenciones sin tipo de cierre se agrupan bajo esta categoría, que
+    // siempre lleva gris y siempre se dibuja última (arriba del apilado).
+    private const  string CategoriaSinDato = "Sin especificar";
+    private const  string ColorSinDato     = "#adb5bd";
+
     private static readonly CultureInfo Cultura = CultureInfo.InvariantCulture;
+
+    // Categoría de apilado de una atención. Cambiar esta única función alcanza
+    // para apilar por otra dimensión (modalidad, especialidad, etc.).
+    private static string Categoria(AtencionReporteDto d) =>
+        string.IsNullOrWhiteSpace(d.TipoCierre) ? CategoriaSinDato : d.TipoCierre.Trim();
 
     /// <summary>
     /// Construye el HTML completo del reporte.
@@ -72,10 +87,31 @@ public static class ReporteHtmlBuilder
 
         var generado = System.DateTime.Now.ToString("dd/MM/yyyy HH:mm", Cultura);
 
+        // ── Categorías de apilado, con color estable ────────────────────────
+        // El orden se fija acá, sobre TODOS los datos del reporte: primero las
+        // categorías reales por frecuencia descendente, y "Sin especificar"
+        // forzada al final para que quede siempre como segmento superior.
+        // Como el color sale de esta lista y no del bucle de dibujo, filtrar en
+        // el navegador no puede cambiarle el color a una categoría.
+        var categorias = datos.GroupBy(Categoria)
+                              .Where(g => g.Key != CategoriaSinDato)
+                              .OrderByDescending(g => g.Count())
+                              .ThenBy(g => g.Key, System.StringComparer.CurrentCultureIgnoreCase)
+                              .Select((g, i) => new
+                              {
+                                  nombre = g.Key,
+                                  color  = PaletaCategorias[i % PaletaCategorias.Length]
+                              })
+                              .ToList();
+
+        if (datos.Any(d => Categoria(d) == CategoriaSinDato))
+            categorias.Add(new { nombre = CategoriaSinDato, color = ColorSinDato });
+
         // Metadatos que consume el JS embebido. Se serializan, no se concatenan.
         var meta = JsonSerializer.Serialize(new
         {
-            paleta           = PaletaBarras,
+            categorias       = categorias,
+            categoriaSinDato = CategoriaSinDato,
             etiquetaSinDatos = "No hay atenciones que coincidan con los filtros aplicados."
         });
 
@@ -247,8 +283,29 @@ body{
 /* ── GRÁFICO ────────────────────────────────────────────── */
 #grafico{width:100%;height:auto;display:block}
 .barra{cursor:pointer;transition:opacity .15s}
-.barra:hover{opacity:.82}
+.barra:hover{opacity:.78}
 .etiqueta-barra{cursor:default}
+
+/* Leyenda de categorías del apilado */
+.leyenda{
+  display:flex;
+  flex-wrap:wrap;
+  gap:9px 22px;
+  margin-top:16px;
+  padding-top:14px;
+  border-top:1px solid var(--color-linea-tabla);
+  font-size:13px;
+}
+.leyenda-item{display:inline-flex;align-items:center;gap:7px;color:var(--color-texto-tabla)}
+.leyenda-color{
+  width:13px;
+  height:13px;
+  border-radius:3px;
+  flex-shrink:0;
+  display:inline-block;
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
 #tooltip{
   position:absolute;
   display:none;
@@ -308,10 +365,13 @@ tbody tr:hover{background:var(--color-fila-hover)}
   /* Fuera los controles interactivos: en papel no sirven de nada. */
   .no-imprimir{display:none !important}
   .panel,.kpi{box-shadow:none;border:1px solid var(--color-borde)}
-  .encabezado,thead{
+  /* Encabezado, cabecera de tabla, barras del grafico y cuadraditos de la
+     leyenda tienen que salir con color en papel, o el apilado no se entiende. */
+  .encabezado,thead,#grafico,.leyenda-color{
     -webkit-print-color-adjust:exact;
     print-color-adjust:exact;
   }
+  .leyenda{page-break-inside:avoid}
   .tabla-wrap{overflow:visible}
   /* La tabla se imprime tal como quedó filtrada en pantalla. */
   thead{display:table-header-group}
@@ -381,8 +441,9 @@ tbody tr:hover{background:var(--color-fila-hover)}
             // ── Gráfico de barras en SVG puro ───────────────────────────────
             sb.Append("""
 <section class="panel">
-  <h2>Atenciones por profesional</h2>
-  <svg id="grafico" viewBox="0 0 860 360" role="img" aria-label="Gráfico de barras de atenciones por profesional"></svg>
+  <h2>Atenciones por profesional, apiladas por tipo de cierre</h2>
+  <svg id="grafico" viewBox="0 0 860 360" role="img" aria-label="Gráfico de barras apiladas de atenciones por profesional y tipo de cierre"></svg>
+  <div class="leyenda" id="leyenda"></div>
 </section>
 
 <section class="panel">
@@ -455,6 +516,7 @@ tbody tr:hover{background:var(--color-fila-hover)}
 
                 sb.Append("        <tr data-fecha=\"").Append(d.FechaHora.ToString("yyyy-MM-dd", Cultura))
                   .Append("\" data-prof=\"").Append(E(d.NombreProfesional))
+                  .Append("\" data-cierre=\"").Append(E(Categoria(d)))
                   .Append("\" data-busqueda=\"").Append(E(busqueda)).Append("\">")
                   .Append("<td>").Append(E(d.Nombre)).Append("</td>")
                   .Append("<td>").Append(E(d.Dni)).Append("</td>")
@@ -504,6 +566,25 @@ tbody tr:hover{background:var(--color-fila-hover)}
   var sinRes   = document.getElementById('sinResultados');
   var tooltip  = document.getElementById('tooltip');
   var svg      = document.getElementById('grafico');
+  var leyenda  = document.getElementById('leyenda');
+
+  // ── DIMENSIÓN DE APILADO ────────────────────────────────────────────────
+  // Constante única que gobierna el gráfico apilado. Para apilar por otra
+  // dimensión en el futuro (modalidad, especialidad, obra social...) alcanza
+  // con cambiar estas dos cosas y su equivalente en C#:
+  //
+  //   ATRIBUTO_CATEGORIA -> el atributo data-* que lleva cada <tr>
+  //   CATEGORIAS         -> la lista ordenada de {nombre, color}
+  //
+  // El resto del código de dibujo, leyenda y tooltip no necesita tocarse.
+  //
+  // CATEGORIAS viene serializada desde C#, calculada sobre el conjunto
+  // completo de datos. El color de cada categoría se busca SIEMPRE en esta
+  // lista, nunca por el índice del bucle de dibujo: por eso una categoría
+  // conserva su color aunque los filtros cambien qué barras se ven.
+  var ATRIBUTO_CATEGORIA = 'data-cierre';
+  var CATEGORIAS         = META.categorias;            // orden de apilado, de abajo hacia arriba
+  var CATEGORIA_SIN_DATO = META.categoriaSinDato;      // siempre última, en gris
 
   // ── FILTRADO ────────────────────────────────────────────────────────────
   // Solo alterna la visibilidad de los <tr> que ya vinieron renderizados
@@ -514,7 +595,7 @@ tbody tr:hover{background:var(--color-fila-hover)}
     var fDesde  = desde.value;   // yyyy-MM-dd o cadena vacía
     var fHasta  = hasta.value;
     var visibles = 0;
-    var conteos  = {};
+    var porProf  = {};   // nombre -> { total: n, cats: { categoria: n } }
 
     for (var i = 0; i < filas.length; i++){
       var tr = filas[i];
@@ -530,21 +611,24 @@ tbody tr:hover{background:var(--color-fila-hover)}
       tr.style.display = ok ? '' : 'none';
       if (ok){
         visibles++;
-        conteos[p] = (conteos[p] || 0) + 1;
+        var cat = tr.getAttribute(ATRIBUTO_CATEGORIA) || CATEGORIA_SIN_DATO;
+        var e   = porProf[p] || (porProf[p] = { total: 0, cats: {} });
+        e.total++;
+        e.cats[cat] = (e.cats[cat] || 0) + 1;
       }
     }
 
     contador.textContent = 'Mostrando ' + visibles + ' de ' + filas.length + ' registros';
     if (sinRes) sinRes.style.display = visibles ? 'none' : 'block';
-    actualizarKpis(visibles, conteos);
-    dibujarGrafico(conteos);
+    actualizarKpis(visibles, porProf);
+    dibujarGrafico(porProf);
   }
 
   // ── KPIs ────────────────────────────────────────────────────────────────
   // Se recalculan sobre lo que quedó visible, para que las tarjetas, el
   // gráfico y la tabla no puedan desincronizarse entre sí.
-  function actualizarKpis(total, conteos){
-    var nombres = Object.keys(conteos);
+  function actualizarKpis(total, porProf){
+    var nombres = Object.keys(porProf);
     texto('kpiTotal', total);
     texto('kpiProfesionales', nombres.length);
 
@@ -553,8 +637,8 @@ tbody tr:hover{background:var(--color-fila-hover)}
 
     var topNombre = '', topValor = -1;
     for (var i = 0; i < nombres.length; i++){
-      if (conteos[nombres[i]] > topValor){
-        topValor  = conteos[nombres[i]];
+      if (porProf[nombres[i]].total > topValor){
+        topValor  = porProf[nombres[i]].total;
         topNombre = nombres[i];
       }
     }
@@ -628,13 +712,14 @@ tbody tr:hover{background:var(--color-fila-hover)}
     return el;
   }
 
-  function dibujarGrafico(conteos){
+  function dibujarGrafico(porProf){
     if (!svg) return;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
 
-    var entradas = Object.keys(conteos).map(function(n){
-      return { nombre: n, valor: conteos[n] };
-    }).sort(function(a, b){ return b.valor - a.valor; });
+    // Una barra por profesional, de mayor a menor total de atenciones.
+    var entradas = Object.keys(porProf).map(function(n){
+      return { nombre: n, total: porProf[n].total, cats: porProf[n].cats };
+    }).sort(function(a, b){ return b.total - a.total; });
 
     var W = 860, H = 360, ml = 52, mr = 16, mt = 20;
 
@@ -646,6 +731,7 @@ tbody tr:hover{background:var(--color-fila-hover)}
       });
       vacio.textContent = META.etiquetaSinDatos;
       svg.appendChild(vacio);
+      dibujarLeyenda({});
       return;
     }
 
@@ -657,7 +743,7 @@ tbody tr:hover{background:var(--color-fila-hover)}
     var ancho = W - ml - mr;
     var alto  = H - mt - mb;
     var max   = 0;
-    for (var i = 0; i < entradas.length; i++) max = Math.max(max, entradas[i].valor);
+    for (var i = 0; i < entradas.length; i++) max = Math.max(max, entradas[i].total);
 
     var paso = Math.max(1, Math.ceil(max / 4));
     var tope = paso * 4;
@@ -684,29 +770,54 @@ tbody tr:hover{background:var(--color-fila-hover)}
 
     var carril     = ancho / n;
     var anchoBarra = Math.max(6, Math.min(64, carril * 0.62));
+    var totalesCat = {};   // acumulado por categoría, para armar la leyenda
 
     entradas.forEach(function(e, idx){
       var x = ml + carril * idx + (carril - anchoBarra) / 2;
-      var h = (e.valor / tope) * alto;
-      var y = mt + alto - h;
-      var color = META.paleta[idx % META.paleta.length];
-      var leyenda = e.nombre + ' — ' + e.valor + (e.valor === 1 ? ' atención' : ' atenciones');
+      var acumulado = 0;
 
-      var barra = crear('rect', {
-        x: x, y: y, width: anchoBarra, height: Math.max(h, 1),
-        fill: color, rx: 6, ry: 6
-      });
-      barra.setAttribute('class', 'barra');
-      barra.addEventListener('mousemove', function(ev){ mostrarTooltip(ev, leyenda); });
-      barra.addEventListener('mouseleave', ocultarTooltip);
-      svg.appendChild(barra);
+      // Segmentos apilados. Se recorre CATEGORIAS en su orden fijo, así la
+      // primera categoría queda abajo y "Sin especificar" arriba de todo.
+      // El color sale de cat.color, nunca del índice del bucle: por eso es
+      // estable frente a los filtros.
+      for (var c = 0; c < CATEGORIAS.length; c++){
+        var cat = CATEGORIAS[c];
+        var v   = e.cats[cat.nombre] || 0;
+        if (!v) continue;
 
+        totalesCat[cat.nombre] = (totalesCat[cat.nombre] || 0) + v;
+
+        var hSeg    = (v / tope) * alto;
+        var yArriba = mt + alto - ((acumulado + v) / tope) * alto;
+        var pct     = Math.round((v / e.total) * 100);
+
+        var seg = crear('rect', {
+          x: x, y: yArriba, width: anchoBarra, height: Math.max(hSeg, 1),
+          fill: cat.color, rx: 2, ry: 2
+        });
+        seg.setAttribute('class', 'barra');
+
+        // Se pasa el rect por parámetro: si se capturara la variable del
+        // bucle, todos los segmentos terminarían apuntando al último.
+        (function(rect, nombreProf, nombreCat, cant, porcentaje){
+          var tip = nombreProf + ' — ' + nombreCat + ': ' + cant +
+                    (cant === 1 ? ' atención' : ' atenciones') + ' (' + porcentaje + '%)';
+          rect.addEventListener('mousemove', function(ev){ mostrarTooltip(ev, tip); });
+          rect.addEventListener('mouseleave', ocultarTooltip);
+        })(seg, e.nombre, cat.nombre, v, pct);
+
+        svg.appendChild(seg);
+        acumulado += v;
+      }
+
+      // Total del profesional, arriba de la barra completa.
+      var yTope = mt + alto - (e.total / tope) * alto;
       var valor = crear('text', {
-        x: x + anchoBarra / 2, y: y - 7, 'text-anchor': 'middle',
+        x: x + anchoBarra / 2, y: yTope - 7, 'text-anchor': 'middle',
         'font-size': 12, 'font-weight': 'bold', fill: '#4a3a9e',
         'font-family': 'Arial, Helvetica, sans-serif'
       });
-      valor.textContent = e.valor;
+      valor.textContent = e.total;
       svg.appendChild(valor);
 
       var cx = x + anchoBarra / 2;
@@ -724,10 +835,43 @@ tbody tr:hover{background:var(--color-fila-hover)}
       var etiqueta = crear('text', attrs);
       etiqueta.setAttribute('class', 'etiqueta-barra');
       etiqueta.textContent = acortar(e.nombre, rotar ? 18 : 14);
-      etiqueta.addEventListener('mousemove', function(ev){ mostrarTooltip(ev, leyenda); });
-      etiqueta.addEventListener('mouseleave', ocultarTooltip);
+      (function(nodo, nombreProf, tot){
+        var tip = nombreProf + ' — ' + tot + (tot === 1 ? ' atención' : ' atenciones');
+        nodo.addEventListener('mousemove', function(ev){ mostrarTooltip(ev, tip); });
+        nodo.addEventListener('mouseleave', ocultarTooltip);
+      })(etiqueta, e.nombre, e.total);
       svg.appendChild(etiqueta);
     });
+
+    dibujarLeyenda(totalesCat);
+  }
+
+  // ── LEYENDA ─────────────────────────────────────────────────────────────
+  // Recorre CATEGORIAS en el mismo orden del apilado. Una categoría que quedó
+  // en cero tras filtrar simplemente no se dibuja.
+  function dibujarLeyenda(totalesCat){
+    if (!leyenda) return;
+    while (leyenda.firstChild) leyenda.removeChild(leyenda.firstChild);
+
+    for (var i = 0; i < CATEGORIAS.length; i++){
+      var cat = CATEGORIAS[i];
+      var t   = totalesCat[cat.nombre] || 0;
+      if (!t) continue;
+
+      var item = document.createElement('span');
+      item.className = 'leyenda-item';
+
+      var cuadro = document.createElement('span');
+      cuadro.className = 'leyenda-color';
+      cuadro.style.backgroundColor = cat.color;
+      item.appendChild(cuadro);
+
+      var txt = document.createElement('span');
+      txt.textContent = cat.nombre + ' (' + t + ')';   // textContent, nunca innerHTML
+      item.appendChild(txt);
+
+      leyenda.appendChild(item);
+    }
   }
 
   function acortar(txt, max){
