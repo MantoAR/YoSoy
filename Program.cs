@@ -956,6 +956,20 @@ app.MapGet("/reportes/atenciones", (int? idProfesional) =>
     return Results.Ok(lista);
 });
 
+// ── INICIO reporte HTML (feature/agustin-reporte-html-interactivo) ──
+// LIMITACIÓN CONOCIDA (CB-04): el parámetro idProfesional no se valida contra el
+// usuario autenticado. Hereda el comportamiento de GET /reportes/atenciones.
+// Requiere el esquema de autenticación de la rama videollamadas-seguras.
+// Datos expuestos: nombre, DNI y NHC de pacientes (Ley 25.326).
+app.MapGet("/reportes/atenciones/html", (int? idProfesional) =>
+{
+    var datos  = new ReporteAtencionesDAO().Obtener(idProfesional);
+    var html   = ReporteHtmlBuilder.Construir(datos, idProfesional);
+    var nombre = $"Atenciones_por_Profesional_{DateTime.Now:yyyyMMdd_HHmm}.html";
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(html), "text/html; charset=utf-8", nombre);
+});
+// ── FIN reporte HTML ──
+
 
 // ── Informe de Admision ─────────────────────────────────────
 app.MapPost("/informes-admision", (InformeAdmision i) =>

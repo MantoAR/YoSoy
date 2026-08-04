@@ -797,6 +797,7 @@ async function reportes() {
         '</select>' +
         '</div>' +
         '<button onclick="descargarReporteConf()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
+        '<button onclick="window.location.href = API + \'/reportes/atenciones/html\' + (document.getElementById(\'filtroProf\').value ? \'?idProfesional=\' + document.getElementById(\'filtroProf\').value : \'\')" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Reporte HTML</button>' +
         '<button onclick="verEstadisticas()" style="padding:9px 20px;background:#0d6efd;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Ver Estadisticas</button>' +
         '</div>' +
         '<p style="font-size:13px;color:#888">Selecciona un profesional o deja en blanco para ver todos.</p>' +
