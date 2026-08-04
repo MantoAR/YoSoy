@@ -797,7 +797,7 @@ async function reportes() {
         '</select>' +
         '</div>' +
         '<button onclick="descargarReporteConf()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
-        '<button onclick="window.location.href = API + \'/reportes/atenciones/html\' + (document.getElementById(\'filtroProf\').value ? \'?idProfesional=\' + document.getElementById(\'filtroProf\').value : \'\')" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Reporte HTML</button>' +
+        '<button onclick="descargarReporteHtml()" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Reporte HTML</button>' +
         '<button onclick="verEstadisticas()" style="padding:9px 20px;background:#0d6efd;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Ver Estadisticas</button>' +
         '</div>' +
         '<p style="font-size:13px;color:#888">Selecciona un profesional o deja en blanco para ver todos.</p>' +
@@ -928,6 +928,48 @@ async function descargarReporteConf() {
     link.href = URL.createObjectURL(blob);
     link.download = 'atenciones_por_profesional.csv';
     link.click();
+}
+
+// Descarga el reporte HTML interactivo. A diferencia del CSV, que se arma acá en
+// el navegador, este lo genera el servidor: hay que pedirlo con fetch para poder
+// mandar el header X-Usuario-Id. Una navegación (window.location) no lleva
+// headers, y sin ese header el control de acceso CB-04 no puede saber quién está
+// pidiendo el reporte y trata a cualquiera como configurador.
+async function descargarReporteHtml() {
+    const idProf = document.getElementById('filtroProf').value;
+    const url = API + '/reportes/atenciones/html' + (idProf ? '?idProfesional=' + idProf : '');
+    let res;
+    try {
+        res = await fetch(url, { headers: { "X-Usuario-Id": localStorage.getItem("idUsuario") ?? "0" } });
+    } catch(e) {
+        alert('Error al generar el reporte.');
+        return;
+    }
+    if (res.status === 403) {
+        let msg = 'Sin permiso para descargar este reporte.';
+        try { const j = await res.json(); if (j && j.mensaje) msg = j.mensaje; } catch(e) {}
+        alert(msg);
+        return;
+    }
+    if (!res.ok) {
+        alert('Error al generar el reporte.');
+        return;
+    }
+    // El nombre con la fecha lo decide el servidor en el Content-Disposition.
+    let nombre = 'Atenciones_por_Profesional.html';
+    const cd = res.headers.get('Content-Disposition');
+    if (cd) {
+        const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+        if (m) nombre = decodeURIComponent(m[1].trim());
+    }
+    // blob() conserva los bytes tal cual los mandó el servidor, así que el UTF-8
+    // del reporte llega intacto al archivo descargado.
+    const blob = await res.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = nombre;
+    link.click();
+    URL.revokeObjectURL(link.href);
 }
 
 let _admisionesCache = [];
