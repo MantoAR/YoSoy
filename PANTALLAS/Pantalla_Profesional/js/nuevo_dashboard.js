@@ -1317,7 +1317,6 @@ async function reportes() {
         '<h3 style="margin-bottom:20px;color:#6A5ACD">Mis Atenciones</h3>' +
         '<div style="margin-bottom:20px">' +
         '<button onclick="descargarReporte()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
-        '<button onclick="window.location.href = API + \'/reportes/atenciones/html?idProfesional=\' + idProfesional" style="padding:9px 20px;margin-left:10px;background:#198754;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Reporte HTML</button>' +
         '</div>' +
         '<p style="font-size:13px;color:#888">Descarga el reporte de tus propias atenciones.</p>' +
         '</div>';
