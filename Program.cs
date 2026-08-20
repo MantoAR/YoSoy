@@ -1,3 +1,5 @@
+using Microsoft.Data.SqlClient;
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
@@ -1336,6 +1338,179 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
     var turnos = dao.ObtenerOcupadosPorFecha(idProfesional, fecha);
     return Results.Ok(turnos);
 });
+
+// ═══════════════════════════════════════════════════════
+// REPORTES DEL PROFESIONAL
+// ═══════════════════════════════════════════════════════
+
+// KPIs generales del profesional
+app.MapGet("/reportes/profesional/{id}/kpis", (int id) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+
+    var kpis = new Dictionary<string, object>();
+
+    // Sesiones este mes
+    var cmd1 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica 
+        WHERE IdProfesional = @Id 
+        AND MONTH(FechaHora) = MONTH(GETDATE()) 
+        AND YEAR(FechaHora) = YEAR(GETDATE())", con);
+    cmd1.Parameters.AddWithValue("@Id", id);
+    kpis["sesionesMes"] = Convert.ToInt32(cmd1.ExecuteScalar());
+
+    // Pacientes activos
+    var cmd2 = new SqlCommand(@"
+        SELECT COUNT(*) FROM PacienteProfesional 
+        WHERE IdProfesional = @Id AND EstadoAsignacion = 'Confirmada'", con);
+    cmd2.Parameters.AddWithValue("@Id", id);
+    kpis["pacientesActivos"] = Convert.ToInt32(cmd2.ExecuteScalar());
+
+    // Tasa de asistencia (realizados / confirmados)
+    var cmd3 = new SqlCommand(@"
+        SELECT 
+            SUM(CASE WHEN IdEstadoTurno = 4 THEN 1 ELSE 0 END) AS Realizados,
+            SUM(CASE WHEN IdEstadoTurno IN (2,4) THEN 1 ELSE 0 END) AS Confirmados
+        FROM Turno WHERE IdProfesional = @Id", con);
+    cmd3.Parameters.AddWithValue("@Id", id);
+    using (var r = cmd3.ExecuteReader())
+    {
+        if (r.Read())
+        {
+            int realizados  = r["Realizados"]  == DBNull.Value ? 0 : Convert.ToInt32(r["Realizados"]);
+            int confirmados = r["Confirmados"] == DBNull.Value ? 0 : Convert.ToInt32(r["Confirmados"]);
+            kpis["tasaAsistencia"] = confirmados > 0 ? Math.Round((double)realizados / confirmados * 100, 1) : 0;
+        }
+    }
+
+    // Sesiones con alta
+    var cmd4 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica 
+        WHERE IdProfesional = @Id AND TipoCierre = 'Alta'", con);
+    cmd4.Parameters.AddWithValue("@Id", id);
+    kpis["sesionesAlta"] = Convert.ToInt32(cmd4.ExecuteScalar());
+
+    // Total sesiones históricas
+    var cmd5 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica WHERE IdProfesional = @Id", con);
+    cmd5.Parameters.AddWithValue("@Id", id);
+    kpis["totalSesiones"] = Convert.ToInt32(cmd5.ExecuteScalar());
+
+    return Results.Ok(kpis);
+});
+
+// Sesiones por mes (últimos 6 meses)
+app.MapGet("/reportes/profesional/{id}/sesiones-por-mes", (int id) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT YEAR(FechaHora) AS Anio, MONTH(FechaHora) AS Mes, COUNT(*) AS Total
+        FROM SesionClinica
+        WHERE IdProfesional = @Id AND FechaHora >= DATEADD(MONTH, -6, GETDATE())
+        GROUP BY YEAR(FechaHora), MONTH(FechaHora)
+        ORDER BY Anio, Mes", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { anio = (int)r["Anio"], mes = (int)r["Mes"], total = (int)r["Total"] });
+    return Results.Ok(lista);
+});
+
+// Pacientes por tipo de cierre
+app.MapGet("/reportes/profesional/{id}/pacientes-por-cierre", (int id) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT ISNULL(TipoCierre, 'En seguimiento') AS Cierre, COUNT(*) AS Total
+        FROM SesionClinica WHERE IdProfesional = @Id
+        GROUP BY TipoCierre", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { cierre = (string)r["Cierre"], total = (int)r["Total"] });
+    return Results.Ok(lista);
+});
+
+// Emociones globales del profesional (promedio de todas sus sesiones)
+app.MapGet("/reportes/profesional/{id}/emociones-globales", (int id) =>
+{
+    var sesiones = new SesionClinicaDAO().ObtenerPorProfesional(id);
+    var acumulado = new Dictionary<string, double>();
+    int cuenta = 0;
+
+    foreach (var s in sesiones)
+    {
+        if (string.IsNullOrEmpty(s.HistorialEmociones)) continue;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(s.HistorialEmociones);
+            foreach (var emo in doc.RootElement.EnumerateObject())
+            {
+                var val = emo.Value.GetDouble();
+                acumulado[emo.Name] = acumulado.GetValueOrDefault(emo.Name, 0) + val;
+            }
+            cuenta++;
+        }
+        catch { }
+    }
+
+    var promedio = new Dictionary<string, double>();
+    if (cuenta > 0)
+        foreach (var kv in acumulado)
+            promedio[kv.Key] = Math.Round(kv.Value / cuenta, 1);
+
+    return Results.Ok(promedio);
+});
+
+// Evolución emocional de un paciente (sesión a sesión)
+app.MapGet("/reportes/paciente/{id}/evolucion-emocional", (int id) =>
+{
+    var sesiones = new SesionClinicaDAO().ObtenerPorPaciente(id);
+    var lista = new List<object>();
+
+    foreach (var s in sesiones.OrderBy(x => x.FechaHora))
+    {
+        if (string.IsNullOrEmpty(s.HistorialEmociones)) continue;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(s.HistorialEmociones);
+            var emociones = new Dictionary<string, double>();
+            foreach (var emo in doc.RootElement.EnumerateObject())
+                emociones[emo.Name] = emo.Value.GetDouble();
+            lista.Add(new {
+                fecha = s.FechaHora.ToString("dd/MM/yyyy"),
+                emociones
+            });
+        }
+        catch { }
+
+    }
+    return Results.Ok(lista);
+});
+
+// Lista de pacientes del profesional (para el selector)
+app.MapGet("/reportes/profesional/{id}/lista-pacientes", (int id) =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT p.IdPaciente, p.Nombre
+        FROM Paciente p
+        INNER JOIN PacienteProfesional pp ON p.IdPaciente = pp.IdPaciente
+        WHERE pp.IdProfesional = @Id AND pp.EstadoAsignacion = 'Confirmada'", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { idPaciente = (int)r["IdPaciente"], nombre = (string)r["Nombre"] });
+    return Results.Ok(lista);
+});
+
 
 app.Run();
 

@@ -1309,46 +1309,303 @@ function cancelarModoReprogramarProf() {
 
 activarTab('inicio');
 
+// ═══════════════════════════════════════════════════════════════
+// MÓDULO DE REPORTES DEL PROFESIONAL — Estadísticas + Excel + PDF
+// Reemplaza las funciones reportes() y descargarReporte() viejas
+// ═══════════════════════════════════════════════════════════════
+ 
+const EMO_COLORES = {
+    Neutral:   '#888780',
+    Felicidad: '#639922',
+    Tristeza:  '#378ADD',
+    Enojo:     '#E24B4A',
+    Miedo:     '#7F77DD',
+    Sorpresa:  '#EF9F27',
+    Disgusto:  '#D4537E'
+};
+ 
+let _chartsReportes = {}; // guardamos las instancias para exportar a PDF
+ 
 async function reportes() {
     const cont = document.getElementById('contenido');
-    cont.innerHTML =
-        '<div class="titulo-seccion">Reportes</div>' +
-        '<div class="card">' +
-        '<h3 style="margin-bottom:20px;color:#6A5ACD">Mis Atenciones</h3>' +
-        '<div style="margin-bottom:20px">' +
-        '<button onclick="descargarReporte()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
-        '</div>' +
-        '<p style="font-size:13px;color:#888">Descarga el reporte de tus propias atenciones.</p>' +
-        '</div>';
+    cont.innerHTML = `
+        <div class="titulo-seccion">Reportes y Estadísticas</div>
+ 
+        <!-- Botones de exportación -->
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+            <button onclick="exportarExcel()" style="padding:10px 20px;background:#217346;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
+                📊 Descargar datos en Excel
+            </button>
+            <button onclick="exportarPDF()" style="padding:10px 20px;background:#B23B3B;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
+                📄 Descargar gráficos en PDF
+            </button>
+        </div>
+ 
+        <!-- KPIs -->
+        <div id="kpis-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+            <div class="spinner">Cargando KPIs...</div>
+        </div>
+ 
+        <!-- Gráficos -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div class="card">
+                <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Mis sesiones por mes</h3>
+                <canvas id="chartSesionesMes" height="200"></canvas>
+            </div>
+            <div class="card">
+                <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Pacientes por tipo de cierre</h3>
+                <canvas id="chartCierres" height="200"></canvas>
+            </div>
+        </div>
+ 
+        <div class="card" style="margin-bottom:16px">
+            <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Perfil emocional promedio (todas mis sesiones)</h3>
+            <div style="max-width:420px;margin:0 auto">
+                <canvas id="chartEmocionesGlobal" height="260"></canvas>
+            </div>
+        </div>
+ 
+        <!-- Evolución por paciente -->
+        <div class="card">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+                <h3 style="color:#6A5ACD;font-size:15px;margin:0">Evolución emocional de un paciente</h3>
+                <select id="selPacienteEvol" onchange="cargarEvolucionPaciente()" style="padding:8px 12px;border:2px solid #e0d4f5;border-radius:8px;font-size:14px;flex:1;min-width:200px">
+                    <option value="">Seleccioná un paciente</option>
+                </select>
+            </div>
+            <canvas id="chartEvolucion" height="180"></canvas>
+        </div>
+    `;
+ 
+    await cargarKPIs();
+    await cargarGraficos();
+    await cargarSelectorPacientes();
+}
+ 
+// ─── KPIs ────────────────────────────────────────────────
+async function cargarKPIs() {
+    let k = {};
+    try {
+        k = await fetch(`${API}/reportes/profesional/${idProfesional}/kpis`).then(r => r.json());
+    } catch { document.getElementById('kpis-grid').innerHTML = '<p style="color:#e74c3c">Error al cargar KPIs.</p>'; return; }
+ 
+    const cards = [
+        { label: 'Sesiones este mes', valor: k.sesionesMes ?? 0, color: '#185FA5' },
+        { label: 'Pacientes activos', valor: k.pacientesActivos ?? 0, color: '#639922' },
+        { label: 'Tasa de asistencia', valor: (k.tasaAsistencia ?? 0) + '%', color: '#EF9F27' },
+        { label: 'Pacientes con alta', valor: k.sesionesAlta ?? 0, color: '#6A5ACD' },
+        { label: 'Total sesiones', valor: k.totalSesiones ?? 0, color: '#378ADD' }
+    ];
+ 
+    document.getElementById('kpis-grid').innerHTML = cards.map(c => `
+        <div class="card" style="text-align:center;padding:18px 12px;border-top:3px solid ${c.color}">
+            <div style="font-size:30px;font-weight:700;color:${c.color}">${c.valor}</div>
+            <div style="font-size:12px;color:#888;margin-top:4px">${c.label}</div>
+        </div>
+    `).join('');
+}
+ 
+// ─── GRÁFICOS ────────────────────────────────────────────
+async function cargarGraficos() {
+    // Destruir gráficos previos
+    Object.values(_chartsReportes).forEach(ch => { try { ch.destroy(); } catch {} });
+    _chartsReportes = {};
+ 
+    const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+ 
+    // 1. Sesiones por mes
+    try {
+        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/sesiones-por-mes`).then(r => r.json());
+        _chartsReportes.sesionesMes = new Chart(document.getElementById('chartSesionesMes'), {
+            type: 'bar',
+            data: {
+                labels: data.map(d => `${MESES[d.mes-1]} ${d.anio}`),
+                datasets: [{
+                    label: 'Sesiones',
+                    data: data.map(d => d.total),
+                    backgroundColor: '#6A5ACD',
+                    borderRadius: 6
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+    } catch {}
+ 
+    // 2. Pacientes por cierre
+    try {
+        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/pacientes-por-cierre`).then(r => r.json());
+        const colorCierre = { 'Alta':'#639922', 'En seguimiento':'#EF9F27', 'Derivación':'#378ADD', 'Abandono':'#E24B4A' };
+        _chartsReportes.cierres = new Chart(document.getElementById('chartCierres'), {
+            type: 'doughnut',
+            data: {
+                labels: data.map(d => d.cierre),
+                datasets: [{
+                    data: data.map(d => d.total),
+                    backgroundColor: data.map(d => colorCierre[d.cierre] ?? '#999')
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+        });
+    } catch {}
+ 
+    // 3. Emociones globales (radar)
+    try {
+        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/emociones-globales`).then(r => r.json());
+        const labels = Object.keys(data);
+        _chartsReportes.emociones = new Chart(document.getElementById('chartEmocionesGlobal'), {
+            type: 'radar',
+            data: {
+                labels,
+                datasets: [{
+                    label: '% promedio',
+                    data: labels.map(l => data[l]),
+                    backgroundColor: 'rgba(106,90,205,0.2)',
+                    borderColor: '#6A5ACD',
+                    pointBackgroundColor: labels.map(l => EMO_COLORES[l] ?? '#6A5ACD'),
+                    pointRadius: 5
+                }]
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { r: { beginAtZero: true } } }
+        });
+    } catch {}
+}
+ 
+// ─── EVOLUCIÓN POR PACIENTE ──────────────────────────────
+async function cargarSelectorPacientes() {
+    try {
+        const lista = await fetch(`${API}/reportes/profesional/${idProfesional}/lista-pacientes`).then(r => r.json());
+        const sel = document.getElementById('selPacienteEvol');
+        sel.innerHTML = '<option value="">Seleccioná un paciente</option>' +
+            lista.map(p => `<option value="${p.idPaciente}">${p.nombre}</option>`).join('');
+    } catch {}
+}
+ 
+async function cargarEvolucionPaciente() {
+    const idPac = document.getElementById('selPacienteEvol').value;
+    if (!idPac) return;
+ 
+    let data = [];
+    try {
+        data = await fetch(`${API}/reportes/paciente/${idPac}/evolucion-emocional`).then(r => r.json());
+    } catch { return; }
+ 
+    if (_chartsReportes.evolucion) { try { _chartsReportes.evolucion.destroy(); } catch {} }
+ 
+    if (!data.length) {
+        // Mensaje si no hay datos
+        const ctx = document.getElementById('chartEvolucion').getContext('2d');
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.font = '14px Arial'; ctx.fillStyle = '#999'; ctx.textAlign = 'center';
+        ctx.fillText('Este paciente no tiene sesiones registradas todavía.', ctx.canvas.width/2, 80);
+        return;
+    }
+ 
+    const emociones = Object.keys(EMO_COLORES);
+    const datasets = emociones.map(emo => ({
+        label: emo,
+        data: data.map(d => d.emociones[emo] ?? 0),
+        borderColor: EMO_COLORES[emo],
+        backgroundColor: EMO_COLORES[emo],
+        tension: 0.3,
+        fill: false
+    }));
+ 
+    _chartsReportes.evolucion = new Chart(document.getElementById('chartEvolucion'), {
+        type: 'line',
+        data: { labels: data.map(d => d.fecha), datasets },
+        options: {
+            responsive: true,
+            plugins: { legend: { position: 'bottom' } },
+            scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '% intensidad' } } }
+        }
+    });
+}
+ 
+// ─── EXPORTAR A EXCEL ────────────────────────────────────
+async function exportarExcel() {
+    try {
+        // Traer datos de atenciones
+        const atenciones = await fetch(`${API}/reportes/atenciones?idProfesional=${idProfesional}`).then(r => r.json());
+        const kpis = await fetch(`${API}/reportes/profesional/${idProfesional}/kpis`).then(r => r.json());
+ 
+        const wb = XLSX.utils.book_new();
+ 
+        // Hoja 1: KPIs
+        const hojaKpis = [
+            ['Indicador', 'Valor'],
+            ['Sesiones este mes', kpis.sesionesMes ?? 0],
+            ['Pacientes activos', kpis.pacientesActivos ?? 0],
+            ['Tasa de asistencia', (kpis.tasaAsistencia ?? 0) + '%'],
+            ['Pacientes con alta', kpis.sesionesAlta ?? 0],
+            ['Total sesiones', kpis.totalSesiones ?? 0]
+        ];
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hojaKpis), 'Resumen');
+ 
+        // Hoja 2: Atenciones
+        if (atenciones.length) {
+            const hojaAtenciones = [
+                ['Paciente', 'DNI', 'NHC', 'Fecha', 'Hora', 'Tipo de Cierre', 'Profesional'],
+                ...atenciones.map(d => [d.nombre, d.dni, d.nhc || '', d.fecha, d.hora, d.tipoCierre || '', d.nombreProfesional])
+            ];
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hojaAtenciones), 'Mis Atenciones');
+        }
+ 
+        XLSX.writeFile(wb, `reporte_yosoy_${new Date().toISOString().slice(0,10)}.xlsx`);
+        if (typeof toast === 'function') toast('Excel descargado correctamente.');
+    } catch (e) {
+        if (typeof toast === 'function') toast('Error al generar el Excel.', 'error');
+    }
+}
+ 
+// ─── EXPORTAR A PDF ──────────────────────────────────────
+async function exportarPDF() {
+    try {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const anchoPag = pdf.internal.pageSize.getWidth();
+ 
+        // Título
+        pdf.setFontSize(18);
+        pdf.setTextColor(106, 90, 205);
+        pdf.text('YoSoy — Reporte de Estadísticas', anchoPag/2, 20, { align: 'center' });
+        pdf.setFontSize(10);
+        pdf.setTextColor(120);
+        pdf.text(`Generado el ${new Date().toLocaleDateString('es-AR')}`, anchoPag/2, 27, { align: 'center' });
+ 
+        let y = 38;
+        const graficos = [
+            { chart: 'sesionesMes', titulo: 'Sesiones por mes' },
+            { chart: 'cierres', titulo: 'Pacientes por tipo de cierre' },
+            { chart: 'emociones', titulo: 'Perfil emocional promedio' },
+            { chart: 'evolucion', titulo: 'Evolución emocional del paciente' }
+        ];
+ 
+        for (const g of graficos) {
+            const ch = _chartsReportes[g.chart];
+            if (!ch) continue;
+ 
+            const img = ch.toBase64Image();
+            pdf.setFontSize(13);
+            pdf.setTextColor(60);
+            pdf.text(g.titulo, 14, y);
+            y += 4;
+ 
+            const imgW = 180;
+            const imgH = (ch.height / ch.width) * imgW * 0.6;
+ 
+            if (y + imgH > 280) { pdf.addPage(); y = 20; }
+ 
+            pdf.addImage(img, 'PNG', 14, y, imgW, imgH);
+            y += imgH + 12;
+        }
+ 
+        pdf.save(`graficos_yosoy_${new Date().toISOString().slice(0,10)}.pdf`);
+        if (typeof toast === 'function') toast('PDF descargado correctamente.');
+    } catch (e) {
+        if (typeof toast === 'function') toast('Error al generar el PDF.', 'error');
+    }
 }
 
-async function descargarReporte() {
-    const url = API + '/reportes/atenciones?idProfesional=' + idProfesional;
-    let datos = [];
-    try {
-        const r = await fetch(url);
-        datos = await r.json();
-    } catch(e) {
-        alert('Error al obtener los datos.');
-        return;
-    }
-    if (!datos.length) {
-        alert('No hay datos para el filtro seleccionado.');
-        return;
-    }
-    const encabezado = ['Nombre y Apellido', 'DNI', 'NHC', 'Fecha', 'Hora', 'Tipo de Cierre', 'Profesional'];
-    const filas = datos.map(function(d) {
-        return [d.nombre, d.dni, d.nhc || '', d.fecha, d.hora, d.tipoCierre || '', d.nombreProfesional];
-    });
-    const csvContent = [encabezado].concat(filas)
-        .map(function(row) { return row.map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(','); })
-        .join('\n');
-    const blob = new Blob(['' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'mis_atenciones.csv';
-    link.click();
-}
 
 // Mis Pacientes v2: asignaciones nuevas, confirmar y derivar
 async function pacientes() {
