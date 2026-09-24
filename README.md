@@ -152,7 +152,12 @@ dotnet run
   - `1`: queda registrada la confirmación de asistencia.
   - `2`: si faltan más de 24 h se cancela; si faltan menos, **no** se cancela (RN-05) y se le avisa al profesional.
 - **Avisos por evento** (chat + campanita): solicitud recibida, turno propuesto por el profesional, turno confirmado y turno cancelado.
-- **Pantalla de chat simulado** (`PANTALLAS/Pantalla_ChatSimulado/`): modo paciente (chatear con un teléfono de prueba) y modo administrador (conversaciones con `Urgente` y `DerivadaHumano` resaltadas, historial, respuesta manual, cierre de la derivación y avisos internos). Se actualiza por polling cada 2,5 s.
+- **Pantalla "YoSoy · Mensajería"** (`PANTALLAS/Pantalla_ChatSimulado/`), estilo WhatsApp Web, para que la secretaría o el profesional sigan las conversaciones del bot:
+  - Izquierda: buscador por nombre o teléfono y lista de conversaciones con estado en color (Urgente en rojo y siempre arriba, Derivada en naranja, Cerrada en gris).
+  - Centro: el hilo, con el paciente a la izquierda y el bot, el equipo y los avisos automáticos a la derecha, cada uno con su ícono. Respuesta manual (deshabilitada si la conversación está cerrada).
+  - Derecha: DNI, teléfono, profesionales y próximo turno del paciente, y el botón para cerrar la derivación o marcar la urgencia como resuelta.
+  - Header con contadores de urgentes y derivadas, la campanita de avisos internos y el modo "Probar como paciente" para chatear con un teléfono de prueba.
+  - Se actualiza por polling cada 2,5 s. En pantallas medianas el panel del paciente es un cajón y en el celular la lista y el chat se alternan.
 
 ### Cómo ponerlo en marcha
 
@@ -200,8 +205,9 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 |---|---|---|
 | POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
 | GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
-| GET | `/mensajeria/conversaciones?estado=` | Listado (urgentes y derivadas primero). |
+| GET | `/mensajeria/conversaciones?estado=` | Listado con nombre del paciente, último mensaje y su hora; urgentes siempre arriba, el resto por última actividad. |
 | GET | `/mensajeria/conversaciones/{id}` | Estado de una conversación. |
+| GET | `/mensajeria/conversaciones/{id}/paciente` | Panel del administrador: nombre, DNI, teléfono, profesionales y próximo turno del paciente (`paciente: null` si el bot no lo identificó). |
 | GET | `/mensajeria/conversaciones/{id}/mensajes?desde=` | Historial; `desde` = último id recibido (polling). |
 | POST | `/mensajeria/conversaciones/{id}/responder` | `{ texto }`: respuesta de una persona del equipo. |
 | PUT | `/mensajeria/conversaciones/{id}/cerrar` | Cierra la derivación o urgencia; el bot vuelve a atender. |
