@@ -1361,6 +1361,8 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
     return Results.Ok(turnos);
 });
 
+app.MapMensajeria();
+
 app.Run();
 
 public record EntrevistaRequest(DateTime Fecha, string Observaciones);

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Chat simulado</title>
+    <link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+<div class="app">
+
+    <!-- ── Barra lateral ───────────────────────────────────── -->
+    <aside class="lateral">
+        <header class="lateral-cabecera">
+            <div class="marca">
+                <span class="marca-logo">Y</span>
+                <div>
+                    <div class="marca-nombre">YoSoy · Chat simulado</div>
+                    <div class="marca-sub">Entorno de prueba, sin WhatsApp real</div>
+                </div>
+            </div>
+            <div class="selector-modo" role="tablist">
+                <button id="btnModoPaciente" class="modo activo" role="tab" aria-selected="true">Paciente</button>
+                <button id="btnModoAdmin" class="modo" role="tab" aria-selected="false">Administrador</button>
+            </div>
+        </header>
+
+        <!-- Modo paciente -->
+        <section id="panelPaciente" class="panel-lateral">
+            <form id="formTelefono" class="form-telefono">
+                <label for="inputTelefono">Teléfono de prueba</label>
+                <div class="fila">
+                    <input id="inputTelefono" type="tel" inputmode="tel" autocomplete="off"
+                           placeholder="Ej: 11 5555-0001 o +54 9 11 5555-0001" required>
+                    <button type="submit" class="btn-primario">Usar</button>
+                </div>
+                <p class="ayuda">Chateá como si fueras el paciente que tiene este número.
+                    Se compara por los últimos 10 dígitos contra el teléfono cargado del paciente.</p>
+            </form>
+            <div class="info-caja">
+                <strong>Para probar</strong>
+                <ul>
+                    <li>Escribí "hola" para empezar.</li>
+                    <li>0 o "menu" vuelve al menú desde cualquier paso.</li>
+                    <li>Los recordatorios y avisos automáticos también llegan acá.</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Modo administrador -->
+        <section id="panelAdmin" class="panel-lateral oculto">
+            <div class="filtros" role="group" aria-label="Filtrar conversaciones">
+                <button class="filtro activo" data-estado="">Todas</button>
+                <button class="filtro" data-estado="Urgente">Urgentes</button>
+                <button class="filtro" data-estado="DerivadaHumano">Derivadas</button>
+            </div>
+            <button id="btnAvisos" class="btn-avisos" aria-expanded="false">
+                Avisos internos <span id="contadorAvisos" class="contador oculto">0</span>
+            </button>
+            <div id="listaAvisos" class="lista-avisos oculto" aria-live="polite"></div>
+            <ul id="listaConversaciones" class="lista-conversaciones" aria-label="Conversaciones"></ul>
+        </section>
+    </aside>
+
+    <!-- ── Panel de chat ───────────────────────────────────── -->
+    <main class="chat">
+        <header class="chat-cabecera">
+            <div class="avatar" id="chatAvatar">?</div>
+            <div class="chat-titulos">
+                <div id="chatTitulo" class="chat-titulo">Sin conversación</div>
+                <div id="chatSubtitulo" class="chat-subtitulo">Elegí un teléfono o una conversación</div>
+            </div>
+            <span id="chatEstado" class="badge oculto"></span>
+            <button id="btnCerrar" class="btn-secundario oculto" title="El bot vuelve a atender desde el menú">
+                Cerrar derivación
+            </button>
+        </header>
+
+        <div id="bannerUrgente" class="banner-urgente oculto" role="alert">
+            Posible situación de riesgo. El bot envió el mensaje de emergencia y quedó en pausa.
+            Contactá al paciente y derivalo según el protocolo del centro.
+        </div>
+
+        <div id="mensajes" class="mensajes" aria-live="polite">
+            <div class="vacio">Los mensajes van a aparecer acá.</div>
+        </div>
+
+        <form id="formMensaje" class="barra-envio">
+            <input id="inputMensaje" type="text" autocomplete="off" maxlength="1000"
+                   placeholder="Escribí un mensaje" disabled>
+            <button id="btnEnviar" type="submit" class="btn-enviar" aria-label="Enviar" disabled>
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+            </button>
+        </form>
+    </main>
+</div>
+
+<div id="toast" class="toast" role="status"></div>
+<script src="js/chat.js"></script>
+</body>
+</html>
