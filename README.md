@@ -8,6 +8,7 @@
 - [Base de datos](#base-de-datos)
 - [API REST](#api-rest)
 - [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
+- [Mensajería: chatbot de reservas y recordatorios](#mensajería-chatbot-de-reservas-y-recordatorios)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Como usar git desde CMD](#como-usar-git-desde-cmd)
 - [Materia](#materia)
@@ -118,7 +119,7 @@ git clone https://github.com/MantoAR/YoSoy.git
 cd YoSoy
 ```
 
-2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio
+2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio, y después los scripts de `migrations/` (`add_columnas_faltantes.sql` agrega columnas que el código usa y el script base no crea)
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -131,6 +132,121 @@ dotnet run
 ```
 
 5. Abrir `mockup.html` en el navegador para usar la interfaz
+
+---
+
+## Mensajería: chatbot de reservas y recordatorios
+
+> **Estado:** primera etapa. El chatbot funciona sobre un **chat simulado** tipo WhatsApp Web dentro de YoSoy. **No hay conexión con WhatsApp, Instagram ni Facebook**; el diseño deja preparado el lugar donde se enchufan (ver [Etapa siguiente](#etapa-siguiente)).
+
+### Qué hace
+
+- **Chatbot de reservas** con menú guiado: 1) pedir turno, 2) ver mis turnos, 3) cancelar un turno, 4) preguntas frecuentes, 5) hablar con una persona. `0` o `menu` vuelven al menú desde cualquier paso.
+  - Identifica al paciente por teléfono (últimos 10 dígitos, así `+54 9 11 5555-0001` coincide con `11 5555-0001`). Si no coincide, pide el DNI (máximo 3 intentos). **No crea pacientes:** si no está registrado lo manda a la web.
+  - Pedir turno: elige entre "mis profesionales" o, si no tiene, por especialidad; ofrece hasta 5 horarios libres de los próximos 14 días y crea el turno en estado **Pendiente**, igual que `POST /turnos/solicitar`.
+  - Si el paciente no tiene consentimiento firmado, el turno se crea igual y se le avisa que debe firmarlo antes de la primera sesión (RN-02 se exige al confirmar; ver más abajo).
+  - "Hablar con una persona" pasa la conversación a `DerivadaHumano`: el bot deja de responder hasta que un administrador la cierre.
+  - Después de 30 minutos sin actividad (configurable), el siguiente mensaje vuelve al menú.
+- **Seguridad clínica** (criterio validado con una psicóloga): antes de interpretar cualquier mensaje se buscan frases de riesgo (lista configurable). Si hay coincidencia, el bot corta el flujo, responde un mensaje fijo que indica ir a la guardia o llamar a emergencias con las líneas configuradas, marca la conversación como `Urgente` y crea un aviso para el administrador. El bot **nunca** da consejos clínicos, diagnósticos ni contención: ante una consulta clínica responde que eso lo trabaja el profesional.
+- **Recordatorio 24 h:** un servicio en segundo plano revisa cada 5 minutos los turnos **Confirmados** que empiezan dentro de las próximas 24 h y avisa por chat, por mail (si el paciente tiene mail y el mail está configurado) y por la campanita. Nunca manda el mismo aviso dos veces. El paciente puede responder:
+  - `1`: queda registrada la confirmación de asistencia.
+  - `2`: si faltan más de 24 h se cancela; si faltan menos, **no** se cancela (RN-05) y se le avisa al profesional.
+- **Avisos por evento** (chat + campanita): solicitud recibida, turno propuesto por el profesional, turno confirmado y turno cancelado.
+- **Pantalla de chat simulado** (`PANTALLAS/Pantalla_ChatSimulado/`): modo paciente (chatear con un teléfono de prueba) y modo administrador (conversaciones con `Urgente` y `DerivadaHumano` resaltadas, historial, respuesta manual, cierre de la derivación y avisos internos). Se actualiza por polling cada 2,5 s.
+
+### Cómo ponerlo en marcha
+
+1. Correr las migraciones en este orden (son idempotentes, se pueden correr más de una vez):
+   ```bash
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_columnas_faltantes.sql
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_mensajeria.sql
+   ```
+   `-f 65001` hace falta para que los acentos de las preguntas frecuentes de ejemplo se guarden bien. También se pueden abrir y ejecutar en SQL Server Management Studio.
+2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y `UrlConsentimiento`.
+3. `dotnet run` y abrir `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html`.
+
+### Cómo probarlo
+
+- **Modo paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
+- **Modo administrador:** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos.
+- **Recordatorios sin esperar:** `POST /mensajeria/recordatorios/ejecutar` corre una pasada del servicio.
+- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (83 pruebas del intérprete, las reglas de turnos y la máquina de estados del bot, con dobles en memoria; no necesitan base de datos).
+
+> ⚠️ **Mails reales:** si la sección `Email` de la configuración está completa, los recordatorios y el aviso al profesional **se envían de verdad**. Para probar sin mandar mails, levantar la app con la contraseña en blanco: en PowerShell `$env:Email__Password = " "; dotnet run`. En ese caso el envío queda registrado como `Omitido`.
+
+### Configuración (`appsettings.json` → `Mensajeria`)
+
+Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet user-secrets` o variables de entorno, nunca en este archivo.
+
+| Clave | Por defecto | Para qué sirve |
+|---|---|---|
+| `CanalActivo` | `Simulado` | Canal por el que salen los mensajes. Hoy es el único disponible. |
+| `RecordatorioHorasAntes` | `24` | Ventana del recordatorio. |
+| `IntervaloChequeoMinutos` | `5` | Cada cuánto corre el servicio de recordatorios. |
+| `TimeoutConversacionMinutos` | `30` | Inactividad tras la cual el bot vuelve al menú. |
+| `MaxIntentosEnvio` | `3` | Reintentos de un aviso que dio error. |
+| `ChatSimuladoHabilitado` | `true` | Apaga todos los endpoints `/mensajeria` (responden 404). |
+| `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. |
+| `UrlRegistroWeb`, `UrlConsentimiento`, `UrlIngresoTurno` | | Links que manda el bot. `UrlConsentimiento` es un placeholder. |
+| `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
+| `DiasBusquedaHorarios`, `MaxHorariosOfrecidos` | `14`, `5` | Búsqueda de horarios libres. |
+| `PalabrasRiesgo` | lista | Frases que disparan el mensaje de emergencia. **Obligatoria:** la app no arranca si está vacía. |
+| `PalabrasClinicas` | lista | Si el mensaje no se entiende y contiene alguna, el bot aclara que no responde consultas clínicas. |
+| `LineasEmergencia` | placeholders | Nombre y teléfono de cada línea de ayuda. **Completar y validar con el equipo.** |
+
+### Endpoints nuevos (`Endpoints/MensajeriaEndpoints.cs`)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
+| GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
+| GET | `/mensajeria/conversaciones?estado=` | Listado (urgentes y derivadas primero). |
+| GET | `/mensajeria/conversaciones/{id}` | Estado de una conversación. |
+| GET | `/mensajeria/conversaciones/{id}/mensajes?desde=` | Historial; `desde` = último id recibido (polling). |
+| POST | `/mensajeria/conversaciones/{id}/responder` | `{ texto }`: respuesta de una persona del equipo. |
+| PUT | `/mensajeria/conversaciones/{id}/cerrar` | Cierra la derivación o urgencia; el bot vuelve a atender. |
+| GET / PUT | `/mensajeria/notificaciones-internas`, `.../{id}/leida` | Avisos para el administrador y los profesionales. |
+| POST | `/mensajeria/recordatorios/ejecutar` | Corre una pasada del servicio de recordatorios. |
+| GET / POST / PUT / DELETE | `/mensajeria/preguntas-frecuentes[/{id}]` | ABM de preguntas frecuentes (la baja es lógica). |
+
+### Reglas de negocio de turnos
+
+Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasService.cs`. **Hoy solo las usa el bot**; los endpoints web existentes no se modificaron en esta rama.
+
+| Regla | Bot | Web (hoy) |
+|---|---|---|
+| RN-01 Disponibilidad real de agenda (franja, intervalo, futuro, horario libre) | ✅ Backend | Solo en el frontend (arma los horarios con la agenda y `/turnos/ocupados`) |
+| RN-02 Consentimiento firmado antes de confirmar | Avisa al solicitar; modo estricto opcional | ❌ No se valida en ningún lado |
+| RN-05 Anticipación mínima de 24 h para pedir y cancelar | ✅ Backend | ❌ No se valida |
+| RN-07 Un solo turno Pendiente/Confirmado por paciente, profesional y día | ✅ Backend, versión documentada | Solo en el frontend y distinta: bloquea el día entero con **cualquier** profesional |
+
+### Archivos existentes modificados
+
+- `Program.cs`: registra `EmailService` y `AddMensajeria`, agrega `app.MapMensajeria()` y una llamada al notificador en `POST /turnos/solicitar`, `PUT /turnos/{id}` (lee el estado anterior para detectar confirmación o rechazo), `PUT /turnos/{id}/cancelar`, `PUT /turnos/{id}/confirmar-paciente` y `POST /turnos/profesional-solicitar`. Un error al notificar nunca hace fallar al endpoint.
+- `Services/EmailService.cs`: nuevo método `EnviarAviso`.
+- `appsettings.json`: nueva sección `Mensajeria`.
+- `YoSoy.csproj` y `YoSoy.sln`: excluyen y agregan el proyecto de pruebas.
+
+### Limitaciones conocidas y pendientes
+
+- **Sin autenticación real.** Los endpoints `/mensajeria` exponen conversaciones de pacientes. Mitigación actual: `ChatSimuladoHabilitado` y `SoloLocal`, que no alcanza detrás de un proxy o túnel local. Pendiente: exigir JWT y rol de administrador al mergear `videollamadas-seguras` (`TODO(JWT)` en el código). No publicar en una URL pública.
+- **Identificación por DNI:** quien conozca el DNI de un paciente puede vincular otro teléfono y ver o cancelar sus turnos. El tope de 3 intentos solo evita probar DNIs al azar. Pendiente: verificación adicional (por ejemplo, un código por mail) antes de vincular un teléfono nuevo.
+- Un celular cargado con el `15` delante del número no se reconoce por teléfono y cae en el flujo de DNI.
+- Reglas RN-01, RN-05 y RN-07 en los endpoints web, y RN-02 al confirmar (lado profesional): pendientes. También falta la página para firmar el consentimiento: hoy el registro solo muestra una casilla y no guarda ninguna fila en `Consentimiento`.
+- Las notificaciones internas se ven solo en el modo administrador del chat simulado; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
+- `DELETE /turnos/{id}` y el `POST /turnos` genérico no disparan avisos.
+- La reprogramación y el modal de turno de la web arman horarios de 60 minutos fijos en lugar de usar `IntervaloMinutos`.
+- Actualización por polling; sin WebSockets.
+- Zona horaria: los turnos se guardan sin zona y se comparan con la hora local del servidor, que se asume en Argentina (UTC-3).
+- Recordatorios de pago: fuera de alcance (no existe una entidad de pagos). El tipo `PagoPendiente` quedó reservado en `Recordatorio`.
+
+### Etapa siguiente
+
+- **WhatsApp Cloud API:** implementar `CanalWhatsAppCloud` (hoy lanza `NotImplementedException` y no está registrado): envío por la Graph API con el token en user-secrets, webhook con verificación (`hub.challenge`) y validación de la firma `X-Hub-Signature-256`, y estados de entrega.
+- **Plantillas de Meta:** los mensajes que inicia el negocio (recordatorios y avisos) fuera de la ventana de 24 h desde el último mensaje del paciente solo se pueden mandar con plantillas aprobadas.
+- **Instagram y Facebook Messenger:** nuevas implementaciones de `IMessageChannel`; el bot no cambia.
+- **IA conversacional:** una `InterpreteIA` que implemente `IInterpreteIntencion` reemplaza al menú registrándola en DI. El filtro de seguridad clínica sigue corriendo antes que cualquier interpretación.
+- **Recordatorios de pago**, cuando exista la entidad de pagos.
 
 ---
 
