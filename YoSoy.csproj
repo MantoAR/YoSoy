@@ -12,4 +12,11 @@
     <PackageReference Include="MimeKit" Version="4.17.0" />
   </ItemGroup>
 
+  <!-- El proyecto de tests vive adentro de esta carpeta: que no se compile como parte de la app. -->
+  <ItemGroup>
+    <Compile Remove="YoSoy.Tests/**" />
+    <Content Remove="YoSoy.Tests/**" />
+    <None Remove="YoSoy.Tests/**" />
+  </ItemGroup>
+
 </Project>
