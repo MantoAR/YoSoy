@@ -187,9 +187,11 @@ public class BotReservasService
             return;
         }
 
+        // Tope de intentos: evita que se pueda probar DNIs hasta dar con uno.
         if (ctx.IntentosDni >= MaxIntentosDni)
         {
-            r.Add(TextoNoRegistrado());
+            r.Add("Ya no puedo seguir probando DNIs por este chat. Si todavía no tenés cuenta, " +
+                  $"registrate en la web: {Op.UrlRegistroWeb}\nSi ya sos paciente, escribí 5 para hablar con una persona.");
             return;
         }
 
