@@ -132,6 +132,8 @@ public class TurnoReglasService
             : new ResultadoSolicitud(ResultadoRegla.Valido, id);
     }
 
+    public bool TieneConsentimiento(int idPaciente) => _repo.TieneConsentimiento(idPaciente);
+
     public ResultadoRegla ValidarCancelacion(Turno t, int idPaciente)
     {
         if (t.IdPaciente != idPaciente)
