@@ -3,39 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy · Chat simulado</title>
+    <title>YoSoy · Mensajería</title>
     <link rel="stylesheet" href="css/chat.css">
 </head>
-<body>
-<div class="app">
+<body class="modo-admin">
 
-    <!-- ── Barra lateral ───────────────────────────────────── -->
-    <aside class="lateral">
-        <header class="lateral-cabecera">
-            <div class="marca">
-                <span class="marca-logo">Y</span>
-                <div>
-                    <div class="marca-nombre">YoSoy · Chat simulado</div>
-                    <div class="marca-sub">Entorno de prueba, sin WhatsApp real</div>
-                </div>
-            </div>
-            <div class="selector-modo" role="tablist">
-                <button id="btnModoPaciente" class="modo activo" role="tab" aria-selected="true">Paciente</button>
-                <button id="btnModoAdmin" class="modo" role="tab" aria-selected="false">Administrador</button>
-            </div>
-        </header>
+<!-- ── Header mínimo ───────────────────────────────────────── -->
+<header class="topbar">
+    <div class="marca">
+        <span class="marca-logo" aria-hidden="true">Y</span>
+        <span class="marca-nombre">YoSoy · Mensajería</span>
+        <span class="marca-sub">entorno de prueba</span>
+    </div>
+    <div class="topbar-derecha">
+        <span id="pillUrgentes" class="pill pill-urgente oculto"></span>
+        <span id="pillDerivadas" class="pill pill-derivada oculto"></span>
+        <div class="avisos-wrap">
+            <button id="btnAvisos" class="btn-icono" aria-expanded="false" aria-controls="panelAvisos" title="Avisos internos">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 22a2 2 0 0 0 2-2h-4a2 2 0 0 0 2 2zm6-6V11a6 6 0 0 0-5-5.9V4a1 1 0 0 0-2 0v1.1A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+                <span id="contadorAvisos" class="contador oculto">0</span>
+                <span class="sr-only">Avisos internos</span>
+            </button>
+            <div id="panelAvisos" class="panel-avisos oculto" role="region" aria-label="Avisos internos"></div>
+        </div>
+        <div class="selector-modo" role="tablist" aria-label="Vista">
+            <button id="btnModoAdmin" class="modo activo" role="tab" aria-selected="true">Conversaciones</button>
+            <button id="btnModoPaciente" class="modo" role="tab" aria-selected="false">Probar como paciente</button>
+        </div>
+    </div>
+</header>
 
-        <!-- Modo paciente -->
-        <section id="panelPaciente" class="panel-lateral">
-            <form id="formTelefono" class="form-telefono">
+<div class="app" id="app">
+
+    <!-- ── Columna izquierda ───────────────────────────────── -->
+    <aside class="col-lista">
+        <!-- Administrador: buscador + conversaciones -->
+        <div id="listaAdmin" class="solo-admin">
+            <div class="buscador">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
+                <input id="inputBuscar" type="search" placeholder="Buscar por nombre o teléfono" autocomplete="off" aria-label="Buscar conversación">
+            </div>
+            <ul id="listaConversaciones" class="lista-conversaciones" aria-label="Conversaciones"></ul>
+        </div>
+
+        <!-- Paciente de prueba: teléfono -->
+        <div id="listaPaciente" class="solo-paciente panel-telefono">
+            <form id="formTelefono">
                 <label for="inputTelefono">Teléfono de prueba</label>
                 <div class="fila">
                     <input id="inputTelefono" type="tel" inputmode="tel" autocomplete="off"
-                           placeholder="Ej: 11 5555-0001 o +54 9 11 5555-0001" required>
+                           placeholder="Ej: 11 5555-0001" required>
                     <button type="submit" class="btn-primario">Usar</button>
                 </div>
                 <p class="ayuda">Chateá como si fueras el paciente que tiene este número.
-                    Se compara por los últimos 10 dígitos contra el teléfono cargado del paciente.</p>
+                    Se compara por los últimos 10 dígitos contra el teléfono del paciente.</p>
             </form>
             <div class="info-caja">
                 <strong>Para probar</strong>
@@ -45,34 +66,23 @@
                     <li>Los recordatorios y avisos automáticos también llegan acá.</li>
                 </ul>
             </div>
-        </section>
-
-        <!-- Modo administrador -->
-        <section id="panelAdmin" class="panel-lateral oculto">
-            <div class="filtros" role="group" aria-label="Filtrar conversaciones">
-                <button class="filtro activo" data-estado="">Todas</button>
-                <button class="filtro" data-estado="Urgente">Urgentes</button>
-                <button class="filtro" data-estado="DerivadaHumano">Derivadas</button>
-            </div>
-            <button id="btnAvisos" class="btn-avisos" aria-expanded="false">
-                Avisos internos <span id="contadorAvisos" class="contador oculto">0</span>
-            </button>
-            <div id="listaAvisos" class="lista-avisos oculto" aria-live="polite"></div>
-            <ul id="listaConversaciones" class="lista-conversaciones" aria-label="Conversaciones"></ul>
-        </section>
+        </div>
     </aside>
 
-    <!-- ── Panel de chat ───────────────────────────────────── -->
-    <main class="chat">
+    <!-- ── Columna central: hilo ───────────────────────────── -->
+    <main class="col-chat">
         <header class="chat-cabecera">
-            <div class="avatar" id="chatAvatar">?</div>
+            <button id="btnVolver" class="btn-icono btn-volver" aria-label="Volver a la lista">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg>
+            </button>
+            <div class="avatar" id="chatAvatar" aria-hidden="true">?</div>
             <div class="chat-titulos">
                 <div id="chatTitulo" class="chat-titulo">Sin conversación</div>
-                <div id="chatSubtitulo" class="chat-subtitulo">Elegí un teléfono o una conversación</div>
+                <div id="chatSubtitulo" class="chat-subtitulo">Elegí una conversación de la lista</div>
             </div>
             <span id="chatEstado" class="badge oculto"></span>
-            <button id="btnCerrar" class="btn-secundario oculto" title="El bot vuelve a atender desde el menú">
-                Cerrar derivación
+            <button id="btnInfo" class="btn-icono btn-info solo-admin" aria-label="Datos del paciente" aria-controls="colInfo">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
             </button>
         </header>
 
@@ -81,18 +91,22 @@
             Contactá al paciente y derivalo según el protocolo del centro.
         </div>
 
-        <div id="mensajes" class="mensajes" aria-live="polite">
-            <div class="vacio">Los mensajes van a aparecer acá.</div>
-        </div>
+        <div id="mensajes" class="mensajes" aria-live="polite"></div>
 
         <form id="formMensaje" class="barra-envio">
             <input id="inputMensaje" type="text" autocomplete="off" maxlength="1000"
                    placeholder="Escribí un mensaje" disabled>
             <button id="btnEnviar" type="submit" class="btn-enviar" aria-label="Enviar" disabled>
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
             </button>
         </form>
     </main>
+
+    <!-- ── Columna derecha: datos del paciente (solo administrador) ── -->
+    <aside id="colInfo" class="col-info solo-admin" aria-label="Datos del paciente">
+        <button id="btnCerrarInfo" class="btn-icono btn-cerrar-info" aria-label="Cerrar datos del paciente">✕</button>
+        <div id="infoContenido" class="info-vacio">Elegí una conversación para ver los datos del paciente.</div>
+    </aside>
 </div>
 
 <div id="toast" class="toast" role="status"></div>
