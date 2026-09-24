@@ -9,4 +9,5 @@ public class ConversacionResumen
     public string PasoActual { get; set; } = "";
     public DateTime FechaUltimaActividad { get; set; }
     public string? UltimoMensaje { get; set; }
+    public DateTime? FechaUltimoMensaje { get; set; }
 }

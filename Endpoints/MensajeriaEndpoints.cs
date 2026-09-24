@@ -61,6 +61,34 @@ public static class MensajeriaEndpoints
                 : Results.Ok(new { c.IdConversacion, c.Telefono, c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
         });
 
+        // Panel derecho del modo administrador. Solo los datos que necesita la vista
+        // (sin domicilio ni fecha de nacimiento). Profesionales y próximo turno salen
+        // de las mismas consultas que usa el bot ("pedir turno" y "ver mis turnos").
+        g.MapGet("/conversaciones/{id}/paciente", (int id, IConversacionDAO conversaciones,
+            IDatosMensajeria datos, TimeProvider reloj) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null) return Results.NotFound();
+            var p = c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac) : null;
+            if (p is null)
+                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, paciente = (object?)null,
+                                        profesionales = Array.Empty<object>(), proximoTurno = (object?)null });
+
+            var proximo = datos.TurnosProximos(p.IdPaciente, reloj.GetLocalNow().DateTime).FirstOrDefault();
+            return Results.Ok(new
+            {
+                c.IdConversacion, c.Telefono, c.Estado,
+                paciente      = new { p.IdPaciente, p.Nombre, p.Dni, p.Telefono },
+                profesionales = datos.ProfesionalesDelPaciente(p.IdPaciente)
+                                     .Select(pr => new { pr.IdProfesional, pr.Nombre, pr.Especialidad }),
+                proximoTurno  = proximo is null ? null : new
+                {
+                    proximo.IdTurno, proximo.Momento, proximo.NombreProfesional,
+                    Modalidad = proximo.Modalidad ?? "Virtual", proximo.Estado
+                }
+            });
+        });
+
         // desde = último IdMensaje que ya tiene la pantalla (polling incremental).
         g.MapGet("/conversaciones/{id}/mensajes", (int id, int? desde, IMensajeChatDAO mensajes) =>
             mensajes.ObtenerPorConversacion(id, desde ?? 0));

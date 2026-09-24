@@ -76,7 +76,7 @@ public class ConversacionDAO : IConversacionDAO
         cmd.ExecuteNonQuery();
     }
 
-    // Para el modo administrador: urgentes primero, después derivadas, después el resto.
+    // Para el modo administrador: urgentes siempre arriba; el resto por última actividad.
     public List<ConversacionResumen> ListarResumen(string? estado)
     {
         var lista = new List<ConversacionResumen>();
@@ -85,12 +85,13 @@ public class ConversacionDAO : IConversacionDAO
         var cmd = new SqlCommand(@"
             SELECT c.IdConversacion, c.Telefono, c.IdPaciente, p.Nombre AS NombrePaciente,
                    c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad,
-                   (SELECT TOP 1 m.Texto FROM MensajeChat m
-                    WHERE m.IdConversacion = c.IdConversacion ORDER BY m.IdMensaje DESC) AS UltimoMensaje
+                   um.Texto AS UltimoMensaje, um.FechaHora AS FechaUltimoMensaje
             FROM Conversacion c
-            LEFT JOIN Paciente p ON p.IdPaciente = c.IdPaciente" +
+            LEFT JOIN Paciente p ON p.IdPaciente = c.IdPaciente
+            OUTER APPLY (SELECT TOP 1 m.Texto, m.FechaHora FROM MensajeChat m
+                         WHERE m.IdConversacion = c.IdConversacion ORDER BY m.IdMensaje DESC) um" +
             (estado != null ? " WHERE c.Estado = @Estado" : "") + @"
-            ORDER BY CASE c.Estado WHEN 'Urgente' THEN 0 WHEN 'DerivadaHumano' THEN 1 ELSE 2 END,
+            ORDER BY CASE WHEN c.Estado = 'Urgente' THEN 0 ELSE 1 END,
                      c.FechaUltimaActividad DESC", con);
         if (estado != null) cmd.Parameters.AddWithValue("@Estado", estado);
         using var r = cmd.ExecuteReader();
@@ -105,7 +106,8 @@ public class ConversacionDAO : IConversacionDAO
                 Estado               = (string)r["Estado"],
                 PasoActual           = (string)r["PasoActual"],
                 FechaUltimaActividad = (DateTime)r["FechaUltimaActividad"],
-                UltimoMensaje        = r["UltimoMensaje"]  == DBNull.Value ? null : (string)r["UltimoMensaje"]
+                UltimoMensaje        = r["UltimoMensaje"]  == DBNull.Value ? null : (string)r["UltimoMensaje"],
+                FechaUltimoMensaje   = r["FechaUltimoMensaje"] == DBNull.Value ? null : (DateTime)r["FechaUltimoMensaje"]
             });
         return lista;
     }
