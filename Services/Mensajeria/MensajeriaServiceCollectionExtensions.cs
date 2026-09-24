@@ -27,8 +27,26 @@ public static class MensajeriaServiceCollectionExtensions
                     $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Por ahora el único canal es \"Simulado\".");
         }
 
+        // DAOs sin estado: una instancia alcanza.
         services.AddSingleton<IMensajeChatDAO, MensajeChatDAO>();
+        services.AddSingleton<IConversacionDAO, ConversacionDAO>();
+        services.AddSingleton<IRecordatorioDAO, RecordatorioDAO>();
+        services.AddSingleton<IPreguntaFrecuenteDAO, PreguntaFrecuenteDAO>();
+        services.AddSingleton<INotificacionInternaDAO, NotificacionInternaDAO>();
+        services.AddSingleton<IDatosMensajeria, DatosMensajeriaDAO>();
+        services.AddSingleton<ITurnoRepositorio, TurnoRepositorioDAO>();
+
         services.AddSingleton<IServicioMensajes, ServicioMensajes>();
+        services.AddSingleton<TurnoReglasService>();
+        services.AddSingleton<FiltroSeguridad>();
+        // Para pasar a una IA conversacional alcanza con cambiar esta línea.
+        services.AddSingleton<IInterpreteIntencion, InterpreteMenu>();
+        services.AddSingleton<NotificadorTurnos>();
+        services.AddSingleton<INotificadorTurnos>(sp => sp.GetRequiredService<NotificadorTurnos>());
+        services.AddSingleton<BotReservasService>();
+
+        services.AddSingleton<RecordatorioBackgroundService>();
+        services.AddHostedService(sp => sp.GetRequiredService<RecordatorioBackgroundService>());
 
         return services;
     }

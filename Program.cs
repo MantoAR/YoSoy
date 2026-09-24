@@ -1,6 +1,8 @@
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+builder.Services.AddSingleton<EmailService>();
+builder.Services.AddMensajeria(builder.Configuration);
 
 var app = builder.Build();
 app.UseCors();
@@ -471,12 +473,13 @@ app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idPro
     return Results.Ok();
 });
 
-app.MapPut("/turnos/{id}/cancelar", (int id) =>
+app.MapPut("/turnos/{id}/cancelar", (int id, INotificadorTurnos notificador) =>
 {
     var t = new TurnoDAO().ObtenerPorId(id);
     if (t is null) return Results.NotFound();
     t.IdEstadoTurno = 3; // Cancelado
     new TurnoDAO().Modificar(t);
+    notificador.TurnoCancelado(id);
     return Results.Ok();
 });
 
@@ -490,7 +493,7 @@ app.MapPost("/turnos", (Turno t) =>
 });
 
 // Solicitud de turno desde el paciente — estado siempre Pendiente
-app.MapPost("/turnos/solicitar", (Turno t) =>
+app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador) =>
 {
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -500,13 +503,16 @@ app.MapPost("/turnos/solicitar", (Turno t) =>
     if (result is null) return Results.Problem("No existe el estado 'Pendiente' en EstadoTurno.");
     t.IdEstadoTurno = (int)result;
     new TurnoDAO().Insertar(t);
+    notificador.TurnoSolicitado(t);
     return Results.Created("/turnos", t);
 });
 
-app.MapPut("/turnos/{id}", (int id, Turno t) =>
+app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador) =>
 {
     t.IdTurno = id;
+    var anterior = new TurnoDAO().ObtenerPorId(id);
     new TurnoDAO().Modificar(t);
+    if (anterior != null) notificador.CambioDeEstado(id, anterior.IdEstadoTurno);
     return Results.Ok(t);
 });
 
@@ -1250,7 +1256,7 @@ app.MapPut("/informes-admision/rechazar", (RechazoRequest req) =>
 
 
 // Turno propuesto por el profesional (queda pendiente de confirmacion del paciente)
-app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req) =>
+app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INotificadorTurnos notificador) =>
 {
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -1263,12 +1269,13 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req) =>
     cmd.Parameters.AddWithValue("@Hora", TimeSpan.Parse(req.Hora));
     cmd.Parameters.AddWithValue("@Motivo", (object)req.Motivo ?? DBNull.Value);
     cmd.ExecuteNonQuery();
+    notificador.TurnoAgendadoPorProfesional(req.IdPaciente, req.IdProfesional, DateTime.Parse(req.Fecha), TimeSpan.Parse(req.Hora));
     return Results.Created("/turnos", null);
 });
 
 
 // ── Paciente confirma el turno propuesto ────────────────────
-app.MapPut("/turnos/{id}/confirmar-paciente", (int id) =>
+app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notificador) =>
 {
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -1281,6 +1288,7 @@ app.MapPut("/turnos/{id}/confirmar-paciente", (int id) =>
     {
         if (r.Read()) { idProf = (int)r["IdProfesional"]; idPac = (int)r["IdPaciente"]; }
     }
+    notificador.TurnoConfirmado(id);
     return Results.Ok(new { idProfesional = idProf, idPaciente = idPac });
 });
 
