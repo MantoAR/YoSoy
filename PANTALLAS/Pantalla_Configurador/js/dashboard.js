@@ -160,9 +160,8 @@ async function renderUsuarios(c) {
     c.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulos["usuarios"]}</div>
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;cursor:pointer">
-                <input type="checkbox" id="chkDadosDeBaja" onchange="toggleDadosDeBaja()"
-                    style="width:16px;height:16px;cursor:pointer">
+            <label class="check-baja">
+                <input type="checkbox" id="chkDadosDeBaja" onchange="toggleDadosDeBaja()">
                 Mostrar dados de baja
             </label>
         </div>
@@ -193,13 +192,13 @@ function renderCardsUsuarios() {
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
             <div class="usr-nombre">${p.nombre ?? "-"}</div>
             <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
-        </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
+        </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
 
     document.getElementById("listaProfesionales").innerHTML = profesionales.map(p => `
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
             <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
             <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
-        </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
+        </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
 
     document.getElementById("splitInfo").innerHTML = "";
 }
@@ -414,7 +413,7 @@ async function abrirModalAsignar(idPac) {
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p style="color:#555;margin-bottom:16px">Asignar profesional a: <strong>${pac?.nombre}</strong></p>
+        <p class="modal-texto">Asignar profesional a: <strong>${pac?.nombre}</strong></p>
         <div class="campo-modal">
             <label>Profesional</label>
             <select id="selectProfAsignar" class="input-modal">
@@ -439,20 +438,20 @@ async function abrirModalCambioDirecto(idPac) {
     }).join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p style="color:#555;margin-bottom:16px">Cambio para: <strong>${pac?.nombre}</strong></p>
-        <div class="campo-modal" style="margin-bottom:14px">
+        <p class="modal-texto">Cambio para: <strong>${pac?.nombre}</strong></p>
+        <div class="campo-modal">
             <label>Profesional actual</label>
             <select id="selectProfOrigen" class="input-modal" onchange="cargarProfesionalesDestino()">
                 ${opcionesOrigen}
             </select>
         </div>
-        <div class="campo-modal" style="margin-bottom:14px">
+        <div class="campo-modal">
             <label>Nuevo profesional</label>
             <select id="selectProfDestino" class="input-modal"><option>Cargando...</option></select>
         </div>
         <div class="campo-modal">
             <label>Motivo</label>
-            <textarea id="motivoCambioDir" rows="2" class="input-modal" style="height:auto;padding:10px"></textarea>
+            <textarea id="motivoCambioDir" rows="2" class="input-modal"></textarea>
         </div>`;
 
     document.getElementById("modalDerivOverlay").classList.add("visible");
@@ -490,7 +489,7 @@ async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p style="color:#555;margin-bottom:16px">Seleccioná el profesional que atenderá al paciente:</p>
+        <p class="modal-texto">Seleccioná el profesional que atenderá al paciente:</p>
         <div class="campo-modal">
             <label>Profesional destino</label>
             <select id="selectProfDeriv" class="input-modal">
@@ -598,7 +597,7 @@ function renderTabla(titulo, cols, datos, tab, contenido) {
     contenido.innerHTML = `
         <div class="d-flex justify-content-between align-items-center mb-3">
             <div class="titulo-seccion mb-0">${titulo} <span class="badge bg-secondary">${datos.length}</span>
-                ${SOLO_LECTURA.includes(tab) ? '<span class="badge bg-secondary ms-2" style="font-size:11px">Solo lectura</span>' : ""}
+                ${SOLO_LECTURA.includes(tab) ? '<span class="badge bg-secondary ms-2">Solo lectura</span>' : ""}
             </div>
             <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('${tab}')">↺ Actualizar</button>
         </div>
@@ -785,29 +784,29 @@ async function reportes() {
         .join('');
 
     c.innerHTML =
-        '<h2 style="margin-bottom:20px">Reportes</h2>' +
-        '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:20px">' +
-        '<h3 style="margin-bottom:16px;color:#6A5ACD">Atenciones por Profesional</h3>' +
-        '<div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:20px;flex-wrap:wrap">' +
+        '<h2>Reportes</h2>' +
+        '<div class="tarjeta">' +
+        '<h3 class="tarjeta-titulo">Atenciones por Profesional</h3>' +
+        '<div class="fila-form">' +
         '<div>' +
-        '<label style="display:block;font-size:12px;font-weight:bold;color:#6A5ACD;margin-bottom:4px">Filtrar por profesional</label>' +
-        '<select id="filtroProf" style="padding:8px 12px;border:2px solid #e0d4f5;border-radius:8px;font-size:14px;min-width:220px">' +
+        '<label for="filtroProf">Filtrar por profesional</label>' +
+        '<select id="filtroProf">' +
         '<option value="">Todos los profesionales</option>' +
         opts +
         '</select>' +
         '</div>' +
-        '<button onclick="descargarReporteConf()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
-        '<button onclick="descargarReporteHtml()" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Reporte HTML</button>' +
-        '<button onclick="verEstadisticas()" style="padding:9px 20px;background:#0d6efd;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Ver Estadisticas</button>' +
+        '<button class="btn-primario" onclick="descargarReporteConf()">Descargar Excel</button>' +
+        '<button class="btn-exito" onclick="descargarReporteHtml()">Descargar Reporte HTML</button>' +
+        '<button class="btn-accion" onclick="verEstadisticas()">Ver Estadisticas</button>' +
         '</div>' +
-        '<p style="font-size:13px;color:#888">Selecciona un profesional o deja en blanco para ver todos.</p>' +
+        '<p class="texto-suave">Selecciona un profesional o deja en blanco para ver todos.</p>' +
         '</div>' +
-        '<div id="panelEstadisticas" style="display:none;background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08)">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
-        '<h3 style="color:#6A5ACD;margin:0">Estadisticas</h3>' +
-        '<button onclick="descargarGrafico()" style="padding:7px 16px;background:#198754;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:bold">Descargar Imagen</button>' +
+        '<div id="panelEstadisticas" class="tarjeta" style="display:none">' +
+        '<div class="d-flex justify-content-between align-items-center mb-3">' +
+        '<h3 class="tarjeta-titulo mb-0">Estadisticas</h3>' +
+        '<button class="btn-exito" onclick="descargarGrafico()">Descargar Imagen</button>' +
         '</div>' +
-        '<canvas id="graficoAtenciones" style="max-height:400px"></canvas>' +
+        '<canvas id="graficoAtenciones" class="canvas-grafico"></canvas>' +
         '</div>';
 }
 
@@ -985,7 +984,7 @@ async function admisiones() {
     const badge = function(estado) {
         const colores = { "Pendiente": "#fff3cd|#856404", "En entrevista": "#cfe2ff|#084298", "Derivado": "#d1e7dd|#0f5132", "Rechazado": "#f8d7da|#842029" };
         const par = (colores[estado] || "#e2e3e5|#41464b").split("|");
-        return '<span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:3px 12px;font-size:12px;font-weight:bold">' + estado + '</span>';
+        return '<span class="estado-badge estado-' + String(estado).replace(/\s+/g, '-') + '">' + estado + '</span>';
     };
 
     const filas = _admisionesCache.map(function(a) {
@@ -999,12 +998,12 @@ async function admisiones() {
             '</tr>';
     }).join("");
 
-    c.innerHTML = '<h2 style="margin-bottom:20px">Admisiones</h2>' +
-        '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08)">' +
-        (_admisionesCache.length === 0 ? '<p style="color:#888">No hay informes de admision.</p>' :
+    c.innerHTML = '<h2>Admisiones</h2>' +
+        '<div class="tarjeta">' +
+        (_admisionesCache.length === 0 ? '<p class="texto-suave">No hay informes de admision.</p>' :
         '<table class="table"><thead><tr><th>Paciente</th><th>DNI</th><th>Especialidad</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>' + filas + '</tbody></table>') +
         '</div>' +
-        '<div id="detalleAdmision" style="margin-top:20px"></div>';
+        '<div id="detalleAdmision" class="mt-16"></div>';
 }
 
 function verAdmision(idInforme) {
@@ -1013,7 +1012,7 @@ function verAdmision(idInforme) {
 
     const campo = function(label, valor) {
         if (valor === null || valor === undefined || valor === "") return "";
-        return '<div style="margin-bottom:10px"><span style="font-size:11px;font-weight:bold;color:#6A5ACD;text-transform:uppercase;display:block">' + label + '</span><span style="font-size:14px">' + valor + '</span></div>';
+        return '<div class="dato-admision"><span class="etiqueta-dato">' + label + '</span><span class="valor-dato">' + valor + '</span></div>';
     };
 
     const esEntrevista = a.estado === "En entrevista" || a.estado === "Rechazado";
@@ -1022,39 +1021,39 @@ function verAdmision(idInforme) {
 
     let acciones = "";
     if (esPendiente) {
-        acciones = '<div style="background:#e7f1ff;border:2px solid #0d6efd;border-radius:12px;padding:20px;margin-top:16px">' +
-            '<h4 style="color:#084298;margin-bottom:12px">Programar primera entrevista</h4>' +
-            '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">' +
-            '<div><label style="font-size:12px;font-weight:bold;color:#084298;display:block">Fecha</label><input type="date" id="entFecha" style="padding:8px;border:2px solid #b6d4fe;border-radius:8px"></div>' +
-            '<div><label style="font-size:12px;font-weight:bold;color:#084298;display:block">Hora</label><input type="time" id="entHora" style="padding:8px;border:2px solid #b6d4fe;border-radius:8px"></div>' +
-            '<button onclick="programarEntrevista(' + a.idInforme + ')" style="padding:9px 20px;background:#0d6efd;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Programar</button>' +
+        acciones = '<div class="caja-accion">' +
+            '<h4>Programar primera entrevista</h4>' +
+            '<div class="fila-form">' +
+            '<div class="campo-form"><label for="entFecha">Fecha</label><input type="date" id="entFecha"></div>' +
+            '<div class="campo-form"><label for="entHora">Hora</label><input type="time" id="entHora"></div>' +
+            '<button class="btn-primario" onclick="programarEntrevista(' + a.idInforme + ')">Programar</button>' +
             '</div></div>';
     }
     if (esEntrevista) {
-        acciones = '<div style="background:#f3efff;border:2px solid #6A5ACD;border-radius:12px;padding:20px;margin-top:16px">' +
-            '<h4 style="color:#6A5ACD;margin-bottom:12px">Derivar al profesional</h4>' +
-            (a.estado === "Rechazado" ? '<p style="background:#f8d7da;color:#842029;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px"><strong>Rechazado por el profesional anterior:</strong> ' + (a.motivoRechazo || "Sin motivo") + '</p>' : '') +
-            '<p style="font-size:12px;color:#888;margin-bottom:6px">Entrevista programada: ' + (a.fechaEntrevista || "-") + '</p>' +
-            '<p style="font-size:13px;margin-bottom:10px">Codigo de sala: <strong style="color:#0d6efd;letter-spacing:1px">' + (a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" style="margin-left:10px;padding:6px 14px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Iniciar entrevista</button></p>' +
-            '<label style="font-size:12px;font-weight:bold;color:#6A5ACD;display:block">Observaciones de la entrevista</label>' +
-            '<textarea id="derObs" rows="3" style="width:100%;padding:9px;border:2px solid #e0d4f5;border-radius:8px;margin-bottom:10px">' + (a.observacionesEntrevista || "") + '</textarea>' +
-            '<label style="font-size:12px;font-weight:bold;color:#6A5ACD;display:block">Profesional asignado</label>' +
-            '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">' +
-            '<select id="derProf" style="flex:1;min-width:220px;padding:9px;border:2px solid #e0d4f5;border-radius:8px"><option value="">Cargando...</option></select>' +
-            '<button onclick="derivarAdmision(' + a.idInforme + ')" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Derivar</button>' +
+        acciones = '<div class="caja-accion">' +
+            '<h4>Derivar al profesional</h4>' +
+            (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-3"><span><strong>Rechazado por el profesional anterior:</strong> ' + (a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
+            '<p class="texto-chico mb-1">Entrevista programada: ' + (a.fechaEntrevista || "-") + '</p>' +
+            '<p class="mb-3">Codigo de sala: <strong class="codigo-sala">' + (a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="btn-exito ms-2">Iniciar entrevista</button></p>' +
+            '<div class="campo-form mb-3"><label for="derObs">Observaciones de la entrevista</label>' +
+            '<textarea id="derObs" rows="3">' + (a.observacionesEntrevista || "") + '</textarea></div>' +
+            '<div class="campo-form"><label for="derProf">Profesional asignado</label></div>' +
+            '<div class="fila-form">' +
+            '<div class="campo-form campo-form--ancho"><select id="derProf"><option value="">Cargando...</option></select></div>' +
+            '<button class="btn-primario" onclick="derivarAdmision(' + a.idInforme + ')">Derivar</button>' +
             '</div></div>';
     }
     if (esDerivado) {
-        acciones = '<div style="background:#d1e7dd;border-radius:12px;padding:16px;margin-top:16px">' +
-            '<strong style="color:#0f5132">Derivado a: ' + (a.nombreProfesionalDerivado || "-") + '</strong>' +
-            (a.observacionesEntrevista ? '<p style="font-size:13px;margin-top:8px">' + a.observacionesEntrevista + '</p>' : "") +
+        acciones = '<div class="ui-alerta ui-alerta--ok mt-16 d-block">' +
+            '<strong>Derivado a: ' + (a.nombreProfesionalDerivado || "-") + '</strong>' +
+            (a.observacionesEntrevista ? '<p class="mt-2 mb-0">' + a.observacionesEntrevista + '</p>' : "") +
             '</div>';
     }
 
     document.getElementById("detalleAdmision").innerHTML =
-        '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08)">' +
-        '<h3 style="color:#6A5ACD;margin-bottom:16px">Informe de ' + a.nombrePaciente + '</h3>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px">' +
+        '<div class="tarjeta">' +
+        '<h3 class="tarjeta-titulo">Informe de ' + a.nombrePaciente + '</h3>' +
+        '<div class="grilla-2">' +
         campo("DNI", a.dni) +
         campo("Fecha de nacimiento", a.fechaNacimiento) +
         campo("Especialidad solicitada", a.especialidad) +
@@ -1067,7 +1066,7 @@ function verAdmision(idInforme) {
         campo("Red de apoyo", a.redApoyo) +
         campo("Objetivos del paciente", a.objetivosPaciente) +
         '</div>' +
-        '<button class="btn btn-sm btn-outline-secondary" style="margin-top:10px" onclick="verHCAdmision(' + a.idPaciente + ')">Ver Historia Clinica completa</button>' +
+        '<button class="btn btn-sm btn-outline-secondary mt-2" onclick="verHCAdmision(' + a.idPaciente + ')">Ver Historia Clinica completa</button>' +
         acciones +
         '</div>';
 
@@ -1122,26 +1121,26 @@ async function verHCAdmision(idPaciente) {
     try { sesiones = await (await fetch(API + "/pacientes/" + idPaciente + "/sesiones-clinicas")).json(); } catch(e) {}
 
     const evHtml = evoluciones.map(function(e) {
-        return '<div style="border-left:3px solid #6A5ACD;padding:8px 12px;margin-bottom:8px;background:#faf8ff">' +
+        return '<div class="item-historia">' +
             '<strong>' + new Date(e.fecha).toLocaleDateString("es-AR") + '</strong>' +
             (e.diagnostico ? '<div><em>Diagnostico:</em> ' + e.diagnostico + '</div>' : "") +
             (e.observaciones ? '<div><em>Observaciones:</em> ' + e.observaciones + '</div>' : "") +
             '</div>';
-    }).join("") || '<p style="color:#888;font-size:13px">Sin evoluciones.</p>';
+    }).join("") || '<p class="texto-suave">Sin evoluciones.</p>';
 
     const sesHtml = sesiones.map(function(s) {
-        return '<div style="border-left:3px solid #0d6efd;padding:8px 12px;margin-bottom:8px;background:#f5f9ff">' +
+        return '<div class="item-historia item-historia--sesion">' +
             '<strong>' + new Date(s.fechaHora).toLocaleDateString("es-AR") + '</strong>' +
             (s.tipoCierre ? " - " + s.tipoCierre : "") +
             (s.notasEvolucion ? '<div>' + s.notasEvolucion + '</div>' : "") +
             '</div>';
-    }).join("") || '<p style="color:#888;font-size:13px">Sin sesiones clinicas.</p>';
+    }).join("") || '<p class="texto-suave">Sin sesiones clinicas.</p>';
 
     document.getElementById("detalleAdmision").innerHTML +=
-        '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-top:16px">' +
-        '<h3 style="color:#6A5ACD">Historia Clinica - ' + (paciente !== null ? paciente.nombre : "") + '</h3>' +
-        '<h4 style="margin-top:14px;font-size:14px">Evoluciones</h4>' + evHtml +
-        '<h4 style="margin-top:14px;font-size:14px">Sesiones clinicas</h4>' + sesHtml +
+        '<div class="tarjeta mt-16">' +
+        '<h3 class="tarjeta-titulo">Historia Clinica - ' + (paciente !== null ? paciente.nombre : "") + '</h3>' +
+        '<h4 class="mt-3">Evoluciones</h4>' + evHtml +
+        '<h4 class="mt-3">Sesiones clinicas</h4>' + sesHtml +
         '</div>';
 }
 
