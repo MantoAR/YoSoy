@@ -1,9 +1,10 @@
 using Microsoft.Extensions.Options;
 
-public record ResultadoRegla(bool Ok, string Codigo = "", string Mensaje = "")
+// Link: adónde mandar a la persona para resolverlo (por ahora solo RN-02: la página de firma).
+public record ResultadoRegla(bool Ok, string Codigo = "", string Mensaje = "", string? Link = null)
 {
     public static readonly ResultadoRegla Valido = new(true);
-    public static ResultadoRegla Falla(string codigo, string mensaje) => new(false, codigo, mensaje);
+    public static ResultadoRegla Falla(string codigo, string mensaje, string? link = null) => new(false, codigo, mensaje, link);
 }
 
 public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
@@ -14,13 +15,16 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 ///         fila de Agenda disponible para ese día, alineado a los slots de
 ///         IntervaloMinutos, en el futuro y sin otro turno que no esté Cancelado
 ///         ni Rechazado.
-///  RN-02  Consentimiento firmado. Se exige al CONFIRMAR; al solicitar solo si
-///         Mensajeria:ExigirConsentimientoParaSolicitar = true.
+///  RN-02  Consentimiento informado de telemedicina vigente (tipo buscado por
+///         Descripcion, Consentimiento:TipoRequerido). Se exige al CONFIRMAR un turno
+///         (PUT /turnos/{id} cuando pasa a Confirmado y PUT /turnos/{id}/confirmar-paciente)
+///         y al solicitar solo si Mensajeria:ExigirConsentimientoParaSolicitar = true.
+///         Aplica hacia adelante: un turno que ya estaba Confirmado no se toca.
 ///  RN-05  Anticipación mínima de 24 h para pedir y para cancelar.
 ///  RN-07  Un paciente no puede tener dos turnos Pendientes o Confirmados con el
 ///         mismo profesional el mismo día.
-/// Hoy lo usa el bot. Los endpoints web existentes (POST /turnos/solicitar,
-/// PUT /turnos/{id}/cancelar) todavía NO pasan por acá: pendiente de otra rama.
+/// Lo usan el bot y, para RN-02, los endpoints de confirmación. Los demás endpoints
+/// web (POST /turnos/solicitar, PUT /turnos/{id}/cancelar) todavía NO pasan por acá.
 ///
 /// Zona horaria: Turno.Fecha y Turno.Hora se guardan como hora local sin zona.
 /// Se compara contra la hora local del servidor (TimeProvider.GetLocalNow),
@@ -34,13 +38,18 @@ public class TurnoReglasService
     private readonly ITurnoRepositorio _repo;
     private readonly TimeProvider _reloj;
     private readonly IOptionsMonitor<MensajeriaOptions> _opciones;
+    private readonly IOptionsMonitor<ConsentimientoOptions> _consentimiento;
 
-    public TurnoReglasService(ITurnoRepositorio repo, TimeProvider reloj, IOptionsMonitor<MensajeriaOptions> opciones)
+    public TurnoReglasService(ITurnoRepositorio repo, TimeProvider reloj, IOptionsMonitor<MensajeriaOptions> opciones,
+        IOptionsMonitor<ConsentimientoOptions> consentimiento)
     {
-        _repo     = repo;
-        _reloj    = reloj;
-        _opciones = opciones;
+        _repo           = repo;
+        _reloj          = reloj;
+        _opciones       = opciones;
+        _consentimiento = consentimiento;
     }
+
+    public string UrlConsentimiento => _consentimiento.CurrentValue.UrlFirma;
 
     public DateTime Ahora => _reloj.GetLocalNow().DateTime;
 
@@ -99,8 +108,8 @@ public class TurnoReglasService
             return ResultadoRegla.Falla("RN-07", "Ya tenés un turno con ese profesional ese día.");
 
         // RN-02 (solo si se configuró el modo estricto)
-        if (_opciones.CurrentValue.ExigirConsentimientoParaSolicitar && !_repo.TieneConsentimiento(idPaciente))
-            return ResultadoRegla.Falla("RN-02", "Antes de pedir un turno tenés que firmar el consentimiento informado.");
+        if (_opciones.CurrentValue.ExigirConsentimientoParaSolicitar && !TieneConsentimiento(idPaciente))
+            return ResultadoRegla.Falla("RN-02", "Antes de pedir un turno tenés que firmar el consentimiento informado.", UrlConsentimiento);
 
         return ResultadoRegla.Valido;
     }
@@ -132,7 +141,37 @@ public class TurnoReglasService
             : new ResultadoSolicitud(ResultadoRegla.Valido, id);
     }
 
-    public bool TieneConsentimiento(int idPaciente) => _repo.TieneConsentimiento(idPaciente);
+    public bool TieneConsentimiento(int idPaciente) =>
+        _repo.TieneConsentimiento(idPaciente, _consentimiento.CurrentValue.TipoRequerido);
+
+    /// <summary>
+    /// RN-02 para un turno que va a pasar a Confirmado. Si ya estaba Confirmado no se
+    /// valida (la regla aplica hacia adelante). Turno null = no hay nada que validar.
+    /// </summary>
+    public ResultadoRegla ValidarPasoAConfirmado(Turno? actual)
+    {
+        if (actual is null || _repo.DescripcionEstado(actual.IdEstadoTurno) == "Confirmado")
+            return ResultadoRegla.Valido;
+        return TieneConsentimiento(actual.IdPaciente)
+            ? ResultadoRegla.Valido
+            : ResultadoRegla.Falla("RN-02",
+                "El paciente todavía no firmó el consentimiento informado para atención por telemedicina. " +
+                "Tiene que firmarlo antes de que se confirme el turno.", UrlConsentimiento);
+    }
+
+    /// <summary>
+    /// RN-02 para PUT /turnos/{id}, que recibe el turno entero: solo se valida si el
+    /// cambio lo lleva a Confirmado. Rechazar, cancelar o editar otros datos no se frena.
+    /// </summary>
+    public ResultadoRegla ValidarCambioDeEstado(Turno? anterior, Turno nuevo)
+    {
+        if (anterior is null || _repo.DescripcionEstado(nuevo.IdEstadoTurno) != "Confirmado")
+            return ResultadoRegla.Valido;
+        return ValidarPasoAConfirmado(new Turno
+        {
+            IdTurno = anterior.IdTurno, IdPaciente = nuevo.IdPaciente, IdEstadoTurno = anterior.IdEstadoTurno
+        });
+    }
 
     public ResultadoRegla ValidarCancelacion(Turno t, int idPaciente)
     {

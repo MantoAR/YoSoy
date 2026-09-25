@@ -8,7 +8,7 @@ public interface ITurnoRepositorio
     List<Agenda> AgendaDe(int idProfesional);
     List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha);
     int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha);
-    bool TieneConsentimiento(int idPaciente);
+    bool TieneConsentimiento(int idPaciente, string descripcionTipo);
     Turno? ObtenerTurno(int idTurno);
     string? DescripcionEstado(int idEstadoTurno);
     int? IdEstado(string descripcion);
@@ -59,17 +59,9 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         return (int)cmd.ExecuteScalar();
     }
 
-    // Un consentimiento cuenta si no fue dado de baja (ConsentimientoDAO.Baja lo pasa a 'Inactivo').
-    public bool TieneConsentimiento(int idPaciente)
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(@"
-            SELECT COUNT(*) FROM Consentimiento
-            WHERE IdPaciente = @IdPac AND ISNULL(Estado, 'Activo') <> 'Inactivo'", con);
-        cmd.Parameters.AddWithValue("@IdPac", idPaciente);
-        return (int)cmd.ExecuteScalar() > 0;
-    }
+    // Misma consulta que usa la página de firma (ConsentimientoDAO.ObtenerVigente).
+    public bool TieneConsentimiento(int idPaciente, string descripcionTipo) =>
+        new ConsentimientoDAO().ObtenerVigente(idPaciente, descripcionTipo) != null;
 
     public string? DescripcionEstado(int idEstadoTurno)
     {

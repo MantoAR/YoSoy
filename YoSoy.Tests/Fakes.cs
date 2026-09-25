@@ -12,12 +12,14 @@ public class RelojFijo : TimeProvider
     public void Avanzar(TimeSpan t) => Ahora += t;
 }
 
-public class OpcionesFijas : IOptionsMonitor<MensajeriaOptions>
+public class OpcionesFijas<T> : IOptionsMonitor<T> where T : new()
 {
-    public MensajeriaOptions CurrentValue { get; } = new();
-    public MensajeriaOptions Get(string? name) => CurrentValue;
-    public IDisposable? OnChange(Action<MensajeriaOptions, string?> listener) => null;
+    public T CurrentValue { get; } = new();
+    public T Get(string? name) => CurrentValue;
+    public IDisposable? OnChange(Action<T, string?> listener) => null;
 }
+
+public class OpcionesFijas : OpcionesFijas<MensajeriaOptions> { }
 
 public class BaseEnMemoria
 {
@@ -31,7 +33,10 @@ public class BaseEnMemoria
     public Dictionary<int, List<int>> Asignaciones = new();       // IdPaciente → IdProfesional
     public List<Agenda> Agenda = new();
     public List<Turno> Turnos = new();
+    // Pacientes con el consentimiento de telemedicina (el tipo que exige RN-02) y con otros tipos.
+    public const string TipoTelemedicina = "Consentimiento Informado - Atención por Telemedicina";
     public HashSet<int> ConConsentimiento = new();
+    public HashSet<int> ConOtroConsentimiento = new();
     public List<PreguntaFrecuente> Faq = new();
     private int _siguienteTurno = 100;
 
@@ -65,7 +70,10 @@ public class FakeTurnoRepositorio : ITurnoRepositorio
         .Count(t => t.IdPaciente == idPaciente && t.IdProfesional == idProfesional && t.Fecha == fecha.Date
                     && _db.Estados[t.IdEstadoTurno] is "Pendiente" or "Confirmado");
 
-    public bool TieneConsentimiento(int idPaciente) => _db.ConConsentimiento.Contains(idPaciente);
+    public bool TieneConsentimiento(int idPaciente, string descripcionTipo) =>
+        descripcionTipo == BaseEnMemoria.TipoTelemedicina
+            ? _db.ConConsentimiento.Contains(idPaciente)
+            : _db.ConOtroConsentimiento.Contains(idPaciente);
     public Turno? ObtenerTurno(int idTurno) => _db.Turnos.FirstOrDefault(t => t.IdTurno == idTurno);
     public string? DescripcionEstado(int idEstadoTurno) => _db.Estados.GetValueOrDefault(idEstadoTurno);
     public int? IdEstado(string descripcion) => _db.Estados.Where(e => e.Value == descripcion).Select(e => (int?)e.Key).FirstOrDefault();

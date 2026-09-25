@@ -508,10 +508,12 @@ app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador) =>
     return Results.Created("/turnos", t);
 });
 
-app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador) =>
+app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador, TurnoReglasService reglas) =>
 {
     t.IdTurno = id;
     var anterior = new TurnoDAO().ObtenerPorId(id);
+    var rn02 = reglas.ValidarCambioDeEstado(anterior, t);
+    if (!rn02.Ok) return rn02.ComoConflicto();
     new TurnoDAO().Modificar(t);
     if (anterior != null) notificador.CambioDeEstado(id, anterior.IdEstadoTurno);
     return Results.Ok(t);
@@ -1276,8 +1278,10 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INoti
 
 
 // ── Paciente confirma el turno propuesto ────────────────────
-app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notificador) =>
+app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notificador, TurnoReglasService reglas) =>
 {
+    var rn02 = reglas.ValidarPasoAConfirmado(new TurnoDAO().ObtenerPorId(id));
+    if (!rn02.Ok) return rn02.ComoConflicto();
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -1363,6 +1367,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 });
 
 app.MapMensajeria();
+app.MapConsentimiento();
 
 app.Run();
 

@@ -10,6 +10,7 @@ public class Escenario
     public readonly BaseEnMemoria Db = new();
     public readonly RelojFijo Reloj = new(Jueves0900);
     public readonly OpcionesFijas Opciones = new();
+    public readonly OpcionesFijas<ConsentimientoOptions> Consentimiento = new();
     public readonly FakeConversaciones Conversaciones;
     public readonly FakeServicioMensajes Mensajes = new();
     public readonly FakeRecordatorios Recordatorios = new();
@@ -24,7 +25,8 @@ public class Escenario
         op.PalabrasClinicas  = new() { "ansiedad", "medicación" };
         op.LineasEmergencia  = new() { new LineaEmergencia { Nombre = "Emergencias", Telefono = "[COMPLETAR Y VALIDAR]" } };
         op.UrlRegistroWeb    = "https://yosoy.test/registro";
-        op.UrlConsentimiento = "https://yosoy.test/consentimiento";
+        Consentimiento.CurrentValue.TipoRequerido = BaseEnMemoria.TipoTelemedicina;
+        Consentimiento.CurrentValue.UrlFirma      = "https://yosoy.test/consentimiento";
 
         Db.Pacientes.Add(new Paciente { IdPaciente = 1, Nombre = "Juan García", Dni = "30000001", Telefono = TelJuan, Estado = "Activo" });
         Db.Pacientes.Add(new Paciente { IdPaciente = 2, Nombre = "Ana Torres", Dni = "31000002", Telefono = null!, Estado = "Activo" });
@@ -35,7 +37,7 @@ public class Escenario
         Db.Faq.Add(new PreguntaFrecuente { IdPregunta = 1, Pregunta = "¿Cómo pido un turno?", Respuesta = "Por este chat o por la web.", Orden = 1 });
 
         Conversaciones = new FakeConversaciones(Reloj);
-        Reglas = new TurnoReglasService(new FakeTurnoRepositorio(Db), Reloj, Opciones);
+        Reglas = new TurnoReglasService(new FakeTurnoRepositorio(Db), Reloj, Opciones, Consentimiento);
         Bot = new BotReservasService(Conversaciones, Mensajes, new FakeDatos(Db), new FakeFaq(Db), Recordatorios,
             Reglas, Notificador, new InterpreteMenu(), new FiltroSeguridad(Opciones), Opciones, Reloj);
     }

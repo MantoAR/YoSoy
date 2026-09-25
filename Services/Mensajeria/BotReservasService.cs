@@ -396,7 +396,7 @@ public class BotReservasService
         if (!resultado.Regla.Ok)
         {
             var motivo = resultado.Regla.Mensaje;
-            if (resultado.Regla.Codigo == "RN-02") motivo += $" Podés firmarlo en la web: {Op.UrlConsentimiento}";
+            if (resultado.Regla.Link != null) motivo += $" Podés firmarlo en la web: {resultado.Regla.Link}";
             r.Add($"No pude registrar el turno: {motivo}");
             // Si el horario dejó de servir, se ofrecen los que siguen libres.
             if (resultado.Regla.Codigo is "RN-01" or "RN-05") OfrecerHorarios(c, ctx, idProf, nombre, r);
@@ -408,7 +408,7 @@ public class BotReservasService
                      "Queda pendiente hasta que tu profesional lo confirme; te vamos a avisar por acá.";
         if (!_reglas.TieneConsentimiento(idPaciente))
             texto2 += "\n\nImportante: antes de tu primera sesión vas a tener que firmar el consentimiento " +
-                      $"informado. Podés hacerlo en la web: {Op.UrlConsentimiento}";
+                      $"informado. Podés hacerlo en la web: {_reglas.UrlConsentimiento}";
         r.Add(texto2 + "\n\n" + PieMenu);
 
         _notificador.TurnoSolicitado(resultado.IdTurno!.Value, respondidoPorChat: true);

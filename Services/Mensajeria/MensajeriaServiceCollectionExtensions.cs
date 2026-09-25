@@ -37,6 +37,8 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<ITurnoRepositorio, TurnoRepositorioDAO>();
 
         services.AddSingleton<IServicioMensajes, ServicioMensajes>();
+        // TurnoReglasService también aplica RN-02 en los endpoints de confirmación de turnos.
+        services.AddOptions<ConsentimientoOptions>().Bind(config.GetSection(ConsentimientoOptions.Seccion));
         services.AddSingleton<TurnoReglasService>();
         services.AddSingleton<FiltroSeguridad>();
         // Para pasar a una IA conversacional alcanza con cambiar esta línea.

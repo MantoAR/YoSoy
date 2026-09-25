@@ -80,6 +80,61 @@ public class ConsentimientoDAO
         return lista;
     }
 
+    // RN-02: consentimiento vigente de un tipo (buscado por Descripcion). No hay
+    // vencimiento en el modelo: vigente = existe y no fue dado de baja ('Inactivo').
+    public Consentimiento? ObtenerVigente(int idPaciente, string descripcionTipo)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT TOP 1 c.IdConsentimiento, c.IdPaciente, c.IdTipoConsentimiento, c.Version, c.FechaFirma, c.Estado
+            FROM Consentimiento c
+            JOIN TipoConsentimiento tc ON tc.IdTipoConsentimiento = c.IdTipoConsentimiento
+            WHERE c.IdPaciente = @IdPac AND tc.Descripcion = @Tipo
+              AND ISNULL(c.Estado, 'Activo') <> 'Inactivo'
+            ORDER BY c.FechaFirma DESC", con);
+        cmd.Parameters.AddWithValue("@IdPac", idPaciente);
+        cmd.Parameters.AddWithValue("@Tipo",  descripcionTipo);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? Mapear(reader) : null;
+    }
+
+    /// <summary>
+    /// Registra la firma solo si no hay una vigente del mismo tipo. Chequeo e inserción
+    /// van en una transacción con UPDLOCK/HOLDLOCK para que un doble clic no deje dos filas.
+    /// Devuelve 1 si firmó, 0 si ya estaba firmado y -1 si el tipo no existe en la base.
+    /// </summary>
+    public int FirmarSiNoExiste(int idPaciente, string descripcionTipo, string version, DateTime fechaHora)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SET XACT_ABORT ON;
+            DECLARE @IdTipo INT = (SELECT IdTipoConsentimiento FROM TipoConsentimiento WHERE Descripcion = @Tipo);
+            DECLARE @Resultado INT = -1;
+            IF @IdTipo IS NOT NULL
+            BEGIN
+                BEGIN TRAN;
+                IF EXISTS (SELECT 1 FROM Consentimiento WITH (UPDLOCK, HOLDLOCK)
+                           WHERE IdPaciente = @IdPac AND IdTipoConsentimiento = @IdTipo
+                             AND ISNULL(Estado, 'Activo') <> 'Inactivo')
+                    SET @Resultado = 0;
+                ELSE
+                BEGIN
+                    INSERT INTO Consentimiento (IdPaciente, IdTipoConsentimiento, Version, FechaFirma, Estado)
+                    VALUES (@IdPac, @IdTipo, @Version, @Fecha, 'Activo');
+                    SET @Resultado = 1;
+                END
+                COMMIT;
+            END
+            SELECT @Resultado;", con);
+        cmd.Parameters.AddWithValue("@IdPac",   idPaciente);
+        cmd.Parameters.AddWithValue("@Tipo",    descripcionTipo);
+        cmd.Parameters.AddWithValue("@Version", version.Length > 20 ? version[..20] : version);
+        cmd.Parameters.AddWithValue("@Fecha",   fechaHora);
+        return (int)cmd.ExecuteScalar();
+    }
+
     private Consentimiento Mapear(SqlDataReader r) => new Consentimiento
     {
         IdConsentimiento     = (int)r["IdConsentimiento"],

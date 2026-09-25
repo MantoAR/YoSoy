@@ -18,7 +18,6 @@ public class MensajeriaOptions
     public bool SoloLocal { get; set; } = true;
 
     public string UrlRegistroWeb { get; set; } = "";
-    public string UrlConsentimiento { get; set; } = "";
     public string UrlIngresoTurno { get; set; } = "";
 
     // RN-02: por defecto el bot crea el turno Pendiente aunque falte el
