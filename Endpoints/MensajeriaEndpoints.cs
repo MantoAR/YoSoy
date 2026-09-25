@@ -5,29 +5,14 @@ using Microsoft.Extensions.Options;
 // administrador), preguntas frecuentes y avisos internos. Se registran con
 // app.MapMensajeria() en Program.cs.
 //
-// ADVERTENCIA: el backend todavía no tiene autenticación real. Estos endpoints
-// exponen conversaciones de pacientes (datos sensibles, Ley 25.326), así que:
-//  - se apagan todos con Mensajeria:ChatSimuladoHabilitado = false, y
-//  - con Mensajeria:SoloLocal = true (por defecto) rechazan pedidos que no vengan
-//    de la propia máquina. Ojo: detrás de un proxy o túnel local (por ejemplo
-//    cloudflared) el pedido llega desde 127.0.0.1 y ese control no alcanza.
+// ADVERTENCIA: el backend todavía no tiene autenticación real y estos endpoints
+// exponen datos sensibles de pacientes (Ley 25.326). Ver RequiereMensajeriaHabilitada.
 // No publicar esto en una URL pública.
-// TODO(JWT): al mergear videollamadas-seguras, exigir el token firmado y el rol
-// de administrador (igual que el TODO de Services/AutorizacionReporte.cs) en
-// todo el grupo salvo /simulado/entrante, que en producción pasa a ser el webhook
-// del canal real con su propia validación de firma.
 public static class MensajeriaEndpoints
 {
     public static IEndpointRouteBuilder MapMensajeria(this IEndpointRouteBuilder app)
     {
-        var g = app.MapGroup("/mensajeria").AddEndpointFilter(async (ctx, next) =>
-        {
-            var op = ctx.HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
-            if (!op.ChatSimuladoHabilitado) return Results.NotFound();
-            if (op.SoloLocal && !EsLocal(ctx.HttpContext))
-                return Results.Json(new { mensaje = "El chat simulado solo está disponible desde el servidor." }, statusCode: 403);
-            return await next(ctx);
-        });
+        var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada();
 
         // ── Chat simulado: lado paciente ────────────────────────
         g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, BotReservasService bot, IMessageChannel canal) =>
@@ -171,6 +156,29 @@ public static class MensajeriaEndpoints
 
         return app;
     }
+
+    // PUNTO DE CONTROL DE ACCESO DEL MÓDULO DE MENSAJERÍA
+    // ADVERTENCIA: esto NO es autenticación. No sabe quién pide los datos: solo
+    // permite apagar el módulo entero (Mensajeria:ChatSimuladoHabilitado = false) y,
+    // con Mensajeria:SoloLocal = true, rechazar pedidos que no vengan de la propia
+    // máquina. Cualquiera que llegue al servidor con el módulo encendido puede leer
+    // conversaciones, DNI, teléfonos y turnos (por ejemplo /conversaciones/{id}/paciente
+    // recorriendo ids). Detrás de un proxy o túnel local (Caddy, cloudflared) el pedido
+    // llega desde 127.0.0.1 y SoloLocal tampoco alcanza. Es una mitigación temporal
+    // y no satisface la Ley 25.326 ni el secreto profesional.
+    // Responde 404 (no 403) en ambos casos para no confirmar que el endpoint existe.
+    // TODO(JWT): al mergear videollamadas-seguras, exigir en este filtro el token
+    // firmado (JwtService.Validar) y el rol de administrador, igual que el TODO de
+    // Services/AutorizacionReporte.cs, para todo el grupo salvo /simulado/entrante,
+    // que en producción pasa a ser el webhook del canal real con su propia firma.
+    public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
+        grupo.AddEndpointFilter(async (ctx, next) =>
+        {
+            var op = ctx.HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
+            if (!op.ChatSimuladoHabilitado) return Results.NotFound();
+            if (op.SoloLocal && !EsLocal(ctx.HttpContext)) return Results.NotFound();
+            return await next(ctx);
+        });
 
     private static bool EsLocal(HttpContext http)
     {
