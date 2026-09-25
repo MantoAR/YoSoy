@@ -165,9 +165,10 @@ dotnet run
    ```bash
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_columnas_faltantes.sql
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_mensajeria.sql
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_consentimiento_telemedicina.sql
    ```
    `-f 65001` hace falta para que los acentos de las preguntas frecuentes de ejemplo se guarden bien. También se pueden abrir y ejecutar en SQL Server Management Studio.
-2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y `UrlConsentimiento`.
+2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y el texto legal del consentimiento (ver [RN-02](#rn-02-consentimiento-de-telemedicina)).
 3. `dotnet run` y abrir `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html`.
 
 ### Cómo probarlo
@@ -175,7 +176,7 @@ dotnet run
 - **Modo paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
 - **Modo administrador:** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos.
 - **Recordatorios sin esperar:** `POST /mensajeria/recordatorios/ejecutar` corre una pasada del servicio.
-- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (83 pruebas del intérprete, las reglas de turnos y la máquina de estados del bot, con dobles en memoria; no necesitan base de datos).
+- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (89 pruebas del intérprete, las reglas de turnos, incluida RN-02 al confirmar, y la máquina de estados del bot, con dobles en memoria; no necesitan base de datos).
 
 > ⚠️ **Mails reales:** si la sección `Email` de la configuración está completa, los recordatorios y el aviso al profesional **se envían de verdad**. Para probar sin mandar mails, levantar la app con la contraseña en blanco: en PowerShell `$env:Email__Password = " "; dotnet run`. En ese caso el envío queda registrado como `Omitido`.
 
@@ -192,7 +193,7 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | `MaxIntentosEnvio` | `3` | Reintentos de un aviso que dio error. |
 | `ChatSimuladoHabilitado` | `true` | Apaga todos los endpoints `/mensajeria` (responden 404). |
 | `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. |
-| `UrlRegistroWeb`, `UrlConsentimiento`, `UrlIngresoTurno` | | Links que manda el bot. `UrlConsentimiento` es un placeholder. |
+| `UrlRegistroWeb`, `UrlIngresoTurno` | | Links que manda el bot. El de firma del consentimiento sale de `Consentimiento:UrlFirma`. |
 | `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
 | `DiasBusquedaHorarios`, `MaxHorariosOfrecidos` | `14`, `5` | Búsqueda de horarios libres. |
 | `PalabrasRiesgo` | lista | Frases que disparan el mensaje de emergencia. **Obligatoria:** la app no arranca si está vacía. |
@@ -217,20 +218,45 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 
 ### Reglas de negocio de turnos
 
-Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasService.cs`. **Hoy solo las usa el bot**; los endpoints web existentes no se modificaron en esta rama.
+Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasService.cs`, que es el único punto de verdad. Las usa el bot y, para RN-02, también los endpoints web que confirman turnos. RN-01, RN-05 y RN-07 todavía no se aplican en los endpoints web.
 
 | Regla | Bot | Web (hoy) |
 |---|---|---|
 | RN-01 Disponibilidad real de agenda (franja, intervalo, futuro, horario libre) | ✅ Backend | Solo en el frontend (arma los horarios con la agenda y `/turnos/ocupados`) |
-| RN-02 Consentimiento firmado antes de confirmar | Avisa al solicitar; modo estricto opcional | ❌ No se valida en ningún lado |
+| RN-02 Consentimiento de telemedicina antes de confirmar | Avisa al solicitar con el link para firmar; modo estricto opcional | ✅ Backend al confirmar (ver abajo) |
 | RN-05 Anticipación mínima de 24 h para pedir y cancelar | ✅ Backend | ❌ No se valida |
 | RN-07 Un solo turno Pendiente/Confirmado por paciente, profesional y día | ✅ Backend, versión documentada | Solo en el frontend y distinta: bloquea el día entero con **cualquier** profesional |
+
+### RN-02: consentimiento de telemedicina
+
+- **Qué se exige:** una fila en `Consentimiento` del tipo `Consentimiento Informado - Atención por Telemedicina` (buscado por descripción) que no esté `Inactivo`. El modelo no tiene vencimiento.
+- **Dónde:** `PUT /turnos/{id}` cuando el turno *pasa* a Confirmado (así confirma el profesional) y `PUT /turnos/{id}/confirmar-paciente` (el paciente acepta un turno propuesto). Si falta, **409** `{ codigo: "RN-02", mensaje, urlConsentimiento }` y el turno no cambia.
+- **Hacia adelante:** los turnos que ya estaban Confirmados no se tocan, y rechazar o cancelar no se frena.
+- **Sesiones:** la falta de consentimiento nunca bloquea una sala. En "Ir a sala" de una sesión común el turno queda sin confirmar y el profesional ve un aviso persistente de que el paciente no firmó. La sesión urgente no se toca.
+- **Firma:** `PANTALLAS/Pantalla_Paciente/consentimiento.html` (pestaña "Consentimiento" del panel del paciente). Muestra el texto, se firma con un botón explícito y guarda fecha y hora. Si ya está firmado lo muestra y no deja firmar de nuevo.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/pacientes/{id}/consentimiento-telemedicina` | `{ firmado, fechaFirma, versionFirmada, tipo, versionTexto }`. |
+| POST | `/pacientes/{id}/consentimiento-telemedicina` | `{ acepto: true, version }`. 201 si firmó; 409 si ya estaba firmado o si la versión del texto cambió; 400 sin aceptación explícita. |
+
+Configuración (`appsettings.json` → `Consentimiento`):
+
+| Clave | Por defecto | Para qué sirve |
+|---|---|---|
+| `TipoRequerido` | `Consentimiento Informado - Atención por Telemedicina` | Tipo que exige RN-02 (lo crea `migrations/add_consentimiento_telemedicina.sql`). |
+| `VersionTexto` | `sin-validar` | Versión del texto legal; se guarda con cada firma. Cambiarla al cargar el texto validado. |
+| `UrlFirma` | `.../Pantalla_Paciente/consentimiento.html` | Link de firma que usan el bot y los mensajes de error. |
 
 ### Archivos existentes modificados
 
 - `Program.cs`: registra `EmailService` y `AddMensajeria`, agrega `app.MapMensajeria()` y una llamada al notificador en `POST /turnos/solicitar`, `PUT /turnos/{id}` (lee el estado anterior para detectar confirmación o rechazo), `PUT /turnos/{id}/cancelar`, `PUT /turnos/{id}/confirmar-paciente` y `POST /turnos/profesional-solicitar`. Un error al notificar nunca hace fallar al endpoint.
 - `Services/EmailService.cs`: nuevo método `EnviarAviso`.
-- `appsettings.json`: nueva sección `Mensajeria`.
+- `appsettings.json`: nuevas secciones `Mensajeria` y `Consentimiento`.
+- `Program.cs` (RN-02): `PUT /turnos/{id}` y `PUT /turnos/{id}/confirmar-paciente` validan el consentimiento antes de guardar (dos líneas cada uno) y se agrega `app.MapConsentimiento()`.
+- `DAOs/ConsentimientoDAO.cs`: métodos nuevos `ObtenerVigente` y `FirmarSiNoExiste`; lo existente no cambia.
+- `PANTALLAS/Pantalla_Paciente/dashboard.html` y `js/dashboard.js`: pestaña "Consentimiento" y ofrecimiento de firmar al aceptar un turno propuesto sin consentimiento.
+- `PANTALLAS/Pantalla_Profesional/js/nuevo_dashboard.js`: aviso con el link al confirmar sin consentimiento, y aviso persistente en "Ir a sala".
 - `YoSoy.csproj` y `YoSoy.sln`: excluyen y agregan el proyecto de pruebas.
 
 ### Limitaciones conocidas y pendientes
@@ -241,7 +267,8 @@ Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasServic
 - **Pensado para PC.** La pantalla de mensajería se diseña para PC/notebook; el uso desde el celular lo va a cubrir la app mobile aparte. Lo que ya existe para pantallas chicas quedó como está, sin más trabajo.
 - **Identificación por DNI:** quien conozca el DNI de un paciente puede vincular otro teléfono y ver o cancelar sus turnos. El tope de 3 intentos solo evita probar DNIs al azar. Pendiente: verificación adicional (por ejemplo, un código por mail) antes de vincular un teléfono nuevo.
 - Un celular cargado con el `15` delante del número no se reconoce por teléfono y cae en el flujo de DNI.
-- Reglas RN-01, RN-05 y RN-07 en los endpoints web, y RN-02 al confirmar (lado profesional): pendientes. También falta la página para firmar el consentimiento: hoy el registro solo muestra una casilla y no guarda ninguna fila en `Consentimiento`.
+- Reglas RN-01, RN-05 y RN-07 en los endpoints web: pendientes.
+- **Consentimiento:** el texto legal es un placeholder (`[COMPLETAR CON TEXTO LEGAL VALIDADO]`) hasta que el equipo lo valide. La firma usa el `idPaciente` del navegador: sin autenticación real cualquiera podría firmar por otro paciente, y eso no tiene validez como consentimiento informado (`TODO(JWT)` en `Endpoints/ConsentimientoEndpoints.cs`). El "Acuerdo de Atención al Paciente" del registro sigue sin guardar ninguna fila, y no hay pantalla para revocar un consentimiento.
 - Las notificaciones internas se ven solo en el modo administrador del chat simulado; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
 - `DELETE /turnos/{id}` y el `POST /turnos` genérico no disparan avisos.
 - La reprogramación y el modal de turno de la web arman horarios de 60 minutos fijos en lugar de usar `IntervaloMinutos`.
