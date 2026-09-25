@@ -424,23 +424,42 @@ async function agenda() {
 
     const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
     slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
+    _agendaSlotsProf = slots;
 
     c.innerHTML = `
         <div class="titulo-seccion">Mi Agenda</div>
 
-        <div class="card" style="margin-bottom:20px">
-            <div class="cal-nav">
-                <button onclick="cambiarMesProfesional(-1)">&#8249;</button>
-                <span class="cal-mes" id="calTituloProfesional"></span>
-                <button onclick="cambiarMesProfesional(1)">&#8250;</button>
-            </div>
-            <div class="cal-grid" id="calGridProfesional"></div>
-        </div>
-        <div class="panel-turno-prof" id="panelTurnoProfesional" style="margin-bottom:20px"></div>
-
         <div class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <div class="titulo-seccion" style="margin-bottom:0">Mis horarios de trabajo</div>
+            <div class="agenda-toolbar">
+                <div class="agenda-nav">
+                    <button class="btn-secundario" onclick="irAHoyProf()">Hoy</button>
+                    <button class="btn-secundario" onclick="navegarAgendaProf(-1)" aria-label="Anterior">&#8249;</button>
+                    <button class="btn-secundario" onclick="navegarAgendaProf(1)" aria-label="Siguiente">&#8250;</button>
+                    <span class="agenda-titulo cal-mes" id="calTituloProfesional"></span>
+                </div>
+                <div class="ui-segmentado" role="group" aria-label="Vista de la agenda">
+                    <button data-vista="dia"    onclick="cambiarVistaProf('dia')">Día</button>
+                    <button data-vista="semana" onclick="cambiarVistaProf('semana')">Semana</button>
+                    <button data-vista="mes"    onclick="cambiarVistaProf('mes')">Mes</button>
+                </div>
+            </div>
+            <div class="ui-alerta ui-alerta--info agenda-aviso-reprog oculto" id="avisoReprogProf">
+                Reprogramando: elegí el nuevo día en el calendario del mes.
+            </div>
+            <div id="vistaMesProf"><div class="cal-grid" id="calGridProfesional"></div></div>
+            <div id="vistaSemanaProf" class="oculto"></div>
+            <div class="agenda-leyenda">
+                <span class="ui-chip ui-chip--warn">Pendiente</span>
+                <span class="ui-chip ui-chip--info">Propuesto por mí</span>
+                <span class="ui-chip ui-chip--ok">Confirmado</span>
+                <span class="ui-chip ui-chip--neutral">Cancelado</span>
+            </div>
+        </div>
+        <div class="panel-turno-prof" id="panelTurnoProfesional"></div>
+
+        <div class="card mt-16">
+            <div class="card-cabecera">
+                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">Mis horarios de trabajo</div>
                 <button class="btn-ver" onclick="abrirFormNuevoHorario()">+ Agregar día</button>
             </div>
 
@@ -455,10 +474,12 @@ async function agenda() {
                                 <td>${s.dia}</td>
                                 <td>${fmtHora(s.horaInicio)}</td>
                                 <td>${fmtHora(s.horaFin)}</td>
-                                <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}" style="font-size:11px">${s.disponible ? 'Sí' : 'No'}</span></td>
-                                <td>
-                                    <button class="btn-ver" onclick="editarHorario(${s.idAgenda},'${s.dia}','${fmtHora(s.horaInicio)}','${fmtHora(s.horaFin)}',${s.disponible})">Editar</button>
-                                    <button class="btn-ver" style="margin-left:6px;background:linear-gradient(to right,#e53935,#b71c1c)" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
+                                <td>${s.intervaloMinutos ?? 30} min</td>
+                                <td>${calcularTurnos(s)}</td>
+                                <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}">${s.disponible ? 'Sí' : 'No'}</span></td>
+                                <td class="celda-acciones">
+                                    <button class="btn-ver" onclick="editarHorario(${s.idAgenda},'${s.dia}','${fmtHora(s.horaInicio)}','${fmtHora(s.horaFin)}',${s.disponible},${s.intervaloMinutos ?? 30})">Editar</button>
+                                    <button class="btn-peligro" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
                                 </td>
                             </tr>`).join('')}
                         </tbody>
@@ -466,52 +487,50 @@ async function agenda() {
                 </div>`}
             </div>
 
-            <div id="form-horario" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid #f0eaff;max-width:480px">
-                <div style="font-size:14px;font-weight:bold;color:#6A5ACD;margin-bottom:14px" id="form-horario-titulo">Agregar horario</div>
+            <div id="form-horario" class="form-horario">
+                <div class="form-horario-titulo" id="form-horario-titulo">Agregar horario</div>
                 <input type="hidden" id="fh-id">
-                <div style="display:flex;gap:12px;flex-wrap:wrap">
-                    <div class="campo" style="flex:1;min-width:140px">
-                        <label>Día</label>
-                        <select id="fh-dia" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white">
+                <div class="form-fila">
+                    <div class="campo">
+                        <label for="fh-dia">Día</label>
+                        <select id="fh-dia">
                             <option>Lunes</option><option>Martes</option><option>Miércoles</option>
                             <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
                         </select>
                     </div>
-                    <div class="campo" style="flex:1;min-width:120px">
-                        <label>Hora inicio</label>
-                        <input type="time" id="fh-inicio" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;outline:none">
+                    <div class="campo">
+                        <label for="fh-inicio">Hora inicio</label>
+                        <input type="time" id="fh-inicio">
                     </div>
-                    <div class="campo" style="flex:1;min-width:120px">
-                        <label>Hora fin</label>
-                        <input type="time" id="fh-fin" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;outline:none">
+                    <div class="campo">
+                        <label for="fh-fin">Hora fin</label>
+                        <input type="time" id="fh-fin">
                     </div>
-                    <div class="campo" style="min-width:120px">
-                        <label>Disponible</label>
-                        <select id="fh-disponible" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white">
+                    <div class="campo">
+                        <label for="fh-disponible">Disponible</label>
+                        <select id="fh-disponible">
                             <option value="true">Sí</option>
                             <option value="false">No</option>
                         </select>
                     </div>
-
-                    <div class="campo" style="flex:1;min-width:140px">
-                        <label>Intervalo de atención</label>
-                        <select id="fh-intervalo" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white" onchange="actualizarPreviewNuevo()">
+                    <div class="campo">
+                        <label for="fh-intervalo">Intervalo de atención</label>
+                        <select id="fh-intervalo">
                             <option value="15">15 minutos</option>
                             <option value="20">20 minutos</option>
                             <option value="30" selected>30 minutos</option>
                             <option value="45">45 minutos</option>
                             <option value="60">60 minutos</option>
                             <option value="90">90 minutos</option>
-                        
                         </select>
                     </div>
-
-                <div id="fh-preview" style="font-size:13px;color:#6A5ACD;margin-top:8px"></div>
-                <div style="display:flex;gap:10px;margin-top:14px">
-                    <button class="btn-guardar-perfil" style="flex:1" onclick="guardarHorario()">Guardar</button>
-                    <button style="flex:1;height:48px;border:2px solid #e0d4f5;border-radius:10px;background:white;color:#555;font-size:15px;cursor:pointer" onclick="cerrarFormHorario()">Cancelar</button>
                 </div>
-                <div id="fh-msg" style="font-size:13px;margin-top:8px"></div>
+                <div id="fh-preview" class="form-preview"></div>
+                <div class="form-acciones">
+                    <button class="btn-guardar-perfil" onclick="guardarHorario()">Guardar</button>
+                    <button class="btn-secundario" onclick="cerrarFormHorario()">Cancelar</button>
+                </div>
+                <div id="fh-msg" class="form-mensaje"></div>
             </div>
         </div>
     `;
@@ -1103,6 +1122,220 @@ async function dibujarCalendarioProfesional() {
         await Promise.all(autoconfirmarPromesas);
         await renderCalendario();
     }
+    await dibujarSemanaProfesional();
+}
+
+// ── Agenda: vistas Día / Semana / Mes ─────────────────────
+// El mes se sigue dibujando siempre (dibujarCalendarioProfesional, con la misma lógica
+// de siempre, incluida la autoconfirmación); cuando la vista es Día o Semana queda oculto
+// y además se dibuja esta grilla con los mismos turnos. Al hacer clic en un turno o en un
+// día se abre el mismo panel del día (mostrarPanelDiaProfesional) con las mismas acciones.
+// Mientras se reprograma se muestra el mes, porque ahí se elige el nuevo día.
+let _vistaAgendaProf = 'semana';
+let _fechaRefProf    = new Date();
+let _agendaSlotsProf = [];
+const HORA_PX = 64;
+const ESTADO_TURNO_LABEL = { 1: 'Pendiente', 2: 'Confirmado', 3: 'Cancelado', 4: 'Realizado' };
+
+function inicioSemanaProf(d) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    return x;
+}
+
+function diasVisiblesProf() {
+    if (_vistaAgendaProf === 'dia')
+        return [new Date(_fechaRefProf.getFullYear(), _fechaRefProf.getMonth(), _fechaRefProf.getDate())];
+    const lunes = inicioSemanaProf(_fechaRefProf);
+    return Array.from({ length: 7 }, (_, i) => new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + i));
+}
+
+function sincronizarMesProf() {
+    calAnio = _fechaRefProf.getFullYear();
+    calMes  = _fechaRefProf.getMonth();
+}
+
+async function cambiarVistaProf(vista) {
+    if (vista !== 'mes' && _vistaAgendaProf === 'mes') {
+        // Al pasar del mes a Día/Semana: el día de hoy si es este mes, si no el primero del mes.
+        const hoy = new Date();
+        _fechaRefProf = (calAnio === hoy.getFullYear() && calMes === hoy.getMonth()) ? hoy : new Date(calAnio, calMes, 1);
+    }
+    _vistaAgendaProf = vista;
+    if (vista !== 'mes') sincronizarMesProf();
+    await dibujarCalendarioProfesional();
+}
+
+async function navegarAgendaProf(delta) {
+    if (_vistaAgendaProf === 'mes' || _modoReprogramarProf) { await cambiarMesProfesional(delta); return; }
+    const paso = _vistaAgendaProf === 'dia' ? 1 : 7;
+    _fechaRefProf = new Date(_fechaRefProf.getFullYear(), _fechaRefProf.getMonth(), _fechaRefProf.getDate() + delta * paso);
+    sincronizarMesProf();
+    document.getElementById('panelTurnoProfesional')?.classList.remove('visible');
+    await dibujarCalendarioProfesional();
+}
+
+async function irAHoyProf() {
+    _fechaRefProf = new Date();
+    sincronizarMesProf();
+    if (!_modoReprogramarProf) document.getElementById('panelTurnoProfesional')?.classList.remove('visible');
+    await dibujarCalendarioProfesional();
+}
+
+// Clic en un turno o en la cabecera de un día de la grilla: mismo panel que en el mes.
+async function abrirDiaDesdeSemanaProf(anio, mes, dia) {
+    calAnio = anio; calMes = mes;
+    _diaSeleccionadoProf = dia;
+    await dibujarCalendarioProfesional();
+    await mostrarPanelDiaProfesional(dia);
+    await dibujarSemanaProfesional();   // marca el día abierto en la grilla
+    document.getElementById('panelTurnoProfesional')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function actualizarVistaAgendaProf() {
+    const mes     = document.getElementById('vistaMesProf');
+    const semana  = document.getElementById('vistaSemanaProf');
+    const titulo  = document.getElementById('calTituloProfesional');
+    if (!mes || !semana || !titulo) return;
+    const verMes = _vistaAgendaProf === 'mes' || _modoReprogramarProf;
+    mes.classList.toggle('oculto', !verMes);
+    semana.classList.toggle('oculto', verMes);
+    document.getElementById('avisoReprogProf')?.classList.toggle('oculto', !_modoReprogramarProf);
+    document.querySelectorAll('.ui-segmentado [data-vista]').forEach(b =>
+        b.classList.toggle('activo', b.dataset.vista === (verMes ? 'mes' : _vistaAgendaProf)));
+    if (verMes) return;   // el título del mes lo pone dibujarCalendarioProfesional
+    const dias = diasVisiblesProf();
+    if (_vistaAgendaProf === 'dia') {
+        titulo.textContent = dias[0].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    } else {
+        const a = dias[0], b = dias[6];
+        const fmt = d => d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
+        titulo.textContent = `${fmt(a)} – ${fmt(b)} ${b.getFullYear()}`;
+    }
+}
+
+async function dibujarSemanaProfesional() {
+    actualizarVistaAgendaProf();
+    const cont = document.getElementById('vistaSemanaProf');
+    if (!cont || cont.classList.contains('oculto')) return;
+
+    const dias = diasVisiblesProf();
+    const clave = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const porDia = {};
+    turnosCalendarioProfesional.forEach(t => {
+        const f = new Date(t.fecha);
+        (porDia[clave(f)] ??= []).push(t);
+    });
+    const visibles = dias.flatMap(d => porDia[clave(d)] ?? []);
+
+    // Nombres de pacientes (mismo caché que usa el panel del día)
+    await Promise.all([...new Set(visibles.map(t => t.idPaciente))].map(async id => {
+        if (!_pacientesCalMap[id]) {
+            try { _pacientesCalMap[id] = await (await fetch(`${API}/pacientes/${id}`)).json(); } catch {}
+        }
+    }));
+
+    // Franja horaria: la agenda de trabajo y los turnos visibles (por defecto 8 a 20)
+    const aMin = h => { const [hh, mm] = fmtHora(h).split(':').map(Number); return hh * 60 + (mm || 0); };
+    const franjasDia = d => _agendaSlotsProf.filter(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === d.getDay() && a.horaInicio && a.horaFin);
+    let desde = 8 * 60, hasta = 20 * 60;
+    const inicios = [], fines = [];
+    dias.forEach(d => franjasDia(d).forEach(a => { inicios.push(aMin(a.horaInicio)); fines.push(aMin(a.horaFin)); }));
+    visibles.forEach(t => { inicios.push(aMin(t.hora)); fines.push(aMin(t.hora) + 60); });
+    if (inicios.length) desde = Math.min(desde, Math.floor(Math.min(...inicios) / 60) * 60);
+    if (fines.length)   hasta = Math.max(hasta, Math.ceil(Math.max(...fines) / 60) * 60);
+    const alto = ((hasta - desde) / 60) * HORA_PX;
+    const y = min => ((min - desde) / 60) * HORA_PX;
+
+    const hoy = new Date();
+    const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const columnas = `56px repeat(${dias.length}, minmax(0, 1fr))`;
+
+    const cabecera = dias.map(d => {
+        const esHoy = d.getTime() === hoySinHora.getTime();
+        const esPasado = d < hoySinHora;
+        const tieneT = !!porDia[clave(d)];
+        const sel = _diaSeleccionadoProf === d.getDate() && calMes === d.getMonth() && calAnio === d.getFullYear()
+            && document.getElementById('panelTurnoProfesional')?.classList.contains('visible');
+        const click = (!esPasado || tieneT) ? `onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})"` : '';
+        return `<button class="semana-col-cab${esHoy ? ' hoy' : ''}${esPasado && !tieneT ? ' pasado' : ''}${sel ? ' seleccionado' : ''}" ${click}>
+                    <span class="dia-nombre">${DIAS[(d.getDay() + 6) % 7]}</span>
+                    <span class="dia-numero">${d.getDate()}</span>
+                </button>`;
+    }).join('');
+
+    let horas = '';
+    for (let m = desde; m <= hasta; m += 60)
+        if (m > desde) horas += `<div class="semana-hora" style="top:${y(m)}px">${String(m / 60).padStart(2, '0')}:00</div>`;
+
+    const cols = dias.map(d => {
+        let html = '';
+        for (let m = desde; m < hasta; m += 30)
+            html += `<div class="semana-linea${m % 60 ? ' media' : ''}" style="top:${y(m)}px"></div>`;
+        // Fuera del horario de trabajo: rayado suave
+        const fr = franjasDia(d).map(a => [aMin(a.horaInicio), aMin(a.horaFin)]).sort((a, b) => a[0] - b[0]);
+        let cursor = desde;
+        fr.forEach(([i, f]) => {
+            if (i > cursor) html += `<div class="semana-fuera" style="top:${y(cursor)}px;height:${y(i) - y(cursor)}px"></div>`;
+            cursor = Math.max(cursor, f);
+        });
+        if (cursor < hasta) html += `<div class="semana-fuera" style="top:${y(cursor)}px;height:${y(hasta) - y(cursor)}px"></div>`;
+        // Turnos. Los que se superponen (por ejemplo uno cancelado y otro nuevo a la
+        // misma hora) se reparten el ancho de la columna en carriles, como en cualquier calendario.
+        const intervalo = franjasDia(d)[0]?.intervaloMinutos ?? 30;
+        const items = (porDia[clave(d)] ?? [])
+            .map(t => ({ t, i: aMin(t.hora), f: aMin(t.hora) + intervalo }))
+            .sort((a, b) => a.i - b.i || a.t.idEstadoTurno - b.t.idEstadoTurno);
+        let grupo = [], finGrupo = -1;
+        const cerrarGrupo = () => {
+            const carriles = [];
+            grupo.forEach(it => {
+                let c = carriles.findIndex(fin => fin <= it.i);
+                if (c < 0) { c = carriles.length; carriles.push(0); }
+                carriles[c] = it.f; it.carril = c;
+            });
+            grupo.forEach(it => it.carriles = carriles.length);
+            grupo = []; finGrupo = -1;
+        };
+        items.forEach(it => {
+            if (grupo.length && it.i >= finGrupo) cerrarGrupo();
+            grupo.push(it); finGrupo = Math.max(finGrupo, it.f);
+        });
+        if (grupo.length) cerrarGrupo();
+        items.forEach(({ t, i: inicio, carril, carriles }) => {
+            const p = _pacientesCalMap[t.idPaciente];
+            const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
+            const alto = Math.max(22, (intervalo / 60) * HORA_PX - 3);
+            const posicion = `left:calc(3px + (100% - 6px) * ${carril} / ${carriles});width:calc((100% - 6px) / ${carriles} - 2px)`;
+            html += `<button class="bloque-turno estado-${t.idEstadoTurno}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
+                         title="${fmtHora(t.hora)} · ${nombre} · ${ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
+                         onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})">
+                        <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${nombre}</span>
+                    </button>`;
+        });
+        // Línea de "ahora"
+        if (d.getTime() === hoySinHora.getTime()) {
+            const ahora = hoy.getHours() * 60 + hoy.getMinutes();
+            if (ahora >= desde && ahora <= hasta) html += `<div class="semana-ahora" style="top:${y(ahora)}px"></div>`;
+        }
+        return `<div class="semana-col${d.getTime() === hoySinHora.getTime() ? ' hoy' : ''}" style="height:${alto}px">${html}</div>`;
+    }).join('');
+
+    const scrollPrevio = cont.querySelector('.semana-cuerpo')?.scrollTop;
+    cont.innerHTML = `
+        <div class="semana">
+            <div class="semana-cabecera" style="grid-template-columns:${columnas}"><div></div>${cabecera}</div>
+            <div class="semana-cuerpo" style="grid-template-columns:${columnas}">
+                <div class="semana-horas" style="height:${alto}px">${horas}</div>${cols}
+            </div>
+        </div>`;
+    const cuerpo = cont.querySelector('.semana-cuerpo');
+    if (scrollPrevio != null) cuerpo.scrollTop = scrollPrevio;
+    else {
+        // Primera vez: arrancar cerca del comienzo del horario de trabajo
+        const primero = Math.min(...dias.flatMap(d => franjasDia(d).map(a => aMin(a.horaInicio))), hasta);
+        cuerpo.scrollTop = Math.max(0, y(primero) - 12);
+    }
 }
 
 async function mostrarPanelDiaProfesional(dia) {
@@ -1127,13 +1360,11 @@ async function mostrarPanelDiaProfesional(dia) {
     }));
 
     const estadoLabel = { 1:'Pendiente', 2:'Confirmado', 3:'Cancelado', 4:'Realizado' };
-    const estadoColor = { 1:'#fff3cd|#856404', 2:'#d1e7dd|#0f5132', 3:'#f8d7da|#842029', 4:'#e2e3e5|#41464b' };
     const fechaStr    = `${calAnio}-${String(calMes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
     const tieneActivo = turnosDia.some(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4);
 
     const turnosHtml = turnosDia.map(t => {
         const p = _pacientesCalMap[t.idPaciente];
-        const [bg, fg] = (estadoColor[t.idEstadoTurno] ?? '#e2e3e5|#41464b').split('|');
         const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
         const puedeAccionar = t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4;
         const esPendientePaciente = t.idEstadoTurno === 1 && t.creadoPor === 'paciente';
@@ -1146,13 +1377,13 @@ async function mostrarPanelDiaProfesional(dia) {
             <div class="panel-info-principal">
                 <div class="panel-profesional">${nombre}</div>
             </div>
-            <span class="panel-estado-badge" style="background:${bg};color:${fg}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
+            <span class="panel-estado-badge estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
         </div>
         ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div></div>` : ''}
         ${esPendientePaciente ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-guardar" onclick="responderTurnoDesdeCal(${t.idTurno}, true)">Aceptar</button>
-                <button class="btn-ver" style="background:linear-gradient(to right,#e53935,#b71c1c)" onclick="responderTurnoDesdeCal(${t.idTurno}, false)">Rechazar</button>
+                <button class="btn-peligro" onclick="responderTurnoDesdeCal(${t.idTurno}, false)">Rechazar</button>
             </div>` : ''}
         ${puedeAccionar && !esPendientePaciente ? `
             <div class="panel-acciones">
@@ -1163,19 +1394,19 @@ async function mostrarPanelDiaProfesional(dia) {
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
                 <div id="reprogDetallesProf" style="display:none">
                     <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf"></div>
-                    <div class="form-fila" style="margin-top:12px">
-                        <div class="form-grupo" style="flex:1">
+                    <div class="form-fila mt-12">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Hora</label>
                             <select id="reprogHoraProf" class="turno-input"></select>
                         </div>
-                        <div class="form-grupo" style="flex:1">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Motivo</label>
                             <input type="text" id="reprogMotivoProf" class="turno-input" placeholder="Motivo del cambio...">
                         </div>
                     </div>
-                    <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarReprogramarProf(${t.idTurno})">Confirmar reprogramación</button>
+                    <button class="btn-accion btn-guardar mt-12" onclick="confirmarReprogramarProf(${t.idTurno})">Confirmar reprogramación</button>
                 </div>
-                <button class="btn-accion btn-cancelar" style="margin-top:10px" onclick="cancelarModoReprogramarProf()">Cancelar reprogramación</button>
+                <button class="btn-accion btn-cancelar mt-12" onclick="cancelarModoReprogramarProf()">Cancelar reprogramación</button>
             </div>` : ''}
         <div class="panel-separador"></div>`;
     }).join('');
@@ -1191,7 +1422,7 @@ async function mostrarPanelDiaProfesional(dia) {
         </div>
         <div class="form-solicitar-dia" id="formSolicitudProf">
             <div class="form-fila">
-                <div class="form-grupo" style="flex:1">
+                <div class="form-grupo form-grupo--ancho">
                     <label>Paciente</label>
                     <select id="solProfPac" class="turno-input" onchange="cargarHorasSolicitudProf('${fechaStr}')">
                         <option value="">Cargando...</option>
@@ -1202,14 +1433,14 @@ async function mostrarPanelDiaProfesional(dia) {
                     <select id="solProfHora" class="turno-input" disabled><option value="">Elegí un paciente</option></select>
                 </div>
             </div>
-            <div class="form-grupo" style="margin-top:8px">
+            <div class="form-grupo mt-8">
                 <label>Motivo (opcional)</label>
                 <input type="text" id="solProfMotivo" class="turno-input" placeholder="Escribí el motivo...">
             </div>
-            <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarSolicitudDiaProf('${fechaStr}')">Enviar turno al paciente</button>
+            <button class="btn-accion btn-guardar mt-12" onclick="confirmarSolicitudDiaProf('${fechaStr}')">Enviar turno al paciente</button>
         </div>` : '';
 
-    panel.innerHTML = (turnosDia.length ? turnosHtml : `<div class="sin-turnos" style="margin-bottom:10px">Sin turnos el ${dia} de ${MESES[calMes]}.</div>`) + solicitudHtml;
+    panel.innerHTML = (turnosDia.length ? turnosHtml : `<div class="sin-turnos mb-12">Sin turnos el ${dia} de ${MESES[calMes]}.</div>`) + solicitudHtml;
 
     if (!tieneActivo) cargarPacientesSolicitudProf(fechaStr);
 }
