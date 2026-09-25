@@ -251,8 +251,14 @@ body.modo-paciente .app { grid-template-columns: minmax(280px, 340px) 1fr; }
 .toast.error { background: var(--rojo); }
 
 /* ── Responsive ─────────────────────────────────── */
-/* Pantallas medianas: el panel del paciente pasa a ser un cajón lateral */
-@media (max-width: 1100px) {
+/* Pensado para PC/notebook (el uso desde el celular lo va a cubrir la app mobile
+   aparte). Notebooks chicas o con zoom: las tres columnas siguen visibles, más angostas. */
+@media (max-width: 1280px) {
+    .app { grid-template-columns: minmax(250px, 290px) 1fr minmax(230px, 260px); }
+    .mensajes { padding: 14px 4%; }
+}
+/* Por debajo de 900 px el panel del paciente pasa a ser un cajón lateral */
+@media (max-width: 900px) {
     .app, body.modo-paciente .app { grid-template-columns: minmax(260px, 320px) 1fr; }
     .btn-info { display: grid; }
     .col-info {

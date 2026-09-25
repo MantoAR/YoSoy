@@ -157,7 +157,7 @@ dotnet run
   - Centro: el hilo, con el paciente a la izquierda y el bot, el equipo y los avisos automáticos a la derecha, cada uno con su ícono. Respuesta manual (deshabilitada si la conversación está cerrada).
   - Derecha: DNI, teléfono, profesionales y próximo turno del paciente, y el botón para cerrar la derivación o marcar la urgencia como resuelta.
   - Header con contadores de urgentes y derivadas, la campanita de avisos internos y el modo "Probar como paciente" para chatear con un teléfono de prueba.
-  - Se actualiza por polling cada 2,5 s. En pantallas medianas el panel del paciente es un cajón y en el celular la lista y el chat se alternan.
+  - Se actualiza por polling cada 2,5 s. Pensada para PC: las tres columnas quedan visibles desde 900 px de ancho.
 
 ### Cómo ponerlo en marcha
 
@@ -238,6 +238,7 @@ Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasServic
 - **Sin autenticación real.** Los endpoints `/mensajeria` exponen conversaciones de pacientes. Mitigación actual: `ChatSimuladoHabilitado` y `SoloLocal`, que no alcanza detrás de un proxy o túnel local. Pendiente: exigir JWT y rol de administrador al mergear `videollamadas-seguras` (`TODO(JWT)` en el código). No publicar en una URL pública.
 - **`/mensajeria/conversaciones/{id}/paciente` expone datos sensibles del paciente (nombre, DNI, teléfono, profesionales y próximo turno) sin autenticación real**: cualquiera que llegue al servidor con el módulo encendido puede recorrer ids y armarse una lista de pacientes. Mitigado hoy con `ChatSimuladoHabilitado` (con `false`, todo `/mensajeria` responde 404, igual que un pedido no local con `SoloLocal`); pendiente de JWT.
 - **Exposición al mergear `videollamadas-seguras`:** el `Caddyfile` de esa rama publica todo lo que atiende `127.0.0.1:5000`, así que `/mensajeria/*` y `/pantallas/Pantalla_ChatSimulado/` quedarían accesibles desde afuera, y como Caddy se conecta desde 127.0.0.1, `SoloLocal` no los frena. Hasta tener JWT, en cualquier despliegue público `ChatSimuladoHabilitado` tiene que estar en `false`.
+- **Pensado para PC.** La pantalla de mensajería se diseña para PC/notebook; el uso desde el celular lo va a cubrir la app mobile aparte. Lo que ya existe para pantallas chicas quedó como está, sin más trabajo.
 - **Identificación por DNI:** quien conozca el DNI de un paciente puede vincular otro teléfono y ver o cancelar sus turnos. El tope de 3 intentos solo evita probar DNIs al azar. Pendiente: verificación adicional (por ejemplo, un código por mail) antes de vincular un teléfono nuevo.
 - Un celular cargado con el `15` delante del número no se reconoce por teléfono y cae en el flujo de DNI.
 - Reglas RN-01, RN-05 y RN-07 en los endpoints web, y RN-02 al confirmar (lado profesional): pendientes. También falta la página para firmar el consentimiento: hoy el registro solo muestra una casilla y no guarda ninguna fila en `Consentimiento`.
