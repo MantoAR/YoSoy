@@ -105,6 +105,67 @@ public class TurnoReglasServiceTests
         Assert.Equal("ESTADO", _e.Reglas.Cancelar(cancelado.IdTurno, 1).Codigo);
     }
 
+    // ── RN-02 al confirmar ──────────────────────────────────
+
+    private Turno Nuevo(Turno anterior, int idEstado) => new()
+    {
+        IdTurno = anterior.IdTurno, IdPaciente = anterior.IdPaciente, IdProfesional = anterior.IdProfesional,
+        IdEstadoTurno = idEstado, Fecha = anterior.Fecha, Hora = anterior.Hora
+    };
+
+    [Fact]
+    public void RN02_no_se_confirma_sin_consentimiento_y_devuelve_el_link_para_firmarlo()
+    {
+        var t = _e.Db.AgregarTurno(1, 10, Dia(28, 10), BaseEnMemoria.Pendiente);
+        var r = _e.Reglas.ValidarCambioDeEstado(t, Nuevo(t, BaseEnMemoria.Confirmado));
+        Assert.Equal("RN-02", r.Codigo);
+        Assert.Equal("https://yosoy.test/consentimiento", r.Link);
+        Assert.Equal("RN-02", _e.Reglas.ValidarPasoAConfirmado(t).Codigo);
+    }
+
+    [Fact]
+    public void RN02_con_el_consentimiento_de_telemedicina_se_confirma()
+    {
+        _e.Db.ConConsentimiento.Add(1);
+        var t = _e.Db.AgregarTurno(1, 10, Dia(28, 10), BaseEnMemoria.Pendiente);
+        Assert.True(_e.Reglas.ValidarCambioDeEstado(t, Nuevo(t, BaseEnMemoria.Confirmado)).Ok);
+        Assert.True(_e.Reglas.ValidarPasoAConfirmado(t).Ok);
+    }
+
+    [Fact]
+    public void RN02_un_consentimiento_de_otro_tipo_no_alcanza()
+    {
+        _e.Db.ConOtroConsentimiento.Add(1);
+        var t = _e.Db.AgregarTurno(1, 10, Dia(28, 10), BaseEnMemoria.Pendiente);
+        Assert.Equal("RN-02", _e.Reglas.ValidarPasoAConfirmado(t).Codigo);
+    }
+
+    [Fact]
+    public void RN02_rechazar_cancelar_o_editar_sin_confirmar_no_se_frena()
+    {
+        var t = _e.Db.AgregarTurno(1, 10, Dia(28, 10), BaseEnMemoria.Pendiente);
+        Assert.True(_e.Reglas.ValidarCambioDeEstado(t, Nuevo(t, BaseEnMemoria.Cancelado)).Ok);
+        Assert.True(_e.Reglas.ValidarCambioDeEstado(t, Nuevo(t, BaseEnMemoria.Pendiente)).Ok);
+    }
+
+    [Fact]
+    public void RN02_aplica_hacia_adelante_un_turno_ya_confirmado_no_se_toca()
+    {
+        var t = _e.Db.AgregarTurno(1, 10, Dia(28, 10), BaseEnMemoria.Confirmado);   // dato viejo sin consentimiento
+        Assert.True(_e.Reglas.ValidarCambioDeEstado(t, Nuevo(t, BaseEnMemoria.Confirmado)).Ok);
+        Assert.True(_e.Reglas.ValidarPasoAConfirmado(t).Ok);
+    }
+
+    [Fact]
+    public void RN02_modo_estricto_al_solicitar_usa_el_mismo_chequeo_y_link()
+    {
+        _e.Opciones.CurrentValue.ExigirConsentimientoParaSolicitar = true;
+        _e.Db.ConOtroConsentimiento.Add(1);
+        var r = _e.Reglas.ValidarSolicitud(1, 10, Dia(28, 10));
+        Assert.Equal("RN-02", r.Codigo);
+        Assert.Equal("https://yosoy.test/consentimiento", r.Link);
+    }
+
     [Theory]
     [InlineData("lunes", DayOfWeek.Monday)]
     [InlineData("Miércoles", DayOfWeek.Wednesday)]
