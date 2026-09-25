@@ -67,42 +67,33 @@ async function inicio() {
 
     // HTML de sesiones de hoy
     const sesionesHoyHtml = turnosHoy.length ? `
-        <div class="titulo-seccion" style="margin-bottom:12px">📅 Sesiones de hoy</div>
+        <div class="titulo-seccion titulo-seccion--tarjeta">Sesiones de hoy</div>
         <div class="turnos-lista">
             ${turnosHoy.map(t => `
-            <div class="turno-item" style="align-items:flex-start;flex-direction:column;gap:10px;padding:16px">
-                <div style="display:flex;align-items:center;gap:12px;width:100%">
-                    <div class="turno-fecha-bloque">
-                        <div class="turno-fecha-dia" style="font-size:22px">${t.hora}</div>
+            <div class="turno-item sesion-hoy">
+                <div class="sesion-hoy-fila">
+                    <div class="turno-fecha-bloque turno-fecha-bloque--hora">
+                        <div class="turno-fecha-dia">${t.hora}</div>
                         <div class="turno-fecha-mes">hs</div>
                     </div>
-                    <div class="turno-info" style="flex:1">
+                    <div class="turno-info">
                         <div class="turno-paciente">${t.nombrePaciente}</div>
                         ${t.motivo ? `<div class="turno-meta">${t.motivo}</div>` : ''}
                     </div>
                     ${t.codigoSala
-                        ? `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-                            <span style="background:#d4edda;color:#0f5132;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">✅ Sala lista</span>
-                            <code style="background:#f0f4ff;color:#185FA5;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:700">${t.codigoSala}</code>
+                        ? `<div class="sala-estado">
+                            <span class="ui-chip ui-chip--ok">Sala lista</span>
+                            <code class="codigo-sala">${t.codigoSala}</code>
                            </div>`
-                        : `<button onclick="generarSalaDesdeInicio(${t.idTurno})" 
-                               style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">
-                               📹 Iniciar sesión
-                           </button>`
+                        : `<button class="ui-btn ui-btn--primary" onclick="generarSalaDesdeInicio(${t.idTurno})">Iniciar sesión</button>`
                     }
                 </div>
                 ${t.codigoSala ? `
-                <div style="width:100%;display:flex;gap:8px;align-items:center;background:#f0f4ff;border-radius:8px;padding:10px 14px">
-                    <span style="font-size:12px;color:#666;flex:1">Compartí este código con el paciente:</span>
-                    <code style="font-size:15px;font-weight:700;color:#185FA5;letter-spacing:2px">${t.codigoSala}</code>
-                    <button onclick="copiarCodigo('${t.codigoSala}')" 
-                        style="background:white;border:1px solid #185FA5;color:#185FA5;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
-                        📋 Copiar
-                    </button>
-                    <button onclick="activarTab('sesion')"
-                        style="background:#185FA5;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
-                        Entrar a la sala →
-                    </button>
+                <div class="sala-codigo-fila">
+                    <span class="texto-suave">Compartí este código con el paciente:</span>
+                    <code class="codigo-sala codigo-sala--grande">${t.codigoSala}</code>
+                    <button class="ui-btn ui-btn--sm" onclick="copiarCodigo('${t.codigoSala}')">Copiar</button>
+                    <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="activarTab('sesion')">Entrar a la sala →</button>
                 </div>` : ''}
             </div>`).join('')}
         </div>` : '';
@@ -110,15 +101,12 @@ async function inicio() {
     c.innerHTML = `
         <div class="titulo-seccion">Bienvenido, ${prof?.nombre ?? 'Profesional'}</div>
 
-        ${sesionesHoyHtml ? `<div class="card" style="margin-bottom:16px;border-left:4px solid #185FA5">${sesionesHoyHtml}</div>` : ''}
+        ${sesionesHoyHtml ? `<div class="card card--acento-info">${sesionesHoyHtml}</div>` : ''}
 
-        <div class="card" style="margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <div class="titulo-seccion" style="margin-bottom:0">Próximo turno</div>
-                <button onclick="citaUrgente()" 
-                    style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
-                    ⚡ Cita urgente
-                </button>
+        <div class="card">
+            <div class="card-cabecera">
+                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">Próximo turno</div>
+                <button class="btn-urgente btn-ver" onclick="citaUrgente()">Cita urgente</button>
             </div>
             ${proximo ? `
             <div class="turno-proximo">
@@ -137,41 +125,34 @@ async function inicio() {
             </div>` : '<div class="sin-turnos">No tenés turnos próximos.</div>'}
         </div>
 
-        <div class="card" style="margin-bottom:16px;border-left:4px solid #28a745">
-            <div class="titulo-seccion" style="margin-bottom:16px;color:#0f5132">👥 Pacientes hoy</div>
+        <div class="card">
+            <div class="titulo-seccion titulo-seccion--tarjeta">Pacientes hoy</div>
             <div id="pacientes-hoy-contenido"><div class="spinner">Cargando...</div></div>
         </div>
 
         <div class="card" id="card-pendientes">
-            <div class="titulo-seccion" style="margin-bottom:16px">Turnos pendientes de confirmación</div>
+            <div class="titulo-seccion titulo-seccion--tarjeta">Turnos pendientes de confirmación</div>
             <div id="pendientes-contenido"><div class="spinner">Cargando...</div></div>
         </div>
 
-        <!-- Panel cita urgente -->
+        <!-- Panel cita urgente (citaUrgente() alterna style.display) -->
         <div id="panel-urgente" style="display:none">
-            <div class="card" style="margin-top:16px;border-left:4px solid #e53935">
-                <div class="titulo-seccion" style="margin-bottom:12px;color:#b71c1c">⚡ Cita urgente</div>
-                <p style="font-size:13px;color:#666;margin-bottom:14px">
+            <div class="card card--acento-danger">
+                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--danger">Cita urgente</div>
+                <p class="texto-suave mb-12">
                     Seleccioná el paciente, generá la sala al instante y el código le llega por notificación.
                 </p>
-                <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                    <div style="flex:1;min-width:200px">
-                        <label style="font-size:12px;font-weight:600;color:#6A5ACD;display:block;margin-bottom:4px">Paciente</label>
-                        <select id="urgente-paciente" 
-                            style="width:100%;padding:10px;border:2px solid #e0d4f5;border-radius:10px;font-size:14px">
+                <div class="form-fila form-fila--abajo">
+                    <div class="campo campo--ancho">
+                        <label for="urgente-paciente">Paciente</label>
+                        <select id="urgente-paciente">
                             <option value="">Cargando...</option>
                         </select>
                     </div>
-                    <button onclick="confirmarCitaUrgente()"
-                        style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:14px;height:44px">
-                        Generar sala y notificar
-                    </button>
-                    <button onclick="document.getElementById('panel-urgente').style.display='none'"
-                        style="background:#eee;color:#555;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px;height:44px">
-                        Cancelar
-                    </button>
+                    <button class="ui-btn btn-urgente" onclick="confirmarCitaUrgente()">Generar sala y notificar</button>
+                    <button class="ui-btn" onclick="document.getElementById('panel-urgente').style.display='none'">Cancelar</button>
                 </div>
-                <div id="urgente-resultado" style="margin-top:12px"></div>
+                <div id="urgente-resultado" class="mt-12"></div>
             </div>
         </div>
     `;
@@ -328,11 +309,6 @@ async function renderPacientesHoy() {
         } catch {}
     }));
 
-    const estadoBadge = {
-        1: 'background:#fff3cd;color:#856404',
-        2: 'background:#d1e7dd;color:#0f5132',
-        4: 'background:#e2e3e5;color:#41464b'
-    };
     const estadoLabel = { 1: 'Pendiente', 2: 'Confirmado', 4: 'Realizado' };
 
     return `
@@ -353,18 +329,14 @@ async function renderPacientesHoy() {
                         const nombre = p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente;
                         const hora = t.hora?.substring(0, 5) ?? '—';
                         const estado = estadoLabel[t.idEstadoTurno] ?? '—';
-                        const badge = estadoBadge[t.idEstadoTurno] ?? 'background:#eee;color:#555';
                         return `
                         <tr>
                             <td><strong>${hora} hs</strong></td>
                             <td>${nombre}</td>
                             <td>${t.motivo ?? '—'}</td>
-                            <td><span style="${badge};border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">${estado}</span></td>
-                            <td>
-                                <button onclick="irASala(${t.idTurno}, ${t.idPaciente})"
-                                    style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
-                                    📹 Ir a sala
-                                </button>
+                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estado}</span></td>
+                            <td class="celda-acciones">
+                                <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>
                             </td>
                         </tr>`;
                     }).join('')}
@@ -790,17 +762,17 @@ function renderSesionesClinicas(lista) {
         try {
             const emo = JSON.parse(s.historialEmociones || '{}');
             emociones = Object.entries(emo).map(([k,v]) =>
-                '<span style="display:inline-block;background:#f0f0f0;border-radius:6px;padding:3px 10px;font-size:12px;margin:2px">' + k + ': <strong>' + v + '%</strong></span>'
+                '<span class="ui-chip ui-chip--neutral ui-chip--sin-punto chip-emocion">' + k + ': <strong>' + v + '%</strong></span>'
             ).join('');
         } catch {}
         return '<div class="evolucion-item">' +
             '<div class="evolucion-fecha">' +
                 new Date(s.fechaHora).toLocaleDateString('es-AR', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) +
                 ' &nbsp;·&nbsp; ' + new Date(s.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) +
-                (s.tipoCierre ? ' &nbsp;<span style="background:#e8d5ff;color:#6A5ACD;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">' + s.tipoCierre + '</span>' : '') +
+                (s.tipoCierre ? ' &nbsp;<span class="ui-chip ui-chip--info ui-chip--sin-punto">' + s.tipoCierre + '</span>' : '') +
             '</div>' +
-            (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div style="margin-top:4px">' + emociones + '</div></div>' : '') +
-            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto" style="white-space:pre-line;max-height:180px;overflow-y:auto;font-size:12px">' + s.transcripcion + '</div></div>' : '') +
+            (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div class="flex-gap mt-8">' + emociones + '</div></div>' : '') +
+            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto transcripcion">' + s.transcripcion + '</div></div>' : '') +
             (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + s.notasEvolucion + '</div></div>' : '') +
         '</div>';
     }).join('');
@@ -854,38 +826,41 @@ function mostrarAvisoConsentimiento(mensaje, url) {
     document.getElementById('avisoConsentimiento')?.remove();
     const overlay = document.createElement('div');
     overlay.id = 'avisoConsentimiento';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.className = 'dialogo-overlay';
     const box = document.createElement('div');
+    box.className = 'dialogo dialogo--ancho';
     box.setAttribute('role', 'alertdialog');
-    box.style.cssText = 'background:#fff;border-radius:14px;padding:26px 28px;max-width:480px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:inherit';
     const titulo = document.createElement('h3');
+    titulo.className = 'dialogo-titulo';
     titulo.textContent = 'No se puede confirmar el turno';
-    titulo.style.cssText = 'margin:0 0 10px;color:#B45309';
     const texto = document.createElement('p');
+    texto.className = 'dialogo-mensaje';
     texto.textContent = mensaje;
-    texto.style.cssText = 'margin:0 0 14px;line-height:1.5;color:#1F2937';
     box.append(titulo, texto);
     if (url) {
-        const etiqueta = document.createElement('p');
+        const etiqueta = document.createElement('label');
+        etiqueta.className = 'ui-label';
         etiqueta.textContent = 'Compartile al paciente este link para que lo firme desde su panel:';
-        etiqueta.style.cssText = 'margin:0 0 6px;font-size:13px;color:#6B7280';
         const fila = document.createElement('div');
-        fila.style.cssText = 'display:flex;gap:8px;margin-bottom:16px';
+        fila.className = 'dialogo-link';
         const input = document.createElement('input');
+        input.className = 'ui-input';
         input.readOnly = true; input.value = url;
-        input.style.cssText = 'flex:1;min-width:0;padding:8px 10px;border:1px solid #DDD6FE;border-radius:8px;font-size:13px';
         const copiar = document.createElement('button');
+        copiar.className = 'ui-btn';
         copiar.textContent = 'Copiar';
-        copiar.style.cssText = 'padding:8px 14px;border:1px solid #6D28D9;background:#fff;color:#6D28D9;border-radius:8px;cursor:pointer';
         copiar.onclick = () => { input.select(); navigator.clipboard?.writeText(url); copiar.textContent = 'Copiado'; };
         fila.append(input, copiar);
         box.append(etiqueta, fila);
     }
+    const botones = document.createElement('div');
+    botones.className = 'dialogo-botones';
     const ok = document.createElement('button');
+    ok.className = 'ui-btn ui-btn--primary';
     ok.textContent = 'Entendido';
-    ok.style.cssText = 'padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#6366F1,#6D28D9);color:#fff;font-weight:bold;cursor:pointer';
     ok.onclick = () => overlay.remove();
-    box.appendChild(ok);
+    botones.appendChild(ok);
+    box.appendChild(botones);
     overlay.appendChild(box);
     document.body.appendChild(overlay);
     ok.focus();
@@ -898,10 +873,10 @@ function bannerSinConsentimiento() {
     if (!c || document.getElementById('bannerSinConsentimiento')) return;
     const b = document.createElement('div');
     b.id = 'bannerSinConsentimiento';
+    b.className = 'ui-alerta mb-12';
     b.setAttribute('role', 'alert');
-    b.textContent = '⚠ Este paciente no tiene firmado el consentimiento informado para atención por telemedicina. ' +
+    b.textContent = 'Este paciente no tiene firmado el consentimiento informado para atención por telemedicina. ' +
                     'La sesión puede hacerse igual, pero el turno queda sin confirmar hasta que lo firme desde su panel.';
-    b.style.cssText = 'background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-weight:bold;line-height:1.4';
     c.prepend(b);
 }
 
@@ -1006,13 +981,13 @@ async function cerrarSesion() {
 function confirmar(msg) {
     return new Promise(resolve => {
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+        overlay.className = 'dialogo-overlay';
         overlay.innerHTML = `
-            <div style="background:white;border-radius:16px;padding:32px 28px;max-width:340px;width:90%;text-align:center">
-                <p style="font-size:15px;color:#444;margin-bottom:20px">${msg}</p>
-                <div style="display:flex;gap:10px;justify-content:center">
-                    <button id="conf-si" style="background:#e53935;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold">Sí</button>
-                    <button id="conf-no" style="background:#eee;color:#555;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px">No</button>
+            <div class="dialogo" role="alertdialog">
+                <p class="dialogo-mensaje">${msg}</p>
+                <div class="dialogo-botones">
+                    <button id="conf-no" class="ui-btn">No</button>
+                    <button id="conf-si" class="ui-btn ui-btn--primary">Sí</button>
                 </div>
             </div>`;
         document.body.appendChild(overlay);
@@ -1618,11 +1593,9 @@ async function reportes() {
     cont.innerHTML =
         '<div class="titulo-seccion">Reportes</div>' +
         '<div class="card">' +
-        '<h3 style="margin-bottom:20px;color:#6A5ACD">Mis Atenciones</h3>' +
-        '<div style="margin-bottom:20px">' +
-        '<button onclick="descargarReporte()" style="padding:9px 20px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:bold">Descargar Excel</button>' +
-        '</div>' +
-        '<p style="font-size:13px;color:#888">Descarga el reporte de tus propias atenciones.</p>' +
+        '<div class="titulo-seccion titulo-seccion--tarjeta">Mis Atenciones</div>' +
+        '<p class="texto-suave mb-12">Descarga el reporte de tus propias atenciones.</p>' +
+        '<button class="ui-btn ui-btn--primary" onclick="descargarReporte()">Descargar Excel</button>' +
         '</div>';
 }
 
@@ -1669,16 +1642,16 @@ async function pacientes() {
         let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ', &quot;' + nombreEsc + '&quot;)">Historia</button> ' +
             '<button class="btn-sesion" onclick="activarTab(&quot;sesion&quot;)">Sesion</button>';
         if (esNuevo) {
-            acciones = '<button class="btn-ver" style="background:linear-gradient(to right,#0d6efd,#084298)" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
-                '<button class="btn-ver" style="background:linear-gradient(to right,#198754,#0f5132)" onclick="confirmarNuevoPaciente(' + p.idPaciente + ')">Confirmar</button> ' +
-                '<button class="btn-ver" style="background:linear-gradient(to right,#e53935,#b71c1c)" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
+            acciones = '<button class="btn-ver" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
+                '<button class="btn-confirmar" onclick="confirmarNuevoPaciente(' + p.idPaciente + ')">Confirmar</button> ' +
+                '<button class="btn-peligro" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
         }
         return '<tr>' +
-            '<td>' + p.nombre + (esNuevo ? ' <span style="background:#0d6efd;color:white;border-radius:8px;padding:2px 10px;font-size:11px;font-weight:bold;margin-left:6px">NUEVO</span>' : "") + '</td>' +
+            '<td>' + p.nombre + (esNuevo ? ' <span class="ui-chip ui-chip--info">Nuevo</span>' : "") + '</td>' +
             '<td>' + (p.dni || "-") + '</td>' +
             '<td>' + (p.mail || "-") + '</td>' +
             '<td>' + (p.telefono || "-") + '</td>' +
-            '<td>' + acciones + '</td>' +
+            '<td class="celda-acciones">' + acciones + '</td>' +
             '</tr>';
     }).join("");
 
@@ -1708,16 +1681,16 @@ async function verEvolucionAdmision(idPaciente) {
     const deAdmision = evoluciones.filter(function(e) { return ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1); });
     const panel = document.getElementById("panelNuevoPaciente");
     if (deAdmision.length === 0) {
-        panel.innerHTML = '<div class="card" style="margin-top:16px"><p style="color:#888">No hay evolucion de admision registrada.</p></div>';
+        panel.innerHTML = '<div class="card mt-16"><p class="texto-suave">No hay evolucion de admision registrada.</p></div>';
         return;
     }
-    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #0d6efd">' +
-        '<h3 style="color:#0d6efd;margin-bottom:12px">Evolucion del Equipo de Admision</h3>' +
+    panel.innerHTML = '<div class="card card--acento-info mt-16">' +
+        '<div class="titulo-seccion titulo-seccion--tarjeta">Evolucion del Equipo de Admision</div>' +
         deAdmision.map(function(e) {
-            return '<div style="background:#f0f6ff;border-radius:10px;padding:14px;margin-bottom:10px">' +
-                '<div style="font-weight:bold;margin-bottom:6px">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-                (e.observaciones ? '<div style="font-size:14px;margin-bottom:6px">' + e.observaciones + '</div>' : "") +
-                (e.planTratamiento ? '<div style="font-size:13px;color:#084298;font-weight:600">' + e.planTratamiento + '</div>' : "") +
+            return '<div class="caja-suave mb-12">' +
+                '<div class="texto-fuerte mb-8">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
+                (e.observaciones ? '<div class="mb-8">' + e.observaciones + '</div>' : "") +
+                (e.planTratamiento ? '<div class="texto-accent texto-fuerte">' + e.planTratamiento + '</div>' : "") +
                 '</div>';
         }).join("") +
         '</div>';
@@ -1726,13 +1699,13 @@ async function verEvolucionAdmision(idPaciente) {
 
 function confirmarNuevoPaciente(idPaciente) {
     const panel = document.getElementById("panelNuevoPaciente");
-    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #198754">' +
-        '<h3 style="color:#0f5132;margin-bottom:12px">Proponer primer turno</h3>' +
-        '<p style="font-size:13px;color:#888;margin-bottom:12px">Elegi una fecha estimativa. Al paciente le llegara como turno pendiente y podra confirmarlo o reprogramarlo segun tu agenda.</p>' +
-        '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">' +
-        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Fecha</label><input type="date" id="npFecha" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
-        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Hora</label><input type="time" id="npHora" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
-        '<button onclick="enviarPrimerTurno(' + idPaciente + ')" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Enviar propuesta</button>' +
+    panel.innerHTML = '<div class="card card--acento-ok mt-16">' +
+        '<div class="titulo-seccion titulo-seccion--tarjeta">Proponer primer turno</div>' +
+        '<p class="texto-suave mb-12">Elegi una fecha estimativa. Al paciente le llegara como turno pendiente y podra confirmarlo o reprogramarlo segun tu agenda.</p>' +
+        '<div class="form-fila form-fila--abajo">' +
+        '<div class="campo"><label for="npFecha">Fecha</label><input type="date" id="npFecha"></div>' +
+        '<div class="campo"><label for="npHora">Hora</label><input type="time" id="npHora"></div>' +
+        '<button class="ui-btn ui-btn--primary" onclick="enviarPrimerTurno(' + idPaciente + ')">Enviar propuesta</button>' +
         '</div></div>';
     panel.scrollIntoView({ behavior: "smooth" });
 }
@@ -1802,9 +1775,8 @@ function renderEvoluciones(lista) {
     if (lista === null || lista === undefined || lista.length === 0) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
     return lista.map(function(e) {
         const esAdmision = ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1);
-        const estilo = esAdmision ? ' style="border-left:5px solid #0d6efd;background:#f0f6ff;border-radius:8px;padding:12px"' : "";
-        return '<div class="evolucion-item"' + estilo + '>' +
-            (esAdmision ? '<div style="color:#0d6efd;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Inicio del proceso - Admision</div>' : "") +
+        return '<div class="evolucion-item' + (esAdmision ? ' evolucion-item--admision' : '') + '">' +
+            (esAdmision ? '<div class="evolucion-etiqueta-admision">Inicio del proceso - Admision</div>' : "") +
             '<div class="evolucion-fecha">' + new Date(e.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" }) + '</div>' +
             (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + e.diagnostico + '</div></div>' : "") +
             (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + e.observaciones + '</div></div>' : "") +
@@ -1824,14 +1796,14 @@ async function cargarTurnosConfirmados() {
     if (cont === null) {
         cont = document.createElement("div");
         cont.id = "panel-confirmados";
-        cont.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9990;max-width:360px;display:flex;flex-direction:column;gap:10px";
+        cont.className = "avisos-flotantes";
         document.body.appendChild(cont);
     }
     cont.innerHTML = sinSala.map(function(t) {
-        return '<div style="background:white;border-left:5px solid #198754;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)">' +
-            '<div style="font-weight:bold;color:#0f5132;margin-bottom:4px">Turno confirmado</div>' +
-            '<div style="font-size:13px;color:#444;margin-bottom:8px">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
-            '<button onclick="generarSalaTurno(' + t.idTurno + ')" style="padding:7px 16px;background:#198754;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold">Generar sala</button>' +
+        return '<div class="aviso-flotante">' +
+            '<div class="aviso-flotante-titulo">Turno confirmado</div>' +
+            '<div class="aviso-flotante-texto">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
+            '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="generarSalaTurno(' + t.idTurno + ')">Generar sala</button>' +
             '</div>';
     }).join("");
 }
