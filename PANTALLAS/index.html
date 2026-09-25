@@ -5,172 +5,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YoSoy - Telemedicina</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="shared/tema.css">
     <style>
+        /* Login. Colores, tipografía y componentes base: shared/tema.css */
         * { box-sizing: border-box; margin: 0; padding: 0; }
-
         body {
-            font-family: Arial, Helvetica, sans-serif;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #f8f5ff, #ddd0f5, #c0a8ee);
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            min-height: 100vh; display: flex; justify-content: center; align-items: center;
+            background: var(--bg); font-family: var(--font); color: var(--text);
         }
-
         .card-login {
-            background: white;
-            border-radius: 24px;
-            padding: 40px 36px;
-            width: 420px;
-            box-shadow: 0 12px 40px rgba(100, 80, 180, 0.18);
-            text-align: center;
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+            box-shadow: var(--shadow-md); padding: 32px 32px 28px; width: 400px; text-align: center;
         }
+        .logo { width: 48px; height: 48px; object-fit: contain; margin-bottom: 10px; background: var(--accent); border-radius: var(--r-lg); padding: 7px; }
+        .titulo { font-size: var(--fs-2xl); font-weight: 600; color: var(--text); margin-bottom: 2px; }
+        .subtitulo { font-size: var(--fs-md); color: var(--text-3); margin-bottom: 22px; }
 
-        .logo {
-            width: 110px;
-            margin-bottom: 12px;
-        }
-
-        .titulo {
-            font-size: 36px;
-            font-weight: bold;
-            color: #0d6efd;
-            margin-bottom: 2px;
-        }
-
-        .subtitulo {
-            font-size: 13px;
-            color: #9D6BCF;
-            font-weight: bold;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 28px;
-        }
-
-        /* TABS DE ROL */
+        /* Selector de rol */
         .roles {
-            display: flex;
-            border: 2px solid #e0d4f5;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 24px;
+            display: flex; gap: 2px; padding: 2px; margin-bottom: 20px;
+            background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
         }
-
         .rol-btn {
-            flex: 1;
-            padding: 10px 6px;
-            border: none;
-            background: white;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: bold;
-            color: #999;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            transition: 0.2s;
-            border-right: 2px solid #e0d4f5;
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+            height: 32px; border: none; border-radius: var(--r-sm); background: transparent;
+            color: var(--text-3); font-family: var(--font); font-size: var(--fs-md); font-weight: 500; cursor: pointer;
         }
+        .rol-btn .icono { display: inline-flex; }
+        .rol-btn .icono svg { width: 15px; height: 15px; }
+        .rol-btn.activo { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+        .rol-btn:not(.activo):hover { color: var(--text); }
 
-        .rol-btn:last-child { border-right: none; }
-
-        .rol-btn .icono { font-size: 22px; }
-
-        .rol-btn.activo {
-            background: linear-gradient(to bottom, #0d6efd, #6A5ACD);
-            color: white;
-        }
-
-        .rol-btn:not(.activo):hover {
-            background: #f0eaff;
-            color: #6A5ACD;
-        }
-
-        /* CAMPOS */
-        .campo {
-            text-align: left;
-            margin-bottom: 16px;
-            position: relative;
-        }
-
-        .campo label {
-            display: block;
-            font-size: 12px;
-            font-weight: bold;
-            color: #6A5ACD;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-
+        /* Campos */
+        .campo { text-align: left; margin-bottom: 14px; position: relative; }
+        .campo label { display: block; font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); margin-bottom: 5px; }
         .input {
-            width: 100%;
-            height: 46px;
-            border: 2px solid #e0d4f5;
-            border-radius: 12px;
-            padding: 0 40px 0 14px;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.2s;
-            box-sizing: border-box;
+            width: 100%; height: 38px; padding: 0 38px 0 12px;
+            font-family: var(--font); font-size: var(--fs-lg); color: var(--text);
+            background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); outline: none;
+            transition: border-color .12s, box-shadow .12s, background .12s;
         }
+        .input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+        .ojo { position: absolute; right: 11px; bottom: 9px; cursor: pointer; color: var(--text-4); user-select: none; line-height: 0; }
+        .ojo svg { width: 18px; height: 18px; }
+        .ojo:hover { color: var(--text-2); }
 
-        .input:focus { border-color: #6A5ACD; }
-
-        .ojo {
-            position: absolute;
-            right: 13px;
-            bottom: 12px;
-            cursor: pointer;
-            font-size: 18px;
-            color: #aaa;
-            user-select: none;
-        }
-
-        .ojo:hover { color: #6A5ACD; }
-
-        /* BOTON */
+        /* Botón */
         .boton {
-            width: 100%;
-            height: 52px;
-            border: none;
-            border-radius: 12px;
-            background: linear-gradient(to right, #0d6efd, #6A5ACD);
-            color: white;
-            font-size: 17px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.3s;
-            margin-top: 6px;
+            width: 100%; height: 38px; margin-top: 6px;
+            border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--accent); color: #fff;
+            font-family: var(--font); font-size: var(--fs-lg); font-weight: 500; cursor: pointer;
         }
+        .boton:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+        .boton--chico { height: 34px; font-size: var(--fs-md); }
 
-        .boton:hover {
-            opacity: 0.88;
-            transform: scale(1.02);
-        }
-
-        .link-registro {
-            display: block;
-            margin-top: 16px;
-            font-size: 13px;
-            color: #999;
-        }
-
-        .link-registro a {
-            color: #6A5ACD;
-            font-weight: bold;
-            text-decoration: none;
-        }
-
+        .link-registro { display: block; margin-top: 14px; font-size: var(--fs-md); color: var(--text-3); }
+        .link-registro a { color: var(--accent); font-weight: 500; text-decoration: none; }
         .link-registro a:hover { text-decoration: underline; }
 
-        .error-msg {
-            color: #e74c3c;
-            font-size: 13px;
-            margin-top: 10px;
-            display: none;
-        }
+        .error-msg { color: var(--danger); font-size: var(--fs-md); margin-top: 8px; display: none; }
+        .seccion-recuperacion { margin-top: 12px; }
+        .form-desplegable { margin-top: 12px; }
+        .mensaje-form { margin-top: 8px; font-size: var(--fs-md); }
     </style>
 </head>
 <body>
@@ -184,15 +82,15 @@
         <!-- TABS DE ROL -->
         <div class="roles">
             <button class="rol-btn activo" id="tab-paciente" onclick="seleccionarRol('paciente')">
-                <span class="icono">🧑</span>
+                <span class="icono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4 4-6.5 8-6.5s7.2 2.5 8 6.5"/></svg></span>
                 Paciente
             </button>
             <button class="rol-btn" id="tab-profesional" onclick="seleccionarRol('profesional')">
-                <span class="icono">👨‍⚕️</span>
+                <span class="icono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a6 6 0 0 0 12 0V3M12 15v2a4 4 0 0 0 8 0v-3"/><circle cx="20" cy="12" r="2"/></svg></span>
                 Profesional
             </button>
             <button class="rol-btn" id="tab-configurador" onclick="seleccionarRol('configurador')">
-                <span class="icono">⚙️</span>
+                <span class="icono"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span>
                 Configurador
             </button>
         </div>
@@ -232,33 +130,33 @@
         </span>
 
         <!-- RECUPERACIÓN DE CONTRASEÑA (solo paciente/profesional) -->
-        <div id="seccionRecuperacion" style="margin-top:14px">
+        <div id="seccionRecuperacion" class="seccion-recuperacion">
             <span class="link-registro">
                 <a href="#" onclick="toggleRecuperacion(event)">¿Olvidé mi contraseña?</a>
                 &nbsp;·&nbsp;
                 <a href="#" onclick="toggleConsultarSolicitud(event)">Consultar solicitud</a>
             </span>
 
-            <div id="formRecuperacion" style="display:none;margin-top:12px">
+            <div id="formRecuperacion" class="form-desplegable" style="display:none">
                 <div class="campo">
                     <label>Usuario</label>
                     <input type="text" id="userRecuperacion" class="input" placeholder="Tu nombre de usuario">
                 </div>
-                <button type="button" class="boton" style="height:42px;font-size:15px" onclick="enviarRecuperacion()">
+                <button type="button" class="boton boton--chico" onclick="enviarRecuperacion()">
                     Enviar solicitud
                 </button>
-                <div id="msgRecuperacion" style="margin-top:8px;font-size:13px"></div>
+                <div id="msgRecuperacion" class="mensaje-form"></div>
             </div>
 
-            <div id="formConsultarSolicitud" style="display:none;margin-top:12px">
+            <div id="formConsultarSolicitud" class="form-desplegable" style="display:none">
                 <div class="campo">
                     <label>Usuario</label>
                     <input type="text" id="userConsulta" class="input" placeholder="Tu nombre de usuario">
                 </div>
-                <button type="button" class="boton" style="height:42px;font-size:15px" onclick="consultarSolicitud()">
+                <button type="button" class="boton boton--chico" onclick="consultarSolicitud()">
                     Consultar
                 </button>
-                <div id="msgConsulta" style="margin-top:8px;font-size:13px"></div>
+                <div id="msgConsulta" class="mensaje-form"></div>
             </div>
         </div>
 
