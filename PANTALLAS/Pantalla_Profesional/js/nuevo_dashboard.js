@@ -378,13 +378,16 @@ async function irASala(idTurno, idPaciente) {
     //localStorage.setItem('sesion_idPaciente', idPaciente); //con esto le genera la sala directo al paciente
 
     // Si el turno no tiene sala, generarla primero
+    let sinConsentimiento = false;
     try {
         const r = await fetch(`${API}/turnos/${idTurno}`);
         const turno = await r.json();
 
         if (!turno.codigoSala) {
-            // Confirmar y generar sala
-            await fetch(`${API}/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
+            // Confirmar y generar sala. Sin consentimiento (RN-02) el turno no se confirma,
+            // pero la sesión no se bloquea: se avisa al profesional.
+            const rConf = await fetch(`${API}/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
+            sinConsentimiento = rConf.status === 409;
             const rSala = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
             if (rSala.ok) {
                 const data = await rSala.json();
@@ -399,6 +402,7 @@ async function irASala(idTurno, idPaciente) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
     document.getElementById('tab-sesion').classList.add('activo');
     sesion(idPaciente);
+    if (sinConsentimiento) bannerSinConsentimiento();
 }
 
 async function confirmarTurno(id) {
@@ -407,6 +411,7 @@ async function confirmarTurno(id) {
         turno.idEstadoTurno = 2;
         const r = await fetch(`${API}/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
         if (r.ok) { toast('Turno confirmado'); activarTab('inicio'); }
+        else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error al confirmar', 'error');
     } catch { toast('Error al confirmar', 'error'); }
 }
@@ -600,6 +605,7 @@ async function responderTurno(id, aceptar) {
         turno.idEstadoTurno = aceptar ? 2 : 3;
         const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); activarTab('agenda'); }
+        else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error al responder', 'error');
     } catch { toast('Error de conexión', 'error'); }
 }
@@ -814,6 +820,72 @@ function renderEvoluciones(lista) {
     `).join('');
 }
 
+// ── RN-02: consentimiento de telemedicina ───────────────────
+// El backend responde 409 { codigo: "RN-02", mensaje, urlConsentimiento } cuando se
+// intenta confirmar un turno de un paciente sin el consentimiento firmado.
+async function avisoConsentimiento(r) {
+    const data = await r.json().catch(() => ({}));
+    mostrarAvisoConsentimiento(
+        data.mensaje || 'El paciente todavía no firmó el consentimiento informado para atención por telemedicina.',
+        data.urlConsentimiento);
+}
+
+// Modal con el mensaje y el link para compartir con el paciente (el profesional no puede firmar por él).
+function mostrarAvisoConsentimiento(mensaje, url) {
+    document.getElementById('avisoConsentimiento')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'avisoConsentimiento';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+    const box = document.createElement('div');
+    box.setAttribute('role', 'alertdialog');
+    box.style.cssText = 'background:#fff;border-radius:14px;padding:26px 28px;max-width:480px;width:92%;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:inherit';
+    const titulo = document.createElement('h3');
+    titulo.textContent = 'No se puede confirmar el turno';
+    titulo.style.cssText = 'margin:0 0 10px;color:#B45309';
+    const texto = document.createElement('p');
+    texto.textContent = mensaje;
+    texto.style.cssText = 'margin:0 0 14px;line-height:1.5;color:#1F2937';
+    box.append(titulo, texto);
+    if (url) {
+        const etiqueta = document.createElement('p');
+        etiqueta.textContent = 'Compartile al paciente este link para que lo firme desde su panel:';
+        etiqueta.style.cssText = 'margin:0 0 6px;font-size:13px;color:#6B7280';
+        const fila = document.createElement('div');
+        fila.style.cssText = 'display:flex;gap:8px;margin-bottom:16px';
+        const input = document.createElement('input');
+        input.readOnly = true; input.value = url;
+        input.style.cssText = 'flex:1;min-width:0;padding:8px 10px;border:1px solid #DDD6FE;border-radius:8px;font-size:13px';
+        const copiar = document.createElement('button');
+        copiar.textContent = 'Copiar';
+        copiar.style.cssText = 'padding:8px 14px;border:1px solid #6D28D9;background:#fff;color:#6D28D9;border-radius:8px;cursor:pointer';
+        copiar.onclick = () => { input.select(); navigator.clipboard?.writeText(url); copiar.textContent = 'Copiado'; };
+        fila.append(input, copiar);
+        box.append(etiqueta, fila);
+    }
+    const ok = document.createElement('button');
+    ok.textContent = 'Entendido';
+    ok.style.cssText = 'padding:10px 20px;border:none;border-radius:8px;background:linear-gradient(135deg,#6366F1,#6D28D9);color:#fff;font-weight:bold;cursor:pointer';
+    ok.onclick = () => overlay.remove();
+    box.appendChild(ok);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    ok.focus();
+}
+
+// Aviso persistente en la vista de sesión: la sesión arranca igual, pero el turno
+// queda sin confirmar hasta que el paciente firme.
+function bannerSinConsentimiento() {
+    const c = document.getElementById('contenido');
+    if (!c || document.getElementById('bannerSinConsentimiento')) return;
+    const b = document.createElement('div');
+    b.id = 'bannerSinConsentimiento';
+    b.setAttribute('role', 'alert');
+    b.textContent = '⚠ Este paciente no tiene firmado el consentimiento informado para atención por telemedicina. ' +
+                    'La sesión puede hacerse igual, pero el turno queda sin confirmar hasta que lo firme desde su panel.';
+    b.style.cssText = 'background:#FEF3C7;color:#92400E;border:1px solid #F59E0B;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-weight:bold;line-height:1.4';
+    c.prepend(b);
+}
+
 function sesion(idPaciente = null) {
     const src = idPaciente 
         ? `sesion_video.html?idPaciente=${idPaciente}` 
@@ -896,6 +968,7 @@ async function responderTurnoDesdeCal(id, aceptar) {
         turno.idEstadoTurno = aceptar ? 2 : 3;
         const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); await renderCalendario(); mostrarPanelDiaProfesional(_diaSeleccionadoProf); }
+        else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error', 'error');
     } catch { toast('Error de conexión', 'error'); }
 }

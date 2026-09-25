@@ -1047,6 +1047,10 @@ async function confirmarTurnoPaciente(idTurno) {
             turnosCalendario = await res.json();
             dibujarCalendario();
             document.getElementById("panelTurno").classList.remove("visible");
+        } else if (r.status === 409) {
+            // RN-02: falta firmar el consentimiento de telemedicina.
+            if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?"))
+                location.href = "consentimiento.html";
         } else toast("Error al confirmar.", "error");
     } catch(e) { toast("Error de conexion.", "error"); }
 }
