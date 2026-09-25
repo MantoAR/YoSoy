@@ -167,6 +167,7 @@ public static class MensajeriaEndpoints
     // llega desde 127.0.0.1 y SoloLocal tampoco alcanza. Es una mitigación temporal
     // y no satisface la Ley 25.326 ni el secreto profesional.
     // Responde 404 (no 403) en ambos casos para no confirmar que el endpoint existe.
+    // Al mergear con videollamadas-seguras (Caddy/túnel) seguir NOTAS_MERGE.md.
     // TODO(JWT): al mergear videollamadas-seguras, exigir en este filtro el token
     // firmado (JwtService.Validar) y el rol de administrador, igual que el TODO de
     // Services/AutorizacionReporte.cs, para todo el grupo salvo /simulado/entrante,
@@ -180,10 +181,35 @@ public static class MensajeriaEndpoints
             return await next(ctx);
         });
 
+    // Un proxy o túnel que corre en la misma máquina (Caddy en videollamadas-seguras,
+    // cloudflared) se conecta desde 127.0.0.1, así que la IP sola no alcanza: si el
+    // pedido trae X-Forwarded-For o CF-Connecting-IP, pasó por un proxy y se trata
+    // como remoto. Falsificar esos headers a mano solo vuelve el control más estricto.
     private static bool EsLocal(HttpContext http)
     {
+        var h = http.Request.Headers;
+        if (h.ContainsKey("X-Forwarded-For") || h.ContainsKey("CF-Connecting-IP")) return false;
         var ip = http.Connection.RemoteIpAddress;
         return ip is null || IPAddress.IsLoopback(ip);
+    }
+
+    // La pantalla del chat simulado se sirve como archivo estático junto con el resto de
+    // PANTALLAS: con el módulo apagado también responde 404, para no confirmar que existe.
+    // Se registra en Program.cs antes de UseStaticFiles. La comparación ignora mayúsculas
+    // porque el sistema de archivos de Windows también las ignora al servir el archivo.
+    public static WebApplication UsePantallaMensajeria(this WebApplication app)
+    {
+        app.Use(async (ctx, next) =>
+        {
+            if (ctx.Request.Path.StartsWithSegments("/pantallas/Pantalla_ChatSimulado", StringComparison.OrdinalIgnoreCase)
+                && !ctx.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue.ChatSimuladoHabilitado)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            await next();
+        });
+        return app;
     }
 
     private static string? ValidarPregunta(PreguntaFrecuente p)

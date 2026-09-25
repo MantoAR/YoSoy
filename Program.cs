@@ -6,6 +6,7 @@ builder.Services.AddMensajeria(builder.Configuration);
 
 var app = builder.Build();
 app.UseCors();
+app.UsePantallaMensajeria();
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
