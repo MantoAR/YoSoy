@@ -105,31 +105,31 @@ async function renderInicio(c) {
 
         c.innerHTML = `
             <div class="titulo-seccion">Inicio</div>
-            <div class="card" style="background:linear-gradient(135deg,#0d6efd,#6A5ACD);border-radius:20px;padding:32px;color:white;max-width:680px">
-                <p style="font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;opacity:.75;margin-bottom:20px">Próximo turno</p>
-                <div style="font-size:26px;font-weight:bold;margin-bottom:6px">${fecha}</div>
-                <div style="font-size:40px;font-weight:bold;margin-bottom:24px;opacity:.95">${hora} hs</div>
-                <div style="display:flex;gap:32px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,.25);padding-top:20px">
+            <div class="card proximo-turno">
+                <p class="proximo-etiqueta">Próximo turno</p>
+                <div class="proximo-fecha">${fecha}</div>
+                <div class="proximo-hora">${hora} hs</div>
+                <div class="proximo-datos">
                     <div>
-                        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Profesional</div>
-                        <div style="font-size:16px;font-weight:600">${t.nombreProfesional}</div>
+                        <div class="etiqueta">Profesional</div>
+                        <div class="valor">${t.nombreProfesional}</div>
                     </div>
                     <div>
-                        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Especialidad</div>
-                        <div style="font-size:16px;font-weight:600">${t.especialidad}</div>
+                        <div class="etiqueta">Especialidad</div>
+                        <div class="valor">${t.especialidad}</div>
                     </div>
                     <div>
-                        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Modalidad</div>
-                        <div style="font-size:16px;font-weight:600">${t.modalidad ?? "-"}</div>
+                        <div class="etiqueta">Modalidad</div>
+                        <div class="valor">${t.modalidad ?? "-"}</div>
                     </div>
                     <div>
-                        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Estado</div>
-                        <div style="font-size:16px;font-weight:600">${t.estadoDescripcion}</div>
+                        <div class="etiqueta">Estado</div>
+                        <div class="valor"><span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span></div>
                     </div>
                 </div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Inicio</div><p style="color:#e74c3c">Error al cargar los datos.</p>`;
+        c.innerHTML = `<div class="titulo-seccion">Inicio</div><p class="texto-error">Error al cargar los datos.</p>`;
     }
 }
 
@@ -152,15 +152,14 @@ async function renderAgenda(c) {
         <div class="titulo-seccion">Mi Agenda</div>
 
         ${profesionales.length ? `
-        <div class="card" style="margin-bottom:12px;padding:14px 16px">
-            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                <label style="font-size:13px;font-weight:600;color:#6A5ACD;white-space:nowrap">Ver disponibilidad de:</label>
-                <select id="selProfCalendario" onchange="cambiarProfCalendario()" 
-                    style="flex:1;min-width:200px;padding:8px 12px;border:2px solid #e0d4f5;border-radius:10px;font-size:14px;outline:none;background:white">
+        <div class="card">
+            <div class="filtro-prof">
+                <label for="selProfCalendario">Ver disponibilidad de:</label>
+                <select id="selProfCalendario" class="turno-input" onchange="cambiarProfCalendario()">
                     <option value="">— Sin filtro —</option>
                     ${profesionales.map(p => `<option value="${p.idProfesional}">${p.nombre} — ${p.especialidad}</option>`).join("")}
                 </select>
-                <div id="diasAtencion" style="font-size:12px;color:#6A5ACD;font-weight:500"></div>
+                <div id="diasAtencion" class="dias-atencion"></div>
             </div>
         </div>` : ""}
 
@@ -171,10 +170,11 @@ async function renderAgenda(c) {
                 <button onclick="cambiarMes(1)">&#8250;</button>
             </div>
             <div class="cal-grid" id="calGrid"></div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #f0eaff;font-size:12px;color:#666">
-                <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#0d6efd;margin-right:4px;vertical-align:middle"></span>Mis turnos</span>
-                <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#d4edda;border:1px solid #28a745;margin-right:4px;vertical-align:middle"></span>Días disponibles del profesional</span>
-                <span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f0f0f0;margin-right:4px;vertical-align:middle"></span>Sin disponibilidad</span>
+            <div class="cal-leyenda">
+                <span class="ui-chip ui-chip--info">Mis turnos</span>
+                <span class="ui-chip ui-chip--warn">Pendiente</span>
+                <span class="ui-chip ui-chip--ok">Días disponibles del profesional</span>
+                <span class="ui-chip ui-chip--neutral">Sin disponibilidad</span>
             </div>
         </div>
         <div class="panel-turno" id="panelTurno"></div>
@@ -321,13 +321,6 @@ async function mostrarPanelDia(dia) {
         turnoSeleccionado = turnosDia[0];
         const t = turnoSeleccionado;
         const hora = t.hora.substring(0, 5);
-        const estadoColor = {
-            "Confirmado": "#d1e7dd|#0f5132",
-            "Pendiente":  "#fff3cd|#856404",
-            "Cancelado":  "#f8d7da|#842029",
-            "Realizado":  "#e2e3e5|#41464b",
-        }[t.estadoDescripcion] ?? "#e2e3e5|#41464b";
-        const [estadoBg, estadoTxt] = estadoColor.split("|");
         const puedeAccionar = t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado";
 
         html += `
@@ -340,7 +333,7 @@ async function mostrarPanelDia(dia) {
                     <div class="panel-profesional">${t.nombreProfesional}</div>
                     <div class="panel-especialidad">${t.especialidad}</div>
                 </div>
-                <span class="panel-estado-badge" style="background:${estadoBg};color:${estadoTxt}">${t.estadoDescripcion}</span>
+                <span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span>
             </div>
             <div class="panel-chips">
                 <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${t.modalidad ?? "-"}</span></div>
@@ -355,19 +348,19 @@ async function mostrarPanelDia(dia) {
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
                 <div id="reprogDetalles" style="display:none">
                     <div class="reprog-dia-seleccionado" id="reprogDiaLabel"></div>
-                    <div class="form-fila" style="margin-top:12px">
-                        <div class="form-grupo" style="flex:1">
+                    <div class="form-fila mt-12">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Hora</label>
                             <select id="reprogHora" class="turno-input"></select>
                         </div>
-                        <div class="form-grupo" style="flex:1">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Motivo</label>
                             <input type="text" id="reprogMotivo" class="turno-input" placeholder="Motivo del cambio...">
                         </div>
                     </div>
-                    <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarReprogramar(${t.idTurno})">Confirmar reprogramación</button>
+                    <button class="btn-accion btn-guardar mt-12" onclick="confirmarReprogramar(${t.idTurno})">Confirmar reprogramación</button>
                 </div>
-                <button class="btn-accion btn-cancelar" style="margin-top:10px" onclick="cancelarModoReprogramar()">Cancelar reprogramación</button>
+                <button class="btn-accion btn-cancelar mt-12" onclick="cancelarModoReprogramar()">Cancelar reprogramación</button>
             </div>` : ""}
             <div class="panel-separador"></div>`;
     }
@@ -379,7 +372,7 @@ async function mostrarPanelDia(dia) {
     </div>
     <div class="form-solicitar-dia" id="formSolicitar">
         <div class="form-fila">
-            <div class="form-grupo" style="flex:1">
+            <div class="form-grupo form-grupo--ancho">
                 <label>Profesional</label>
                 <select id="solProf" class="turno-input" onchange="cargarHorasSolicitud('${fechaStr}')">
                     <option value="">Cargando...</option>
@@ -390,11 +383,11 @@ async function mostrarPanelDia(dia) {
                 <select id="solHora" class="turno-input" disabled><option value="">Elegí un profesional</option></select>
             </div>
         </div>
-        <div class="form-grupo" style="margin-top:8px">
+        <div class="form-grupo mt-8">
             <label>Motivo (opcional)</label>
             <input type="text" id="solMotivo" class="turno-input" placeholder="Escribí el motivo...">
         </div>
-        <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarSolicitudDia('${fechaStr}')">Confirmar solicitud</button>
+        <button class="btn-accion btn-guardar mt-12" onclick="confirmarSolicitudDia('${fechaStr}')">Confirmar solicitud</button>
     </div>` : "";
 
     panel.innerHTML = html;
@@ -632,10 +625,10 @@ async function renderProfesionales(c) {
             <div class="modal-cambio" id="modalTurno">
                 <div class="modal-cambio-header">
                     <span id="modalTurnoTitulo">Solicitar turno</span>
-                    <button onclick="cerrarModalTurno()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#999">✕</button>
+                    <button class="modal-cerrar-x" onclick="cerrarModalTurno()" aria-label="Cerrar">✕</button>
                 </div>
-                <div id="modalTurnoBody" style="padding:20px"></div>
-                <div style="padding:0 20px 20px;display:flex;gap:10px;justify-content:flex-end">
+                <div id="modalTurnoBody" class="modal-cuerpo"></div>
+                <div class="modal-pie">
                     <button class="btn-mc-cancelar" onclick="cerrarModalTurno()">Cancelar</button>
                     <button class="btn-mc-enviar" onclick="enviarSolicitudTurno()">Solicitar</button>
                 </div>
@@ -646,16 +639,16 @@ async function renderProfesionales(c) {
             <div class="modal-cambio" id="modalCambio">
                 <div class="modal-cambio-header">
                     <span id="modalCambioTitulo">Solicitar cambio de profesional</span>
-                    <button onclick="cerrarModalCambio()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#999">✕</button>
+                    <button class="modal-cerrar-x" onclick="cerrarModalCambio()" aria-label="Cerrar">✕</button>
                 </div>
-                <div id="modalCambioBody" style="padding:20px"></div>
-                <div style="padding:0 20px 20px;display:flex;gap:10px;justify-content:flex-end">
+                <div id="modalCambioBody" class="modal-cuerpo"></div>
+                <div class="modal-pie">
                     <button class="btn-mc-cancelar" onclick="cerrarModalCambio()">Cancelar</button>
                     <button class="btn-mc-enviar" onclick="enviarSolicitudCambio()">Enviar solicitud</button>
                 </div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Mis Profesionales</div><p style="color:#e74c3c">Error al cargar.</p>`;
+        c.innerHTML = `<div class="titulo-seccion">Mis Profesionales</div><p class="texto-error">Error al cargar.</p>`;
     }
 }
 
@@ -673,7 +666,7 @@ async function abrirModalTurno(idProf, nombreProf) {
 
     if (!_agendaProf.length) {
         document.getElementById("modalTurnoBody").innerHTML =
-            `<p style="color:#888">Este profesional no tiene días disponibles en su agenda.</p>`;
+            `<p class="texto-suave">Este profesional no tiene días disponibles en su agenda.</p>`;
         document.getElementById("modalTurnoOverlay").classList.add("visible");
         document.getElementById("modalTurno").classList.add("visible");
         return;
@@ -682,8 +675,8 @@ async function abrirModalTurno(idProf, nombreProf) {
     const diasDisponibles = _agendaProf.map(a => a.dia).join(", ");
 
     document.getElementById("modalTurnoBody").innerHTML = `
-        <p style="font-size:13px;color:#888;margin-bottom:16px">Días disponibles: <strong>${diasDisponibles}</strong></p>
-        <div style="display:flex;flex-direction:column;gap:14px">
+        <p class="texto-suave mb-12">Días disponibles: <strong>${diasDisponibles}</strong></p>
+        <div class="modal-campos">
             <div>
                 <label class="turno-label">Fecha</label>
                 <input type="date" id="turnoFecha" class="turno-input" onchange="actualizarHorasDisponibles()" min="${new Date().toISOString().split('T')[0]}">
@@ -694,7 +687,7 @@ async function abrirModalTurno(idProf, nombreProf) {
             </div>
             <div>
                 <label class="turno-label">Motivo (opcional)</label>
-                <textarea id="turnoMotivo" rows="2" style="width:100%;border:2px solid #e0d4f5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:none"></textarea>
+                <textarea id="turnoMotivo" rows="2" class="turno-input"></textarea>
             </div>
         </div>`;
 
@@ -786,10 +779,10 @@ function abrirModalCambio(idProfOrigen, idEsp, nombreProf) {
     document.getElementById("modalCambioTitulo").textContent = `Solicitar cambio de: ${nombreProf}`;
 
     document.getElementById("modalCambioBody").innerHTML = `
-        <p style="font-size:14px;color:#666;margin-bottom:14px">Tu solicitud será revisada por el equipo. Te avisaremos cuando sea procesada.</p>
+        <p class="texto-suave mb-12">Tu solicitud será revisada por el equipo. Te avisaremos cuando sea procesada.</p>
         <div>
-            <label style="font-size:12px;font-weight:bold;color:#6A5ACD;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px">Motivo</label>
-            <textarea id="motivoCambio" rows="3" placeholder="Contanos por qué querés cambiar de profesional..." style="width:100%;border:2px solid #e0d4f5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:none"></textarea>
+            <label class="turno-label" for="motivoCambio">Motivo</label>
+            <textarea id="motivoCambio" rows="3" class="turno-input" placeholder="Contanos por qué querés cambiar de profesional..."></textarea>
         </div>`;
 
     document.getElementById("modalCambioOverlay").classList.add("visible");
@@ -840,7 +833,7 @@ async function renderPerfil(c) {
                 <div class="msg-ok" id="msgOk">Cambios guardados correctamente.</div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Mi Perfil</div><p style="color:#e74c3c">Error al cargar.</p>`;
+        c.innerHTML = `<div class="titulo-seccion">Mi Perfil</div><p class="texto-error">Error al cargar.</p>`;
     }
 }
 
@@ -875,11 +868,12 @@ async function guardarPerfil(id) {
 mostrarSeccion("inicio");
 
 function renderSesion() {
-    return '<div style="padding:30px;max-width:500px;margin:0 auto">' +
-        '<h2 style="margin-bottom:20px">Iniciar sesion de video</h2>' +
-        '<p style="margin-bottom:15px">Ingresa el codigo de sala que te dio tu profesional:</p>' +
-        '<input type="text" id="codigoSala" placeholder="Codigo de sala" style="width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:6px;margin-bottom:15px">' +
-        '<button onclick="entrarSesion()" style="width:100%;padding:12px;background:#4a90d9;color:white;border:none;border-radius:6px;font-size:16px;cursor:pointer">Entrar a la sesion</button>' +
+    return '<div class="titulo-seccion">Sesión</div>' +
+        '<div class="card sesion-entrada">' +
+        '<div class="titulo-tarjeta">Iniciar sesion de video</div>' +
+        '<p class="texto-suave mb-12">Ingresa el codigo de sala que te dio tu profesional:</p>' +
+        '<input type="text" id="codigoSala" class="turno-input" placeholder="Codigo de sala">' +
+        '<button class="btn-primario btn-bloque" onclick="entrarSesion()">Entrar a la sesion</button>' +
         '</div>';
 }
 
@@ -895,13 +889,11 @@ async function renderAdmision(c) {
         const r = await fetch(API + "/pacientes/" + idPaciente + "/informe-admision");
         if (r.ok) {
             const inf = await r.json();
-            const colores = { "Pendiente": "#fff3cd|#856404", "En entrevista": "#cfe2ff|#084298", "Derivado": "#d1e7dd|#0f5132" };
-            const par = (colores[inf.estado] || "#e2e3e5|#41464b").split("|");
             c.innerHTML = '<div class="titulo-seccion">Admision</div>' +
-                '<div class="card" style="max-width:600px">' +
-                '<h3 style="color:#6A5ACD;margin-bottom:16px">Tu informe de admision ya fue enviado</h3>' +
-                '<p style="margin-bottom:10px">Estado actual: <span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:4px 14px;font-weight:bold">' + inf.estado + '</span></p>' +
-                '<p style="font-size:13px;color:#888">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
+                '<div class="card card--angosta">' +
+                '<div class="titulo-tarjeta">Tu informe de admision ya fue enviado</div>' +
+                '<p class="mb-12">Estado actual: <span class="panel-estado-badge estado-' + String(inf.estado).replace(/\s+/g, '-') + '">' + inf.estado + '</span></p>' +
+                '<p class="texto-suave">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
                 '</div>';
             return;
         }
@@ -915,46 +907,44 @@ async function renderAdmision(c) {
         .map(function(e) { return '<option value="' + e.idEspecialidad + '">' + e.nombre + '</option>'; })
         .join("");
 
-    const inputStyle = "width:100%;padding:9px 12px;border:2px solid #e0d4f5;border-radius:8px;font-size:14px;margin-top:4px";
-    const labelStyle = "display:block;font-size:12px;font-weight:bold;color:#6A5ACD;margin-top:14px";
 
     c.innerHTML = '<div class="titulo-seccion">Informe de Admision</div>' +
-        '<div class="card" style="max-width:700px">' +
-        '<p style="font-size:13px;color:#888;margin-bottom:6px">Completa este formulario para que el equipo de admision pueda conocerte y asignarte el profesional adecuado.</p>' +
+        '<div class="card card--angosta form-admision">' +
+        '<p class="texto-suave">Completa este formulario para que el equipo de admision pueda conocerte y asignarte el profesional adecuado.</p>' +
 
-        '<label style="' + labelStyle + '">Especialidad solicitada *</label>' +
-        '<select id="admEspecialidad" style="' + inputStyle + '"><option value="">Selecciona una especialidad</option>' + opts + '</select>' +
+        '<label class="ui-label">Especialidad solicitada *</label>' +
+        '<select id="admEspecialidad" class="campo-texto"><option value="">Selecciona una especialidad</option>' + opts + '</select>' +
 
-        '<label style="' + labelStyle + '">Motivo de consulta *</label>' +
-        '<textarea id="admMotivo" rows="3" style="' + inputStyle + '" placeholder="Describe brevemente el motivo por el cual solicitas atencion"></textarea>' +
+        '<label class="ui-label">Motivo de consulta *</label>' +
+        '<textarea id="admMotivo" rows="3" class="campo-texto" placeholder="Describe brevemente el motivo por el cual solicitas atencion"></textarea>' +
 
-        '<label style="' + labelStyle + '">Has recibido tratamiento anteriormente?</label>' +
-        '<select id="admTratAnterior" style="' + inputStyle + '" onchange="document.getElementById(\'admTratDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
-        '<input type="text" id="admTratDetalle" style="' + inputStyle + ';display:none" placeholder="Indica cual">' +
+        '<label class="ui-label">Has recibido tratamiento anteriormente?</label>' +
+        '<select id="admTratAnterior" class="campo-texto" onchange="document.getElementById(\'admTratDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
+        '<input type="text" id="admTratDetalle" class="campo-texto" style="display:none" placeholder="Indica cual">' +
 
-        '<label style="' + labelStyle + '">Actualmente recibes medicacion?</label>' +
-        '<select id="admMedicacion" style="' + inputStyle + '" onchange="document.getElementById(\'admMedDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
-        '<input type="text" id="admMedDetalle" style="' + inputStyle + ';display:none" placeholder="Cual?">' +
+        '<label class="ui-label">Actualmente recibes medicacion?</label>' +
+        '<select id="admMedicacion" class="campo-texto" onchange="document.getElementById(\'admMedDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
+        '<input type="text" id="admMedDetalle" class="campo-texto" style="display:none" placeholder="Cual?">' +
 
-        '<h4 style="color:#6A5ACD;margin-top:24px">Conociendote mejor</h4>' +
-        '<p style="font-size:12px;color:#999">Estas preguntas nos ayudan a brindarte una atencion personalizada.</p>' +
+        '<h4>Conociendote mejor</h4>' +
+        '<p class="texto-suave">Estas preguntas nos ayudan a brindarte una atencion personalizada.</p>' +
 
-        '<label style="' + labelStyle + '">Gustos e intereses</label>' +
-        '<textarea id="admGustos" rows="3" style="' + inputStyle + '" placeholder="Actividades que disfrutas, hobbies, musica, peliculas o libros, deportes, que te ayuda a relajarte, algo que quieras aprender"></textarea>' +
+        '<label class="ui-label">Gustos e intereses</label>' +
+        '<textarea id="admGustos" rows="3" class="campo-texto" placeholder="Actividades que disfrutas, hobbies, musica, peliculas o libros, deportes, que te ayuda a relajarte, algo que quieras aprender"></textarea>' +
 
-        '<label style="' + labelStyle + '">Preferencias durante la atencion</label>' +
-        '<textarea id="admPreferencias" rows="3" style="' + inputStyle + '" placeholder="Como preferis que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites"></textarea>' +
+        '<label class="ui-label">Preferencias durante la atencion</label>' +
+        '<textarea id="admPreferencias" rows="3" class="campo-texto" placeholder="Como preferis que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites"></textarea>' +
 
-        '<label style="' + labelStyle + '">Tipo de entrevista preferida</label>' +
-        '<select id="admTipoEntrevista" style="' + inputStyle + '"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select>' +
+        '<label class="ui-label">Tipo de entrevista preferida</label>' +
+        '<select id="admTipoEntrevista" class="campo-texto"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select>' +
 
-        '<label style="' + labelStyle + '">Red de apoyo</label>' +
-        '<textarea id="admRedApoyo" rows="2" style="' + inputStyle + '" placeholder="Con quien convivis? Contas con familiares o personas de confianza que te acompanen?"></textarea>' +
+        '<label class="ui-label">Red de apoyo</label>' +
+        '<textarea id="admRedApoyo" rows="2" class="campo-texto" placeholder="Con quien convivis? Contas con familiares o personas de confianza que te acompanen?"></textarea>' +
 
-        '<label style="' + labelStyle + '">Que esperas lograr con el tratamiento?</label>' +
-        '<textarea id="admObjetivos" rows="2" style="' + inputStyle + '"></textarea>' +
+        '<label class="ui-label">Que esperas lograr con el tratamiento?</label>' +
+        '<textarea id="admObjetivos" rows="2" class="campo-texto"></textarea>' +
 
-        '<button onclick="enviarAdmision()" style="width:100%;margin-top:20px;padding:12px;background:#6A5ACD;color:white;border:none;border-radius:8px;font-size:15px;cursor:pointer;font-weight:bold">Enviar informe de admision</button>' +
+        '<button class="btn-primario btn-bloque" onclick="enviarAdmision()">Enviar informe de admision</button>' +
         '</div>';
 }
 
@@ -1003,21 +993,21 @@ async function cargarNotificaciones() {
     if (cont === null) {
         cont = document.createElement("div");
         cont.id = "notif-container";
-        cont.style.cssText = "position:fixed;top:70px;right:20px;z-index:9998;max-width:380px;display:flex;flex-direction:column;gap:10px";
+        cont.className = "notif-flotantes";
         document.body.appendChild(cont);
     }
     cont.innerHTML = "";
 
     noLeidas.forEach(function(n) {
         const card = document.createElement("div");
-        card.style.cssText = "background:white;border-left:5px solid #0d6efd;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)";
-        let botones = '<button onclick="marcarLeida(' + n.idNotificacion + ')" style="padding:6px 12px;background:#eee;color:#555;border:none;border-radius:6px;cursor:pointer;font-size:12px">Cerrar</button>';
+        card.className = "notif-flotante";
+        let botones = '<button class="ui-btn ui-btn--sm" onclick="marcarLeida(' + n.idNotificacion + ')">Cerrar</button>';
         if (n.link !== null && n.link !== "") {
-            botones = '<button onclick="unirseEntrevista(\'' + n.link + '\', ' + n.idNotificacion + ')" style="padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;margin-right:8px">Unirse a la entrevista</button>' + botones;
+            botones = '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseEntrevista(\'' + n.link + '\', ' + n.idNotificacion + ')">Unirse a la entrevista</button>' + botones;
         }
-        card.innerHTML = '<div style="font-weight:bold;color:#0d6efd;margin-bottom:4px">' + n.titulo + '</div>' +
-            '<div style="font-size:13px;color:#444;margin-bottom:10px">' + n.mensaje + '</div>' +
-            '<div>' + botones + '</div>';
+        card.innerHTML = '<div class="notif-titulo">' + n.titulo + '</div>' +
+            '<div class="notif-mensaje">' + n.mensaje + '</div>' +
+            '<div class="notif-botones">' + botones + '</div>';
         cont.appendChild(card);
     });
 }
@@ -1060,8 +1050,9 @@ async function initCampanita() {
     if (document.getElementById("campanita-notif") !== null) return;
     const btn = document.createElement("div");
     btn.id = "campanita-notif";
-    btn.style.cssText = "position:fixed;top:16px;right:20px;z-index:9997;cursor:pointer;background:white;width:44px;height:44px;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.2);display:flex;align-items:center;justify-content:center;font-size:20px";
-    btn.innerHTML = "&#128276;<span id=\"campanita-badge\" style=\"position:absolute;top:-2px;right:-2px;background:#e53935;color:white;border-radius:50%;min-width:18px;height:18px;font-size:11px;display:none;align-items:center;justify-content:center;font-weight:bold;padding:0 4px\"></span>";
+    btn.className = "campanita";
+    btn.title = "Notificaciones";
+    btn.innerHTML = "&#128276;<span id=\"campanita-badge\" class=\"campanita-badge\"></span>";
     btn.onclick = abrirCasillaNotificaciones;
     document.body.appendChild(btn);
     refrescarBadgeNotif();
@@ -1085,27 +1076,27 @@ async function abrirCasillaNotificaciones() {
     if (overlay === null) {
         overlay = document.createElement("div");
         overlay.id = "casilla-overlay";
-        overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;display:flex;justify-content:flex-end";
+        overlay.className = "casilla-overlay";
         overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
         document.body.appendChild(overlay);
     }
 
-    const items = notifs.length === 0 ? '<p style="color:#888;padding:20px">No tenes notificaciones.</p>' :
+    const items = notifs.length === 0 ? '<p class="texto-suave">No tenes notificaciones.</p>' :
         notifs.map(function(n) {
             const link = (n.link !== null && n.link !== "") ?
-                '<button onclick="unirseDesdeCasilla(\'' + n.link + '\', ' + n.idNotificacion + ')" style="margin-top:8px;padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold">Unirse / Ver sala</button>' : "";
-            return '<div style="background:' + (n.leida ? "#f8f8f8" : "#eef5ff") + ';border-left:4px solid ' + (n.leida ? "#ccc" : "#0d6efd") + ';border-radius:8px;padding:12px 14px;margin-bottom:10px">' +
-                '<div style="font-weight:bold;color:#333;margin-bottom:4px">' + n.titulo + '</div>' +
-                '<div style="font-size:13px;color:#555">' + n.mensaje + '</div>' +
-                '<div style="font-size:11px;color:#aaa;margin-top:4px">' + n.fecha + '</div>' +
+                '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseDesdeCasilla(\'' + n.link + '\', ' + n.idNotificacion + ')">Unirse / Ver sala</button>' : "";
+            return '<div class="casilla-item' + (n.leida ? '' : ' no-leida') + '">' +
+                '<div class="notif-titulo">' + n.titulo + '</div>' +
+                '<div class="notif-mensaje">' + n.mensaje + '</div>' +
+                '<div class="notif-fecha">' + n.fecha + '</div>' +
                 link +
                 '</div>';
         }).join("");
 
-    overlay.innerHTML = '<div style="background:white;width:380px;max-width:90%;height:100%;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,.15)">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
-        '<h3 style="margin:0;color:#6A5ACD">Notificaciones</h3>' +
-        '<button onclick="document.getElementById(\'casilla-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999">&times;</button>' +
+    overlay.innerHTML = '<div class="casilla">' +
+        '<div class="casilla-cabecera">' +
+        '<h3>Notificaciones</h3>' +
+        '<button class="modal-cerrar-x" onclick="document.getElementById(\'casilla-overlay\').remove()" aria-label="Cerrar">&times;</button>' +
         '</div>' + items + '</div>';
 
     // marcar todas como leidas
