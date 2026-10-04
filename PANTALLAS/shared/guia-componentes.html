@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Guía de componentes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="tema.css">
+    <style>
+        /* Solo para armar esta guía; los componentes salen de tema.css */
+        .guia { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; }
+        .guia-indice { position: sticky; top: calc(var(--topbar-h) + 16px); align-self: start; }
+        .guia-indice a { display: block; padding: 5px 10px; border-radius: var(--r-md); color: var(--text-2); font-size: var(--fs-md); }
+        .guia-indice a:hover { background: var(--surface-2); text-decoration: none; }
+        .guia section { scroll-margin-top: calc(var(--topbar-h) + 16px); margin-bottom: 28px; }
+        .guia h2 { font-size: var(--fs-xl); margin-bottom: 4px; }
+        .guia h2 + p { color: var(--text-3); margin-bottom: 12px; }
+        .guia-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .guia-codigo {
+            margin: 12px 0 0; padding: 10px 12px; overflow-x: auto;
+            background: #1F1D2B; color: #E4E2F0; border-radius: var(--r-md);
+            font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.55; white-space: pre;
+        }
+        .muestras { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+        .muestra { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--surface); }
+        .muestra-color { height: 48px; }
+        .muestra-dato { padding: 7px 10px; font-size: var(--fs-sm); }
+        .muestra-dato code { display: block; color: var(--text-3); font-size: var(--fs-xs); }
+        .c-accent { background: var(--accent); } .c-accent-hover { background: var(--accent-hover); } .c-accent-strong { background: var(--accent-strong); }
+        .c-accent-soft { background: var(--accent-soft); } .c-accent-border { background: var(--accent-border); } .c-degrade { background: var(--marca-degrade); }
+        .c-bg { background: var(--bg); } .c-surface-2 { background: var(--surface-2); } .c-border { background: var(--border); }
+        .c-text { background: var(--text); } .c-text-3 { background: var(--text-3); }
+        .c-ok { background: var(--ok-solid); } .c-info { background: var(--info-solid); } .c-warn { background: var(--warn-solid); } .c-danger { background: var(--danger-solid); }
+        .tipo-escala > div { display: flex; align-items: baseline; gap: 16px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+        .tipo-escala code { width: 120px; color: var(--text-3); font-size: var(--fs-xs); flex-shrink: 0; }
+        .guia-scroll { max-height: 280px; }
+        .demo-barra { border: 1px solid var(--border); border-radius: var(--r-lg); overflow: visible; }
+        .demo-barra .ui-topbar { position: relative; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+        .demo-barra .ui-encabezado { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    </style>
+</head>
+<body>
+
+<header class="ui-topbar">
+    <a class="ui-marca" href="#paleta"><img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt=""><span class="ui-marca-nombre">Yo<b>Soy</b></span></a>
+    <span class="ui-muted">Guía de componentes</span>
+    <div class="ui-topbar-derecha"><a class="ui-btn ui-btn--sm" href="../index.html">Ir al ingreso</a></div>
+</header>
+
+<div class="ui-contenido guia">
+    <nav class="guia-indice" aria-label="Índice">
+        <a href="#paleta">Paleta</a><a href="#tipografia">Tipografía</a><a href="#barra">Barra superior</a>
+        <a href="#botones">Botones</a><a href="#campos">Campos y validación</a><a href="#tarjetas">Tarjetas</a>
+        <a href="#tabla">Tabla densa</a><a href="#chips">Chips y estados</a><a href="#avatares">Avatares y contadores</a>
+        <a href="#pestanas">Pestañas y toggles</a><a href="#modales">Modales</a><a href="#toasts">Toasts</a>
+        <a href="#vacios">Vacíos, carga y errores</a><a href="#alertas">Alertas</a><a href="#js">Capa JS (YS)</a>
+    </nav>
+
+    <main>
+        <section id="paleta">
+            <h2>Paleta</h2>
+            <p>La de YoSoy: violeta <code>#6A5ACD</code> como acento y el degradé azul → violeta de la marca. Fondos casi blancos y bordes suaves.</p>
+            <div class="muestras">
+                <div class="muestra"><div class="muestra-color c-accent"></div><div class="muestra-dato">Acento<code>--accent #6A5ACD</code></div></div>
+                <div class="muestra"><div class="muestra-color c-accent-hover"></div><div class="muestra-dato">Acento hover<code>--accent-hover</code></div></div>
+                <div class="muestra"><div class="muestra-color c-accent-strong"></div><div class="muestra-dato">Texto violeta<code>--accent-strong</code></div></div>
+                <div class="muestra"><div class="muestra-color c-accent-soft"></div><div class="muestra-dato">Seleccionado<code>--accent-soft</code></div></div>
+                <div class="muestra"><div class="muestra-color c-accent-border"></div><div class="muestra-dato">Borde violeta<code>--accent-border</code></div></div>
+                <div class="muestra"><div class="muestra-color c-degrade"></div><div class="muestra-dato">Degradé marca<code>--marca-degrade</code></div></div>
+                <div class="muestra"><div class="muestra-color c-bg"></div><div class="muestra-dato">Fondo<code>--bg</code></div></div>
+                <div class="muestra"><div class="muestra-color c-surface-2"></div><div class="muestra-dato">Inputs<code>--surface-2</code></div></div>
+                <div class="muestra"><div class="muestra-color c-border"></div><div class="muestra-dato">Borde<code>--border</code></div></div>
+                <div class="muestra"><div class="muestra-color c-text"></div><div class="muestra-dato">Texto<code>--text</code></div></div>
+                <div class="muestra"><div class="muestra-color c-text-3"></div><div class="muestra-dato">Texto suave<code>--text-3</code></div></div>
+                <div class="muestra"><div class="muestra-color c-ok"></div><div class="muestra-dato">Éxito<code>--ok</code></div></div>
+                <div class="muestra"><div class="muestra-color c-info"></div><div class="muestra-dato">Info<code>--info</code></div></div>
+                <div class="muestra"><div class="muestra-color c-warn"></div><div class="muestra-dato">Alerta<code>--warn</code></div></div>
+                <div class="muestra"><div class="muestra-color c-danger"></div><div class="muestra-dato">Error<code>--danger</code></div></div>
+            </div>
+        </section>
+
+        <section id="tipografia">
+            <h2>Tipografía</h2>
+            <p>Inter en toda la app, pesos 400 / 500 / 600. Base de la interfaz: 13 px.</p>
+            <div class="ui-card tipo-escala">
+                <div><code>--fs-2xl 18 / 600</code><span class="ui-encabezado-titulo">Título de página</span></div>
+                <div><code>--fs-xl 16 / 600</code><strong>Título de modal o sección</strong></div>
+                <div><code>--fs-lg 14 / 600</code><span class="ui-card-titulo">Título de tarjeta</span></div>
+                <div><code>--fs-md 13 / 400</code><span>Texto de la interfaz, tablas y formularios.</span></div>
+                <div><code>--fs-sm 12 / 500</code><span class="ui-label">Etiqueta de campo</span></div>
+                <div><code>--fs-xs 11 / 600</code><span class="ui-desplegable-titulo">Encabezado de tabla</span></div>
+            </div>
+        </section>
+
+        <section id="barra">
+            <h2>Barra superior y encabezado de página</h2>
+            <p>La arma <code>shared/shell.js</code> según el rol: logo, menús con submenús (clic o teclado, Esc cierra), Chats, campana y menú de usuario. Debajo, el encabezado con migas, título y acciones.</p>
+            <div class="demo-barra">
+                <div class="ui-topbar">
+                    <a class="ui-marca" href="#barra"><img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt=""><span class="ui-marca-nombre">Yo<b>Soy</b></span></a>
+                    <nav class="ui-menu" aria-label="Demo de menú">
+                        <ul>
+                            <li><a class="ui-menu-item" href="#barra">Inicio</a></li>
+                            <li>
+                                <button class="ui-menu-item activo" id="demoMenuBtn" type="button">Agenda <svg class="ui-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+                                <div class="ui-desplegable" id="demoMenu" role="menu">
+                                    <a class="ui-desplegable-item activo" role="menuitem" href="#barra"><span class="ui-desplegable-texto">Calendario<small>Turnos por día, semana o mes</small></span></a>
+                                    <a class="ui-desplegable-item" role="menuitem" href="#barra"><span class="ui-desplegable-texto">Mis horarios de trabajo<small>Días y franjas de atención</small></span></a>
+                                </div>
+                            </li>
+                            <li><a class="ui-menu-item" href="#barra">Pacientes</a></li>
+                        </ul>
+                    </nav>
+                    <div class="ui-topbar-derecha">
+                        <button class="ui-btn-icono" type="button" aria-label="Chats, 3 sin leer" id="demoChats"></button>
+                        <button class="ui-btn-icono" type="button" aria-label="Avisos" id="demoCampana"></button>
+                        <span class="ui-topbar-sep"></span>
+                        <button class="ui-usuario-btn" type="button"><span class="ui-avatar c2">SM</span><span><span class="ui-usuario-nombre">Sebastián Manto</span><span class="ui-usuario-rol">Profesional</span></span></button>
+                    </div>
+                </div>
+                <div class="ui-encabezado">
+                    <ol class="ui-migas"><li><a href="#barra">Panel profesional</a></li><li><a href="#barra">Agenda</a></li><li>Calendario</li></ol>
+                    <div class="ui-encabezado-fila">
+                        <h1 class="ui-encabezado-titulo">Calendario</h1>
+                        <div class="ui-encabezado-acciones"><button class="ui-btn">Hoy</button><button class="ui-btn ui-btn--primary">+ Agregar horario</button></div>
+                    </div>
+                </div>
+            </div>
+            <pre class="guia-codigo">YS.shell.iniciar({ rol: "profesional", navegar: (seccion) =&gt; activarTab(seccion) });
+YS.shell.acciones([{ texto: "+ Agregar horario", tipo: "primary", alClick: abrirFormNuevoHorario }]);</pre>
+        </section>
+
+        <section id="botones">
+            <h2>Botones</h2>
+            <p>Uno solo primario por zona. El de peligro sólido, solo para confirmar algo destructivo.</p>
+            <div class="ui-card guia-fila">
+                <button class="ui-btn ui-btn--primary">Primario</button>
+                <button class="ui-btn">Secundario</button>
+                <button class="ui-btn ui-btn--suave">Suave</button>
+                <button class="ui-btn ui-btn--ghost">Fantasma</button>
+                <button class="ui-btn ui-btn--danger">Peligro</button>
+                <button class="ui-btn ui-btn--danger-solido">Eliminar</button>
+                <button class="ui-btn ui-btn--sm">Chico</button>
+                <button class="ui-btn ui-btn--primary cargando">Guardando</button>
+                <button class="ui-btn" disabled>Deshabilitado</button>
+                <button class="ui-btn ui-btn--icono" aria-label="Refrescar" id="demoIconoBtn"></button>
+            </div>
+            <pre class="guia-codigo">&lt;button class="ui-btn ui-btn--primary"&gt;Guardar&lt;/button&gt;   ·   boton.classList.add("cargando")</pre>
+        </section>
+
+        <section id="campos">
+            <h2>Campos y validación</h2>
+            <p>Etiqueta arriba, fondo gris clarito. El error se muestra en el campo, no con <code>alert()</code>.</p>
+            <div class="ui-card">
+                <div class="ui-form-grid" id="demoForm">
+                    <div class="ui-campo"><label for="demoNombre">Nombre<span class="ui-requerido">*</span></label><input id="demoNombre" class="ui-input" placeholder="Nombre y apellido"></div>
+                    <div class="ui-campo"><label for="demoMail">Mail<span class="ui-requerido">*</span></label><input id="demoMail" class="ui-input" type="email" placeholder="nombre@dominio.com"><span class="ui-campo-ayuda">Le llegan los avisos de turnos.</span></div>
+                    <div class="ui-campo"><label for="demoDia">Día</label><select id="demoDia" class="ui-select"><option>Lunes</option><option>Martes</option></select></div>
+                    <div class="ui-campo"><label for="demoRO">Solo lectura</label><input id="demoRO" class="ui-input" readonly value="MP 12345"></div>
+                    <div class="ui-campo ui-campo--ancho"><label for="demoMotivo">Motivo</label><textarea id="demoMotivo" class="ui-textarea" placeholder="Opcional"></textarea></div>
+                    <label class="ui-check ui-campo--ancho"><input type="checkbox"> Mostrar dados de baja</label>
+                </div>
+                <div class="ui-form-acciones"><button class="ui-btn" onclick="YS.form.limpiarTodo('demoForm')">Limpiar</button><button class="ui-btn ui-btn--primary" onclick="validarDemo()">Validar</button></div>
+            </div>
+            <pre class="guia-codigo">YS.form.validar([
+    { id: "demoNombre", requerido: "Ingresá el nombre." },
+    { id: "demoMail", requerido: true, patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un mail válido." }
+]);   // marca los campos, enfoca el primero y devuelve true/false</pre>
+        </section>
+
+        <section id="tarjetas">
+            <h2>Tarjetas y tarjetas de resumen</h2>
+            <p>Las de resumen (Inicio de cada rol) llevan a la sección correspondiente.</p>
+            <div class="ui-stats">
+                <a class="ui-stat" href="#tarjetas"><span class="ui-stat-etiqueta" id="demoStat1">Turnos de hoy</span><span class="ui-stat-valor">6</span><span class="ui-stat-pie">2 pendientes de confirmar</span></a>
+                <a class="ui-stat ui-stat--warn" href="#tarjetas"><span class="ui-stat-etiqueta">Solicitudes pendientes</span><span class="ui-stat-valor">3</span><span class="ui-stat-pie">Registro de profesionales</span></a>
+                <a class="ui-stat ui-stat--danger" href="#tarjetas"><span class="ui-stat-etiqueta">Chats urgentes</span><span class="ui-stat-valor">1</span><span class="ui-stat-pie">Requiere atención</span></a>
+                <div class="ui-stat ui-stat--marca"><span class="ui-stat-etiqueta">Pacientes activos</span><span class="ui-stat-valor">42</span><span class="ui-stat-pie">Asignados a vos</span></div>
+            </div>
+            <div class="ui-card">
+                <div class="ui-card-header"><h3 class="ui-card-titulo">Próximo turno</h3><button class="ui-btn ui-btn--sm">Ver agenda</button></div>
+                <div class="ui-datos">
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">Paciente</span><span class="ui-dato-valor">Camila Ruiz</span></div>
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">Fecha</span><span class="ui-dato-valor">Lunes 6 de octubre · 10:00</span></div>
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">Teléfono</span><span class="ui-dato-valor vacio">Sin cargar</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tabla">
+            <h2>Tabla densa con encabezado fijo</h2>
+            <p>Barra de herramientas (búsqueda y filtros), encabezado que queda fijo al hacer scroll y paginación.</p>
+            <div class="ui-barra">
+                <label class="ui-buscador"><span class="sr-only">Buscar</span><span id="demoLupa"></span><input class="ui-input" id="demoBuscar" placeholder="Buscar paciente…"></label>
+                <div class="ui-filtros" id="demoFiltros">
+                    <button class="ui-filtro activo" data-f="">Todos</button><button class="ui-filtro" data-f="Pendiente">Pendientes</button><button class="ui-filtro" data-f="Confirmado">Confirmados</button>
+                </div>
+                <span class="ui-barra-espacio"></span><span class="ui-barra-info" id="demoInfo"></span>
+            </div>
+            <div class="ui-tabla-panel">
+                <div class="ui-tabla-scroll guia-scroll" id="demoScroll">
+                    <table class="ui-tabla ui-tabla--densa"><thead><tr><th>Paciente</th><th>Profesional</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody id="demoTbody"></tbody></table>
+                </div>
+                <div class="ui-paginacion"><span id="demoRango"></span><div class="ui-paginacion-botones"><button class="ui-btn ui-btn--sm" id="demoAnt">Anterior</button><span class="ui-paginacion-pagina" id="demoPag"></span><button class="ui-btn ui-btn--sm" id="demoSig">Siguiente</button></div></div>
+            </div>
+        </section>
+
+        <section id="chips">
+            <h2>Chips y estados de turno</h2>
+            <p>Mismo color para el mismo estado en toda la app (<code>YS.turno.chip()</code>).</p>
+            <div class="ui-card guia-fila" id="demoChips"></div>
+            <div class="ui-card guia-fila mt-12">
+                <span class="ui-chip ui-chip--ok">Éxito</span><span class="ui-chip ui-chip--info">Info</span><span class="ui-chip ui-chip--warn">Alerta</span>
+                <span class="ui-chip ui-chip--danger">Error</span><span class="ui-chip ui-chip--neutral">Neutro</span><span class="ui-chip ui-chip--marca">Marca</span>
+                <span class="ui-chip ui-chip--neutral ui-chip--sin-punto">Sin punto</span>
+            </div>
+        </section>
+
+        <section id="avatares">
+            <h2>Avatares y contadores</h2>
+            <p>Iniciales con un color estable por persona.</p>
+            <div class="ui-card guia-fila" id="demoAvatares"></div>
+        </section>
+
+        <section id="pestanas">
+            <h2>Pestañas y toggles</h2>
+            <p>Pestañas para partes de una misma ficha; toggle segmentado para cambiar de vista.</p>
+            <div class="ui-card">
+                <div class="ui-tabs" role="tablist">
+                    <button class="ui-tab" role="tab" aria-selected="true" data-p="1">Datos del paciente</button>
+                    <button class="ui-tab" role="tab" aria-selected="false" data-p="2">Evoluciones <span class="ui-contador ui-contador--suave">4</span></button>
+                    <button class="ui-tab" role="tab" aria-selected="false" data-p="3">Sesiones clínicas</button>
+                </div>
+                <p id="demoTabTexto">Contenido de "Datos del paciente".</p>
+                <div class="ui-segmentado" role="group" aria-label="Vista"><button class="activo">Día</button><button>Semana</button><button>Mes</button></div>
+            </div>
+        </section>
+
+        <section id="modales">
+            <h2>Modales</h2>
+            <p>Reemplazan a <code>confirm()</code>, <code>alert()</code> y <code>prompt()</code>. Foco atrapado, Esc cierra y el foco vuelve al botón.</p>
+            <div class="ui-card guia-fila">
+                <button class="ui-btn" onclick="demoModal()">Modal con formulario</button>
+                <button class="ui-btn" onclick="YS.confirmar({ titulo: 'Cancelar turno', mensaje: '¿Cancelar el turno del lunes 6 a las 10:00?', textoConfirmar: 'Cancelar turno', textoCancelar: 'Volver', peligro: true }).then(r => YS.toast(r ? 'Confirmado' : 'Cancelado', 'info'))">Confirmación destructiva</button>
+                <button class="ui-btn" onclick="YS.avisar({ titulo: 'No se puede confirmar el turno', mensaje: 'El paciente todavía no firmó el consentimiento informado.' })">Aviso</button>
+                <button class="ui-btn" onclick="YS.pedirTexto({ titulo: 'Derivar paciente', etiqueta: 'Motivo', multilinea: true, textoConfirmar: 'Derivar' }).then(t => t && YS.toast('Motivo: ' + t, 'info'))">Pedir un texto</button>
+            </div>
+            <pre class="guia-codigo">if (!await YS.confirmar({ titulo: "Cancelar turno", mensaje: "¿Seguro?", peligro: true })) return;</pre>
+        </section>
+
+        <section id="toasts">
+            <h2>Toasts</h2>
+            <p>Abajo a la derecha. Se pausan con el mouse encima; pueden llevar una acción.</p>
+            <div class="ui-card guia-fila">
+                <button class="ui-btn" onclick="YS.toast('Turno confirmado')">Éxito</button>
+                <button class="ui-btn" onclick="YS.toast('No se pudo guardar el horario.', 'error')">Error</button>
+                <button class="ui-btn" onclick="YS.toast('Seleccioná un paciente.', 'warn')">Alerta</button>
+                <button class="ui-btn" onclick="YS.toast('Nuevo mensaje de Juan Pérez', 'info', { accion: { texto: 'Abrir', alClick: () => YS.toast('Abriría el chat', 'info') } })">Con acción</button>
+            </div>
+        </section>
+
+        <section id="vacios">
+            <h2>Estados vacíos, carga y errores</h2>
+            <p>Siempre se explica qué pasa y, si se puede, qué hacer.</p>
+            <div class="ui-grilla">
+                <div class="ui-card" id="demoVacio"></div>
+                <div class="ui-card" id="demoError"></div>
+                <div class="ui-card" id="demoCarga"></div>
+                <div class="ui-card" id="demoEsqueleto"></div>
+            </div>
+        </section>
+
+        <section id="alertas">
+            <h2>Alertas</h2>
+            <p>Mensajes persistentes dentro de la página.</p>
+            <div class="ui-pila">
+                <div class="ui-alerta" role="alert">El paciente no firmó el consentimiento. La sesión puede hacerse, pero el turno queda sin confirmar.</div>
+                <div class="ui-alerta ui-alerta--info">Reprogramando: elegí el nuevo día en el calendario.</div>
+                <div class="ui-alerta ui-alerta--ok">Consentimiento firmado el 3/10/2026.</div>
+                <div class="ui-alerta ui-alerta--danger">URGENTE: posible situación de riesgo en el chat.</div>
+                <div class="ui-alerta ui-alerta--marca">Tenés 2 asignaciones nuevas para revisar.</div>
+            </div>
+        </section>
+
+        <section id="js">
+            <h2>Capa JS compartida (<code>shared/ui.js</code>)</h2>
+            <p>Lo que antes repetía cada pantalla.</p>
+            <pre class="guia-codigo">const turnos = await YS.api(`/profesionales/${id}/turnos`);      // JSON o Error con .status y .mensaje del servidor
+const res = await YS.fetch(`/turnos/${id}`, { method: "PUT", json: turno }); // Response, con X-Usuario-Id
+YS.toast("Guardado")  ·  YS.confirmar({...})  ·  YS.pedirTexto({...})  ·  YS.avisar({...})
+YS.fecha.relativa(f)  // "14:05", "Ayer", "Lun", "05/10"   ·  YS.fecha.separador(f) // "Hoy", "Lunes 29 de septiembre"
+YS.turno.chip(2)      // &lt;span class="ui-chip estado-turno--confirmado"&gt;Confirmado&lt;/span&gt;
+YS.dias.orden("miercoles")  // 2 (lunes = 0), aunque la base lo guarde en minúscula o sin tilde
+YS.vacio({ titulo, texto, accion })  ·  YS.errorCarga({ reintentar: "cargar()" })  ·  YS.cargando()</pre>
+        </section>
+    </main>
+</div>
+
+<script src="ui.js"></script>
+<script>
+    // Íconos (salen de YS.icono para no repetir los SVG)
+    document.getElementById("demoChats").innerHTML = YS.icono("chat") + '<span class="ui-contador">3</span>';
+    document.getElementById("demoCampana").innerHTML = YS.icono("campana") + '<span class="ui-contador ui-contador--peligro">1</span>';
+    document.getElementById("demoIconoBtn").innerHTML = YS.icono("refrescar");
+    document.getElementById("demoLupa").outerHTML = YS.icono("buscar");
+    document.getElementById("demoStat1").insertAdjacentHTML("afterbegin", YS.icono("agenda"));
+    YS.desplegable(document.getElementById("demoMenuBtn"), document.getElementById("demoMenu"), { tipo: "menu" });
+
+    function validarDemo() {
+        if (YS.form.validar([
+            { id: "demoNombre", requerido: "Ingresá el nombre." },
+            { id: "demoMail", requerido: "Ingresá el mail.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un mail válido." }
+        ])) YS.toast("Todo en orden");
+    }
+
+    function demoModal() {
+        const cuerpo = YS.el("div", { class: "ui-form-grid" },
+            YS.el("div", { class: "ui-campo" }, YS.el("label", { for: "mFecha", text: "Fecha" }), YS.el("input", { id: "mFecha", type: "date", class: "ui-input" })),
+            YS.el("div", { class: "ui-campo" }, YS.el("label", { for: "mHora", text: "Hora" }), YS.el("input", { id: "mHora", type: "time", class: "ui-input" })));
+        YS.modal({
+            titulo: "Proponer primer turno", cuerpo,
+            acciones: [
+                { texto: "Cancelar", alClick: c => c.cerrar() },
+                { texto: "Enviar propuesta", tipo: "primary", alClick: c => {
+                    if (YS.form.validar([{ id: "mFecha", requerido: "Elegí una fecha." }, { id: "mHora", requerido: "Elegí una hora." }])) { c.cerrar(); YS.toast("Propuesta enviada"); }
+                } }
+            ]
+        });
+    }
+
+    // Chips de estado de turno
+    document.getElementById("demoChips").innerHTML =
+        [1, 2, 3, 4].map(e => YS.turno.chip(e)).join("") + YS.turno.chip(1, { propuesto: true, texto: "Propuesto por mí" }) + YS.turno.chip("Rechazado");
+
+    // Avatares
+    document.getElementById("demoAvatares").innerHTML =
+        ["Camila Ruiz", "Juan Pérez", "Lucía Giménez", "Martín Sosa", "Ana Muñoz", "Pedro Ferreyra"].map(n => YS.avatar(n)).join("") +
+        YS.avatar("Sebastián Manto", null, "lg") + YS.avatar(null) +
+        '<span class="ui-contador">3</span><span class="ui-contador ui-contador--peligro">12</span><span class="ui-contador ui-contador--suave">99+</span>';
+
+    // Pestañas
+    document.querySelectorAll(".ui-tab").forEach(t => t.addEventListener("click", () => {
+        document.querySelectorAll(".ui-tab").forEach(x => x.setAttribute("aria-selected", x === t));
+        document.getElementById("demoTabTexto").textContent = `Contenido de "${t.childNodes[0].textContent.trim()}".`;
+    }));
+    document.querySelectorAll(".ui-segmentado button").forEach(b => b.addEventListener("click", () => {
+        b.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("activo", x === b));
+    }));
+
+    // Tabla con búsqueda, filtros y paginación
+    const nombres = ["Camila Ruiz", "Juan Pérez", "Lucía Giménez", "Martín Sosa", "Ana Muñoz", "Pedro Ferreyra", "Sofía Díaz", "Tomás Herrera", "Valentina López", "Bruno Castro", "Julieta Romero", "Lautaro Medina"];
+    const filas = Array.from({ length: 34 }, (_, i) => ({
+        paciente: nombres[i % nombres.length], profesional: i % 2 ? "Sebastián Manto" : "Laura Giménez",
+        fecha: new Date(2026, 9, 1 + (i % 25), 9 + (i % 8)), estado: ["Pendiente", "Confirmado", "Cancelado", "Realizado"][i % 4]
+    }));
+    let pagina = 1, filtro = "";
+    const POR_PAGINA = 8;
+    function dibujarTabla() {
+        const q = YS.normalizar(document.getElementById("demoBuscar").value);
+        const vis = filas.filter(f => (!filtro || f.estado === filtro) && YS.normalizar(f.paciente).includes(q));
+        const paginas = Math.max(1, Math.ceil(vis.length / POR_PAGINA));
+        pagina = Math.min(pagina, paginas);
+        const desde = (pagina - 1) * POR_PAGINA;
+        document.getElementById("demoTbody").innerHTML = vis.slice(desde, desde + POR_PAGINA).map(f => `
+            <tr><td><span class="ui-flex">${YS.avatar(f.paciente, null, "sm")}<span class="principal">${YS.esc(f.paciente)}</span></span></td>
+            <td>${YS.esc(f.profesional)}</td><td>${YS.fecha.corta(f.fecha)} · ${YS.fecha.hora(f.fecha)}</td><td>${YS.turno.chip(f.estado)}</td>
+            <td class="acciones"><button class="ui-btn ui-btn--sm">Ver</button></td></tr>`).join("")
+            || `<tr><td colspan="5">${YS.vacio({ icono: "buscar", titulo: "Sin resultados", texto: "Probá con otro nombre o sacá el filtro." })}</td></tr>`;
+        document.getElementById("demoInfo").textContent = `${vis.length} turno${vis.length === 1 ? "" : "s"}`;
+        document.getElementById("demoRango").textContent = vis.length ? `${desde + 1}–${Math.min(desde + POR_PAGINA, vis.length)} de ${vis.length}` : "0 resultados";
+        document.getElementById("demoPag").textContent = `${pagina} / ${paginas}`;
+        document.getElementById("demoAnt").disabled = pagina <= 1;
+        document.getElementById("demoSig").disabled = pagina >= paginas;
+    }
+    document.getElementById("demoBuscar").addEventListener("input", YS.debounce(() => { pagina = 1; dibujarTabla(); }, 150));
+    document.getElementById("demoAnt").onclick = () => { pagina--; dibujarTabla(); };
+    document.getElementById("demoSig").onclick = () => { pagina++; dibujarTabla(); };
+    document.querySelectorAll("#demoFiltros .ui-filtro").forEach(b => b.addEventListener("click", () => {
+        filtro = b.dataset.f; pagina = 1;
+        document.querySelectorAll("#demoFiltros .ui-filtro").forEach(x => x.classList.toggle("activo", x === b));
+        dibujarTabla();
+    }));
+    dibujarTabla();
+
+    // Estados
+    document.getElementById("demoVacio").innerHTML = YS.vacio({ icono: "agenda", titulo: "No tenés turnos para hoy", texto: "Cuando un paciente pida un turno lo vas a ver acá.", accion: { texto: "Ver agenda", onclick: "YS.toast('Iría a la agenda', 'info')" } });
+    document.getElementById("demoError").innerHTML = YS.errorCarga({ reintentar: "YS.toast('Reintentaría', 'info')" });
+    document.getElementById("demoCarga").innerHTML = YS.cargando("Cargando turnos…");
+    document.getElementById("demoEsqueleto").innerHTML = YS.esqueleto.lista(3);
+</script>
+</body>
+</html>
