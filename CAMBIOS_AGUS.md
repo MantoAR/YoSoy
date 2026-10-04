@@ -3,7 +3,7 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0 y 1 terminados. Sigue el Paso 2 (shell común).
+**Estado:** Pasos 0, 1 y 2 terminados. Sigue el Paso 3 (chats).
 
 ---
 
@@ -180,6 +180,52 @@ Cualquier rediseño choca con eso: el merge va a necesitar resolución a mano, s
   - Se quita pantalla por pantalla en el Paso 5, cuando se reescribe cada template. Hasta entonces convive sin chocar, gracias al prefijo `ui-`.
 - **Guía de componentes** en `PANTALLAS/shared/guia-componentes.html`
   (`http://localhost:5000/pantallas/shared/guia-componentes.html`).
+
+### Paso 2: shell común
+
+`shared/shell.js` arma en todas las pantallas con sesión la misma estructura:
+
+- barra superior con logo, menú y submenús (se abren con clic, al pasar el mouse o con el teclado);
+- campana de avisos y menú de usuario a la derecha;
+- debajo, un encabezado con migas, título y acciones.
+
+Cambia el contenido del menú según el rol, no el esqueleto.
+
+| Rol | Menú | Menú de usuario | Campana |
+|---|---|---|---|
+| Profesional | Inicio · Agenda (Calendario, Mis horarios de trabajo) · Pacientes · Sala de video · Reportes | Mi perfil, Cerrar sesión | Turnos confirmados sin sala, con "Generar sala" |
+| Paciente | Inicio · Turnos (Mis turnos, Mis profesionales) · Sala de video · Admisión · Consentimiento | Mis datos, Cerrar sesión | Sus notificaciones |
+| Configurador | Inicio · Usuarios (4) · Clínico (5) · Reportes · Configuración (4) · Auditoría | Cerrar sesión | Avisos internos y Chats: se agregan en el Paso 3 |
+
+- **Se saca la barra lateral de íconos y la oscura del Configurador.** Competía con el menú superior y no puede haber dos navegaciones.
+- **Navegación por `#hash`** (`dashboard.html#agenda`).
+  - El menú son links: funcionan el botón Atrás, abrir en otra pestaña y entrar directo a una sección.
+  - Las funciones de cada panel (`activarTab`, `mostrarSeccion`, `mostrarTab`) siguen siendo las que dibujan cada sección.
+- **"Mis horarios de trabajo" es una sección propia.** Antes era la segunda tarjeta del calendario. La agenda Día/Semana/Mes queda sola en "Calendario".
+- **Títulos y acciones principales van al encabezado:**
+  - "Cita urgente" en el Inicio del profesional;
+  - "Agregar horario" en Mis horarios;
+  - "Actualizar" y las cantidades en los listados del Configurador;
+  - "Mostrar dados de baja" en Usuarios.
+- **Campana:**
+  - **Profesional:** los avisos flotantes de "Turno confirmado → Generar sala" pasan a la campana. Al entrar hay un aviso si quedan pendientes, una vez por sesión del navegador. Solo se muestran turnos de hoy en adelante.
+  - **Paciente:** la campanita flotante pasa a la barra, con el mismo comportamiento: al abrirla, las notificaciones quedan leídas. Los avisos flotantes de notificaciones sin leer se mantienen y se van cuando se leen desde la campana.
+- **Inicio del Configurador:** antes decía "Seleccioná una sección del menú". Ahora muestra:
+  - tarjetas con datos reales: pendientes de registro, de cambio y de contraseña, admisiones, turnos de hoy, pacientes y profesionales activos;
+  - la actividad reciente de auditoría.
+- **Consentimiento sin sesión.** El link que le llega al paciente sigue mostrando el aviso de "tenés que ingresar" con el botón Ingresar, en vez de redirigir directo al login.
+- **Sesión:**
+  - El shell vuelve al login si falta la sesión del rol. Un profesional que abre la URL del Configurador vuelve al login.
+  - Cerrar sesión pide confirmación con el modal propio y limpia `localStorage`.
+  - `js/sesion.js` (aviso de inactividad) sigue cargado en las mismas pantallas que antes.
+- **El Configurador deja de cargar `bootstrap.bundle.js`** (no se usaba). El CSS de Bootstrap se saca en el Paso 5.
+- **La pantalla de mensajería** pasa al shell en el Paso 3, cuando se rehace el chat.
+- **No quedaron pantallas huérfanas nuevas.**
+
+**Adelantados del Paso 6** (la campana del profesional los necesitaba para funcionar):
+
+- bugs 1 y 2, el formato de `TimeSpan` en `turnos-confirmados` y `generar-sala`, cada uno en su commit;
+- bug 6, cerrar sesión en el Configurador, quedó resuelto por el shell.
 
 ## Pendientes
 
