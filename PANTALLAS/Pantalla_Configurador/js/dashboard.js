@@ -1,4 +1,4 @@
-const API = "http://localhost:5000";
+const API = YS.API;   // mismo origen que la página (shared/ui.js)
 
 function toast(msg, tipo = "ok", duracion = 3500) {
     let cont = document.getElementById("toast-container");
@@ -93,29 +93,21 @@ let tabActual = null;
 let datosActuales = [];
 let filaEnEdicion = null;
 
-// ── SIDEBAR ──────────────────────────────────────────────────
-function toggleGrupo(id) {
-    const lista = document.getElementById(`grupo-${id}`);
-    const flecha = document.getElementById(`flecha-${id}`);
-    lista.classList.toggle("oculto");
-    flecha.textContent = lista.classList.contains("oculto") ? "▶" : "▼";
-}
+// ── NAVEGACIÓN ───────────────────────────────────────────────
+// Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
+const SECCIONES = ["inicio", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
+    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "coberturas", "interaccionesia"];
 
-function marcarActivo(tab) {
-    document.querySelectorAll(".grupo-items li").forEach(li => {
-        li.classList.toggle("activo", li.getAttribute("onclick")?.includes(`'${tab}'`));
-    });
-}
-
-// ── TAB ROUTING ──────────────────────────────────────────────
 async function mostrarTab(tab) {
+    if (!SECCIONES.includes(tab)) tab = "inicio";
+    YS.shell.marcar(tab);
+    if (tab === 'inicio') { inicioConfigurador(); return; }
     if (tab === 'reportes') { reportes(); return; }
     if (tab === 'admisiones') { admisiones(); return; }
     tabActual = tab;
-    marcarActivo(tab);
 
     const contenido = document.getElementById("contenido");
-    contenido.innerHTML = `<div class="text-center mt-5"><div class="spinner-border text-primary"></div></div>`;
+    contenido.innerHTML = YS.cargando();
 
     try {
         if (tab === "usuarios")     return await renderUsuarios(contenido);
@@ -157,14 +149,10 @@ async function renderUsuarios(c) {
     window._profesionales = profesionales;
     window._mostrarDadosDeBaja = false;
 
+    if (YS.shell.actual !== "usuarios") return;
+    YS.shell.acciones([YS.el("label", { class: "ui-check" },
+        YS.el("input", { type: "checkbox", id: "chkDadosDeBaja", on: { change: toggleDadosDeBaja } }), "Mostrar dados de baja")]);
     c.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["usuarios"]}</div>
-            <label class="check-baja">
-                <input type="checkbox" id="chkDadosDeBaja" onchange="toggleDadosDeBaja()">
-                Mostrar dados de baja
-            </label>
-        </div>
         <div class="split-view">
             <div class="split-col">
                 <div class="split-header">Pacientes <span class="split-badge" id="badgePacientes"></span></div>
@@ -308,9 +296,9 @@ async function darDeAltaProfesional(idProf) {
 async function renderSolicitudes(c) {
     const datos = await fetch(`${API}/profesionales/solicitudes`).then(r => r.json());
 
+    if (!encabezadoListado("solicitudes", datos.length, "pendientes")) return;
     if (!datos.length) {
-        c.innerHTML = `<div class="titulo-seccion">${titulos["solicitudes"]}</div>
-            <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
+        c.innerHTML = `<div class="alert alert-info">No hay solicitudes pendientes.</div>`;
         return;
     }
 
@@ -325,10 +313,6 @@ async function renderSolicitudes(c) {
     }).join("");
 
     c.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["solicitudes"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('solicitudes')">↺ Actualizar</button>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
                 <thead><tr>${headers}</tr></thead>
@@ -359,9 +343,9 @@ async function rechazarSolicitud(id) {
 async function renderDerivaciones(c) {
     const datos = await fetch(`${API}/derivaciones/detalle`).then(r => r.json());
 
+    if (!encabezadoListado("derivaciones", datos.length, "solicitudes")) return;
     if (!datos.length) {
-        c.innerHTML = `<div class="titulo-seccion">${titulos["derivaciones"]}</div>
-            <div class="alert alert-info">No hay solicitudes de cambio.</div>`;
+        c.innerHTML = `<div class="alert alert-info">No hay solicitudes de cambio.</div>`;
         return;
     }
 
@@ -384,10 +368,6 @@ async function renderDerivaciones(c) {
     }).join("");
 
     c.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["derivaciones"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('derivaciones')">↺ Actualizar</button>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
                 <thead><tr>
@@ -576,9 +556,9 @@ async function rechazarDerivacion(id) {
 function renderTabla(titulo, cols, datos, tab, contenido) {
     const editable = !SOLO_LECTURA.includes(tab);
 
+    if (!encabezadoListado(tab, datos?.length ?? 0, "registros", SOLO_LECTURA.includes(tab) ? "Solo lectura" : "")) return;
     if (!datos || datos.length === 0) {
-        contenido.innerHTML = `<div class="titulo-seccion">${titulo}</div>
-            <div class="alert alert-info">No hay registros para mostrar.</div>`;
+        contenido.innerHTML = `<div class="alert alert-info">No hay registros para mostrar.</div>`;
         return;
     }
 
@@ -595,12 +575,6 @@ function renderTabla(titulo, cols, datos, tab, contenido) {
     }).join("");
 
     contenido.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulo} <span class="badge bg-secondary">${datos.length}</span>
-                ${SOLO_LECTURA.includes(tab) ? '<span class="badge bg-secondary ms-2">Solo lectura</span>' : ""}
-            </div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('${tab}')">↺ Actualizar</button>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
                 <thead><tr>${headers}</tr></thead>
@@ -675,15 +649,15 @@ function errorHtml(tab) {
 }
 
 async function cerrarSesion() {
-    if (await confirmar("¿Cerrar sesión?")) window.location.href = "../index.html";
+    await YS.sesion.cerrar();
 }
 
 async function renderAuditoria(c, pagina = 1) {
     const datos = await fetch(`${API}/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
 
+    if (!encabezadoListado("auditoria", datos.length, "registros", "Los más recientes primero")) return;
     if (!datos.length) {
-        c.innerHTML = `<div class="titulo-seccion">${titulos["auditoria"]}</div>
-            <div class="alert alert-info">No hay registros de auditoría.</div>`;
+        c.innerHTML = `<div class="alert alert-info">No hay registros de auditoría.</div>`;
         return;
     }
 
@@ -700,10 +674,6 @@ async function renderAuditoria(c, pagina = 1) {
     }).join("");
 
     c.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["auditoria"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('auditoria')">↺ Actualizar</button>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
                 <thead><tr>
@@ -718,9 +688,9 @@ async function renderAuditoria(c, pagina = 1) {
 async function renderRecuperacion(c) {
     const datos = await fetch(`${API}/recuperacion-password/pendientes`).then(r => r.json());
 
+    if (!encabezadoListado("recuperacion", datos.length, "pendientes")) return;
     if (!datos.length) {
-        c.innerHTML = `<div class="titulo-seccion">${titulos["recuperacion"]}</div>
-            <div class="alert alert-info">No hay solicitudes pendientes.</div>`;
+        c.innerHTML = `<div class="alert alert-info">No hay solicitudes pendientes.</div>`;
         return;
     }
 
@@ -738,10 +708,6 @@ async function renderRecuperacion(c) {
     }).join("");
 
     c.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="titulo-seccion mb-0">${titulos["recuperacion"]} <span class="badge bg-secondary">${datos.length}</span></div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="mostrarTab('recuperacion')">↺ Actualizar</button>
-        </div>
         <div class="table-responsive">
             <table class="table table-hover tabla-datos">
                 <thead><tr>
@@ -770,7 +736,7 @@ async function rechazarRecuperacion(id) {
 
 async function reportes() {
     const c = document.getElementById('contenido');
-    c.innerHTML = '<div class="spinner">Cargando...</div>';
+    c.innerHTML = YS.cargando();
 
     let profesionales = [];
     try {
@@ -783,8 +749,8 @@ async function reportes() {
         .map(function(p) { return '<option value="' + p.idProfesional + '">' + p.nombre + '</option>'; })
         .join('');
 
+    if (YS.shell.actual !== "reportes") return;
     c.innerHTML =
-        '<h2>Reportes</h2>' +
         '<div class="tarjeta">' +
         '<h3 class="tarjeta-titulo">Atenciones por Profesional</h3>' +
         '<div class="fila-form">' +
@@ -975,7 +941,7 @@ let _admisionesCache = [];
 
 async function admisiones() {
     const c = document.getElementById("contenido");
-    c.innerHTML = '<div class="spinner">Cargando...</div>';
+    c.innerHTML = YS.cargando();
     try {
         const r = await fetch(API + "/informes-admision-detalle");
         _admisionesCache = await r.json();
@@ -998,8 +964,10 @@ async function admisiones() {
             '</tr>';
     }).join("");
 
-    c.innerHTML = '<h2>Admisiones</h2>' +
-        '<div class="tarjeta">' +
+    if (YS.shell.actual !== "admisiones") return;
+    YS.shell.encabezado({ subtitulo: `${_admisionesCache.length} informe${_admisionesCache.length === 1 ? "" : "s"}` });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("admisiones") }]);
+    c.innerHTML = '<div class="tarjeta">' +
         (_admisionesCache.length === 0 ? '<p class="texto-suave">No hay informes de admision.</p>' :
         '<table class="table"><thead><tr><th>Paciente</th><th>DNI</th><th>Especialidad</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody>' + filas + '</tbody></table>') +
         '</div>' +
@@ -1156,3 +1124,80 @@ async function iniciarEntrevistaVideo(codigoSala) {
     localStorage.setItem("idProfesional", idAdm);
     window.open("../Pantalla_Profesional/sesion_video.html?sala=" + encodeURIComponent(codigoSala), "_blank");
 }
+
+// ── ENCABEZADO DE LISTADOS ───────────────────────────────────
+// Cantidad en el subtítulo y "Actualizar" como acción. Devuelve false si el usuario
+// ya pasó a otra sección mientras se cargaban los datos (para no pisarla).
+function encabezadoListado(tab, cantidad, palabra = "registros", extra = "") {
+    if (YS.shell.actual !== tab) return false;
+    const singular = { registros: "registro", pendientes: "pendiente", solicitudes: "solicitud" };
+    const texto = `${cantidad} ${cantidad === 1 ? (singular[palabra] || palabra) : palabra}`;
+    YS.shell.encabezado({ subtitulo: [texto, extra].filter(Boolean).join(" · ") });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab(tab) }]);
+    return true;
+}
+
+// ── INICIO: resumen de lo que está pendiente ─────────────────
+async function inicioConfigurador() {
+    const c = document.getElementById("contenido");
+    c.innerHTML = YS.esqueleto.bloques(4);
+    YS.shell.usuario.then(u => {
+        if (YS.shell.actual === "inicio")
+            YS.shell.encabezado({ titulo: u.nombre ? `Hola, ${u.nombre}` : "Inicio", subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
+    });
+
+    const pedir = ruta => YS.api(ruta).catch(() => null);
+    const [solicitudes, derivaciones, recuperacion, informes, pacientes, profesionales, turnos, actividad] = await Promise.all([
+        pedir("/profesionales/solicitudes"), pedir("/derivaciones/detalle"), pedir("/recuperacion-password/pendientes"),
+        pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos"),
+        pedir("/auditoria?pagina=1&cantidad=8")
+    ]);
+    if (YS.shell.actual !== "inicio") return;
+
+    const cuenta = (lista, filtro = () => true) => Array.isArray(lista) ? lista.filter(filtro).length : null;
+    const hoy = new Date();
+    const tarjeta = (seccion, etiqueta, icono, valor, pie, alerta = false) => `
+        <a class="ui-stat${alerta && valor ? " ui-stat--warn" : ""}" href="#${seccion}">
+            <span class="ui-stat-etiqueta">${YS.icono(icono)}${YS.esc(etiqueta)}</span>
+            <span class="ui-stat-valor">${valor ?? "—"}</span>
+            <span class="ui-stat-pie">${YS.esc(pie)}</span>
+        </a>`;
+    const nRegistro = cuenta(solicitudes);
+    const nCambio = cuenta(derivaciones, d => d.estado === "Pendiente");
+    const nRecuperacion = cuenta(recuperacion);
+    const nAdmision = cuenta(informes, a => ["Pendiente", "En entrevista", "Rechazado"].includes(a.estado));
+    const nTurnosHoy = cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3);
+    const nPacientes = cuenta(pacientes, p => p.estado !== "Inactivo");
+    const nProfesionales = cuenta(profesionales, p => p.estado === "Activo");
+
+    const filasActividad = (actividad || []).map(a => `
+        <tr><td class="ui-num">${YS.esc(new Date(a.fechaHora).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }))}</td>
+            <td class="principal">${YS.esc(a.accion)}</td><td>${YS.esc(a.entidad)}${a.idEntidad != null ? " #" + YS.esc(a.idEntidad) : ""}</td>
+            <td>${YS.esc(a.idUsuario)}</td></tr>`).join("");
+
+    c.innerHTML = `
+        <div class="ui-titulo-seccion texto-chico ui-muted">Para revisar</div>
+        <div class="ui-stats">
+            ${tarjeta("solicitudes", "Solicitudes de registro", "usuario-mas", nRegistro, "Profesionales esperando aprobación", true)}
+            ${tarjeta("derivaciones", "Solicitudes de cambio", "flechas", nCambio, "Pacientes que pidieron otro profesional", true)}
+            ${tarjeta("recuperacion", "Recuperación de contraseña", "candado", nRecuperacion, "Pedidos de contraseña temporal", true)}
+            ${tarjeta("admisiones", "Admisiones por resolver", "portapapeles", nAdmision, "Pendientes, en entrevista o rechazadas", true)}
+        </div>
+        <div class="ui-titulo-seccion texto-chico ui-muted">Hoy en YoSoy</div>
+        <div class="ui-stats">
+            ${tarjeta("turnos", "Turnos de hoy", "reloj", nTurnosHoy, "Sin contar los cancelados")}
+            ${tarjeta("usuarios", "Pacientes activos", "pacientes", nPacientes, "Sin contar los dados de baja")}
+            ${tarjeta("usuarios", "Profesionales activos", "usuario", nProfesionales, "Con cuenta aprobada")}
+        </div>
+        <div class="ui-card ui-card--sin-padding">
+            <div class="ui-card-header inicio-actividad-cabecera">
+                <h2 class="ui-card-titulo">Actividad reciente</h2>
+                <a class="ui-btn ui-btn--sm" href="#auditoria">Ver auditoría</a>
+            </div>
+            ${filasActividad
+                ? `<div class="ui-tabla-scroll"><table class="ui-tabla ui-tabla--densa"><thead><tr><th>Fecha</th><th>Acción</th><th>Entidad</th><th>Usuario</th></tr></thead><tbody>${filasActividad}</tbody></table></div>`
+                : YS.vacio({ icono: "lista", texto: actividad ? "Todavía no hay acciones registradas." : "No se pudo cargar la auditoría." })}
+        </div>`;
+}
+
+YS.shell.iniciar({ rol: "configurador", navegar: id => mostrarTab(id) });
