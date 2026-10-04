@@ -1345,7 +1345,7 @@ app.MapPut("/turnos/{id}/generar-sala", (int id) =>
     }
     if (idPac > 0)
     {
-        var fechaLegible = fecha.ToString("dd/MM/yyyy") + " a las " + hora.ToString(@"hh:mm") + " hs";
+        var fechaLegible = fecha.ToString("dd/MM/yyyy") + " a las " + hora.ToString(@"hh\:mm") + " hs";
         var cmdNotif = new Microsoft.Data.SqlClient.SqlCommand(@"
             INSERT INTO Notificacion (IdPaciente, Titulo, Mensaje, Link)
             VALUES (@IdPac, @Titulo, @Mensaje, @Link)", con);
