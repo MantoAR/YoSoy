@@ -1,4 +1,4 @@
-const API = "http://localhost:5000";
+const API = YS.API;   // mismo origen que la página (shared/ui.js)
 
 function confirmar(msg) {
     return new Promise(resolve => {
@@ -63,12 +63,14 @@ const DIAS_ES = { "Lunes":1,"Martes":2,"Miércoles":3,"Jueves":4,"Viernes":5,"S�
 const DIA_DB_NUM = { "lunes":1,"martes":2,"miercoles":3,"jueves":4,"viernes":5,"sabado":6,"domingo":0 };
 
 // ── NAVEGACIÓN ──────────────────────────────────────────────
+// Cada sección del menú (shared/shell.js) se dibuja en #contenido.
 function mostrarSeccion(id) {
-    document.querySelectorAll(".tab-btn").forEach(btn =>
-        btn.classList.toggle("activo", btn.dataset.sec === id));
+    const secciones = ["inicio", "agenda", "profesionales", "perfil", "sesion", "admision"];
+    if (!secciones.includes(id)) id = "inicio";
+    YS.shell.marcar(id);
 
     const c = document.getElementById("contenido");
-    c.innerHTML = `<div class="spinner">Cargando...</div>`;
+    c.innerHTML = YS.cargando();
 
     if      (id === "inicio")        renderInicio(c);
     else if (id === "agenda")        renderAgenda(c);
@@ -79,20 +81,21 @@ function mostrarSeccion(id) {
 }
 
 async function cerrarSesion() {
-    if (await confirmar("¿Cerrar sesión?")) {
-        localStorage.clear();
-        window.location.href = "../index.html";
-    }
+    await YS.sesion.cerrar();
 }
 
 // ── INICIO ─────────────────────────────────────────────────
 async function renderInicio(c) {
+    YS.shell.usuario.then(u => {
+        if (YS.shell.actual === "inicio" && u.nombre)
+            YS.shell.encabezado({ titulo: `Hola, ${u.nombre.split(" ")[0]}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
+    });
     try {
         const res = await fetch(`${API}/pacientes/${idPaciente}/proximo-turno`);
+        if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
 
         if (res.status === 404) {
             c.innerHTML = `
-                <div class="titulo-seccion">Inicio</div>
                 <div class="card">
                     <p class="sin-turnos">No tenés turnos próximos.</p>
                 </div>`;
@@ -104,7 +107,6 @@ async function renderInicio(c) {
         const hora  = t.hora.substring(0,5);
 
         c.innerHTML = `
-            <div class="titulo-seccion">Inicio</div>
             <div class="card proximo-turno">
                 <p class="proximo-etiqueta">Próximo turno</p>
                 <div class="proximo-fecha">${fecha}</div>
@@ -129,7 +131,7 @@ async function renderInicio(c) {
                 </div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Inicio</div><p class="texto-error">Error al cargar los datos.</p>`;
+        c.innerHTML = `<p class="texto-error">Error al cargar los datos.</p>`;
     }
 }
 
@@ -148,9 +150,8 @@ async function renderAgenda(c) {
         profesionales = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
     } catch {}
 
+    if (YS.shell.actual !== "agenda") return;
     c.innerHTML = `
-        <div class="titulo-seccion">Mi Agenda</div>
-
         ${profesionales.length ? `
         <div class="card">
             <div class="filtro-prof">
@@ -605,7 +606,7 @@ async function renderProfesionales(c) {
         const lista = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
 
         if (!lista.length) {
-            c.innerHTML = `<div class="titulo-seccion">Mis Profesionales</div><div class="card"><p class="sin-turnos">No tenés profesionales asignados aún.</p></div>`;
+            c.innerHTML = `<div class="card"><p class="sin-turnos">No tenés profesionales asignados aún.</p></div>`;
             return;
         }
 
@@ -618,7 +619,7 @@ async function renderProfesionales(c) {
                 <button class="btn-solicitar-cambio" onclick="abrirModalCambio(${p.idProfesional}, ${p.idEspecialidad}, '${p.nombre.replace(/'/g, "\\'")}')">Solicitar cambio de profesional</button>
             </div>`).join("");
 
-        c.innerHTML = `<div class="titulo-seccion">Mis Profesionales</div><div class="prof-lista">${cards}</div>
+        c.innerHTML = `<div class="prof-lista">${cards}</div>
 
             <!-- Modal solicitar turno -->
             <div class="modal-overlay-cambio" id="modalTurnoOverlay" onclick="cerrarModalTurno()"></div>
@@ -648,7 +649,7 @@ async function renderProfesionales(c) {
                 </div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Mis Profesionales</div><p class="texto-error">Error al cargar.</p>`;
+        c.innerHTML = `<p class="texto-error">Error al cargar.</p>`;
     }
 }
 
@@ -821,7 +822,6 @@ async function renderPerfil(c) {
         const fn = p.fechaNacimiento ? p.fechaNacimiento.substring(0, 10) : "";
 
         c.innerHTML = `
-            <div class="titulo-seccion">Mi Perfil</div>
             <div class="card perfil-form">
                 <div class="campo"><label>Nombre</label><input type="text" id="pNombre" value="${p.nombre ?? ""}"></div>
                 <div class="campo"><label>DNI</label><input type="text" id="pDni" value="${p.dni ?? ""}"></div>
@@ -833,7 +833,7 @@ async function renderPerfil(c) {
                 <div class="msg-ok" id="msgOk">Cambios guardados correctamente.</div>
             </div>`;
     } catch {
-        c.innerHTML = `<div class="titulo-seccion">Mi Perfil</div><p class="texto-error">Error al cargar.</p>`;
+        c.innerHTML = `<p class="texto-error">Error al cargar.</p>`;
     }
 }
 
@@ -864,12 +864,8 @@ async function guardarPerfil(id) {
     }
 }
 
-// ── INIT ────────────────────────────────────────────────────
-mostrarSeccion("inicio");
-
 function renderSesion() {
-    return '<div class="titulo-seccion">Sesión</div>' +
-        '<div class="card sesion-entrada">' +
+    return '<div class="card sesion-entrada">' +
         '<div class="titulo-tarjeta">Iniciar sesion de video</div>' +
         '<p class="texto-suave mb-12">Ingresa el codigo de sala que te dio tu profesional:</p>' +
         '<input type="text" id="codigoSala" class="turno-input" placeholder="Codigo de sala">' +
@@ -889,8 +885,7 @@ async function renderAdmision(c) {
         const r = await fetch(API + "/pacientes/" + idPaciente + "/informe-admision");
         if (r.ok) {
             const inf = await r.json();
-            c.innerHTML = '<div class="titulo-seccion">Admision</div>' +
-                '<div class="card card--angosta">' +
+            c.innerHTML = '<div class="card card--angosta">' +
                 '<div class="titulo-tarjeta">Tu informe de admision ya fue enviado</div>' +
                 '<p class="mb-12">Estado actual: <span class="panel-estado-badge estado-' + String(inf.estado).replace(/\s+/g, '-') + '">' + inf.estado + '</span></p>' +
                 '<p class="texto-suave">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
@@ -908,8 +903,7 @@ async function renderAdmision(c) {
         .join("");
 
 
-    c.innerHTML = '<div class="titulo-seccion">Informe de Admision</div>' +
-        '<div class="card card--angosta form-admision">' +
+    c.innerHTML = '<div class="card card--angosta form-admision">' +
         '<p class="texto-suave">Completa este formulario para que el equipo de admision pueda conocerte y asignarte el profesional adecuado.</p>' +
 
         '<label class="ui-label">Especialidad solicitada *</label>' +
@@ -1014,6 +1008,7 @@ async function cargarNotificaciones() {
 
 async function marcarLeida(idNotif) {
     try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
+    YS.shell.campana.refrescar();
     cargarNotificaciones();
     const cont = document.getElementById("notif-container");
     if (cont !== null) cont.innerHTML = "";
@@ -1045,70 +1040,9 @@ async function confirmarTurnoPaciente(idTurno) {
     } catch(e) { toast("Error de conexion.", "error"); }
 }
 
-// Casilla de notificaciones (campanita con historial)
-async function initCampanita() {
-    if (document.getElementById("campanita-notif") !== null) return;
-    const btn = document.createElement("div");
-    btn.id = "campanita-notif";
-    btn.className = "campanita";
-    btn.title = "Notificaciones";
-    btn.innerHTML = "&#128276;<span id=\"campanita-badge\" class=\"campanita-badge\"></span>";
-    btn.onclick = abrirCasillaNotificaciones;
-    document.body.appendChild(btn);
-    refrescarBadgeNotif();
-}
+// La campanita y su casilla de notificaciones ahora son la campana de la barra superior
+// (shared/shell.js): al abrirla marca las notificaciones como leídas, igual que antes.
+// Si se leyeron desde ahí, se sacan los avisos flotantes.
+document.addEventListener("ys:avisos-leidos", () => document.getElementById("notif-container")?.remove());
 
-async function refrescarBadgeNotif() {
-    let notifs = [];
-    try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
-    const noLeidas = notifs.filter(function(n) { return n.leida === false; });
-    const badge = document.getElementById("campanita-badge");
-    if (badge === null) return;
-    if (noLeidas.length > 0) { badge.textContent = noLeidas.length; badge.style.display = "flex"; }
-    else badge.style.display = "none";
-}
-
-async function abrirCasillaNotificaciones() {
-    let notifs = [];
-    try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) {}
-
-    let overlay = document.getElementById("casilla-overlay");
-    if (overlay === null) {
-        overlay = document.createElement("div");
-        overlay.id = "casilla-overlay";
-        overlay.className = "casilla-overlay";
-        overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
-        document.body.appendChild(overlay);
-    }
-
-    const items = notifs.length === 0 ? '<p class="texto-suave">No tenes notificaciones.</p>' :
-        notifs.map(function(n) {
-            const link = (n.link !== null && n.link !== "") ?
-                '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseDesdeCasilla(\'' + n.link + '\', ' + n.idNotificacion + ')">Unirse / Ver sala</button>' : "";
-            return '<div class="casilla-item' + (n.leida ? '' : ' no-leida') + '">' +
-                '<div class="notif-titulo">' + n.titulo + '</div>' +
-                '<div class="notif-mensaje">' + n.mensaje + '</div>' +
-                '<div class="notif-fecha">' + n.fecha + '</div>' +
-                link +
-                '</div>';
-        }).join("");
-
-    overlay.innerHTML = '<div class="casilla">' +
-        '<div class="casilla-cabecera">' +
-        '<h3>Notificaciones</h3>' +
-        '<button class="modal-cerrar-x" onclick="document.getElementById(\'casilla-overlay\').remove()" aria-label="Cerrar">&times;</button>' +
-        '</div>' + items + '</div>';
-
-    // marcar todas como leidas
-    for (const n of notifs) {
-        if (n.leida === false) { try { await fetch(API + "/notificaciones/" + n.idNotificacion + "/leida", { method: "PUT" }); } catch(e) {} }
-    }
-    refrescarBadgeNotif();
-}
-
-async function unirseDesdeCasilla(codigoSala, idNotif) {
-    try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
-    window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
-}
-
-initCampanita();
+YS.shell.iniciar({ rol: "paciente", navegar: id => mostrarSeccion(id) });

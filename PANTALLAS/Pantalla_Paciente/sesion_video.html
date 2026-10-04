@@ -2,9 +2,13 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Mi Sesión - YoSoy</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Sala de video</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../shared/tema.css">
     <style>
-        body { font-family: Arial, sans-serif; background: #f5f5f3; margin: 0; padding: 16px; }
         .card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #eee; margin-bottom: 12px; }
         .card h3 { font-size: 12px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing:.05em; margin-bottom: 12px; }
         .videos-grid { display: grid; grid-template-columns: 1fr 200px; gap: 10px; margin-bottom: 12px; }
@@ -36,6 +40,9 @@
     </style>
 </head>
 <body>
+<!-- Barra superior y encabezado: shared/shell.js -->
+<main class="ui-pagina">
+<div class="ui-contenido">
 
     <!-- PANTALLA DE ESPERA -->
     <div id="pantalla-espera">
@@ -78,6 +85,12 @@
         </div>
     </div>
 
+</div>
+</main>
+
+<script src="../shared/ui.js"></script>
+<script src="../shared/shell.js"></script>
+<script>YS.shell.iniciar({ rol: "paciente", activo: "sesion" });</script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
 const SIGNAL = 'http://localhost:3001';

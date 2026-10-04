@@ -3,53 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy - Panel Paciente</title>
+    <title>YoSoy · Mi espacio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="../shared/tema.css">
     <link rel="stylesheet" href="css/dashboard.css">
 </head>
 <body>
-<div class="ui-app">
-    <!-- Barra lateral de íconos: mismas secciones (mostrarSeccion usa .tab-btn y data-sec) -->
-    <nav class="ui-sidebar" aria-label="Secciones">
-        <div class="ui-sidebar-logo"><img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="YoSoy"></div>
-        <button class="tab-btn ui-nav-item" data-sec="inicio" onclick="mostrarSeccion('inicio')" data-label="Inicio" aria-label="Inicio">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
-        </button>
-        <button class="tab-btn ui-nav-item" data-sec="agenda" onclick="mostrarSeccion('agenda')" data-label="Mi agenda" aria-label="Mi agenda">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>
-        </button>
-        <button class="tab-btn ui-nav-item" data-sec="profesionales" onclick="mostrarSeccion('profesionales')" data-label="Mis profesionales" aria-label="Mis profesionales">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.5 3.2-5.5 6.5-5.5s5.9 2 6.5 5.5M16 4.8a3.3 3.3 0 0 1 0 6.4M18.5 14.8c1.7.7 2.8 2.4 3 5.2"/></svg>
-        </button>
-        <button class="tab-btn ui-nav-item" data-sec="sesion" onclick="mostrarSeccion('sesion')" data-label="Sesión" aria-label="Sesión">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="13" height="12" rx="2"/><path d="m15.5 10.5 6-3.5v10l-6-3.5"/></svg>
-        </button>
-        <button class="tab-btn ui-nav-item" data-sec="admision" onclick="mostrarSeccion('admision')" data-label="Admisión" aria-label="Admisión">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3.5" width="14" height="18" rx="2"/><path d="M9 3.5v2h6v-2M9 11h6M9 15h4"/></svg>
-        </button>
-        <button class="tab-btn ui-nav-item" onclick="location.href='consentimiento.html'" data-label="Consentimiento" aria-label="Consentimiento">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8.5 15l2 2 4.5-4.5"/></svg>
-        </button>
-        <div class="ui-sidebar-espacio"></div>
-        <button class="tab-btn ui-nav-item" data-sec="perfil" onclick="mostrarSeccion('perfil')" data-label="Mi perfil" aria-label="Mi perfil">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4 4-6.5 8-6.5s7.2 2.5 8 6.5"/></svg>
-        </button>
-        <button class="ui-nav-item" onclick="cerrarSesion()" data-label="Cerrar sesión" aria-label="Cerrar sesión">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3"/></svg>
-        </button>
-    </nav>
+    <!-- La barra superior (menú, campana de notificaciones y usuario) y el encabezado
+         los arma shared/shell.js. Cada sección (mostrarSeccion) se dibuja en #contenido. -->
+    <main class="ui-pagina">
+        <div class="ui-contenido contenido" id="contenido"></div>
+    </main>
 
-    <div class="ui-main">
-        <!-- La campanita de notificaciones (initCampanita) se ubica sobre la derecha de esta barra -->
-        <header class="ui-topbar">
-            <div><span class="ui-topbar-titulo">YoSoy</span><span class="ui-topbar-sub">Panel paciente</span></div>
-        </header>
-        <main class="contenido" id="contenido"></main>
-    </div>
-</div>
+    <div id="toast-container" aria-live="polite"></div>
+
+    <script src="../shared/ui.js"></script>
+    <script src="../shared/shell.js"></script>
     <script src="../js/sesion.js"></script>
     <script src="js/dashboard.js"></script>
 </body>

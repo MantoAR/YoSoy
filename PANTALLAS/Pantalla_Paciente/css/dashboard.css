@@ -1,10 +1,7 @@
-/* YoSoy · Panel del paciente. Colores, tipografía y componentes base: ../shared/tema.css
+/* YoSoy · Panel del paciente. Colores, tipografía, componentes y la barra superior
+   (shared/shell.js) salen de ../shared/tema.css; acá van solo las piezas de este panel.
    Se conservan todas las clases que arma js/dashboard.js. */
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-button, input, select, textarea { font-family: inherit; }
-
-.contenido { padding: 20px 24px 40px; width: 100%; max-width: 1180px; }
 .titulo-seccion { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin-bottom: 14px; }
 .titulo-tarjeta { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 10px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); padding: 16px 18px; margin-bottom: 16px; }
@@ -210,29 +207,10 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 @keyframes toast-in  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
 
-/* ── Notificaciones: campanita, avisos flotantes y casilla ── */
-.campanita {
-    position: fixed; top: 9px; right: 20px; z-index: 9997;
-    width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; font-size: 16px;
-    background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm);
-}
-.campanita:hover { background: var(--surface-2); }
-.campanita-badge {
-    position: absolute; top: -4px; right: -4px; display: none; align-items: center; justify-content: center;
-    min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px;
-    background: var(--danger); color: #fff; font-size: 10px; font-weight: 600;
-}
-.notif-flotantes { position: fixed; top: 64px; right: 20px; z-index: 9998; max-width: 360px; display: flex; flex-direction: column; gap: 8px; }
+/* ── Avisos flotantes de notificaciones sin leer (la campana está en la barra, shared/shell.js) ── */
+.notif-flotantes { position: fixed; top: calc(var(--topbar-h) + 12px); right: 20px; z-index: 40; max-width: 360px; display: flex; flex-direction: column; gap: 8px; }
 .notif-flotante { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-lg); }
 .notif-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .notif-mensaje { font-size: var(--fs-md); color: var(--text-2); margin-bottom: 8px; line-height: 1.45; }
 .notif-fecha { font-size: var(--fs-xs); color: var(--text-4); margin-top: 4px; }
 .notif-botones { display: flex; gap: 6px; flex-wrap: wrap; }
-.casilla-overlay { position: fixed; inset: 0; background: rgba(17, 24, 39, .35); z-index: 9999; display: flex; justify-content: flex-end; }
-.casilla { background: var(--surface); width: 380px; max-width: 90%; height: 100%; overflow-y: auto; padding: 16px; box-shadow: var(--shadow-lg); }
-.casilla-cabecera { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.casilla-cabecera h3 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); }
-.casilla-item { border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 8px; background: var(--surface); }
-.casilla-item.no-leida { border-left-color: var(--accent); background: var(--accent-soft); }
-.casilla-item .ui-btn { margin-top: 8px; }
