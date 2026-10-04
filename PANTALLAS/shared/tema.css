@@ -265,12 +265,22 @@ hr { border: none; height: 1px; background: var(--border); margin: 14px 0; }
 .ui-aviso-fecha { font-size: var(--fs-xs); color: var(--text-4); margin-top: 4px; }
 .ui-aviso-acciones { display: flex; gap: 6px; margin-top: 8px; }
 
+/* Contenedores con desplegable propio */
+.ui-menu-grupo, .ui-usuario-menu, .ui-campana, .ui-menu-compacto { position: relative; }
+.ui-menu-compacto { display: none; height: 100%; }
+.ui-menu-compacto .ui-desplegable { max-height: calc(100vh - 80px); overflow-y: auto; }
+.ui-topbar-botones { gap: 2px; }
+/* Ventanas angostas (notebooks con zoom): primero se achica el usuario, después el menú pasa a un desplegable */
+@media (max-width: 1180px) { .ui-usuario-texto { display: none; } .ui-usuario-btn { padding-right: 6px; } }
+@media (max-width: 980px) { .ui-menu { display: none; } .ui-menu-compacto { display: block; } .ui-encabezado-interior, .ui-contenido { padding-left: 16px; padding-right: 16px; } }
+
 /* Encabezado de página: migas, título y acciones principales */
 .ui-encabezado {
     background: var(--surface); border-bottom: 1px solid var(--border);
-    padding: 12px 24px 14px;
+    padding: 12px 0 14px;
 }
-.ui-encabezado-interior { max-width: var(--contenido-max); margin: 0 auto; }
+/* Mismo ancho máximo y margen interno que .ui-contenido: el título queda alineado con el contenido */
+.ui-encabezado-interior { max-width: var(--contenido-max); margin: 0 auto; padding: 0 24px; }
 .ui-migas {
     display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
     font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 3px;
@@ -281,12 +291,14 @@ hr { border: none; height: 1px; background: var(--border); margin: 14px 0; }
 .ui-migas a { color: var(--text-3); }
 .ui-migas a:hover { color: var(--accent-strong); }
 .ui-encabezado-fila { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 32px; }
+.ui-encabezado-textos { min-width: 0; }
 .ui-encabezado-titulo { font-size: var(--fs-2xl); font-weight: 600; margin: 0; letter-spacing: -.01em; }
 .ui-encabezado-sub { font-size: var(--fs-md); color: var(--text-3); margin: 2px 0 0; }
 .ui-encabezado-acciones { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* Contenido de la página */
 .ui-pagina { flex: 1; min-width: 0; }
+body.ui-pagina-angosta { --contenido-max: 900px; }   /* páginas de lectura (consentimiento) */
 .ui-contenido { padding: 20px 24px 40px; width: 100%; max-width: var(--contenido-max); margin: 0 auto; }
 .ui-titulo-seccion { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 14px; }
 .ui-subtitulo { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin: 0; }
