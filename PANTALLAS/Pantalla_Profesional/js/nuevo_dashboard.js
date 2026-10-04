@@ -1,15 +1,16 @@
-const API = 'http://localhost:5000';
+const API = YS.API;   // mismo origen que la página (shared/ui.js)
 const idProfesional = parseInt(localStorage.getItem('idProfesional'));
 const idUsuario     = parseInt(localStorage.getItem('idUsuario'));
 
 if (!idProfesional) window.location.href = '/pantallas/index.html';
 
+// Cada sección del menú (shared/shell.js) se dibuja en #contenido.
 function activarTab(nombre) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-    document.getElementById('tab-' + nombre).classList.add('activo');
-    const c = document.getElementById('contenido');
-    c.innerHTML = '<div class="spinner">Cargando...</div>';
-    const tabs = { inicio, agenda, pacientes, sesion, perfil }; if (nombre === 'reportes') { reportes(); } else { tabs[nombre](); }
+    const tabs = { inicio, agenda, horarios, pacientes, sesion, reportes, perfil };
+    if (!tabs[nombre]) nombre = 'inicio';
+    YS.shell.marcar(nombre);
+    document.getElementById('contenido').innerHTML = YS.cargando();
+    tabs[nombre]();
 }
 
 function toast(msg, tipo = 'ok') {
@@ -98,16 +99,15 @@ async function inicio() {
             </div>`).join('')}
         </div>` : '';
 
-    c.innerHTML = `
-        <div class="titulo-seccion">Bienvenido, ${prof?.nombre ?? 'Profesional'}</div>
+    if (YS.shell.actual !== 'inicio') return;   // el usuario ya cambió de sección
+    YS.shell.encabezado({ titulo: `Hola, ${prof?.nombre ?? 'Profesional'}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
+    YS.shell.acciones([{ texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
 
+    c.innerHTML = `
         ${sesionesHoyHtml ? `<div class="card card--acento-info">${sesionesHoyHtml}</div>` : ''}
 
         <div class="card">
-            <div class="card-cabecera">
-                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">Próximo turno</div>
-                <button class="btn-urgente btn-ver" onclick="citaUrgente()">Cita urgente</button>
-            </div>
+            <div class="titulo-seccion titulo-seccion--tarjeta">Próximo turno</div>
             ${proximo ? `
             <div class="turno-proximo">
                 <div class="turno-dato">
@@ -238,8 +238,7 @@ async function confirmarCitaUrgente() {
         toast(`Sala generada: ${data.codigoSala}`);
 
         // Ir a sesión con el paciente preseleccionado
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-        document.getElementById('tab-sesion').classList.add('activo');
+        YS.shell.marcar('sesion');
         sesion(idPac);
 
     } catch { toast('Error de conexión.', 'error'); resultado.innerHTML = ''; }
@@ -371,8 +370,7 @@ async function irASala(idTurno, idPaciente) {
     } catch { toast('Error al generar la sala.', 'error'); }
 
 
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-    document.getElementById('tab-sesion').classList.add('activo');
+    YS.shell.marcar('sesion');
     sesion(idPaciente);
     if (sinConsentimiento) bannerSinConsentimiento();
 }
@@ -397,10 +395,9 @@ async function agenda() {
     const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
     slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
     _agendaSlotsProf = slots;
+    if (YS.shell.actual !== 'agenda') return;
 
     c.innerHTML = `
-        <div class="titulo-seccion">Mi Agenda</div>
-
         <div class="card">
             <div class="agenda-toolbar">
                 <div class="agenda-nav">
@@ -428,15 +425,29 @@ async function agenda() {
             </div>
         </div>
         <div class="panel-turno-prof" id="panelTurnoProfesional"></div>
+    `;
 
-        <div class="card mt-16">
-            <div class="card-cabecera">
-                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">Mis horarios de trabajo</div>
-                <button class="btn-ver" onclick="abrirFormNuevoHorario()">+ Agregar día</button>
-            </div>
+    await renderCalendario();
+}
 
+// Mis horarios de trabajo (antes, la segunda tarjeta de la agenda)
+async function horarios() {
+    const c = document.getElementById('contenido');
+
+    let slots = [];
+    try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+
+    const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
+    _agendaSlotsProf = slots;
+    if (YS.shell.actual !== 'horarios') return;
+
+    YS.shell.acciones([{ texto: 'Agregar horario', icono: 'mas', tipo: 'primary', alClick: abrirFormNuevoHorario }]);
+
+    c.innerHTML = `
+        <div class="card">
             <div id="slots-lista">
-                ${!slots.length ? '<div class="sin-turnos">No tenés horarios configurados.</div>' : `
+                ${!slots.length ? YS.vacio({ icono: 'reloj', titulo: 'Todavía no cargaste horarios', texto: 'Agregá los días y las franjas en que atendés para que se puedan pedir turnos.', accion: { texto: 'Agregar horario', onclick: 'abrirFormNuevoHorario()' } }) : `
                 <div class="tabla-wrapper">
                     <table>
                         <thead><tr><th>Día</th><th>Desde</th><th>Hasta</th><th>Intervalo</th><th>Turnos/día</th><th>Disponible</th><th></th></tr></thead>
@@ -507,13 +518,9 @@ async function agenda() {
         </div>
     `;
 
-    await renderCalendario();
-
-    setTimeout(() => {
-        ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
-        });
-    }, 100);
+    ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
+    });
 }
 
 function abrirFormNuevoHorario() {
@@ -575,7 +582,7 @@ async function guardarHorario() {
 
     try {
         const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-        if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('agenda'); }
+        if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('horarios'); }
         else { msg.style.color='#e74c3c'; msg.textContent='Error al guardar.'; }
     } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
 }
@@ -585,7 +592,7 @@ async function eliminarHorario(id) {
     if (!ok) return;
     try {
         const r = await fetch(`${API}/agendas/${id}`, { method:'DELETE' });
-        if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('agenda'); }
+        if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('horarios'); }
         else toast('Error al eliminar', 'error');
     } catch { toast('Error de conexión', 'error'); }
 }
@@ -885,7 +892,6 @@ function sesion(idPaciente = null) {
         ? `sesion_video.html?idPaciente=${idPaciente}` 
         : 'sesion_video.html';
     document.getElementById('contenido').innerHTML = `
-        <div class="titulo-seccion">Sesión de video</div>
         <div class="sesion-iframe-wrapper">
             <iframe src="${src}" allow="camera; microphone; display-capture"></iframe>
         </div>
@@ -902,7 +908,6 @@ async function perfil() {
     const fn = prof?.fechaNacimiento ? prof.fechaNacimiento.substring(0, 10) : '';
 
     c.innerHTML = `
-        <div class="titulo-seccion">Mi Perfil</div>
         <div class="card">
             <div class="perfil-form">
                 <div class="campo"><label>Nombre</label><input id="pf-nombre" value="${prof?.nombre ?? ''}"></div>
@@ -972,10 +977,7 @@ let _diaSeleccionadoProf = null;
 let _diaAgendaDisponible = false;
 
 async function cerrarSesion() {
-    const confirmado = await confirmar('¿Cerrar sesión?');
-    if (!confirmado) return;
-    localStorage.clear();
-    window.location.href = '/pantallas/index.html';
+    await YS.sesion.cerrar();
 }
 
 function confirmar(msg) {
@@ -1586,12 +1588,9 @@ function cancelarModoReprogramarProf() {
     dibujarCalendarioProfesional();
 }
 
-activarTab('inicio');
-
 async function reportes() {
     const cont = document.getElementById('contenido');
     cont.innerHTML =
-        '<div class="titulo-seccion">Reportes</div>' +
         '<div class="card">' +
         '<div class="titulo-seccion titulo-seccion--tarjeta">Mis Atenciones</div>' +
         '<p class="texto-suave mb-12">Descarga el reporte de tus propias atenciones.</p>' +
@@ -1655,8 +1654,8 @@ async function pacientes() {
             '</tr>';
     }).join("");
 
-    c.innerHTML = '<div class="titulo-seccion">Mis Pacientes</div>' +
-        '<div class="card">' +
+    if (YS.shell.actual !== 'pacientes') return;
+    c.innerHTML = '<div class="card">' +
         (lista.length === 0 ? '<div class="sin-turnos">No tenes pacientes asignados.</div>' :
         '<div class="tabla-wrapper"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Mail</th><th>Telefono</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>') +
         '</div>' +
@@ -1785,40 +1784,8 @@ function renderEvoluciones(lista) {
     }).join("");
 }
 
-// Panel de turnos confirmados pendientes de generar sala
-async function cargarTurnosConfirmados() {
-    let lista = [];
-    try { lista = await (await fetch(API + "/profesionales/" + idProfesional + "/turnos-confirmados")).json(); } catch(e) { return; }
-    const sinSala = lista.filter(function(t) { return t.codigoSala === "" || t.codigoSala === null; });
-    if (sinSala.length === 0) return;
+// Los turnos confirmados sin sala se avisan en la campana de la barra (shared/shell.js).
+// Si se genera una sala desde ahí con el Inicio abierto, se actualiza la lista de hoy.
+document.addEventListener('ys:sala-generada', () => { if (YS.shell.actual === 'inicio') activarTab('inicio'); });
 
-    let cont = document.getElementById("panel-confirmados");
-    if (cont === null) {
-        cont = document.createElement("div");
-        cont.id = "panel-confirmados";
-        cont.className = "avisos-flotantes";
-        document.body.appendChild(cont);
-    }
-    cont.innerHTML = sinSala.map(function(t) {
-        return '<div class="aviso-flotante">' +
-            '<div class="aviso-flotante-titulo">Turno confirmado</div>' +
-            '<div class="aviso-flotante-texto">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
-            '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="generarSalaTurno(' + t.idTurno + ')">Generar sala</button>' +
-            '</div>';
-    }).join("");
-}
-
-async function generarSalaTurno(idTurno) {
-    try {
-        const r = await fetch(API + "/turnos/" + idTurno + "/generar-sala", { method: "PUT" });
-        if (r.ok) {
-            const resp = await r.json();
-            toast("Sala generada: " + resp.codigoSala + ". El paciente fue notificado.");
-            const cont = document.getElementById("panel-confirmados");
-            if (cont !== null) cont.innerHTML = "";
-            cargarTurnosConfirmados();
-        } else toast("Error al generar la sala.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
-}
-
-cargarTurnosConfirmados();
+YS.shell.iniciar({ rol: 'profesional', navegar: id => activarTab(id) });

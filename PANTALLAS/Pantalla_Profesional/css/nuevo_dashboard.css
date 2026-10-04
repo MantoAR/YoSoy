@@ -1,12 +1,6 @@
-/* YoSoy · Panel del profesional. Colores, tipografía y componentes base: ../shared/tema.css
+/* YoSoy · Panel del profesional. Colores, tipografía, componentes y la barra superior
+   (shared/shell.js) salen de ../shared/tema.css; acá van solo las piezas de este panel.
    Se conservan todos los nombres de clase que arma js/nuevo_dashboard.js. */
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-button, input, select, textarea { font-family: inherit; }
-
-/* ── Shell ──────────────────────────────────────── */
-.contenido { padding: 20px 24px 40px; width: 100%; max-width: 1320px; }
-.topbar-usuario { display: flex; align-items: center; gap: 12px; }
 
 /* ── Tipografía de sección ──────────────────────── */
 .titulo-seccion { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin-bottom: 14px; }
@@ -89,7 +83,7 @@ tbody tr:hover td { background: #FAFAFB; }
 .btn-confirmar:hover, .btn-guardar:hover { background: var(--ok-bg); color: var(--ok); }
 .btn-cancelar, .btn-peligro { color: var(--danger); border-color: var(--danger-border); background: var(--surface); }
 .btn-cancelar:hover, .btn-peligro:hover { background: var(--danger-bg); color: var(--danger); }
-.btn-reprogramar { color: var(--accent); border-color: var(--info-border); background: var(--surface); }
+.btn-reprogramar { color: var(--accent-strong); border-color: var(--accent-border); background: var(--surface); }
 .btn-reprogramar:hover { background: var(--accent-soft); }
 .btn-accion { margin-right: 6px; }
 .btn-ancho { flex: 1; }
@@ -156,7 +150,7 @@ tbody tr:hover td { background: #FAFAFB; }
 
 /* ── Sesión ─────────────────────────────────────── */
 .sesion-iframe-wrapper {
-    height: calc(100vh - var(--topbar-h) - 110px); min-height: 480px;
+    height: calc(100vh - var(--topbar-h) - 150px); min-height: 480px;
     border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; background: var(--surface);
 }
 .sesion-iframe-wrapper iframe { width: 100%; height: 100%; border: none; }
@@ -201,7 +195,7 @@ tbody tr:hover td { background: #FAFAFB; }
 .cal-dia.pasado { color: var(--text-4); background: #FBFBFC; }
 .cal-dia.futuro { cursor: pointer; }
 .cal-dia.futuro:hover { background: var(--surface-2); }
-.cal-dia.hoy { color: var(--accent); font-weight: 700; }
+.cal-dia.hoy { color: var(--accent-strong); font-weight: 600; }
 .cal-dia.hoy::before { content: ""; position: absolute; inset: 0; border: 2px solid var(--accent); pointer-events: none; }
 /* Días con turnos: número + barra de color según el estado */
 .cal-dia.con-turno, .cal-dia.con-turno-pendiente, .cal-dia.con-turno-pendiente-yo,
@@ -288,7 +282,7 @@ tbody tr:hover td { background: #FAFAFB; }
     border: 1px dashed var(--border-strong); border-radius: var(--r-md);
     background: transparent; color: var(--accent); font-size: var(--fs-md); font-weight: 500; cursor: pointer;
 }
-.btn-solicitar-dia:hover { background: var(--accent-soft); border-color: var(--info-border); }
+.btn-solicitar-dia:hover { background: var(--accent-soft); border-color: var(--accent-border); }
 .form-solicitar-dia { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .form-solicitar-dia.visible { display: block; }
 .form-reprogramar { display: none; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
@@ -363,11 +357,3 @@ tbody tr:hover td { background: #FAFAFB; }
 .dialogo-link .ui-input { flex: 1; min-width: 0; }
 .dialogo-botones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 
-/* Avisos flotantes de turnos confirmados sin sala */
-.avisos-flotantes { position: fixed; bottom: 20px; right: 20px; z-index: 9990; max-width: 340px; display: flex; flex-direction: column; gap: 8px; }
-.aviso-flotante {
-    background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--ok);
-    border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-lg);
-}
-.aviso-flotante-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.aviso-flotante-texto { font-size: var(--fs-md); color: var(--text-3); margin-bottom: 8px; }
