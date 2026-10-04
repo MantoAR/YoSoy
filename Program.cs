@@ -1319,7 +1319,7 @@ app.MapGet("/profesionales/{id}/turnos-confirmados", (int id) =>
             idPaciente     = (int)reader["IdPaciente"],
             nombrePaciente = reader["NombrePaciente"].ToString(),
             fecha          = ((DateTime)reader["Fecha"]).ToString("dd/MM/yyyy"),
-            hora           = reader["Hora"] == DBNull.Value ? "" : ((TimeSpan)reader["Hora"]).ToString(@"hh:mm"),
+            hora           = reader["Hora"] == DBNull.Value ? "" : ((TimeSpan)reader["Hora"]).ToString(@"hh\:mm"),
             codigoSala     = reader["CodigoSala"] == DBNull.Value ? "" : reader["CodigoSala"].ToString(),
             motivo         = reader["Motivo"] == DBNull.Value ? "" : reader["Motivo"].ToString()
         });
