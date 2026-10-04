@@ -3,7 +3,7 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Paso 0 (investigación) terminado. Sigue el Paso 1.
+**Estado:** Pasos 0 y 1 terminados. Sigue el Paso 2 (shell común).
 
 ---
 
@@ -158,7 +158,28 @@ Cualquier rediseño choca con eso: el merge va a necesitar resolución a mano, s
 
 ## Decisiones
 
-_(se completan en cada paso)_
+### Paso 1: sistema de diseño
+
+- **Paleta.** Se mantiene la de YoSoy. Es la que usaban todos los CSS de `main`:
+  - violeta `#6A5ACD` como acento;
+  - degradé `#0D6EFD → #6A5ACD` en los botones del login;
+  - lavandas `#F0EAFF` y `#E0D4F5` para fondos y bordes.
+
+  El azul del rediseño anterior se reemplaza por el violeta. El degradé queda solo para la marca
+  (el nombre "YoSoy" en la barra), sin usarlo como fondo en todos lados.
+- **Tipografía.** Inter con caída a `system-ui`, pesos 400/500/600 y base de 13 px.
+- **Prefijo `ui-`** en todos los componentes, para no chocar con las clases propias de cada pantalla.
+- **Capa JS compartida en `shared/ui.js`** (`window.YS`), sin dependencias.
+  - `YS.fetch` devuelve el `Response` igual que `fetch`, así cada pantalla migra sin cambiar su lógica de status.
+  - `YS.api` devuelve el JSON o tira un error con el `mensaje` del servidor.
+  - Todos los pedidos mandan `X-Usuario-Id`: el backend ya lo usaba para auditar y para el alcance de reportes, aunque varias pantallas no lo mandaban.
+- **Bootstrap se saca.**
+  - Nadie usa su JS: no hay `data-bs-*` ni `bootstrap.Modal`.
+  - Del CSS solo se usaban unas pocas utilidades en el Configurador y el reboot en el login y el registro profesional.
+  - El reset propio de `tema.css` cubre el reboot.
+  - Se quita pantalla por pantalla en el Paso 5, cuando se reescribe cada template. Hasta entonces convive sin chocar, gracias al prefijo `ui-`.
+- **Guía de componentes** en `PANTALLAS/shared/guia-componentes.html`
+  (`http://localhost:5000/pantallas/shared/guia-componentes.html`).
 
 ## Pendientes
 
