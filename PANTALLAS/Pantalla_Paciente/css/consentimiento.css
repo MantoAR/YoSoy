@@ -11,8 +11,9 @@
 .tarjeta.firmado { flex-direction: row; gap: 14px; border-left: 3px solid var(--ok); }
 .firmado-icono {
     width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
-    background: var(--ok-bg); color: var(--ok); font-size: 16px; font-weight: 700; border: 1px solid var(--ok-border);
+    background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border);
 }
+.firmado-icono svg { width: 18px; height: 18px; }
 .tarjeta h2 { font-size: var(--fs-lg); font-weight: 600; color: var(--ok); margin-bottom: 4px; }
 
 .texto-legal {
@@ -23,16 +24,7 @@
 .nota-borrador { color: var(--text-3); font-style: italic; }
 .version { color: var(--text-3); font-size: var(--fs-sm); margin: 8px 2px 16px; }
 
-.acciones { display: flex; gap: 8px; align-items: center; }
-.boton-primario, .boton-secundario {
-    display: inline-flex; align-items: center; height: 36px; padding: 0 16px; border-radius: var(--r-md);
-    font-size: var(--fs-md); font-weight: 500; cursor: pointer; text-decoration: none;
-}
-.boton-primario { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
-.boton-primario:hover { background: var(--accent-hover); color: #fff; }
-.boton-primario:disabled { opacity: .6; cursor: wait; }
-.boton-secundario { background: var(--surface); color: var(--text-2); border: 1px solid var(--border-strong); }
-.boton-secundario:hover { background: var(--surface-2); }
+.acciones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 .ayuda { color: var(--text-3); font-size: var(--fs-sm); margin-top: 10px; }
-.error { margin-top: 14px; padding: 10px 12px; border-radius: var(--r-md); background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); font-weight: 500; }
+

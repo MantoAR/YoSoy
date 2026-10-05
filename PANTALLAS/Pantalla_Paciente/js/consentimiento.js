@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 let versionTexto = null;
 
 function mostrar(id) {
-    ["sinSesion", "yaFirmado", "paraFirmar"].forEach(s => $(s).classList.toggle("oculto", s !== id));
+    ["cargando", "sinConexion", "sinSesion", "yaFirmado", "paraFirmar"].forEach(s => $(s).classList.toggle("oculto", s !== id));
 }
 
 function error(msg) {
@@ -23,18 +23,24 @@ function fechaHora(valor) {
 }
 
 function mostrarFirmado(fechaFirma, version) {
+    $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
     $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (version ? ` (versión del texto: ${version}).` : ".");
     mostrar("yaFirmado");
 }
 
 async function cargar() {
     if (!idPaciente) { mostrar("sinSesion"); return; }
+    mostrar("cargando");
+    error("");
     try {
         const [rPac, rEstado] = await Promise.all([
             fetch(`${API}/pacientes/${idPaciente}`),
             fetch(`${API}/pacientes/${idPaciente}/consentimiento-telemedicina`)
         ]);
-        if (!rPac.ok || !rEstado.ok) { mostrar("sinSesion"); return; }
+        // 401/404: la sesión no corresponde a un paciente; otro error: el servidor falló
+        const sinSesion = r => r.status === 401 || r.status === 404;
+        if (sinSesion(rPac) || sinSesion(rEstado)) { mostrar("sinSesion"); return; }
+        if (!rPac.ok || !rEstado.ok) { mostrar("sinConexion"); return; }
         const p = await rPac.json();
         const estado = await rEstado.json();
         $("paciente").textContent = `Paciente: ${p.nombre} · DNI ${p.dni}`;
@@ -44,7 +50,7 @@ async function cargar() {
         $("versionTexto").textContent = versionTexto;
         mostrar("paraFirmar");
     } catch {
-        error("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.");
+        mostrar("sinConexion");
     }
 }
 
@@ -71,4 +77,5 @@ async function firmar() {
 }
 
 $("btnFirmar").addEventListener("click", firmar);
+$("btnReintentar").addEventListener("click", cargar);
 cargar();
