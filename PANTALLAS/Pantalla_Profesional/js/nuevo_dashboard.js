@@ -392,8 +392,9 @@ async function agenda() {
     let slots = [];
     try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
 
-    const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-    slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
+    // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
+    // se ordena por el número de día, no por el texto.
+    slots.sort((a, b) => YS.dias.orden(a.dia) - YS.dias.orden(b.dia) || fmtHora(a.horaInicio).localeCompare(fmtHora(b.horaInicio)));
     _agendaSlotsProf = slots;
     if (YS.shell.actual !== 'agenda') return;
 
@@ -437,8 +438,9 @@ async function horarios() {
     let slots = [];
     try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
 
-    const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-    slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
+    // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
+    // se ordena por el número de día, no por el texto.
+    slots.sort((a, b) => YS.dias.orden(a.dia) - YS.dias.orden(b.dia) || fmtHora(a.horaInicio).localeCompare(fmtHora(b.horaInicio)));
     _agendaSlotsProf = slots;
     if (YS.shell.actual !== 'horarios') return;
 
@@ -454,7 +456,7 @@ async function horarios() {
                         <tbody>
                             ${slots.map(s => `
                             <tr id="slot-row-${s.idAgenda}">
-                                <td>${s.dia}</td>
+                                <td>${YS.dias.nombre(s.dia)}</td>
                                 <td>${fmtHora(s.horaInicio)}</td>
                                 <td>${fmtHora(s.horaFin)}</td>
                                 <td>${s.intervaloMinutos ?? 30} min</td>
@@ -539,7 +541,9 @@ function abrirFormNuevoHorario() {
 
 function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
     document.getElementById('fh-id').value = id;
-    document.getElementById('fh-dia').value = dia;
+    // Las opciones del select son 'Lunes'…'Domingo'; si la base guardó 'miercoles', sin
+    // esto el select quedaba en la primera opción y al guardar el horario pasaba a lunes.
+    document.getElementById('fh-dia').value = YS.dias.nombre(dia);
     document.getElementById('fh-inicio').value = inicio;
     document.getElementById('fh-fin').value = fin;
     document.getElementById('fh-disponible').value = disponible ? 'true' : 'false';
