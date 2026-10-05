@@ -715,9 +715,13 @@ function abrirModal(row) {
     const body = document.getElementById("modalBody");
     body.innerHTML = (campos[tab] ?? []).map(c => {
         const val = row[c] ?? "";
+        // Los booleanos (p. ej. "disponible" de la agenda) se eligen y se mandan como true/false
+        const control = typeof row[c] === "boolean"
+            ? `<select id="field_${c}" class="input-modal"><option value="true"${row[c] ? " selected" : ""}>Sí</option><option value="false"${row[c] ? "" : " selected"}>No</option></select>`
+            : `<input type="text" id="field_${c}" value="${YS.esc(val)}" class="input-modal">`;
         return `<div class="campo-modal">
             <label>${c}</label>
-            <input type="text" id="field_${c}" value="${YS.esc(val)}" class="input-modal">
+            ${control}
         </div>`;
     }).join("");
 
@@ -738,7 +742,7 @@ async function guardar() {
 
     (campos[tab] ?? []).forEach(c => {
         const val = document.getElementById(`field_${c}`)?.value;
-        if (val !== undefined) body[c] = val;
+        if (val !== undefined) body[c] = typeof filaEnEdicion[c] === "boolean" ? val === "true" : val;
     });
 
     try {
