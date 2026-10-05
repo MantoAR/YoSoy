@@ -129,6 +129,11 @@ async function renderInicio(c) {
                         <div class="valor"><span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span></div>
                     </div>
                 </div>
+                ${propuestoPorProfesional(t) ? `
+                <div class="proximo-propuesta">
+                    <span>Tu profesional te propuso este turno. Confirmalo para que quede agendado.</span>
+                    <button class="btn-accion btn-guardar" onclick="confirmarTurnoPaciente(${t.idTurno})">Confirmar turno</button>
+                </div>` : ""}
             </div>`;
     } catch {
         c.innerHTML = `<p class="texto-error">Error al cargar los datos.</p>`;
@@ -340,8 +345,10 @@ async function mostrarPanelDia(dia) {
                 <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${t.modalidad ?? "-"}</span></div>
                 ${t.motivo ? `<div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div>` : ""}
             </div>
+            ${propuestoPorProfesional(t) ? `<p class="panel-aviso">Tu profesional te propuso este turno. Confirmalo para que quede agendado, o reprogramalo si no te queda bien.</p>` : ""}
             ${puedeAccionar ? `
             <div class="panel-acciones">
+                ${propuestoPorProfesional(t) ? `<button class="btn-accion btn-guardar" onclick="confirmarTurnoPaciente(${t.idTurno})">Confirmar turno</button>` : ""}
                 <button class="btn-accion btn-cancelar" onclick="cancelarTurno(${t.idTurno})">Cancelar turno</button>
                 <button class="btn-accion btn-reprogramar" id="btnReprogramar" onclick="abrirFormReprogramar(${t.idTurno}, ${t.idProfesional})">Reprogramar</button>
             </div>
@@ -1022,16 +1029,23 @@ async function unirseEntrevista(codigoSala, idNotif) {
 
 cargarNotificaciones();
 
+// Turno pendiente que propuso el profesional y el paciente todavía no confirmó.
+function propuestoPorProfesional(t) {
+    return t.estadoDescripcion === "Pendiente" && t.creadoPor === "profesional" && !t.confirmadoPaciente;
+}
+
 async function confirmarTurnoPaciente(idTurno) {
-    if (!await confirmar("Confirmar este turno?")) return;
+    if (!await confirmar("¿Confirmar este turno?")) return;
     try {
         const r = await fetch(API + "/turnos/" + idTurno + "/confirmar-paciente", { method: "PUT" });
         if (r.ok) {
-            toast("Turno confirmado. El profesional generara la sala para ese dia.");
-            const res = await fetch(API + "/pacientes/" + idPaciente + "/turnos-detalle");
-            turnosCalendario = await res.json();
-            dibujarCalendario();
-            document.getElementById("panelTurno").classList.remove("visible");
+            toast("Turno confirmado. El profesional va a generar la sala para ese día.");
+            if (document.getElementById("calGrid")) {
+                const res = await fetch(API + "/pacientes/" + idPaciente + "/turnos-detalle");
+                turnosCalendario = await res.json();
+                dibujarCalendario();
+                document.getElementById("panelTurno").classList.remove("visible");
+            } else mostrarSeccion(YS.shell.actual);
         } else if (r.status === 409) {
             // RN-02: falta firmar el consentimiento de telemedicina.
             if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?"))

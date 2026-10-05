@@ -214,3 +214,11 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .notif-mensaje { font-size: var(--fs-md); color: var(--text-2); margin-bottom: 8px; line-height: 1.45; }
 .notif-fecha { font-size: var(--fs-xs); color: var(--text-4); margin-top: 4px; }
 .notif-botones { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Turno propuesto por el profesional: aviso y botón para confirmarlo */
+.proximo-propuesta {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin-top: 14px; padding: 10px 12px; border-radius: var(--r-md);
+    background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-weight: 500;
+}
+.panel-aviso { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-md); background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-size: var(--fs-md); }
