@@ -378,13 +378,13 @@ async function renderDerivaciones(c) {
             <button class="btn-ko" onclick="rechazarDerivacion(${d.idDerivacion})">Rechazar</button>` : "-";
         return `<tr>
             <td>${d.idDerivacion}</td>
-            <td>${d.nombrePaciente}</td>
-            <td>${d.nombreProfesionalOrigen}</td>
-            <td>${d.nombreProfesionalDestino}</td>
-            <td>${d.especialidad}</td>
+            <td>${YS.esc(d.nombrePaciente)}</td>
+            <td>${YS.esc(d.nombreProfesionalOrigen)}</td>
+            <td>${YS.esc(d.nombreProfesionalDestino)}</td>
+            <td>${YS.esc(d.especialidad)}</td>
             <td>${fecha}</td>
-            <td>${d.motivo ?? "-"}</td>
-            <td><span class="estado-badge estado-${d.estado.toLowerCase()}">${d.estado}</span></td>
+            <td>${YS.esc(d.motivo ?? "-")}</td>
+            <td><span class="estado-badge estado-${d.estado.toLowerCase()}">${YS.esc(d.estado)}</span></td>
             <td>${acciones}</td>
         </tr>`;
     }).join("");
