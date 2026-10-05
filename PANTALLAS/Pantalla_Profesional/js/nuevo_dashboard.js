@@ -1369,20 +1369,20 @@ async function mostrarPanelDiaProfesional(dia) {
         ${puedeAccionar && !esPendientePaciente ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-cancelar" onclick="cancelarTurnoProf(${t.idTurno})">Cancelar turno</button>
-                <button class="btn-accion btn-reprogramar" id="btnReprogramarProf" onclick="abrirFormReprogramarProf(${t.idTurno})">Reprogramar</button>
+                <button class="btn-accion btn-reprogramar" id="btnReprogramarProf-${t.idTurno}" onclick="abrirFormReprogramarProf(${t.idTurno})">Reprogramar</button>
             </div>
-            <div class="form-reprogramar" id="formReprogramarProf">
+            <div class="form-reprogramar" id="formReprogramarProf-${t.idTurno}">
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
-                <div id="reprogDetallesProf" style="display:none">
-                    <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf"></div>
+                <div id="reprogDetallesProf-${t.idTurno}" style="display:none">
+                    <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf-${t.idTurno}"></div>
                     <div class="form-fila mt-12">
                         <div class="form-grupo form-grupo--ancho">
                             <label>Hora</label>
-                            <select id="reprogHoraProf" class="turno-input"></select>
+                            <select id="reprogHoraProf-${t.idTurno}" class="turno-input"></select>
                         </div>
                         <div class="form-grupo form-grupo--ancho">
                             <label>Motivo</label>
-                            <input type="text" id="reprogMotivoProf" class="turno-input" placeholder="Motivo del cambio...">
+                            <input type="text" id="reprogMotivoProf-${t.idTurno}" class="turno-input" placeholder="Motivo del cambio...">
                         </div>
                     </div>
                     <button class="btn-accion btn-guardar mt-12" onclick="confirmarReprogramarProf(${t.idTurno})">Confirmar reprogramación</button>
@@ -1510,16 +1510,18 @@ async function cancelarTurnoProf(id) {
     mostrarPanelDiaProfesional(_diaSeleccionadoProf);
 }
 
+// Con dos turnos activos el mismo día, cada uno tiene su formulario (ids con el idTurno).
 async function abrirFormReprogramarProf(idTurno) {
-    const form = document.getElementById('formReprogramarProf');
+    const form = document.getElementById(`formReprogramarProf-${idTurno}`);
     if (!form) return;
     const abriendo = !form.classList.contains('visible');
+    document.querySelectorAll('.form-reprogramar.visible').forEach(f => { if (f !== form) f.classList.remove('visible'); });
     form.classList.toggle('visible');
     if (!abriendo) { cancelarModoReprogramarProf(); return; }
 
     _idTurnoReprogProf = idTurno;
     _reprogFechaSeleccionadaProf = null;
-    document.getElementById('reprogDetallesProf').style.display = 'none';
+    document.getElementById(`reprogDetallesProf-${idTurno}`).style.display = 'none';
 
     try {
         const agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json());
@@ -1536,10 +1538,10 @@ function seleccionarDiaReprogProf(dia) {
 
     const slot = _agendaReprogProf.find(a => DIA_DB_NUM[normalizarP(a.dia)] === _reprogFechaSeleccionadaProf.getDay());
     const label = _reprogFechaSeleccionadaProf.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
-    document.getElementById('reprogDiaLabelProf').textContent = label;
-    document.getElementById('reprogDetallesProf').style.display = 'block';
+    document.getElementById(`reprogDiaLabelProf-${_idTurnoReprogProf}`).textContent = label;
+    document.getElementById(`reprogDetallesProf-${_idTurnoReprogProf}`).style.display = 'block';
 
-    const sel = document.getElementById('reprogHoraProf');
+    const sel = document.getElementById(`reprogHoraProf-${_idTurnoReprogProf}`);
     if (!sel) return;
     if (slot) {
         const [hI, mI] = slot.horaInicio.substring(0,5).split(':').map(Number);
@@ -1560,8 +1562,8 @@ function seleccionarDiaReprogProf(dia) {
 
 async function confirmarReprogramarProf(idTurno) {
     if (!_reprogFechaSeleccionadaProf) { toast('Seleccioná un día en el calendario.', 'warn'); return; }
-    const hora   = document.getElementById('reprogHoraProf')?.value;
-    const motivo = document.getElementById('reprogMotivoProf')?.value || null;
+    const hora   = document.getElementById(`reprogHoraProf-${idTurno}`)?.value;
+    const motivo = document.getElementById(`reprogMotivoProf-${idTurno}`)?.value || null;
     if (!hora) { toast('Seleccioná un horario.', 'warn'); return; }
 
     const turno = await fetch(`${API}/turnos/${idTurno}`).then(r => r.json());
@@ -1588,7 +1590,7 @@ function cancelarModoReprogramarProf() {
     _modoReprogramarProf = false;
     _idTurnoReprogProf   = null;
     _reprogFechaSeleccionadaProf = null;
-    document.getElementById('formReprogramarProf')?.classList.remove('visible');
+    document.querySelectorAll('.form-reprogramar.visible').forEach(f => f.classList.remove('visible'));
     dibujarCalendarioProfesional();
 }
 
