@@ -152,12 +152,34 @@ dotnet run
   - `1`: queda registrada la confirmación de asistencia.
   - `2`: si faltan más de 24 h se cancela; si faltan menos, **no** se cancela (RN-05) y se le avisa al profesional.
 - **Avisos por evento** (chat + campanita): solicitud recibida, turno propuesto por el profesional, turno confirmado y turno cancelado.
-- **Pantalla "YoSoy · Mensajería"** (`PANTALLAS/Pantalla_ChatSimulado/`), estilo WhatsApp Web, para que la secretaría o el profesional sigan las conversaciones del bot:
-  - Izquierda: buscador por nombre o teléfono y lista de conversaciones con estado en color (Urgente en rojo y siempre arriba, Derivada en naranja, Cerrada en gris).
-  - Centro: el hilo, con el paciente a la izquierda y el bot, el equipo y los avisos automáticos a la derecha, cada uno con su ícono. Respuesta manual (deshabilitada si la conversación está cerrada).
-  - Derecha: DNI, teléfono, profesionales y próximo turno del paciente, y el botón para cerrar la derivación o marcar la urgencia como resuelta.
-  - Header con contadores de urgentes y derivadas, la campanita de avisos internos y el modo "Probar como paciente" para chatear con un teléfono de prueba.
-  - Se actualiza por polling cada 2,5 s. Pensada para PC: las tres columnas quedan visibles desde 900 px de ancho.
+- **Bandeja de chats** para el configurador (la secretaría), estilo WhatsApp Web. Se abre con el botón **Chats** de la barra superior desde cualquier pantalla de su panel. Es un cajón que se superpone sin recargar; se puede expandir a pantalla completa y se cierra con Esc. Código en `PANTALLAS/Pantalla_ChatSimulado/js/bandeja.js`:
+  - **Lista:**
+    - buscador por nombre o teléfono;
+    - filtros Todas, No leídas, Derivadas (incluye urgentes), Del bot y Cerradas;
+    - avatar, último mensaje, hora relativa, contador de no leídos y estado (Urgente siempre arriba).
+  - **Hilo:**
+    - paciente a la izquierda; asistente, equipo y avisos automáticos a la derecha;
+    - separadores de día y mensajes seguidos agrupados;
+    - historial hacia arriba de a 50 mensajes;
+    - botón para ir al último mensaje con la cantidad de nuevos.
+  - **Respuesta:**
+    - Enter envía y Shift+Enter hace salto de línea;
+    - estado enviando / enviado / error con "Reintentar";
+    - respuestas rápidas editables en `PANTALLAS/Pantalla_ChatSimulado/plantillas.json`;
+    - deshabilitada si la conversación está cerrada.
+  - **Datos del paciente** (panel derecho, colapsable): DNI, teléfono, profesionales, próximo turno, estado del consentimiento, cerrar la derivación y accesos a sus turnos y a su ficha.
+  - **Avisos:**
+    - contador en el botón y `(n)` en el título de la pestaña;
+    - toast cuando llega un mensaje con la bandeja cerrada;
+    - sonido opcional, desactivado por defecto;
+    - los avisos internos (urgencias y derivaciones) en la campana de la barra.
+  - **Polling eficiente:**
+    - pide solo las conversaciones con mensajes nuevos (`?desdeMensaje=`);
+    - cada 3 s con la bandeja abierta, cada 20 s cerrada, más espaciado si no hay novedades;
+    - nada con la pestaña oculta.
+  - **Atajos:** `?` muestra la ayuda, `/` busca, Alt+↑/↓ cambia de conversación y Esc cierra.
+  - Solo aparece si la mensajería está disponible para ese pedido (`GET /capacidades`, mismo control que el 404 de `/mensajeria`).
+- **Pantalla de chats** (`PANTALLAS/Pantalla_ChatSimulado/index.html`): la misma bandeja en modo página y el **simulador del paciente**, para chatear con el asistente como si fuera un paciente con un teléfono de prueba.
 
 ### Cómo ponerlo en marcha
 
@@ -166,17 +188,18 @@ dotnet run
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_columnas_faltantes.sql
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_mensajeria.sql
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_consentimiento_telemedicina.sql
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_lectura_conversacion.sql
    ```
    `-f 65001` hace falta para que los acentos de las preguntas frecuentes de ejemplo se guarden bien. También se pueden abrir y ejecutar en SQL Server Management Studio.
 2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y el texto legal del consentimiento (ver [RN-02](#rn-02-consentimiento-de-telemedicina)).
-3. `dotnet run` y abrir `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html`.
+3. `dotnet run`, ingresar como configurador y abrir **Chats** en la barra superior. El simulador del paciente está en `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html#simulador`.
 
 ### Cómo probarlo
 
-- **Modo paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
-- **Modo administrador:** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos.
+- **Simulador del paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
+- **Bandeja (configurador):** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos en la campana.
 - **Recordatorios sin esperar:** `POST /mensajeria/recordatorios/ejecutar` corre una pasada del servicio.
-- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (89 pruebas del intérprete, las reglas de turnos, incluida RN-02 al confirmar, y la máquina de estados del bot, con dobles en memoria; no necesitan base de datos).
+- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (96 pruebas del intérprete, las reglas de turnos, incluida RN-02 al confirmar, la máquina de estados del bot y el control de acceso de `/mensajeria`, con dobles en memoria; no necesitan base de datos).
 
 > ⚠️ **Mails reales:** si la sección `Email` de la configuración está completa, los recordatorios y el aviso al profesional **se envían de verdad**. Para probar sin mandar mails, levantar la app con la contraseña en blanco: en PowerShell `$env:Email__Password = " "; dotnet run`. En ese caso el envío queda registrado como `Omitido`.
 
@@ -206,10 +229,12 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 |---|---|---|
 | POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
 | GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
-| GET | `/mensajeria/conversaciones?estado=` | Listado con nombre del paciente, último mensaje y su hora; urgentes siempre arriba, el resto por última actividad. |
+| GET | `/capacidades` | `{ mensajeria }`: si la interfaz muestra el botón Chats. Mismo control que el filtro de `/mensajeria`: apagado o pedido remoto con `SoloLocal` da `false`. |
+| GET | `/mensajeria/conversaciones?estado=&desdeMensaje=` | Listado con nombre del paciente, último mensaje (id, texto, origen y hora) y `noLeidos`; urgentes siempre arriba, el resto por última actividad. Con `desdeMensaje` trae solo las conversaciones con mensajes posteriores (polling incremental). |
+| PUT | `/mensajeria/conversaciones/{id}/leida` | `{ hasta }`: el equipo vio la conversación hasta ese mensaje (contador de no leídos; requiere `add_lectura_conversacion.sql`). |
 | GET | `/mensajeria/conversaciones/{id}` | Estado de una conversación. |
 | GET | `/mensajeria/conversaciones/{id}/paciente` | Panel del administrador: nombre, DNI, teléfono, profesionales y próximo turno del paciente (`paciente: null` si el bot no lo identificó). |
-| GET | `/mensajeria/conversaciones/{id}/mensajes?desde=` | Historial; `desde` = último id recibido (polling). |
+| GET | `/mensajeria/conversaciones/{id}/mensajes?desde=&antes=&limite=` | Historial; `desde` = último id recibido (polling). Con `antes`/`limite`, los mensajes anteriores a ese id de a páginas (sin `antes`, los últimos). |
 | POST | `/mensajeria/conversaciones/{id}/responder` | `{ texto }`: respuesta de una persona del equipo. |
 | PUT | `/mensajeria/conversaciones/{id}/cerrar` | Cierra la derivación o urgencia; el bot vuelve a atender. |
 | GET / PUT | `/mensajeria/notificaciones-internas`, `.../{id}/leida` | Avisos para el administrador y los profesionales. |
@@ -270,10 +295,11 @@ Configuración (`appsettings.json` → `Consentimiento`):
 - Reglas RN-01, RN-05 y RN-07 en los endpoints web: pendientes.
 - **Consentimiento:** el texto legal es un placeholder (`[COMPLETAR CON TEXTO LEGAL VALIDADO]`) hasta que el equipo lo valide. La firma usa el `idPaciente` del navegador: sin autenticación real cualquiera podría firmar por otro paciente, y eso no tiene validez como consentimiento informado (`TODO(JWT)` en `Endpoints/ConsentimientoEndpoints.cs`). El "Acuerdo de Atención al Paciente" del registro sigue sin guardar ninguna fila, y no hay pantalla para revocar un consentimiento.
 - **Versión del consentimiento:** cada firma guarda `Consentimiento:VersionTexto`, pero la vigencia (`ConsentimientoDAO.ObtenerVigente`, que usan RN-02 y la página de firma) **no compara versiones**: acepta cualquier fila del tipo requerido que no esté `Inactivo`. Por eso, el día que se cargue el texto legal validado y se cambie `VersionTexto`, los consentimientos firmados contra el placeholder (`sin-validar`) van a seguir contando como vigentes hasta que se agregue esa comparación.
-- Las notificaciones internas se ven solo en el modo administrador del chat simulado; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
+- Las notificaciones internas se ven solo en la campana del configurador; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
 - `DELETE /turnos/{id}` y el `POST /turnos` genérico no disparan avisos.
 - La reprogramación y el modal de turno de la web arman horarios de 60 minutos fijos en lugar de usar `IntervaloMinutos`.
-- Actualización por polling; sin WebSockets.
+- Actualización por polling (incremental y adaptativo); sin WebSockets. No hay indicador de "escribiendo…": el canal no informa cuándo el paciente está escribiendo.
+- La marca de leído es compartida por todo el equipo (como una bandeja de WhatsApp Business): si alguien abre la conversación, deja de figurar como no leída para todos.
 - Zona horaria: los turnos se guardan sin zona y se comparan con la hora local del servidor, que se asume en Argentina (UTC-3).
 - Recordatorios de pago: fuera de alcance (no existe una entidad de pagos). El tipo `PagoPendiente` quedó reservado en `Recordatorio`.
 
