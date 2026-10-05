@@ -1580,9 +1580,9 @@ async function confirmarReprogramarProf(idTurno) {
 
     if (r.ok) {
         toast('Turno reprogramado.');
-        cancelarModoReprogramarProf();
+        cancelarModoReprogramarProf();   // limpia _reprogFechaSeleccionadaProf: se usa la copia
         await renderCalendario();
-        mostrarPanelDiaProfesional(_reprogFechaSeleccionadaProf.getDate());
+        mostrarPanelDiaProfesional(fecha.getDate());
     } else toast('Error al reprogramar.', 'error');
 }
 
