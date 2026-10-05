@@ -270,7 +270,7 @@ function renderTurnosPendientes(turnos) {
             ${t.creadoPor === 'profesional'
                 ? '<span class="badge-estado estado-propuesto" title="Lo propusiste vos: espera la confirmación del paciente">Propuesto</span>'
                 : '<span class="badge-estado badge-pendiente">Pendiente</span>'}
-            <button class="btn-confirmar" onclick="confirmarTurno(${t.idTurno})">Confirmar</button>
+            <button class="btn-confirmar" onclick="${t.creadoPor === 'profesional' ? 'confirmarPropuestaPropia' : 'confirmarTurno'}(${t.idTurno})">Confirmar</button>
         </div>`;
     }).join('') + `</div>`;
 }
@@ -340,6 +340,14 @@ async function irASala(idTurno, idPaciente) {
     YS.shell.marcar('sesion');
     sesion(idPaciente);
     if (sinConsentimiento) bannerSinConsentimiento();
+}
+
+// Un turno que propuso el profesional lo confirma el paciente. Confirmarlo desde acá sigue siendo
+// posible (como antes), pero ahora se pregunta: el paciente todavía no respondió.
+async function confirmarPropuestaPropia(id) {
+    if (!await confirmar('Este turno lo propusiste vos y el paciente todavía no lo confirmó. ¿Confirmarlo igual?',
+                         { titulo: 'Confirmar sin respuesta del paciente', textoConfirmar: 'Confirmar igual', textoCancelar: 'Esperar al paciente' })) return;
+    await confirmarTurno(id);
 }
 
 async function confirmarTurno(id) {
