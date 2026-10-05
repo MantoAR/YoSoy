@@ -990,14 +990,14 @@ async function admisiones() {
     const badge = function(estado) {
         const colores = { "Pendiente": "#fff3cd|#856404", "En entrevista": "#cfe2ff|#084298", "Derivado": "#d1e7dd|#0f5132", "Rechazado": "#f8d7da|#842029" };
         const par = (colores[estado] || "#e2e3e5|#41464b").split("|");
-        return '<span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:3px 12px;font-size:12px;font-weight:bold">' + estado + '</span>';
+        return '<span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:3px 12px;font-size:12px;font-weight:bold">' + YS.esc(estado) + '</span>';
     };
 
     const filas = _admisionesCache.map(function(a) {
         return '<tr>' +
-            '<td>' + a.nombrePaciente + '</td>' +
-            '<td>' + a.dni + '</td>' +
-            '<td>' + a.especialidad + '</td>' +
+            '<td>' + YS.esc(a.nombrePaciente) + '</td>' +
+            '<td>' + YS.esc(a.dni) + '</td>' +
+            '<td>' + YS.esc(a.especialidad) + '</td>' +
             '<td>' + a.fechaCreacion + '</td>' +
             '<td>' + badge(a.estado) + '</td>' +
             '<td><button class="btn btn-sm btn-outline-secondary" onclick="verAdmision(' + a.idInforme + ')">Ver</button></td>' +
