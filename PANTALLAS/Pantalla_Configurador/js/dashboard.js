@@ -1,4 +1,9 @@
 const API = "http://localhost:5000";
+// Escape de HTML para datos que cargan los usuarios. En Cambios-Agus vive en shared/ui.js (YS.esc);
+// en main no existe esa capa, así que el parche de XSS define lo mínimo que usa.
+window.YS = window.YS || {};
+YS.esc = YS.esc || (s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]));
+YS.nombreCompleto = YS.nombreCompleto || (p => p ? [p.nombre, p.apellido].filter(Boolean).join(" ").trim() : "");
 
 function toast(msg, tipo = "ok", duracion = 3500) {
     let cont = document.getElementById("toast-container");
@@ -191,14 +196,14 @@ function renderCardsUsuarios() {
 
     document.getElementById("listaPacientes").innerHTML = pacientes.map(p => `
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
-            <div class="usr-nombre">${p.nombre ?? "-"}</div>
-            <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
+            <div class="usr-nombre">${YS.esc(p.nombre ?? "-")}</div>
+            <div class="usr-sub">DNI: ${YS.esc(p.dni ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
         </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
 
     document.getElementById("listaProfesionales").innerHTML = profesionales.map(p => `
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
-            <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
-            <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
+            <div class="usr-nombre">${YS.esc((p.nombre ?? "-") + (p.apellido ? " " + p.apellido : ""))}</div>
+            <div class="usr-sub">Mat: ${YS.esc(p.matricula ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
         </div>`).join("") || `<div style="padding:12px;color:#aaa;font-size:13px">Sin resultados.</div>`;
 
     document.getElementById("splitInfo").innerHTML = "";
@@ -242,8 +247,8 @@ function seleccionarPaciente(idPac) {
         : "";
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar} ${btnAccion}`
-        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
+        ? `<strong>${YS.esc(pac?.nombre)}</strong> tiene asignados: ${YS.esc(nombres.join(", "))}. ${btnCambio} ${btnAsignar} ${btnAccion}`
+        : `<strong>${YS.esc(pac?.nombre)}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
 }
 
 function seleccionarProfesional(idProf) {
@@ -267,8 +272,8 @@ function seleccionarProfesional(idProf) {
         : `<button class="btn-cambio-baja" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnAccionProf}`
-        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados. ${btnAccionProf}`;
+        ? `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> atiende a: ${YS.esc(nombres.join(", "))}. ${btnAccionProf}`
+        : `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> no tiene turnos registrados. ${btnAccionProf}`;
 }
 
 async function darDeBajaPaciente(idPac) {
@@ -410,11 +415,11 @@ async function abrirModalAsignar(idPac) {
 
     const opciones = window._profesionales
         .filter(p => p.estado === "Activo" && !yaAsignados.has(p.idProfesional))
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — ${p.especialidad ?? ""}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — ${YS.esc(p.especialidad ?? "")}</option>`)
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p style="color:#555;margin-bottom:16px">Asignar profesional a: <strong>${pac?.nombre}</strong></p>
+        <p style="color:#555;margin-bottom:16px">Asignar profesional a: <strong>${YS.esc(pac?.nombre)}</strong></p>
         <div class="campo-modal">
             <label>Profesional</label>
             <select id="selectProfAsignar" class="input-modal">
@@ -435,11 +440,11 @@ async function abrirModalCambioDirecto(idPac) {
     const opcionesOrigen = relacionados.map(idP => {
         const pro = window._profesionales.find(p => p.idProfesional === idP);
         const nombre = pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
-        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${nombre}</option>`;
+        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${YS.esc(nombre)}</option>`;
     }).join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p style="color:#555;margin-bottom:16px">Cambio para: <strong>${pac?.nombre}</strong></p>
+        <p style="color:#555;margin-bottom:16px">Cambio para: <strong>${YS.esc(pac?.nombre)}</strong></p>
         <div class="campo-modal" style="margin-bottom:14px">
             <label>Profesional actual</label>
             <select id="selectProfOrigen" class="input-modal" onchange="cargarProfesionalesDestino()">
@@ -472,7 +477,7 @@ async function cargarProfesionalesDestino() {
     const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
     const opciones = profs
         .filter(p => p.idProfesional !== idOrigen)
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}</option>`)
         .join("");
     document.getElementById("selectProfDestino").innerHTML = opciones || '<option value="">Sin profesionales disponibles</option>';
 }
@@ -486,7 +491,7 @@ async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
     const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
     const opciones = profs
         .filter(p => p.idProfesional !== idProfOrigen)
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — Mat. ${p.matricula ?? "-"}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — Mat. ${YS.esc(p.matricula ?? "-")}</option>`)
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
@@ -622,7 +627,7 @@ function abrirModal(row) {
         const val = row[c] ?? "";
         return `<div class="campo-modal">
             <label>${c}</label>
-            <input type="text" id="field_${c}" value="${val}" class="input-modal">
+            <input type="text" id="field_${c}" value="${YS.esc(val)}" class="input-modal">
         </div>`;
     }).join("");
 
@@ -1013,7 +1018,7 @@ function verAdmision(idInforme) {
 
     const campo = function(label, valor) {
         if (valor === null || valor === undefined || valor === "") return "";
-        return '<div style="margin-bottom:10px"><span style="font-size:11px;font-weight:bold;color:#6A5ACD;text-transform:uppercase;display:block">' + label + '</span><span style="font-size:14px">' + valor + '</span></div>';
+        return '<div style="margin-bottom:10px"><span style="font-size:11px;font-weight:bold;color:#6A5ACD;text-transform:uppercase;display:block">' + label + '</span><span style="font-size:14px">' + YS.esc(valor) + '</span></div>';
     };
 
     const esEntrevista = a.estado === "En entrevista" || a.estado === "Rechazado";
@@ -1033,11 +1038,11 @@ function verAdmision(idInforme) {
     if (esEntrevista) {
         acciones = '<div style="background:#f3efff;border:2px solid #6A5ACD;border-radius:12px;padding:20px;margin-top:16px">' +
             '<h4 style="color:#6A5ACD;margin-bottom:12px">Derivar al profesional</h4>' +
-            (a.estado === "Rechazado" ? '<p style="background:#f8d7da;color:#842029;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px"><strong>Rechazado por el profesional anterior:</strong> ' + (a.motivoRechazo || "Sin motivo") + '</p>' : '') +
-            '<p style="font-size:12px;color:#888;margin-bottom:6px">Entrevista programada: ' + (a.fechaEntrevista || "-") + '</p>' +
-            '<p style="font-size:13px;margin-bottom:10px">Codigo de sala: <strong style="color:#0d6efd;letter-spacing:1px">' + (a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" style="margin-left:10px;padding:6px 14px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Iniciar entrevista</button></p>' +
+            (a.estado === "Rechazado" ? '<p style="background:#f8d7da;color:#842029;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:10px"><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</p>' : '') +
+            '<p style="font-size:12px;color:#888;margin-bottom:6px">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
+            '<p style="font-size:13px;margin-bottom:10px">Codigo de sala: <strong style="color:#0d6efd;letter-spacing:1px">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" style="margin-left:10px;padding:6px 14px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Iniciar entrevista</button></p>' +
             '<label style="font-size:12px;font-weight:bold;color:#6A5ACD;display:block">Observaciones de la entrevista</label>' +
-            '<textarea id="derObs" rows="3" style="width:100%;padding:9px;border:2px solid #e0d4f5;border-radius:8px;margin-bottom:10px">' + (a.observacionesEntrevista || "") + '</textarea>' +
+            '<textarea id="derObs" rows="3" style="width:100%;padding:9px;border:2px solid #e0d4f5;border-radius:8px;margin-bottom:10px">' + YS.esc(a.observacionesEntrevista || "") + '</textarea>' +
             '<label style="font-size:12px;font-weight:bold;color:#6A5ACD;display:block">Profesional asignado</label>' +
             '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">' +
             '<select id="derProf" style="flex:1;min-width:220px;padding:9px;border:2px solid #e0d4f5;border-radius:8px"><option value="">Cargando...</option></select>' +
@@ -1046,14 +1051,14 @@ function verAdmision(idInforme) {
     }
     if (esDerivado) {
         acciones = '<div style="background:#d1e7dd;border-radius:12px;padding:16px;margin-top:16px">' +
-            '<strong style="color:#0f5132">Derivado a: ' + (a.nombreProfesionalDerivado || "-") + '</strong>' +
-            (a.observacionesEntrevista ? '<p style="font-size:13px;margin-top:8px">' + a.observacionesEntrevista + '</p>' : "") +
+            '<strong style="color:#0f5132">Derivado a: ' + YS.esc(a.nombreProfesionalDerivado || "-") + '</strong>' +
+            (a.observacionesEntrevista ? '<p style="font-size:13px;margin-top:8px">' + YS.esc(a.observacionesEntrevista) + '</p>' : "") +
             '</div>';
     }
 
     document.getElementById("detalleAdmision").innerHTML =
         '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08)">' +
-        '<h3 style="color:#6A5ACD;margin-bottom:16px">Informe de ' + a.nombrePaciente + '</h3>' +
+        '<h3 style="color:#6A5ACD;margin-bottom:16px">Informe de ' + YS.esc(a.nombrePaciente) + '</h3>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 24px">' +
         campo("DNI", a.dni) +
         campo("Fecha de nacimiento", a.fechaNacimiento) +
@@ -1082,7 +1087,7 @@ async function cargarProfesionalesDerivacion() {
     if (sel === null) return;
     sel.innerHTML = '<option value="">Selecciona un profesional</option>' + profs
         .filter(function(p) { return p.estado === "Activo"; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + p.nombre + " " + (p.apellido || "") + '</option>'; })
+        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + '</option>'; })
         .join("");
 }
 
@@ -1124,22 +1129,22 @@ async function verHCAdmision(idPaciente) {
     const evHtml = evoluciones.map(function(e) {
         return '<div style="border-left:3px solid #6A5ACD;padding:8px 12px;margin-bottom:8px;background:#faf8ff">' +
             '<strong>' + new Date(e.fecha).toLocaleDateString("es-AR") + '</strong>' +
-            (e.diagnostico ? '<div><em>Diagnostico:</em> ' + e.diagnostico + '</div>' : "") +
-            (e.observaciones ? '<div><em>Observaciones:</em> ' + e.observaciones + '</div>' : "") +
+            (e.diagnostico ? '<div><em>Diagnóstico:</em> ' + YS.esc(e.diagnostico) + '</div>' : "") +
+            (e.observaciones ? '<div><em>Observaciones:</em> ' + YS.esc(e.observaciones) + '</div>' : "") +
             '</div>';
     }).join("") || '<p style="color:#888;font-size:13px">Sin evoluciones.</p>';
 
     const sesHtml = sesiones.map(function(s) {
         return '<div style="border-left:3px solid #0d6efd;padding:8px 12px;margin-bottom:8px;background:#f5f9ff">' +
             '<strong>' + new Date(s.fechaHora).toLocaleDateString("es-AR") + '</strong>' +
-            (s.tipoCierre ? " - " + s.tipoCierre : "") +
-            (s.notasEvolucion ? '<div>' + s.notasEvolucion + '</div>' : "") +
+            (s.tipoCierre ? " - " + YS.esc(s.tipoCierre) : "") +
+            (s.notasEvolucion ? '<div>' + YS.esc(s.notasEvolucion) + '</div>' : "") +
             '</div>';
     }).join("") || '<p style="color:#888;font-size:13px">Sin sesiones clinicas.</p>';
 
     document.getElementById("detalleAdmision").innerHTML +=
         '<div style="background:white;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-top:16px">' +
-        '<h3 style="color:#6A5ACD">Historia Clinica - ' + (paciente !== null ? paciente.nombre : "") + '</h3>' +
+        '<h3 style="color:#6A5ACD">Historia Clinica - ' + YS.esc(paciente !== null ? paciente.nombre : "") + '</h3>' +
         '<h4 style="margin-top:14px;font-size:14px">Evoluciones</h4>' + evHtml +
         '<h4 style="margin-top:14px;font-size:14px">Sesiones clinicas</h4>' + sesHtml +
         '</div>';
