@@ -690,3 +690,23 @@ $env:Email__Password = " "; dotnet run
 - **Pruebas de interfaz:** `docs/pruebas-ui-cambios-agus/`. Son scripts de Playwright con Edge; su `README.md` explica cómo correrlas y cuáles escriben en la base.
 - **Capturas:** `docs/capturas-cambios-agus/`. En `antes/` está el recorrido del Paso 0, previo a los cambios; en `despues/`, las mismas pantallas al cierre, más modales y detalles.
 - Las dos carpetas están excluidas en `.git/info/exclude`: quedan solo en esta máquina.
+
+---
+
+## Fase 1: CRM > Chats y layout de ancho completo
+
+Plan más grande, en pasos. Arranca después de todo lo anterior; sigue en `Cambios-Agus`, local, sin push.
+
+### Paso 0: reconocimiento
+
+- **Árbol limpio**, sin cambios pendientes al arrancar.
+- **El ancho limitado es una sola variable:** `--contenido-max: 1600px` en `shared/tema.css:79`, usada en `.ui-encabezado-interior` y `.ui-contenido` (las dos con `margin: 0 auto`). A 2560 px deja ~480 px de gris de cada lado; a 1920 px, ~160 px. Las pantallas angostas (`consentimiento.html`) ya tienen su propio mecanismo: `body.ui-pagina-angosta` pisa la variable a 900px — ese patrón ya es el que pide el pedido, no hace falta inventarlo. Login y registro no usan `shared/tema.css` (tienen su propio HTML suelto): no les toca este cambio.
+- **La bandeja de chats ya se construyó pensando en esto.** `Pantalla_ChatSimulado/js/bandeja.js` tiene un modo `"pagina"` además del modo `"cajon"` (lo usa hoy `Pantalla_ChatSimulado/index.html`, una pantalla de prueba que además simula al paciente por teléfono, sin autenticación real — esa pantalla sigue para probar, no es la que hay que reemplazar). En modo página, el mismo JS dibuja las tres secciones (`.chats-lista`, `.chats-hilo`, `.chats-contexto`) dentro de cualquier contenedor, con los filtros, el buscador, el polling adaptativo, las respuestas rápidas con "/" y el panel de contexto ya funcionando. El `grid-template-columns` de `.chats-cuerpo` ya arma tres columnas (330px / flexible / 310px) cuando hay contexto — el orden hoy es lista · hilo · contexto; el pedido quiere lista · contexto · hilo, así que hay que reordenar (con `order` en CSS, para que cambiarlo sea una línea, tal como pide el pedido) sin tocar la estructura del JS.
+- **El panel de contexto ("Datos del paciente") ya tiene casi todos los campos** que pide "Información del lead": nombre, estado con chip, DNI, teléfono, profesional(es) asignado(s), próximo turno, consentimiento (con chip y el botón que inserta el link de firma en el composer), "Ver turnos" y "Ver ficha". Faltan mostrar como campo propio: **ID de la conversación**, **Creado** (fecha) y **Origen (canal)**. El modelo `Conversacion` ya tiene `FechaCreacion` y `Canal` ("Simulado"); el endpoint `GET /mensajeria/conversaciones/{id}/paciente` (`Endpoints/MensajeriaEndpoints.cs:59`) no los devuelve todavía. Agregar esos dos campos a la respuesta es aditivo (no rompe el contrato existente, regla 4 del pedido) y no necesita ni migración ni lógica nueva.
+- **Los textos a renombrar** ("Derivada"/"Derivadas" → "Escalada a persona"/"Escalamientos") están en `bandeja.js`: el mapa `ESTADO.DerivadaHumano.texto` y el filtro `FILTROS` con `id: "derivadas"`. El `id` interno y el estado `DerivadaHumano` de la base **no se tocan**, solo el texto que se muestra.
+- **Chats hoy es solo del configurador.** `shared/shell.js` dice explícitamente "Chats: solo para el configurador" y carga la bandeja únicamente para ese rol. Profesional y paciente no tienen acceso a la bandeja hoy, así que el Paso 2 no les agrega el ítem (el pedido lo condicionaba a que ya lo tuvieran).
+- **Menú actual del configurador** (`shell.js`, `MENUS.configurador`): Inicio · Usuarios ▾ (Pacientes y profesionales, Solicitudes de registro, Solicitudes de cambio, Recuperación de contraseña) · Clínico ▾ (Admisiones, Turnos, Agendas, Evoluciones, Eventos de crisis) · Reportes · Configuración ▾ (Roles, Especialidades, Coberturas, Interacciones IA) · Auditoría. El nuevo grupo **CRM ▾** (Chats · Escalamientos) va primero, antes de Usuarios, reemplazando conceptualmente al botón de burbuja de la barra superior.
+
+### Pendiente antes de seguir con el Paso 3
+
+El pedido avisaba que adjuntaba una captura de referencia de la pantalla de chats "para imitar en estructura y sensación" y decía explícitamente que la iba a usar como guía visual — **no llegó ninguna imagen adjunta**. Se lo señalé al usuario y quedé esperando cómo seguir (reenviarla, o avanzar solo con la descripción escrita del pedido). Mientras tanto sigo con los Pasos 1 y 2, que no dependen de la imagen.
