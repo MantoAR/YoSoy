@@ -9,34 +9,26 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="../shared/tema.css">
     <style>
-        .card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #eee; margin-bottom: 12px; }
-        .card h3 { font-size: 12px; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing:.05em; margin-bottom: 12px; }
-        .videos-grid { display: grid; grid-template-columns: 1fr 200px; gap: 10px; margin-bottom: 12px; }
-        .video-wrap { position: relative; background: #111; border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; }
-        .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,0.6); color: white; font-size: 12px; padding: 2px 8px; border-radius: 4px; }
-        .btn-rojo { background: #A32D2D; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 13px; }
-        .btn-verde { background: #185FA5; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; }
-        .btn-verde:disabled { opacity: 0.5; cursor: default; }
-        .estado { font-size: 13px; color: #888; margin-left: 10px; }
-        .controles { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-        .codigo-input { display: flex; gap: 8px; margin-top: 12px; }
-        .codigo-input input {
-            flex: 1;
-            padding: 12px 14px;
-            border: 2px solid #e0d4f5;
-            border-radius: 10px;
-            font-size: 16px;
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            font-weight: 600;
-            color: #185FA5;
-            outline: none;
+        /* Propio de esta página; colores, tipografía y botones salen de ../shared/tema.css */
+        .sala-espera { max-width: 560px; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 12px; }
+        .card h3 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 6px; }
+        .texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0; }
+        .codigo-input { display: flex; gap: 8px; margin-top: 16px; }
+        .codigo-input .ui-input {
+            flex: 1; height: 44px; font-family: var(--mono); font-size: var(--fs-lg); font-weight: 600;
+            letter-spacing: .12em; text-transform: uppercase; color: var(--accent-strong);
         }
-        .codigo-input input:focus { border-color: #185FA5; }
-        .estado-box { margin-top: 12px; font-size: 13px; color: #888; }
-        .estado-box.conectado { color: #3B6D11; font-weight: 500; }
-        .estado-box.error { color: #A32D2D; }
+        .estado-box { margin-top: 12px; font-size: var(--fs-md); color: var(--text-3); min-height: 1.4em; }
+        .estado-box.conectado { color: var(--ok); font-weight: 500; }
+        .estado-box.error { color: var(--danger); }
+        .videos-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 12px; }
+        .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
+        .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
+        .controles { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+        .estado { font-size: var(--fs-md); color: var(--text-3); }
+        @media (max-width: 760px) { .videos-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -45,30 +37,33 @@
 <div class="ui-contenido">
 
     <!-- PANTALLA DE ESPERA -->
-    <div id="pantalla-espera">
+    <div id="pantalla-espera" class="sala-espera">
         <div class="card">
-            <h3>Unirse a sesión</h3>
-            <p style="font-size:13px;color:#666;">
+            <h3>Unirse a la sesión</h3>
+            <p class="texto-ayuda">
                 Tu profesional te va a compartir un código. Ingresalo acá para conectarte a la videollamada.
             </p>
             <div class="codigo-input">
-                <input 
-                    type="text" 
-                    id="input-sala" 
-                    placeholder="SALA-X-XXXXXX" 
+                <input
+                    type="text"
+                    id="input-sala"
+                    class="ui-input"
+                    placeholder="SALA-X-XXXXXX"
                     maxlength="30"
+                    aria-label="Código de sala"
+                    autocomplete="off"
                     oninput="this.value = this.value.toUpperCase()"
                 >
-                <button class="btn-verde" id="btn-conectar" onclick="conectarse()">
+                <button class="ui-btn ui-btn--primary ui-btn--lg" id="btn-conectar" onclick="conectarse()">
                     Conectarme
                 </button>
             </div>
-            <div class="estado-box" id="estado-espera"></div>
+            <div class="estado-box" id="estado-espera" aria-live="polite"></div>
         </div>
     </div>
 
     <!-- PANTALLA DE SESIÓN -->
-    <div id="pantalla-sesion" style="display:none">
+    <div id="pantalla-sesion" class="oculto">
         <div class="videos-grid">
             <div class="video-wrap">
                 <video id="vid-profesional" autoplay playsinline></video>
@@ -80,8 +75,8 @@
             </div>
         </div>
         <div class="controles">
-            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
-            <span class="estado" id="estado-txt">Conectando...</span>
+            <button class="ui-btn ui-btn--danger-solido" onclick="finalizarSesion()">Finalizar sesión</button>
+            <span class="estado" id="estado-txt" aria-live="polite">Conectando…</span>
         </div>
     </div>
 
@@ -132,8 +127,8 @@ async function conectarse() {
     }
 
     document.getElementById('vid-paciente').srcObject = stream;
-    document.getElementById('pantalla-espera').style.display = 'none';
-    document.getElementById('pantalla-sesion').style.display = 'block';
+    document.getElementById('pantalla-espera').classList.add('oculto');
+    document.getElementById('pantalla-sesion').classList.remove('oculto');
     document.getElementById('estado-txt').textContent = 'Conectando con el profesional...';
 
     // Configurar WebRTC
@@ -188,8 +183,8 @@ function finalizarSesion() {
     stream?.getTracks().forEach(t => t.stop());
     pc?.close();
     socket?.disconnect();
-    document.getElementById('pantalla-sesion').style.display = 'none';
-    document.getElementById('pantalla-espera').style.display = 'block';
+    document.getElementById('pantalla-sesion').classList.add('oculto');
+    document.getElementById('pantalla-espera').classList.remove('oculto');
     document.getElementById('input-sala').value = '';
     document.getElementById('btn-conectar').disabled = false;
     document.getElementById('estado-espera').textContent = 'Sesión finalizada.';
