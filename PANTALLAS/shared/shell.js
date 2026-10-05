@@ -88,6 +88,7 @@
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
     let cfg = null, menu = null, actual = null, primeraMarca = true;
+    let hashMostrado = null;   // el #hash de lo que está en pantalla (sección + parámetros)
     const els = {};
     let resolverUsuario;
     const usuario = new Promise(r => resolverUsuario = r);   // { nombre, detalle } para saludar en Inicio
@@ -292,6 +293,7 @@
             const url = location.pathname + location.search + "#" + id;
             if (primeraMarca) history.replaceState(null, "", url); else history.pushState(null, "", url);
         }
+        if (cfg.navegar) hashMostrado = location.hash;
         primeraMarca = false;
     }
 
@@ -526,10 +528,13 @@
             }
 
             if (cfg.navegar) {
+                // Se compara el #hash completo: de #turnos?paciente=N a #turnos es la misma
+                // sección, pero hay que volver a dibujarla sin el filtro.
                 const ir = () => {
+                    if (location.hash === hashMostrado) return;
                     const { id, params } = leerHash();
                     const destino = buscar(id) && !buscar(id).href ? id : cfg.inicial;
-                    if (destino === actual && !Object.keys(params).length) return;
+                    hashMostrado = location.hash;
                     cfg.navegar(destino, params);
                 };
                 window.addEventListener("hashchange", ir);
