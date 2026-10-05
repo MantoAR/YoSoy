@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YoSoy · Panel configurador</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
@@ -18,31 +17,33 @@
         <div class="ui-contenido contenido" id="contenido"></div>
     </main>
 
-    <!-- MODAL ACEPTAR DERIVACION -->
-    <div class="modal-overlay" id="modalDerivOverlay" onclick="cerrarModalDeriv()"></div>
-    <div class="modal-panel" id="modalDerivPanel">
-        <div class="modal-header-custom">
-            <span>Aceptar Solicitud de Cambio</span>
-            <button class="btn-cerrar-modal" onclick="cerrarModalDeriv()">✕</button>
-        </div>
-        <div class="modal-body-custom" id="modalDerivBody"></div>
-        <div class="modal-footer-custom">
-            <button class="btn btn-secondary" onclick="cerrarModalDeriv()">Cancelar</button>
-            <button class="btn btn-guardar" onclick="confirmarAceptarDeriv()">Confirmar</button>
+    <!-- Modal compartido: asignar profesional, cambio directo y aceptar solicitud de cambio -->
+    <div class="ui-modal-fondo modal-fijo" id="modalDerivOverlay" onclick="if (event.target === this) cerrarModalDeriv()">
+        <div class="ui-modal" id="modalDerivPanel" role="dialog" aria-modal="true" aria-labelledby="modalDerivTitulo" tabindex="-1">
+            <div class="ui-modal-cabecera">
+                <h2 class="ui-modal-titulo" id="modalDerivTitulo">Aceptar solicitud de cambio</h2>
+                <button type="button" class="ui-btn ui-btn--ghost ui-btn--icono ui-modal-cerrar" aria-label="Cerrar" onclick="cerrarModalDeriv()">✕</button>
+            </div>
+            <div class="ui-modal-cuerpo" id="modalDerivBody"></div>
+            <div class="ui-modal-pie">
+                <button type="button" class="ui-btn" onclick="cerrarModalDeriv()">Cancelar</button>
+                <button type="button" class="ui-btn ui-btn--primary" id="modalDerivConfirmar" onclick="confirmarAceptarDeriv()">Confirmar</button>
+            </div>
         </div>
     </div>
 
-    <!-- MODAL EDITAR REGISTRO -->
-    <div class="modal-overlay" id="modalOverlay" onclick="cerrarModal()"></div>
-    <div class="modal-panel" id="modalPanel">
-        <div class="modal-header-custom">
-            <span id="modalTitulo">Editar</span>
-            <button class="btn-cerrar-modal" onclick="cerrarModal()">✕</button>
-        </div>
-        <div class="modal-body-custom" id="modalBody"></div>
-        <div class="modal-footer-custom">
-            <button class="btn btn-secondary" onclick="cerrarModal()">Cancelar</button>
-            <button class="btn btn-guardar" onclick="guardar()">Guardar cambios</button>
+    <!-- Modal de edición de un registro (tabla genérica y turnos) -->
+    <div class="ui-modal-fondo modal-fijo" id="modalOverlay" onclick="if (event.target === this) cerrarModal()">
+        <div class="ui-modal" id="modalPanel" role="dialog" aria-modal="true" aria-labelledby="modalTitulo" tabindex="-1">
+            <div class="ui-modal-cabecera">
+                <h2 class="ui-modal-titulo" id="modalTitulo">Editar</h2>
+                <button type="button" class="ui-btn ui-btn--ghost ui-btn--icono ui-modal-cerrar" aria-label="Cerrar" onclick="cerrarModal()">✕</button>
+            </div>
+            <div class="ui-modal-cuerpo" id="modalBody"></div>
+            <div class="ui-modal-pie">
+                <button type="button" class="ui-btn" onclick="cerrarModal()">Cancelar</button>
+                <button type="button" class="ui-btn ui-btn--primary" id="modalConfirmar" onclick="guardar()">Guardar cambios</button>
+            </div>
         </div>
     </div>
 

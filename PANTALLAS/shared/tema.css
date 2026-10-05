@@ -522,6 +522,8 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 .ui-barra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .ui-barra-espacio { flex: 1; }
 .ui-barra-info { font-size: var(--fs-sm); color: var(--text-3); }
+.ui-barra .ui-buscador { width: 320px; }
+.ui-barra > .ui-select { width: auto; max-width: 260px; }   /* filtros extra (p. ej. profesional) en la misma fila */
 
 /* ── Tablas densas ────────────────────────────────────────────── */
 .ui-tabla-wrap { overflow: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }

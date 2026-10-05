@@ -1,46 +1,46 @@
 const API = YS.API;   // mismo origen que la página (shared/ui.js)
 
+// Avisos y confirmaciones del sistema de diseño (shared/ui.js). Los botones de la
+// confirmación conservan los ids confirmSi / confirmNo.
 function toast(msg, tipo = "ok", duracion = 3500) {
-    let cont = document.getElementById("toast-container");
-    if (!cont) {
-        cont = document.createElement("div");
-        cont.id = "toast-container";
-        document.body.appendChild(cont);
-    }
-    const iconos = { ok: "✔", error: "✖", warn: "⚠" };
-    const t = document.createElement("div");
-    t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
-    cont.appendChild(t);
-    setTimeout(() => {
-        t.classList.add("saliendo");
-        t.addEventListener("animationend", () => t.remove());
-    }, duracion);
+    YS.toast(msg, tipo, duracion);
 }
 
-function confirmar(msg) {
-    return new Promise(resolve => {
-        let overlay = document.getElementById("confirmOverlay");
-        if (!overlay) {
-            overlay = document.createElement("div");
-            overlay.id = "confirmOverlay";
-            overlay.innerHTML = `
-                <div class="confirm-box">
-                    <p class="confirm-msg" id="confirmMsg"></p>
-                    <div class="confirm-btns">
-                        <button class="confirm-btn-no" id="confirmNo">Cancelar</button>
-                        <button class="confirm-btn-si" id="confirmSi">Aceptar</button>
-                    </div>
-                </div>`;
-            document.body.appendChild(overlay);
-        }
-        document.getElementById("confirmMsg").textContent = msg;
-        overlay.classList.add("visible");
-        const cerrar = (val) => { overlay.classList.remove("visible"); resolve(val); };
-        document.getElementById("confirmSi").onclick = () => cerrar(true);
-        document.getElementById("confirmNo").onclick = () => cerrar(false);
-    });
+function confirmar(msg, opciones = {}) {
+    return YS.confirmar({ mensaje: msg, idConfirmar: "confirmSi", idCancelar: "confirmNo", ...opciones });
 }
+
+// ── Modales fijos de dashboard.html (#modal… y #modalDeriv…) ──
+// Se cierran con Esc, con la X, con Cancelar o haciendo clic afuera; el foco vuelve a
+// donde estaba.
+let focoAntesDelModal = null;
+
+function abrirModalFijo(id, titulo, textoConfirmar) {
+    focoAntesDelModal = document.activeElement;
+    if (titulo) document.getElementById(id + "Titulo").textContent = titulo;
+    if (textoConfirmar) document.getElementById(id + "Confirmar").textContent = textoConfirmar;
+    document.getElementById(id + "Overlay").classList.add("visible");
+    document.getElementById(id + "Panel").classList.add("visible");
+    document.body.classList.add("ui-sin-scroll");
+    setTimeout(() => {
+        const panel = document.getElementById(id + "Panel");
+        (panel.querySelector(".ui-modal-cuerpo select, .ui-modal-cuerpo input, .ui-modal-cuerpo textarea") || panel).focus();
+    }, 30);
+}
+
+function cerrarModalFijo(id) {
+    document.getElementById(id + "Overlay").classList.remove("visible");
+    document.getElementById(id + "Panel").classList.remove("visible");
+    document.body.classList.remove("ui-sin-scroll");
+    if (focoAntesDelModal && document.contains(focoAntesDelModal)) focoAntesDelModal.focus();
+    focoAntesDelModal = null;
+}
+
+document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    if (document.getElementById("modalOverlay")?.classList.contains("visible")) { e.preventDefault(); cerrarModal(); }
+    else if (document.getElementById("modalDerivOverlay")?.classList.contains("visible")) { e.preventDefault(); cerrarModalDeriv(); }
+});
 
 const SOLO_LECTURA = ["evoluciones", "eventoscrisis"];
 
@@ -149,22 +149,29 @@ async function renderUsuarios(c, params = {}) {
     window._pacientes = pacientes;
     window._profesionales = profesionales;
     window._mostrarDadosDeBaja = false;
+    window._filtroUsuarios = "";
 
     if (YS.shell.actual !== "usuarios") return;
-    YS.shell.acciones([YS.el("label", { class: "ui-check" },
-        YS.el("input", { type: "checkbox", id: "chkDadosDeBaja", on: { change: toggleDadosDeBaja } }), "Mostrar dados de baja")]);
+    const buscador = YS.el("input", { class: "ui-input", type: "search", id: "buscarUsuarios",
+        placeholder: "Buscar por nombre, DNI o matrícula", "aria-label": "Buscar pacientes y profesionales" });
+    buscador.addEventListener("input", YS.debounce(() => { window._filtroUsuarios = YS.normalizar(buscador.value); renderCardsUsuarios(); }, 120));
+    YS.shell.acciones([
+        YS.el("label", { class: "ui-buscador" }, YS.el("span", { html: YS.icono("buscar") }).firstChild, buscador),
+        YS.el("label", { class: "ui-check" },
+            YS.el("input", { type: "checkbox", id: "chkDadosDeBaja", on: { change: toggleDadosDeBaja } }), "Mostrar dados de baja")
+    ]);
     c.innerHTML = `
         <div class="split-view">
-            <div class="split-col">
-                <div class="split-header">Pacientes <span class="split-badge" id="badgePacientes"></span></div>
+            <section class="split-col" aria-labelledby="tituloPacientes">
+                <div class="split-header"><span id="tituloPacientes">Pacientes</span> <span class="split-badge" id="badgePacientes"></span></div>
                 <div class="split-list" id="listaPacientes"></div>
-            </div>
-            <div class="split-col">
-                <div class="split-header">Profesionales <span class="split-badge" id="badgeProfesionales"></span></div>
+            </section>
+            <section class="split-col" aria-labelledby="tituloProfesionales">
+                <div class="split-header"><span id="tituloProfesionales">Profesionales</span> <span class="split-badge" id="badgeProfesionales"></span></div>
                 <div class="split-list" id="listaProfesionales"></div>
-            </div>
+            </section>
         </div>
-        <div class="split-info" id="splitInfo"></div>`;
+        <div class="split-info" id="splitInfo" aria-live="polite"></div>`;
 
     renderCardsUsuarios();
 
@@ -178,25 +185,40 @@ async function renderUsuarios(c, params = {}) {
 
 function renderCardsUsuarios() {
     const mostrarBaja = window._mostrarDadosDeBaja;
-    const pacientes = window._pacientes.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
-    const profesionales = window._profesionales.filter(p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo");
+    const q = window._filtroUsuarios || "";
+    const coincide = (...v) => !q || YS.normalizar(v.join(" ")).includes(q);
+    const deLaLista = p => mostrarBaja ? p.estado === "Inactivo" : p.estado !== "Inactivo";
+    const pacientes = window._pacientes.filter(p => deLaLista(p) && coincide(p.nombre, p.dni));
+    const profesionales = window._profesionales.filter(p => deLaLista(p) && coincide(YS.nombreCompleto(p), p.matricula, p.dni, p.especialidad));
 
     document.getElementById("badgePacientes").textContent = pacientes.length;
     document.getElementById("badgeProfesionales").textContent = profesionales.length;
 
-    document.getElementById("listaPacientes").innerHTML = pacientes.map(p => `
-        <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
-            <div class="usr-nombre">${YS.esc(p.nombre ?? "-")}</div>
-            <div class="usr-sub">DNI: ${YS.esc(p.dni ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
-        </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
+    // El estado se muestra solo si no es el esperado para la lista (p. ej. un profesional pendiente)
+    const estadoExtra = p => p.estado && p.estado !== "Activo" && p.estado !== "Inactivo" ? " · " + YS.esc(p.estado) : "";
+    const tarjeta = (id, nombre, sub, semilla, alClick) => `
+        <button type="button" class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="${id}" onclick="${alClick}">
+            ${YS.avatar(nombre || "?", semilla, "sm")}
+            <span class="usr-textos"><span class="usr-nombre">${YS.esc(nombre || "-")}</span><span class="usr-sub">${sub}</span></span>
+        </button>`;
+    const vacio = (singular, plural) => `<div class="split-vacio">${q
+        ? `Ningún ${singular} coincide con la búsqueda.`
+        : mostrarBaja ? `No hay ${plural} dados de baja.` : `No hay ${plural} activos.`}</div>`;
 
-    document.getElementById("listaProfesionales").innerHTML = profesionales.map(p => `
-        <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
-            <div class="usr-nombre">${YS.esc(YS.nombreCompleto(p) || "-")}</div>
-            <div class="usr-sub">Mat: ${YS.esc(p.matricula ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
-        </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
+    document.getElementById("listaPacientes").innerHTML = pacientes.map(p =>
+        tarjeta(`pac-${p.idPaciente}`, p.nombre, `DNI ${YS.esc(p.dni ?? "-")}${estadoExtra(p)}`, p.idPaciente, `seleccionarPaciente(${p.idPaciente})`)
+    ).join("") || vacio("paciente", "pacientes");
+    document.getElementById("listaProfesionales").innerHTML = profesionales.map(p =>
+        tarjeta(`prof-${p.idProfesional}`, YS.nombreCompleto(p),
+            `Mat. ${YS.esc(p.matricula ?? "-")}${p.especialidad ? " · " + YS.esc(p.especialidad) : ""}${estadoExtra(p)}`,
+            "p" + p.idProfesional, `seleccionarProfesional(${p.idProfesional})`)
+    ).join("") || vacio("profesional", "profesionales");
 
-    document.getElementById("splitInfo").innerHTML = "";
+    // Si lo elegido sigue en la lista (p. ej. después de buscar) se mantiene la selección
+    if (window._pacSeleccionado && document.getElementById(`pac-${window._pacSeleccionado}`)) seleccionarPaciente(window._pacSeleccionado);
+    else if (window._profSeleccionado && document.getElementById(`prof-${window._profSeleccionado}`)) seleccionarProfesional(window._profSeleccionado);
+    else document.getElementById("splitInfo").innerHTML =
+        '<span class="ui-muted">Elegí un paciente o un profesional para ver con quién está relacionado y sus acciones.</span>';
 }
 
 function toggleDadosDeBaja() {
@@ -206,98 +228,93 @@ function toggleDadosDeBaja() {
     renderCardsUsuarios();
 }
 
+// Marca la tarjeta elegida y, en la otra columna, las relacionadas
+function marcarTarjetas(idElegida, otraLista, prefijo, relacionados) {
+    document.querySelectorAll(".usr-card").forEach(el => { el.classList.remove("seleccionado", "relacionado"); el.removeAttribute("aria-pressed"); });
+    const elegida = document.getElementById(idElegida);
+    elegida?.classList.add("seleccionado");
+    elegida?.setAttribute("aria-pressed", "true");
+    document.querySelectorAll(`${otraLista} .usr-card`).forEach(el => {
+        if (relacionados.has(parseInt(el.id.replace(prefijo, "")))) el.classList.add("relacionado");
+    });
+}
+
 function seleccionarPaciente(idPac) {
     window._pacSeleccionado = idPac;
     window._profSeleccionado = null;
-
-    document.querySelectorAll(".usr-card").forEach(el => el.classList.remove("seleccionado", "relacionado"));
-    document.getElementById(`pac-${idPac}`)?.classList.add("seleccionado");
-
     const relacionados = window._pacProfs[idPac] ?? new Set();
-    document.querySelectorAll("#listaProfesionales .usr-card").forEach(el => {
-        const idProf = parseInt(el.id.replace("prof-", ""));
-        if (relacionados.has(idProf)) el.classList.add("relacionado");
-    });
+    marcarTarjetas(`pac-${idPac}`, "#listaProfesionales", "prof-", relacionados);
 
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
-    const nombres = [...relacionados].map(idP => {
-        const pro = window._profesionales.find(p => p.idProfesional === idP);
-        return pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
-    });
-
-    const esInactivo = pac?.estado === "Inactivo";
-    const btnAccion = esInactivo
-        ? `<button class="btn-cambio-alta" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
-        : `<button class="btn-cambio-baja" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`;
-    const btnCambio = (!esInactivo && relacionados.size)
-        ? `<button class="btn-cambio-prof" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>`
-        : "";
-    const btnAsignar = !esInactivo
-        ? `<button class="btn-cambio-prof" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>`
-        : "";
-
-    document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${YS.esc(pac?.nombre)}</strong> tiene asignados: ${YS.esc(nombres.join(", "))}. ${btnCambio} ${btnAsignar} ${btnAccion}`
-        : `<strong>${YS.esc(pac?.nombre)}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
+    const nombres = [...relacionados].map(idP => YS.nombreCompleto(window._profesionales.find(p => p.idProfesional === idP)) || `#${idP}`);
+    const inactivo = pac?.estado === "Inactivo";
+    const botones = [
+        !inactivo && relacionados.size ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>` : "",
+        !inactivo ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>` : "",
+        inactivo
+            ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
+            : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`
+    ].join("");
+    document.getElementById("splitInfo").innerHTML = `
+        <div class="split-info-texto"><strong>${YS.esc(pac?.nombre)}</strong> ${relacionados.size
+            ? `tiene asignado${relacionados.size === 1 ? "" : "s"}: ${YS.esc(nombres.join(", "))}.`
+            : "no tiene profesionales asignados."}</div>
+        <div class="split-info-acciones">${botones}</div>`;
 }
 
 function seleccionarProfesional(idProf) {
-    document.querySelectorAll(".usr-card").forEach(el => el.classList.remove("seleccionado", "relacionado"));
-    document.getElementById(`prof-${idProf}`)?.classList.add("seleccionado");
-
+    window._profSeleccionado = idProf;
+    window._pacSeleccionado = null;
     const relacionados = window._profPacs[idProf] ?? new Set();
-    document.querySelectorAll("#listaPacientes .usr-card").forEach(el => {
-        const idPac = parseInt(el.id.replace("pac-", ""));
-        if (relacionados.has(idPac)) el.classList.add("relacionado");
-    });
+    marcarTarjetas(`prof-${idProf}`, "#listaPacientes", "pac-", relacionados);
 
     const prof = window._profesionales.find(p => p.idProfesional === idProf);
-    const nombres = [...relacionados].map(idPac => {
-        const pac = window._pacientes.find(p => p.idPaciente === idPac);
-        return pac?.nombre ?? idPac;
-    });
-    const esInactivoProf = prof?.estado === "Inactivo";
-    const btnAccionProf = esInactivoProf
-        ? `<button class="btn-cambio-alta" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
-        : `<button class="btn-cambio-baja" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
-
-    document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> atiende a: ${YS.esc(nombres.join(", "))}. ${btnAccionProf}`
-        : `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> no tiene turnos registrados. ${btnAccionProf}`;
+    const nombres = [...relacionados].map(idPac => window._pacientes.find(p => p.idPaciente === idPac)?.nombre ?? `#${idPac}`);
+    const boton = prof?.estado === "Inactivo"
+        ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
+        : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
+    document.getElementById("splitInfo").innerHTML = `
+        <div class="split-info-texto"><strong>${YS.esc(YS.nombreCompleto(prof))}</strong> ${relacionados.size
+            ? `atiende a: ${YS.esc(nombres.join(", "))}.`
+            : "no tiene pacientes asignados."}</div>
+        <div class="split-info-acciones">${boton}</div>`;
 }
 
-async function darDeBajaPaciente(idPac) {
+async function cambiarEstadoUsuario({ url, metodo, pregunta, titulo, textoConfirmar, peligro, ok, error }) {
+    if (!await confirmar(pregunta, { titulo, textoConfirmar, peligro })) return;
+    try {
+        const res = await fetch(url, { method: metodo, headers: auditorHeaders() });
+        if (res.ok || res.status === 204) { toast(ok); mostrarTab("usuarios"); }
+        else toast(await YS.leerMensaje(res, error), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+function darDeBajaPaciente(idPac) {
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
-    if (!await confirmar(`¿Dar de baja a ${pac?.nombre ?? "este paciente"}?`)) return;
-    const res = await fetch(`${API}/pacientes/${idPac}`, { method: "DELETE", headers: auditorHeaders() });
-    if (res.ok || res.status === 204) { toast("Paciente dado de baja."); mostrarTab("usuarios"); }
-    else toast("Error al dar de baja.", "error");
+    return cambiarEstadoUsuario({ url: `${API}/pacientes/${idPac}`, metodo: "DELETE",
+        pregunta: `¿Dar de baja a ${pac?.nombre ?? "este paciente"}?`, titulo: "Dar de baja", textoConfirmar: "Dar de baja", peligro: true,
+        ok: "Paciente dado de baja.", error: "No se pudo dar de baja al paciente." });
 }
 
-async function darDeAltaPaciente(idPac) {
+function darDeAltaPaciente(idPac) {
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
-    if (!await confirmar(`¿Dar de alta a ${pac?.nombre ?? "este paciente"}?`)) return;
-    const res = await fetch(`${API}/pacientes/${idPac}/alta`, { method: "PUT", headers: auditorHeaders() });
-    if (res.ok) { toast("Paciente dado de alta."); mostrarTab("usuarios"); }
-    else toast("Error al dar de alta.", "error");
+    return cambiarEstadoUsuario({ url: `${API}/pacientes/${idPac}/alta`, metodo: "PUT",
+        pregunta: `¿Dar de alta a ${pac?.nombre ?? "este paciente"}?`, titulo: "Dar de alta", textoConfirmar: "Dar de alta",
+        ok: "Paciente dado de alta.", error: "No se pudo dar de alta al paciente." });
 }
 
-async function darDeBajaProfesional(idProf) {
-    const prof = window._profesionales.find(p => p.idProfesional === idProf);
-    const nombre = prof ? `${prof.nombre}${prof.apellido ? " " + prof.apellido : ""}` : "este profesional";
-    if (!await confirmar(`¿Dar de baja a ${nombre}?`)) return;
-    const res = await fetch(`${API}/profesionales/${idProf}`, { method: "DELETE", headers: auditorHeaders() });
-    if (res.ok || res.status === 204) { toast("Profesional dado de baja."); mostrarTab("usuarios"); }
-    else toast("Error al dar de baja.", "error");
+function darDeBajaProfesional(idProf) {
+    const nombre = YS.nombreCompleto(window._profesionales.find(p => p.idProfesional === idProf)) || "este profesional";
+    return cambiarEstadoUsuario({ url: `${API}/profesionales/${idProf}`, metodo: "DELETE",
+        pregunta: `¿Dar de baja a ${nombre}?`, titulo: "Dar de baja", textoConfirmar: "Dar de baja", peligro: true,
+        ok: "Profesional dado de baja.", error: "No se pudo dar de baja al profesional." });
 }
 
-async function darDeAltaProfesional(idProf) {
-    const prof = window._profesionales.find(p => p.idProfesional === idProf);
-    const nombre = prof ? `${prof.nombre}${prof.apellido ? " " + prof.apellido : ""}` : "este profesional";
-    if (!await confirmar(`¿Dar de alta a ${nombre}?`)) return;
-    const res = await fetch(`${API}/profesionales/${idProf}/alta`, { method: "PUT", headers: auditorHeaders() });
-    if (res.ok) { toast("Profesional dado de alta."); mostrarTab("usuarios"); }
-    else toast("Error al dar de alta.", "error");
+function darDeAltaProfesional(idProf) {
+    const nombre = YS.nombreCompleto(window._profesionales.find(p => p.idProfesional === idProf)) || "este profesional";
+    return cambiarEstadoUsuario({ url: `${API}/profesionales/${idProf}/alta`, metodo: "PUT",
+        pregunta: `¿Dar de alta a ${nombre}?`, titulo: "Dar de alta", textoConfirmar: "Dar de alta",
+        ok: "Profesional dado de alta.", error: "No se pudo dar de alta al profesional." });
 }
 
 // ── SOLICITUDES DE REGISTRO ──────────────────────────────────
@@ -367,7 +384,7 @@ async function aprobarSolicitud(id) {
 }
 
 async function rechazarSolicitud(id) {
-    if (!await confirmar("¿Rechazar esta solicitud?")) return;
+    if (!await confirmar("¿Rechazar esta solicitud de registro?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
     const res = await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud rechazada.", "warn");
     else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
@@ -377,6 +394,7 @@ async function rechazarSolicitud(id) {
 // ── SOLICITUDES DE CAMBIO ────────────────────────────────────
 async function renderDerivaciones(c) {
     const datos = await fetch(`${API}/derivaciones/detalle`).then(r => r.json());
+    window._derivaciones = datos;
     if (!encabezadoListado("derivaciones", datos.length, "solicitudes")) return;
     const tono = { Pendiente: "warn", Aceptada: "ok", Rechazada: "danger" };
 
@@ -407,7 +425,15 @@ async function renderDerivaciones(c) {
     });
 }
 
-// ── ASIGNAR PROFESIONAL DIRECTO ──────────────────────────────
+// ── ASIGNAR, CAMBIAR Y ACEPTAR SOLICITUD DE CAMBIO ──────────
+// Las tres acciones usan el mismo modal de dashboard.html (#modalDeriv…).
+function campoSelect(id, etiqueta, opciones, extra = "") {
+    return `<div class="ui-campo"><label for="${id}">${etiqueta}</label><select id="${id}" class="ui-select"${extra}>${opciones}</select></div>`;
+}
+
+const opcionesConElegir = (opciones, sinOpciones) =>
+    opciones ? '<option value="">Elegí un profesional</option>' + opciones : `<option value="">${sinOpciones}</option>`;
+
 async function abrirModalAsignar(idPac) {
     window._cambioPaciente = idPac;
     window._modoDirecto = false;
@@ -417,164 +443,137 @@ async function abrirModalAsignar(idPac) {
 
     const opciones = window._profesionales
         .filter(p => p.estado === "Activo" && !yaAsignados.has(p.idProfesional))
-        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — ${YS.esc(p.especialidad ?? "")}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`)
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p class="modal-texto">Asignar profesional a: <strong>${YS.esc(pac?.nombre)}</strong></p>
-        <div class="campo-modal">
-            <label>Profesional</label>
-            <select id="selectProfAsignar" class="input-modal">
-                ${opciones || '<option value="">Todos los profesionales ya están asignados</option>'}
-            </select>
+        <div class="modal-campos">
+            <p class="modal-texto">Paciente: <strong>${YS.esc(pac?.nombre)}</strong></p>
+            ${campoSelect("selectProfAsignar", "Profesional", opcionesConElegir(opciones, "Todos los profesionales activos ya están asignados"))}
         </div>`;
-
-    document.getElementById("modalDerivOverlay").classList.add("visible");
-    document.getElementById("modalDerivPanel").classList.add("visible");
+    abrirModalFijo("modalDeriv", "Asignar profesional", "Asignar");
 }
 
-// ── CAMBIO DIRECTO ───────────────────────────────────────────
 async function abrirModalCambioDirecto(idPac) {
     window._cambioPaciente = idPac;
+    window._modoAsignar = false;
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
     const relacionados = [...(window._pacProfs[idPac] ?? new Set())];
 
     const opcionesOrigen = relacionados.map(idP => {
         const pro = window._profesionales.find(p => p.idProfesional === idP);
-        const nombre = pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
-        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${YS.esc(nombre)}</option>`;
+        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${YS.esc(YS.nombreCompleto(pro) || "#" + idP)}</option>`;
     }).join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p class="modal-texto">Cambio para: <strong>${YS.esc(pac?.nombre)}</strong></p>
-        <div class="campo-modal">
-            <label>Profesional actual</label>
-            <select id="selectProfOrigen" class="input-modal" onchange="cargarProfesionalesDestino()">
-                ${opcionesOrigen}
-            </select>
-        </div>
-        <div class="campo-modal">
-            <label>Nuevo profesional</label>
-            <select id="selectProfDestino" class="input-modal"><option>Cargando...</option></select>
-        </div>
-        <div class="campo-modal">
-            <label>Motivo</label>
-            <textarea id="motivoCambioDir" rows="2" class="input-modal"></textarea>
+        <div class="modal-campos">
+            <p class="modal-texto">Paciente: <strong>${YS.esc(pac?.nombre)}</strong></p>
+            ${campoSelect("selectProfOrigen", "Profesional actual", opcionesOrigen, ' onchange="cargarProfesionalesDestino()"')}
+            ${campoSelect("selectProfDestino", "Nuevo profesional", '<option value="">Cargando…</option>')}
+            <div class="ui-campo">
+                <label for="motivoCambioDir">Motivo <span class="ui-muted">(opcional)</span></label>
+                <textarea id="motivoCambioDir" rows="2" class="ui-textarea"></textarea>
+            </div>
         </div>`;
 
-    document.getElementById("modalDerivOverlay").classList.add("visible");
-    document.getElementById("modalDerivPanel").classList.add("visible");
     window._derivIdActual = null;
     window._modoDirecto = true;
+    abrirModalFijo("modalDeriv", "Cambiar de profesional", "Hacer el cambio");
 
     await cargarProfesionalesDestino();
 }
 
 async function cargarProfesionalesDestino() {
     const sel = document.getElementById("selectProfOrigen");
+    const destino = document.getElementById("selectProfDestino");
     const idEsp = parseInt(sel.options[sel.selectedIndex]?.dataset.esp ?? 0);
     const idOrigen = parseInt(sel.value);
 
-    if (!idEsp) return;
-    const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
-    const opciones = profs
-        .filter(p => p.idProfesional !== idOrigen)
-        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}</option>`)
-        .join("");
-    document.getElementById("selectProfDestino").innerHTML = opciones || '<option value="">Sin profesionales disponibles</option>';
+    if (!idEsp) { destino.innerHTML = '<option value="">El profesional actual no tiene especialidad cargada</option>'; return; }
+    try {
+        const profs = await YS.api(`/profesionales/activos/especialidad/${idEsp}`);
+        const opciones = profs
+            .filter(p => p.idProfesional !== idOrigen)
+            .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}</option>`)
+            .join("");
+        destino.innerHTML = opcionesConElegir(opciones, "No hay otros profesionales de esa especialidad");
+    } catch {
+        destino.innerHTML = '<option value="">No se pudo cargar la lista</option>';
+    }
 }
 
 let _derivIdActual = null;
 
 async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
     window._modoDirecto = false;
+    window._modoAsignar = false;
     _derivIdActual = idDeriv;
 
-    const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
+    let profs;
+    try { profs = await YS.api(`/profesionales/activos/especialidad/${idEsp}`); }
+    catch (e) { toast(e.message || "No se pudo cargar la lista de profesionales.", "error"); return; }
     const opciones = profs
         .filter(p => p.idProfesional !== idProfOrigen)
         .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — Mat. ${YS.esc(p.matricula ?? "-")}</option>`)
         .join("");
+    const d = (window._derivaciones || []).find(x => x.idDerivacion === idDeriv);
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p class="modal-texto">Seleccioná el profesional que atenderá al paciente:</p>
-        <div class="campo-modal">
-            <label>Profesional destino</label>
-            <select id="selectProfDeriv" class="input-modal">
-                ${opciones || '<option value="">Sin profesionales disponibles</option>'}
-            </select>
+        <div class="modal-campos">
+            ${d ? `<p class="modal-texto">Paciente: <strong>${YS.esc(d.nombrePaciente)}</strong> · ahora con ${YS.esc(d.nombreProfesionalOrigen || "-")}
+                ${d.motivo ? `<span class="modal-motivo">Motivo: ${YS.esc(d.motivo)}</span>` : ""}</p>` : ""}
+            ${campoSelect("selectProfDeriv", "Nuevo profesional", opcionesConElegir(opciones, "No hay otros profesionales de esa especialidad"))}
         </div>`;
-
-    document.getElementById("modalDerivOverlay").classList.add("visible");
-    document.getElementById("modalDerivPanel").classList.add("visible");
+    abrirModalFijo("modalDeriv", "Aceptar solicitud de cambio", "Aceptar y asignar");
 }
 
 function cerrarModalDeriv() {
-    document.getElementById("modalDerivOverlay").classList.remove("visible");
-    document.getElementById("modalDerivPanel").classList.remove("visible");
+    cerrarModalFijo("modalDeriv");
     _derivIdActual = null;
     window._modoDirecto = false;
     window._modoAsignar = false;
 }
 
 async function confirmarAceptarDeriv() {
+    let pedido;
     if (window._modoAsignar) {
         const idProf = parseInt(document.getElementById("selectProfAsignar").value);
-        if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
-        const res = await fetch(`${API}/pacientes/${window._cambioPaciente}/profesionales`, {
-            method: "POST",
-            headers: auditorHeaders(),
-            body: JSON.stringify({ idProfesional: idProf })
-        });
-        cerrarModalDeriv();
-        if (res.ok) { toast("Profesional asignado correctamente."); mostrarTab("usuarios"); }
-        else toast("Error al asignar.", "error");
-        return;
-    }
-
-    if (window._modoDirecto) {
+        if (!idProf) { YS.form.marcar("selectProfAsignar", "Elegí un profesional."); return; }
+        pedido = { url: `${API}/pacientes/${window._cambioPaciente}/profesionales`, method: "POST", body: { idProfesional: idProf },
+                   ok: "Profesional asignado.", error: "No se pudo asignar el profesional.", volver: "usuarios" };
+    } else if (window._modoDirecto) {
         const idOrigen  = parseInt(document.getElementById("selectProfOrigen").value);
         const idDestino = parseInt(document.getElementById("selectProfDestino").value);
-        const motivo    = document.getElementById("motivoCambioDir").value || null;
-        if (!idDestino) { toast("Seleccioná un profesional destino.", "warn"); return; }
-
-        const res = await fetch(`${API}/derivaciones/cambio-directo`, {
-            method: "POST",
-            headers: auditorHeaders(),
-            body: JSON.stringify({
-                idPaciente:           window._cambioPaciente,
-                idProfesionalOrigen:  idOrigen,
-                idProfesionalDestino: idDestino,
-                motivo
-            })
-        });
-        cerrarModalDeriv();
-        if (res.ok) {
-            toast("Cambio realizado. El profesional fue asignado correctamente.");
-            mostrarTab("usuarios");
-        } else toast("Error al realizar el cambio.", "error");
-        return;
+        const motivo    = document.getElementById("motivoCambioDir").value.trim() || null;
+        if (!idDestino) { YS.form.marcar("selectProfDestino", "Elegí el nuevo profesional."); return; }
+        pedido = { url: `${API}/derivaciones/cambio-directo`, method: "POST",
+                   body: { idPaciente: window._cambioPaciente, idProfesionalOrigen: idOrigen, idProfesionalDestino: idDestino, motivo },
+                   ok: "Cambio hecho. El nuevo profesional quedó asignado.", error: "No se pudo hacer el cambio.", volver: "usuarios" };
+    } else {
+        const idProf = parseInt(document.getElementById("selectProfDeriv").value);
+        if (!idProf) { YS.form.marcar("selectProfDeriv", "Elegí un profesional."); return; }
+        pedido = { url: `${API}/derivaciones/${_derivIdActual}/aceptar`, method: "PUT", body: { idProfesionalDestino: idProf },
+                   ok: "Solicitud aceptada. El nuevo profesional quedó asignado.", error: "No se pudo aceptar la solicitud.", volver: "derivaciones" };
     }
 
-    // Aceptar solicitud de derivación pendiente
-    const idProf = parseInt(document.getElementById("selectProfDeriv").value);
-    if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
-
-    const res = await fetch(`${API}/derivaciones/${_derivIdActual}/aceptar`, {
-        method: "PUT",
-        headers: auditorHeaders(),
-        body: JSON.stringify({ idProfesionalDestino: idProf })
-    });
-
-    cerrarModalDeriv();
-    if (res.ok) {
-        toast("Solicitud aceptada. El profesional fue asignado correctamente.");
-        mostrarTab("derivaciones");
-    } else toast("Error al aceptar la solicitud.", "error");
+    // Si falla, el modal queda abierto para reintentar o cancelar
+    const boton = document.getElementById("modalDerivConfirmar");
+    boton.disabled = true;
+    try {
+        const res = await fetch(pedido.url, { method: pedido.method, headers: auditorHeaders(), body: JSON.stringify(pedido.body) });
+        if (!res.ok) { toast(await YS.leerMensaje(res, pedido.error), "error"); return; }
+        cerrarModalDeriv();
+        toast(pedido.ok);
+        mostrarTab(pedido.volver);
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function rechazarDerivacion(id) {
-    if (!await confirmar("¿Rechazar esta solicitud de cambio?")) return;
+    if (!await confirmar("¿Rechazar esta solicitud de cambio de profesional?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
     const res = await fetch(`${API}/derivaciones/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud rechazada.", "warn");
     else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
@@ -605,6 +604,7 @@ async function renderTabla(titulo, cols, datos, tab, contenido) {
     const editable = !SOLO_LECTURA.includes(tab);
     const conNombres = cols.some(c => c === "idPaciente" || c === "idProfesional");
     const nombres = conNombres ? await cargarNombres() : { paciente: id => `#${id}`, profesional: id => `#${id}` };
+    window._nombres = conNombres ? nombres : null;
     if (!encabezadoListado(tab, datos?.length ?? 0, "registros", SOLO_LECTURA.includes(tab) ? "Solo lectura" : "")) return;
 
     const columnasTabla = cols.map(c => ({
@@ -647,6 +647,7 @@ async function renderTurnos(c, params = {}) {
         YS.api("/turnos"), cargarNombres(), YS.api("/estadosturnos").catch(() => [])
     ]);
     datosActuales = turnos;
+    window._nombres = nombres;
     tabActual = "turnos";
     if (YS.shell.actual !== "turnos") return;
 
@@ -706,33 +707,62 @@ async function renderTurnos(c, params = {}) {
 }
 
 // ── MODAL EDICIÓN ────────────────────────────────────────────
+const ETIQUETAS_EDICION = { idEstadoTurno: "Estado del turno", idObraSocial: "Obra social", motivo: "Motivo", respuesta: "Respuesta" };
+const AYUDAS_EDICION = {
+    idEstadoTurno: "1 Pendiente · 2 Confirmado · 3 Cancelado · 4 Realizado",
+    fecha: "Año-mes-día, por ejemplo 2026-10-05",
+    hora: "Hora y minutos, por ejemplo 14:30", horaInicio: "Hora y minutos, por ejemplo 09:00", horaFin: "Hora y minutos, por ejemplo 18:00",
+    dia: "Lunes, Martes, Miércoles…"
+};
+const CAMPOS_LARGOS = ["motivo", "consulta", "respuesta"];
+
 function abrirModal(row) {
     filaEnEdicion = row;
     const tab = tabActual;
+    const nombres = window._nombres;
 
-    document.getElementById("modalTitulo").textContent = `Editar — ${titulos[tab]}`;
+    document.getElementById("modalTitulo").textContent = `Editar · ${titulos[tab]}`;
 
     const body = document.getElementById("modalBody");
-    body.innerHTML = (campos[tab] ?? []).map(c => {
-        const val = row[c] ?? "";
+    body.innerHTML = `<div class="ui-form-grid">${(campos[tab] ?? []).map(c => {
+        let val = row[c] ?? "";
+        // Fechas sin hora: se muestra solo el día (al guardar vuelve igual)
+        if (c === "fecha" && /^\d{4}-\d{2}-\d{2}T00:00:00$/.test(val)) val = val.slice(0, 10);
+        const esId = /^id[A-Z]/.test(c);
+        const etiqueta = (ETIQUETAS_EDICION[c] || ETIQUETAS[c] || c) + (esId ? " (ID)" : "");
+        let ayuda = AYUDAS_EDICION[c] || "";
+        if (c === "idPaciente" && nombres && row[c]) ayuda = "Ahora: " + nombres.paciente(row[c]);
+        if (c === "idProfesional" && nombres && row[c]) ayuda = "Ahora: " + nombres.profesional(row[c]);
+        const id = `field_${c}`;
         // Los booleanos (p. ej. "disponible" de la agenda) se eligen y se mandan como true/false
         const control = typeof row[c] === "boolean"
-            ? `<select id="field_${c}" class="input-modal"><option value="true"${row[c] ? " selected" : ""}>Sí</option><option value="false"${row[c] ? "" : " selected"}>No</option></select>`
-            : `<input type="text" id="field_${c}" value="${YS.esc(val)}" class="input-modal">`;
-        return `<div class="campo-modal">
-            <label>${c}</label>
+            ? `<select id="${id}" class="ui-select"><option value="true"${row[c] ? " selected" : ""}>Sí</option><option value="false"${row[c] ? "" : " selected"}>No</option></select>`
+            : CAMPOS_LARGOS.includes(c)
+                ? `<textarea id="${id}" class="ui-textarea" rows="3">${YS.esc(val)}</textarea>`
+                : `<input type="text" id="${id}" value="${YS.esc(val)}" class="ui-input"${esId ? ' inputmode="numeric"' : ""}>`;
+        return `<div class="ui-campo${CAMPOS_LARGOS.includes(c) ? " ui-campo--ancho" : ""}">
+            <label for="${id}">${YS.esc(etiqueta)}</label>
             ${control}
+            ${ayuda ? `<div class="ui-campo-ayuda">${YS.esc(ayuda)}</div>` : ""}
         </div>`;
-    }).join("");
+    }).join("")}</div>`;
 
-    document.getElementById("modalOverlay").classList.add("visible");
-    document.getElementById("modalPanel").classList.add("visible");
+    abrirModalFijo("modal");
 }
 
 function cerrarModal() {
-    document.getElementById("modalOverlay").classList.remove("visible");
-    document.getElementById("modalPanel").classList.remove("visible");
+    cerrarModalFijo("modal");
     filaEnEdicion = null;
+}
+
+// Antes de mandar se revisa solo lo que la API rechazaría igual (ids, fechas, horas).
+// Un campo que venía vacío puede quedar vacío y se manda como null.
+function errorDeCampo(c, val, original) {
+    if (val === "" && original == null) return null;
+    if (/^id[A-Z]/.test(c) && !/^\d+$/.test(val)) return "Tiene que ser un número.";
+    if (c === "fecha" && !/^\d{4}-\d{2}-\d{2}/.test(val)) return "Usá el formato año-mes-día, por ejemplo 2026-10-05.";
+    if (/^hora/.test(c) && !/^\d{1,2}:\d{2}(:\d{2})?$/.test(val)) return "Usá el formato hora:minutos, por ejemplo 14:30.";
+    return null;
 }
 
 async function guardar() {
@@ -740,29 +770,42 @@ async function guardar() {
     const id = filaEnEdicion[idCampo[tab]];
     const body = { ...filaEnEdicion };
 
+    let primeroConError = null;
     (campos[tab] ?? []).forEach(c => {
-        const val = document.getElementById(`field_${c}`)?.value;
-        if (val !== undefined) body[c] = typeof filaEnEdicion[c] === "boolean" ? val === "true" : val;
+        const input = document.getElementById(`field_${c}`);
+        if (!input) return;
+        const original = filaEnEdicion[c];
+        const error = errorDeCampo(c, input.value.trim(), original);
+        if (error) { YS.form.marcar(input, error); primeroConError ??= input; return; }
+        if (typeof original === "boolean") body[c] = input.value === "true";
+        else body[c] = input.value.trim() === "" && original == null ? null : input.value;
     });
+    if (primeroConError) { primeroConError.focus(); return; }
 
+    const boton = document.getElementById("modalConfirmar");
+    boton.disabled = true;
     try {
         const res = await fetch(`${API}/${tab}/${id}`, {
             method: "PUT",
             headers: auditorHeaders(),
             body: JSON.stringify(body)
         });
-        if (res.ok) { cerrarModal(); mostrarTab(tab); }
-        else toast("Error al guardar.", "error");
-    } catch { toast("No se pudo conectar con la API.", "error"); }
+        if (res.ok) { cerrarModal(); toast("Cambios guardados."); mostrarTab(tab); }
+        else toast(await YS.leerMensaje(res, "No se pudieron guardar los cambios."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function eliminar(tab, id) {
-    if (!await confirmar("¿Eliminar este registro?")) return;
+    if (!await confirmar("¿Eliminar este registro?", { titulo: "Eliminar registro", textoConfirmar: "Eliminar", peligro: true })) return;
     try {
         const res = await fetch(`${API}/${tab}/${id}`, { method: "DELETE", headers: auditorHeaders() });
         if (res.ok || res.status === 204) { toast("Registro eliminado."); mostrarTab(tab); }
-        else toast("No se pudo eliminar.", "error");
-    } catch { toast("No se pudo conectar con la API.", "error"); }
+        else toast(await YS.leerMensaje(res, "No se pudo eliminar el registro."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
 }
 
 // ── UTILS ────────────────────────────────────────────────────
@@ -837,10 +880,10 @@ async function aceptarRecuperacion(id) {
 }
 
 async function rechazarRecuperacion(id) {
-    if (!await confirmar("¿Rechazar esta solicitud de recuperación?")) return;
+    if (!await confirmar("¿Rechazar esta solicitud de recuperación de contraseña?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
     const res = await fetch(`${API}/recuperacion-password/${id}/rechazar`, { method: "PUT" });
     if (res.ok) { toast("Solicitud rechazada.", "warn"); mostrarTab("recuperacion"); }
-    else toast("Error al rechazar.", "error");
+    else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
 }
 
 async function reportes() {
@@ -1104,8 +1147,8 @@ function verAdmision(idInforme) {
         acciones = '<div class="caja-accion">' +
             '<h4>Programar primera entrevista</h4>' +
             '<div class="fila-form">' +
-            '<div class="campo-form"><label for="entFecha">Fecha</label><input type="date" id="entFecha"></div>' +
-            '<div class="campo-form"><label for="entHora">Hora</label><input type="time" id="entHora"></div>' +
+            '<div class="campo-form ui-campo"><label for="entFecha">Fecha</label><input type="date" id="entFecha" class="ui-input"></div>' +
+            '<div class="campo-form ui-campo"><label for="entHora">Hora</label><input type="time" id="entHora" class="ui-input"></div>' +
             '<button class="ui-btn ui-btn--primary" onclick="programarEntrevista(' + a.idInforme + ')">Programar</button>' +
             '</div></div>';
     }
@@ -1115,11 +1158,10 @@ function verAdmision(idInforme) {
             (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
             '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
             '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +
-            '<div class="campo-form mb-12"><label for="derObs">Observaciones de la entrevista</label>' +
-            '<textarea id="derObs" rows="3">' + YS.esc(a.observacionesEntrevista || "") + '</textarea></div>' +
-            '<div class="campo-form"><label for="derProf">Profesional asignado</label></div>' +
+            '<div class="campo-form ui-campo mb-12"><label for="derObs">Observaciones de la entrevista</label>' +
+            '<textarea id="derObs" rows="3" class="ui-textarea">' + YS.esc(a.observacionesEntrevista || "") + '</textarea></div>' +
             '<div class="fila-form">' +
-            '<div class="campo-form campo-form--ancho"><select id="derProf"><option value="">Cargando...</option></select></div>' +
+            '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Profesional asignado</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
             '<button class="ui-btn ui-btn--primary" onclick="derivarAdmision(' + a.idInforme + ')">Derivar</button>' +
             '</div></div>';
     }
@@ -1146,7 +1188,7 @@ function verAdmision(idInforme) {
         campo("Red de apoyo", a.redApoyo) +
         campo("Objetivos del paciente", a.objetivosPaciente) +
         '</div>' +
-        '<button class="ui-btn ui-btn--sm mt-8" onclick="verHCAdmision(' + a.idPaciente + ')">Ver Historia Clinica completa</button>' +
+        '<button class="ui-btn ui-btn--sm mt-8" onclick="verHCAdmision(' + a.idPaciente + ')">Ver historia clínica completa</button>' +
         acciones +
         '</div>';
 
@@ -1159,7 +1201,7 @@ async function cargarProfesionalesDerivacion() {
     try { profs = await (await fetch(API + "/profesionales")).json(); } catch(e) {}
     const sel = document.getElementById("derProf");
     if (sel === null) return;
-    sel.innerHTML = '<option value="">Selecciona un profesional</option>' + profs
+    sel.innerHTML = '<option value="">Elegí un profesional</option>' + profs
         .filter(function(p) { return p.estado === "Activo"; })
         .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + '</option>'; })
         .join("");
@@ -1168,27 +1210,29 @@ async function cargarProfesionalesDerivacion() {
 async function programarEntrevista(idInforme) {
     const fecha = document.getElementById("entFecha").value;
     const hora  = document.getElementById("entHora").value;
-    if (fecha === "" || hora === "") { toast("Completa fecha y hora.", "warn"); return; }
+    if (!fecha) YS.form.marcar("entFecha", "Elegí la fecha.");
+    if (!hora) YS.form.marcar("entHora", "Elegí la hora.");
+    if (!fecha || !hora) return;
     const r = await fetch(API + "/informes-admision/" + idInforme + "/entrevista", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fecha: fecha + "T" + hora + ":00", observaciones: null })
     });
-    if (r.ok) { const resp = await r.json(); toast("Entrevista programada. Codigo de sala: " + resp.codigoSala + ". El paciente fue notificado."); admisiones(); }
-    else toast("Error al programar.", "error");
+    if (r.ok) { const resp = await r.json(); toast("Entrevista programada. Código de sala: " + resp.codigoSala + ". Se le avisó al paciente."); admisiones(); }
+    else toast(await YS.leerMensaje(r, "No se pudo programar la entrevista."), "error");
 }
 
 async function derivarAdmision(idInforme) {
     const idProf = parseInt(document.getElementById("derProf").value);
     const obs    = document.getElementById("derObs").value || null;
-    if (isNaN(idProf)) { toast("Selecciona un profesional.", "warn"); return; }
+    if (isNaN(idProf)) { YS.form.marcar("derProf", "Elegí el profesional."); return; }
     const r = await fetch(API + "/informes-admision/" + idInforme + "/derivar", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProfesional: idProf, observaciones: obs })
     });
-    if (r.ok) { toast("Paciente derivado. Ya aparece en Mis Pacientes del profesional."); admisiones(); }
-    else toast("Error al derivar.", "error");
+    if (r.ok) { toast("Paciente derivado. Ya aparece en Mis pacientes del profesional."); admisiones(); }
+    else toast(await YS.leerMensaje(r, "No se pudo derivar al paciente."), "error");
 }
 
 async function verHCAdmision(idPaciente) {
