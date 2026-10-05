@@ -370,8 +370,9 @@ async function agenda() {
             <div class="ui-alerta ui-alerta--info agenda-aviso-reprog oculto" id="avisoReprogProf">
                 Reprogramando: elegí el nuevo día en el calendario del mes.
             </div>
-            <div id="vistaMesProf"><div class="cal-grid" id="calGridProfesional"></div></div>
-            <div id="vistaSemanaProf" class="oculto"></div>
+            <!-- Arranca en la vista elegida (por defecto Semana) para que no aparezca el mes un instante -->
+            <div id="vistaMesProf"${_vistaAgendaProf === 'mes' ? '' : ' class="oculto"'}><div class="cal-grid" id="calGridProfesional"></div></div>
+            <div id="vistaSemanaProf"${_vistaAgendaProf === 'mes' ? ' class="oculto"' : ''}></div>
             <div class="agenda-leyenda">
                 <span class="ui-chip ui-chip--warn">Pendiente</span>
                 <span class="ui-chip ui-chip--marca">Propuesto por mí</span>
