@@ -4,9 +4,9 @@ Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
 **Estado:** Pasos 0 a 6 terminados, más una tanda posterior (revisión XSS de mensajería, rama `fix-xss` y
-script SQL) y un sexto tramo de `fix-xss` con los lugares de `main` que quedaban sin escapar. Son 64 commits
-locales sobre `rediseno-visual`, y hay además una rama local `fix-xss` con 16 commits sobre `main` (los 5
-originales más 11 de ese sexto tramo). No se hizo ningún push.
+script SQL) y un sexto tramo de `fix-xss` con los lugares de `main` que quedaban sin escapar. Son 65 commits
+locales sobre `rediseno-visual`, y hay además dos ramas locales sobre `main`: `fix-xss` (16 commits) y
+`fix-registro-publico` (2 commits, bug 18 de la tabla de bugs). No se hizo ningún push.
 Al cierre:
 - `dotnet build`: 0 errores y los mismos 167 warnings de nulabilidad que había al empezar;
 - `dotnet test`: 96 de 96;
@@ -18,15 +18,16 @@ Al cierre:
 
 1. **Seguridad: XSS almacenado** en el configurador, el profesional, el paciente y la sesión de video. Son 5 commits `fix`; el detalle está en el Paso 5 y en la tabla de bugs. Es lo más importante de la rama: un paciente podía ejecutar código en la sesión del profesional o del configurador.
    - La rama local `fix-xss` lleva esos 5 commits a `main`, más un sexto tramo de 11 commits (ver "Después del cierre") con los lugares que en esta rama se escaparon al reescribir pantallas, no en esos commits. Entre los dos tramos quedan 16 commits sobre `main`, verificados con una prueba de interfaz de 34 verificaciones (0 fallas). El más grave que cubre el sexto tramo era el listado de solicitudes de registro del configurador (público, sin sesión).
-2. **Decisiones que tocan comportamiento.** Ninguna se activó sola; todas están detalladas más abajo.
+2. **El registro público de profesionales no funciona** (bug 18): siempre responde 500, incluso con datos válidos. Es un bug de `main`, no de esta rama, y esta rama lo hereda sin tocar. Ya está corregido en la rama local `fix-registro-publico` (2 commits sobre `main`); entra acá por merge, ver el bug 18 en la tabla de bugs.
+3. **Decisiones que tocan comportamiento.** Ninguna se activó sola; todas están detalladas más abajo.
    - El cierre de sesión por inactividad nunca funcionó (bug 13). No lo activé porque cortaría las videollamadas largas.
    - La autoconfirmación de la agenda del profesional quedó apagada (Paso 4).
    - "Confirmar" desde el Inicio un turno que propuso el mismo profesional ahora pregunta antes. El botón sigue.
    - Asignar o cambiar de profesional en el configurador ya no preselecciona el primero de la lista.
    - Los avisos flotantes del paciente muestran como máximo tres. El resto queda en la campana.
-3. **Migración:** `migrations/add_lectura_conversacion.sql` (Paso 3). Sin ella, la bandeja de chats da error.
-4. **Merge con `videollamadas-seguras`:** va a tener conflictos en casi todo `PANTALLAS/`. Hay una guía en "Pendientes".
-5. **Cómo probar:** ver la última sección. Las capturas de antes y después y las pruebas de interfaz quedaron en `docs/` como carpetas locales, sin versionar.
+4. **Migración:** `migrations/add_lectura_conversacion.sql` (Paso 3). Sin ella, la bandeja de chats da error.
+5. **Merge con `videollamadas-seguras`:** va a tener conflictos en casi todo `PANTALLAS/`. Hay una guía en "Pendientes".
+6. **Cómo probar:** ver la última sección. Las capturas de antes y después y las pruebas de interfaz quedaron en `docs/` como carpetas locales, sin versionar.
 
 ---
 
@@ -536,7 +537,7 @@ Todo va en una transacción que por defecto termina con ROLLBACK. Cada paso cort
 - **Revisión con grep antes de cerrar** (`innerHTML`, `insertAdjacentHTML` y plantillas con datos de servidor en todo `PANTALLAS/`), para no dejar lugares sin cubrir. Lo que queda sin escapar y por qué es seguro:
   - **Código muerto, no alcanzable:** `Pantalla_Profesional/dashboard.html` + `js/dashboard.js` + `css/dashboard.css` (el login nunca redirige ahí, solo a `nuevo_dashboard.html`; ese `.css` ni siquiera son reglas CSS, son JS de una versión vieja que quedó mal guardado, pero se carga con `<link>`, así que el navegador lo descarta como CSS inválido sin ejecutarlo). Dentro de `nuevo_dashboard.js`, dos funciones quedaron declaradas dos veces (`pacientes()` y `renderEvoluciones()`); la primera versión de cada una nunca corre, porque JavaScript se queda con la última declaración. `renderTodosLosTurnos()` está definida pero no la llama nadie en todo `PANTALLAS/`.
   - **Valores fijos o numéricos:** `codigoSala` (lo genera el servidor como `"SALA-" + id + "-" + hex`, sin datos de usuario), ids, fechas, y el estado de las derivaciones (`Pendiente`/`Aceptada`/`Rechazada`, fijado por el backend, no por texto libre) cuando se usa como clase CSS.
-- **Un bug ajeno al XSS, encontrado al armar la prueba con un POST real:** el registro público de profesionales (`POST /profesionales`) siempre devuelve 500, incluso con datos válidos, porque intenta guardar un registro de auditoría con `IdUsuario = 0` (no hay sesión todavía) y esa columna tiene clave foránea a `Usuario`. El profesional queda creado igual (el error pasa después), así que quien se registra ve "Error al enviar la solicitud" aunque su solicitud sí quedó guardada. No lo corregí: no es XSS y no estaba roto por este parche, es un bug previo de `main`. Vale la pena que el equipo lo mire porque hoy el registro público de profesionales no funciona nunca del lado del usuario.
+- **Un bug ajeno al XSS, encontrado al armar la prueba con un POST real:** el registro público de profesionales (`POST /profesionales`) siempre devuelve 500, incluso con datos válidos, porque intenta guardar un registro de auditoría con `IdUsuario = 0` (no hay sesión todavía) y esa columna tiene clave foránea a `Usuario`. El profesional queda creado igual (el error pasa después), así que quien se registra ve "Error al enviar la solicitud" aunque su solicitud sí quedó guardada. No lo corregí acá: no es XSS y no estaba roto por este parche, es un bug previo de `main`. Se corrigió después en la rama `fix-registro-publico` (bug 18, ver la tabla de bugs).
 - **Verificación:** compila con 0 errores (los mismos 167 warnings) y pasan las 89 pruebas de `main`. `p8_fixxss_main`, ampliada con estos lugares (incluye un POST real al endpoint público de solicitudes, con su fila de prueba borrada después a mano por SQL), pasa 34 de 34 verificaciones sobre `fix-xss`.
 
 ---
@@ -562,6 +563,7 @@ Todo va en una transacción que por defecto termina con ROLLBACK. Cada paso cort
 | 15 | El CSV de "Mis atenciones" mostraba mal los acentos en Excel (faltaba el BOM) | `9ae94b4` |
 | 16 | Guardar un perfil sin tocar nada cambiaba NULL por `""` | `318b604` |
 | 17 | "Confirmar" desde el Inicio confirmaba una propuesta propia sin preguntar | `00d874e` |
+| 18 | El registro público de profesionales (`POST /profesionales`) respondía 500 por la auditoría sin usuario | **No se corrigió acá** (ver abajo) |
 | — | XSS almacenado (5 lugares) | `a9eeb16`, `7e62c59`, `9491bcb`, `6d7d641`, `327d9b3` |
 
 Menores, corregidos dentro de commits de estilo:
@@ -574,6 +576,27 @@ Menores, corregidos dentro de commits de estilo:
 > - **Qué pasa:** `js/sesion.js` crea un contenedor con el mismo id que el overlay que tiene adentro. `getElementById` devuelve el contenedor y muestra ese, mientras el overlay sigue con `display:none`. Ni el aviso de "1 minuto" ni el de "sesión expirada" aparecieron nunca: en la práctica nadie pierde la sesión por inactividad. Se comprobó adelantando el reloj del navegador.
 > - **Por qué no lo arreglé:** la sala de video del profesional va en un iframe, y lo que pasa adentro (hablar, mirar el video) no cuenta como actividad de la página que lo contiene. Activarlo cortaría con "sesión expirada" cualquier videollamada de más de 10 minutos en la que no se toque el panel.
 > - **Para activarlo:** pausar el contador mientras la sala está abierta, o contar la actividad del iframe con `postMessage`. `videollamadas-seguras` conserva la misma estructura con ids duplicados.
+
+> **Bug 18, para decidir con el equipo: registro público de profesionales (500).**
+>
+> - **Qué pasa:** `POST /profesionales` (lo llama `registro_profesional.html`, sin sesión) da de alta el
+>   profesional y después intenta guardar un `LogAuditoria` con `IdUsuario = 0` (no hay `X-Usuario-Id`
+>   todavía). Esa columna tiene clave foránea a `Usuario`, `0` no existe ahí, y la fila de auditoría nunca
+>   se inserta: el pedido entero responde 500. El profesional queda creado igual, porque el alta ya se
+>   confirmó antes de ese paso; quien se registra ve "Error al enviar la solicitud" sin saber que su
+>   solicitud sí quedó guardada. Es un bug de `main`, no de esta rama ni del XSS (se encontró revisando ese
+>   parche, ver "Después del cierre").
+> - **Por qué no se corrigió en `Cambios-Agus`:** esta rama parte de `rediseno-visual` (sobre `main` en
+>   4648edb) y tiene el mismo `Program.cs` sin tocar en esa parte, así que hereda el bug tal cual. El
+>   arreglo ya está hecho en la rama local `fix-registro-publico` (2 commits sobre `main`, sin push):
+>   `LogAuditoria.IdUsuario` pasa a admitir NULL para las acciones sin sesión (migración idempotente en
+>   `migrations/alter_logauditoria_idusuario_nullable.sql`), y se revisaron los demás endpoints sin sesión
+>   (registro de pacientes y toda la recuperación de contraseña no escriben auditoría, así que no tenían
+>   este problema). Tiene un test de integración (`WebApplicationFactory<Program>`) que hace el POST real
+>   sin sesión y verifica 2xx y la auditoría con `IdUsuario` NULL; borra sus propias filas al final.
+> - **Cómo entra a esta rama:** por merge desde `fix-registro-publico` cuando se decida subir esa rama, no
+>   escribiendo el mismo cambio dos veces. Mientras tanto, el registro público de profesionales sigue roto
+>   también en `Cambios-Agus`.
 
 ## Pantallas: estado final
 
@@ -605,7 +628,8 @@ Las funciones sin uso que estaban dentro de archivos que igual se reescribieron 
 ## Migraciones
 
 - `migrations/add_lectura_conversacion.sql` (Paso 3): agrega `Conversacion.IdUltimoMensajeLeido`. Es idempotente y está aplicada en la base local. La bandeja de chats la necesita.
-- No hay otros cambios de esquema.
+- No hay otros cambios de esquema en esta rama.
+- **Aparte, en la base local (no en esta rama):** `fix-registro-publico` trae `migrations/alter_logauditoria_idusuario_nullable.sql`, que vuelve nullable `LogAuditoria.IdUsuario` (bug 18, más arriba). Ya está aplicada en la base local compartida, porque todas las ramas usan la misma base (`Conexion.cs` apunta siempre a `DESKTOP-76GUM00\SQLEXPRESS`/`yosoy`). El script no está en el `migrations/` de esta rama todavía: entra por el mismo merge que el resto del bug 18.
 
 ## Datos de prueba que quedaron en la base local
 
@@ -643,7 +667,7 @@ Las funciones sin uso que estaban dentro de archivos que igual se reescribieron 
   - Los datos del tutor de un menor no se guardan en el registro (pendiente anterior).
   - Usuarios del configurador pide los profesionales de cada paciente por separado (un pedido por paciente). Con muchos pacientes conviene un endpoint que los traiga juntos.
 - **Identidad:** `X-Usuario-Id` lo declara el navegador y no está firmado. Lo reemplaza el JWT de `videollamadas-seguras` (ver `Services/AutorizacionReporte.cs`).
-- **Bug previo de `main`, ajeno al XSS:** el registro público de profesionales (`POST /profesionales`) siempre responde 500 porque el log de auditoría intenta usar `IdUsuario = 0` (no hay sesión) y choca con la clave foránea a `Usuario`. El profesional queda creado pese al error, así que el usuario ve un error aunque su solicitud se guardó. Encontrado al armar la prueba del sexto tramo de `fix-xss` (ver "Después del cierre").
+- **Merge del bug 18** (registro público de profesionales, 500 por la auditoría sin usuario): ya está corregido en la rama local `fix-registro-publico` (2 commits sobre `main`, sin push). Falta traerlo a esta rama por merge; mientras tanto sigue roto acá igual que en `main`. Ver el bug 18 en la tabla de bugs y "Para revisar primero".
 
 ## Ideas futuras (no se construyen)
 
