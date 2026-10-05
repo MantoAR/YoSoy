@@ -34,8 +34,8 @@ async function cargar() {
     error("");
     try {
         const [rPac, rEstado] = await Promise.all([
-            fetch(`${API}/pacientes/${idPaciente}`),
-            fetch(`${API}/pacientes/${idPaciente}/consentimiento-telemedicina`)
+            YS.fetch(`/pacientes/${idPaciente}`),
+            YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina`)
         ]);
         // 401/404: la sesión no corresponde a un paciente; otro error: el servidor falló
         const sinSesion = r => r.status === 401 || r.status === 404;
@@ -59,7 +59,7 @@ async function firmar() {
     const btn = $("btnFirmar");
     btn.disabled = true;
     try {
-        const r = await fetch(`${API}/pacientes/${idPaciente}/consentimiento-telemedicina`, {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ acepto: true, version: versionTexto })

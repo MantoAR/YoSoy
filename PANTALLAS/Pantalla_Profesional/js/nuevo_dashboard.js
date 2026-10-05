@@ -175,7 +175,7 @@ function copiarCodigo(codigo) {
 
 async function generarSalaDesdeInicio(idTurno) {
     try {
-        const r = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+        const r = await YS.fetch(`/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
         if (r.ok) {
             const data = await r.json();
             toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
@@ -210,7 +210,7 @@ async function confirmarCitaUrgente() {
         const fechaStr = YS.fecha.aISO(ahora);
         const horaStr = ahora.toTimeString().substring(0, 8);
 
-        const rTurno = await fetch(`${API}/turnos/profesional-solicitar`, {
+        const rTurno = await YS.fetch(`/turnos/profesional-solicitar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -224,7 +224,7 @@ async function confirmarCitaUrgente() {
 
         if (!rTurno.ok) { toast(await YS.leerMensaje(rTurno, 'No se pudo crear el turno urgente.'), 'error'); resultado.innerHTML = ''; return; }
 
-        const rTurnos = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        const rTurnos = await YS.fetch(`/profesionales/${idProfesional}/turnos`);
         const turnos = await rTurnos.json();
         const turnoUrgente = turnos
             .filter(t => t.idPaciente === idPac)
@@ -233,9 +233,9 @@ async function confirmarCitaUrgente() {
         if (!turnoUrgente) { toast('Se creó el turno, pero no se pudo recuperarlo para generar la sala.', 'error'); resultado.innerHTML = ''; return; }
 
         // Sin consentimiento (RN-02) el turno no se confirma, pero la sesión sigue: se avisa, como en irASala()
-        const rConf = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
+        const rConf = await YS.fetch(`/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
         const sinConsentimiento = rConf.status === 409;
-        const rSala = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
+        const rSala = await YS.fetch(`/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
         if (!rSala.ok) { toast(await YS.leerMensaje(rSala, 'No se pudo generar la sala.'), 'error'); resultado.innerHTML = ''; return; }
         const data = await rSala.json();
 
@@ -318,15 +318,15 @@ async function irASala(idTurno, idPaciente) {
     // Si el turno no tiene sala, generarla primero
     let sinConsentimiento = false;
     try {
-        const r = await fetch(`${API}/turnos/${idTurno}`);
+        const r = await YS.fetch(`/turnos/${idTurno}`);
         const turno = await r.json();
 
         if (!turno.codigoSala) {
             // Confirmar y generar sala. Sin consentimiento (RN-02) el turno no se confirma,
             // pero la sesión no se bloquea: se avisa al profesional.
-            const rConf = await fetch(`${API}/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
+            const rConf = await YS.fetch(`/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
             sinConsentimiento = rConf.status === 409;
-            const rSala = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+            const rSala = await YS.fetch(`/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
             if (rSala.ok) {
                 const data = await rSala.json();
                 toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
@@ -344,9 +344,9 @@ async function irASala(idTurno, idPaciente) {
 
 async function confirmarTurno(id) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+        const turno = await (await YS.fetch(`/turnos/${id}`)).json();
         turno.idEstadoTurno = 2;
-        const r = await fetch(`${API}/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
+        const r = await YS.fetch(`/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
         if (r.ok) { toast('Turno confirmado'); activarTab('inicio'); }
         else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error al confirmar', 'error');
@@ -357,7 +357,7 @@ async function agenda() {
     const c = document.getElementById('contenido');
 
     let slots = [];
-    try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+    try { const r = await YS.fetch(`/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
 
     // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
     // se ordena por el número de día, no por el texto.
@@ -404,7 +404,7 @@ async function horarios() {
     const c = document.getElementById('contenido');
 
     let slots = [];
-    try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+    try { const r = await YS.fetch(`/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
 
     // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
     // se ordena por el número de día, no por el texto.
@@ -560,7 +560,7 @@ async function guardarHorario() {
     const boton = document.getElementById('fh-guardar');
     boton.disabled = true;
     try {
-        const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await YS.fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('horarios'); }
         else toast(await YS.leerMensaje(r, 'No se pudo guardar el horario.'), 'error');
     } catch { toast('No se pudo conectar con el servidor.', 'error'); }
@@ -571,7 +571,7 @@ async function eliminarHorario(id) {
     const ok = await confirmar('¿Eliminar este horario? Los turnos ya dados no cambian.', { titulo: 'Eliminar horario', textoConfirmar: 'Eliminar', peligro: true });
     if (!ok) return;
     try {
-        const r = await fetch(`${API}/agendas/${id}`, { method:'DELETE' });
+        const r = await YS.fetch(`/agendas/${id}`, { method:'DELETE' });
         if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('horarios'); }
         else toast(await YS.leerMensaje(r, 'No se pudo eliminar el horario.'), 'error');
     } catch { toast('No se pudo conectar con el servidor.', 'error'); }
@@ -802,7 +802,7 @@ async function guardarPerfil() {
     const boton = document.getElementById('btnGuardarPerfil');
     boton.disabled = true;
     try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}`, {
+        const r = await YS.fetch(`/profesionales/${idProfesional}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(prof)
@@ -818,9 +818,9 @@ async function guardarPerfil() {
 
 async function responderTurnoDesdeCal(id, aceptar) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+        const turno = await (await YS.fetch(`/turnos/${id}`)).json();
         turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        const r = await YS.fetch(`/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); await renderCalendario(); mostrarPanelDiaProfesional(_diaSeleccionadoProf); }
         else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error', 'error');
@@ -855,7 +855,7 @@ let _agendaReprogProf    = [];
 
 async function renderCalendario() {
     try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        const r = await YS.fetch(`/profesionales/${idProfesional}/turnos`);
         turnosCalendarioProfesional = await r.json();
     } catch { turnosCalendarioProfesional = []; }
     await dibujarCalendarioProfesional();
@@ -928,9 +928,9 @@ async function dibujarCalendarioProfesional() {
             if (AUTOCONFIRMAR && mePidieron && yoPedi) {
                 turnosPorDia[dia].filter(t => t.idEstadoTurno === 1).forEach(t => {
                     autoconfirmarPromesas.push(
-                        fetch(`${API}/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
+                        YS.fetch(`/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
                             turno.idEstadoTurno = 2;
-                            return fetch(`${API}/turnos/${t.idTurno}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+                            return YS.fetch(`/turnos/${t.idTurno}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
                         }).catch(() => {})
                     );
                 });
@@ -1059,7 +1059,7 @@ async function dibujarSemanaProfesional() {
     // Nombres de pacientes (mismo caché que usa el panel del día)
     await Promise.all([...new Set(visibles.map(t => t.idPaciente))].map(async id => {
         if (!_pacientesCalMap[id]) {
-            try { _pacientesCalMap[id] = await (await fetch(`${API}/pacientes/${id}`)).json(); } catch {}
+            try { _pacientesCalMap[id] = await (await YS.fetch(`/pacientes/${id}`)).json(); } catch {}
         }
     }));
 
@@ -1184,7 +1184,7 @@ async function mostrarPanelDiaProfesional(dia) {
 
     await Promise.all(turnosDia.map(async t => {
         if (!_pacientesCalMap[t.idPaciente]) {
-            try { _pacientesCalMap[t.idPaciente] = await (await fetch(`${API}/pacientes/${t.idPaciente}`)).json(); } catch {}
+            try { _pacientesCalMap[t.idPaciente] = await (await YS.fetch(`/pacientes/${t.idPaciente}`)).json(); } catch {}
         }
     }));
 
@@ -1244,7 +1244,7 @@ async function mostrarPanelDiaProfesional(dia) {
     }).join('');
 
     let agendaProf = [];
-    try { agendaProf = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
+    try { agendaProf = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
     const diaSem     = new Date(fechaStr + 'T12:00:00').getDay();
     const tieneSlot  = agendaProf.some(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === diaSem);
 
@@ -1294,7 +1294,7 @@ async function cargarPacientesSolicitudProf(fechaStr) {
         sel.disabled = true;
         return;
     }
-    const pacientes = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json()).catch(() => []);
+    const pacientes = await YS.fetch(`/profesionales/${idProfesional}/pacientes`).then(r => r.json()).catch(() => []);
     sel.innerHTML = pacientes.length
         ? `<option value="">Seleccioná un paciente</option>` + pacientes.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')
         : `<option value="">Sin pacientes asignados</option>`;
@@ -1308,7 +1308,7 @@ async function cargarHorasSolicitudProf(fechaStr) {
     const diaSem = fecha.getDay();
 
     let agenda = [];
-    try { agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
+    try { agenda = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
     const slot = agenda.find(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === diaSem);
 
     if (!slot) { sel.innerHTML = `<option value="">Sin disponibilidad ese día</option>`; sel.disabled = true; return; }
@@ -1335,7 +1335,7 @@ async function confirmarSolicitudDiaProf(fechaStr) {
     if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
     if (!hora)  { toast('Seleccioná un horario.',  'warn'); return; }
 
-    const res = await fetch(`${API}/turnos/profesional-solicitar`, {
+    const res = await YS.fetch(`/turnos/profesional-solicitar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1357,7 +1357,7 @@ async function confirmarSolicitudDiaProf(fechaStr) {
 async function cancelarTurnoProf(id) {
     if (!await confirmar('¿Cancelar este turno? El paciente lo va a ver cancelado en su panel.', { titulo: 'Cancelar turno', textoConfirmar: 'Cancelar turno', textoCancelar: 'Volver', peligro: true })) return;
     try {
-        const r = await fetch(`${API}/turnos/${id}/cancelar`, { method: 'PUT' });
+        const r = await YS.fetch(`/turnos/${id}/cancelar`, { method: 'PUT' });
         if (r.ok) toast('Turno cancelado.', 'warn');
         else toast(await YS.leerMensaje(r, 'No se pudo cancelar el turno.'), 'error');
     } catch { toast('No se pudo conectar con el servidor.', 'error'); }
@@ -1379,7 +1379,7 @@ async function abrirFormReprogramarProf(idTurno) {
     document.getElementById(`reprogDetallesProf-${idTurno}`).classList.add('oculto');
 
     try {
-        const agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json());
+        const agenda = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json());
         _agendaReprogProf = agenda.filter(a => a.disponible);
     } catch { _agendaReprogProf = []; }
 
@@ -1421,13 +1421,13 @@ async function confirmarReprogramarProf(idTurno) {
     const motivo = document.getElementById(`reprogMotivoProf-${idTurno}`)?.value || null;
     if (!hora) { toast('Seleccioná un horario.', 'warn'); return; }
 
-    const turno = await fetch(`${API}/turnos/${idTurno}`).then(r => r.json());
+    const turno = await YS.fetch(`/turnos/${idTurno}`).then(r => r.json());
     const fecha = _reprogFechaSeleccionadaProf;
     turno.fecha = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate(), 12).toISOString();
     turno.hora  = hora + ':00';
     if (motivo) turno.motivo = motivo;
 
-    const r = await fetch(`${API}/turnos/${idTurno}`, {
+    const r = await YS.fetch(`/turnos/${idTurno}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(turno)
@@ -1463,7 +1463,7 @@ async function descargarReporte() {
     const url = API + '/reportes/atenciones?idProfesional=' + idProfesional;
     let datos = [];
     try {
-        const r = await fetch(url);
+        const r = await YS.fetch(url);
         datos = await r.json();
     } catch(e) {
         toast('No se pudieron obtener tus atenciones. Probá de nuevo en un rato.', 'error');
@@ -1600,13 +1600,13 @@ async function enviarPrimerTurno(idPaciente) {
     const boton = document.getElementById('npEnviar');
     boton.disabled = true;
     try {
-        const r = await fetch(API + "/turnos/profesional-solicitar", {
+        const r = await YS.fetch("/turnos/profesional-solicitar", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, fecha: fecha, hora: hora + ":00", motivo: "Primer turno - derivacion de admision" })
         });
         if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo crear el turno.'), 'error'); return; }
-        const rAsignacion = await fetch(API + "/asignaciones/estado", {
+        const rAsignacion = await YS.fetch("/asignaciones/estado", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
@@ -1631,7 +1631,7 @@ async function derivarNuevoPaciente(idPaciente) {
     });
     if (!motivo) return;
     try {
-        const r = await fetch(API + "/informes-admision/rechazar", {
+        const r = await YS.fetch("/informes-admision/rechazar", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, motivo: motivo })

@@ -117,7 +117,7 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "recuperacion") return await renderRecuperacion(contenido);
 
         if (tab === "turnos") return await renderTurnos(contenido, params);
-        const datos = await fetch(`${API}/${tab}`).then(r => r.json());
+        const datos = await YS.fetch(`/${tab}`).then(r => r.json());
         datosActuales = datos;
         await renderTabla(titulos[tab], columnas[tab], datos, tab, contenido);
 
@@ -129,14 +129,14 @@ async function mostrarTab(tab, params = {}) {
 // ── USUARIOS ─────────────────────────────────────────────────
 async function renderUsuarios(c, params = {}) {
     const [pacientes, profesionales] = await Promise.all([
-        fetch(`${API}/pacientes`).then(r => r.json()),
-        fetch(`${API}/profesionales`).then(r => r.json()),
+        YS.fetch(`/pacientes`).then(r => r.json()),
+        YS.fetch(`/profesionales`).then(r => r.json()),
     ]);
 
     const pacProfs = {};
     const profPacs = {};
     await Promise.all(pacientes.map(async p => {
-        const profs = await fetch(`${API}/pacientes/${p.idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
+        const profs = await YS.fetch(`/pacientes/${p.idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
         pacProfs[p.idPaciente] = new Set(profs.map(pr => pr.idProfesional));
         profs.forEach(pr => {
             if (!profPacs[pr.idProfesional]) profPacs[pr.idProfesional] = new Set();
@@ -283,7 +283,7 @@ function seleccionarProfesional(idProf) {
 async function cambiarEstadoUsuario({ url, metodo, pregunta, titulo, textoConfirmar, peligro, ok, error }) {
     if (!await confirmar(pregunta, { titulo, textoConfirmar, peligro })) return;
     try {
-        const res = await fetch(url, { method: metodo, headers: auditorHeaders() });
+        const res = await YS.fetch(url, { method: metodo, headers: auditorHeaders() });
         if (res.ok || res.status === 204) { toast(ok); mostrarTab("usuarios"); }
         else toast(await YS.leerMensaje(res, error), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
@@ -319,7 +319,7 @@ function darDeAltaProfesional(idProf) {
 
 // ── SOLICITUDES DE REGISTRO ──────────────────────────────────
 async function renderSolicitudes(c) {
-    const datos = await fetch(`${API}/profesionales/solicitudes`).then(r => r.json());
+    const datos = await YS.fetch(`/profesionales/solicitudes`).then(r => r.json());
     if (!encabezadoListado("solicitudes", datos.length, "pendientes")) return;
 
     YS.tabla(c, {
@@ -377,7 +377,7 @@ function auditorHeaders() {
 
 async function aprobarSolicitud(id) {
     if (!await confirmar("¿Aprobar esta solicitud? Al profesional le llega un mail para crear su usuario.")) return;
-    const res = await fetch(`${API}/profesionales/${id}/aprobar`, { method: "PUT", headers: auditorHeaders() });
+    const res = await YS.fetch(`/profesionales/${id}/aprobar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud aprobada.");
     else toast(await YS.leerMensaje(res, "No se pudo aprobar la solicitud."), "error");
     mostrarTab("solicitudes");
@@ -385,7 +385,7 @@ async function aprobarSolicitud(id) {
 
 async function rechazarSolicitud(id) {
     if (!await confirmar("¿Rechazar esta solicitud de registro?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
-    const res = await fetch(`${API}/profesionales/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
+    const res = await YS.fetch(`/profesionales/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud rechazada.", "warn");
     else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
     mostrarTab("solicitudes");
@@ -393,7 +393,7 @@ async function rechazarSolicitud(id) {
 
 // ── SOLICITUDES DE CAMBIO ────────────────────────────────────
 async function renderDerivaciones(c) {
-    const datos = await fetch(`${API}/derivaciones/detalle`).then(r => r.json());
+    const datos = await YS.fetch(`/derivaciones/detalle`).then(r => r.json());
     window._derivaciones = datos;
     if (!encabezadoListado("derivaciones", datos.length, "solicitudes")) return;
     const tono = { Pendiente: "warn", Aceptada: "ok", Rechazada: "danger" };
@@ -560,7 +560,7 @@ async function confirmarAceptarDeriv() {
     const boton = document.getElementById("modalDerivConfirmar");
     boton.disabled = true;
     try {
-        const res = await fetch(pedido.url, { method: pedido.method, headers: auditorHeaders(), body: JSON.stringify(pedido.body) });
+        const res = await YS.fetch(pedido.url, { method: pedido.method, headers: auditorHeaders(), body: JSON.stringify(pedido.body) });
         if (!res.ok) { toast(await YS.leerMensaje(res, pedido.error), "error"); return; }
         cerrarModalDeriv();
         toast(pedido.ok);
@@ -574,7 +574,7 @@ async function confirmarAceptarDeriv() {
 
 async function rechazarDerivacion(id) {
     if (!await confirmar("¿Rechazar esta solicitud de cambio de profesional?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
-    const res = await fetch(`${API}/derivaciones/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
+    const res = await YS.fetch(`/derivaciones/${id}/rechazar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud rechazada.", "warn");
     else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
     mostrarTab("derivaciones");
@@ -785,7 +785,7 @@ async function guardar() {
     const boton = document.getElementById("modalConfirmar");
     boton.disabled = true;
     try {
-        const res = await fetch(`${API}/${tab}/${id}`, {
+        const res = await YS.fetch(`/${tab}/${id}`, {
             method: "PUT",
             headers: auditorHeaders(),
             body: JSON.stringify(body)
@@ -802,7 +802,7 @@ async function guardar() {
 async function eliminar(tab, id) {
     if (!await confirmar("¿Eliminar este registro?", { titulo: "Eliminar registro", textoConfirmar: "Eliminar", peligro: true })) return;
     try {
-        const res = await fetch(`${API}/${tab}/${id}`, { method: "DELETE", headers: auditorHeaders() });
+        const res = await YS.fetch(`/${tab}/${id}`, { method: "DELETE", headers: auditorHeaders() });
         if (res.ok || res.status === 204) { toast("Registro eliminado."); mostrarTab(tab); }
         else toast(await YS.leerMensaje(res, "No se pudo eliminar el registro."), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
@@ -818,7 +818,7 @@ async function cerrarSesion() {
 }
 
 async function renderAuditoria(c, pagina = 1) {
-    const datos = await fetch(`${API}/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
+    const datos = await YS.fetch(`/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
     if (YS.shell.actual !== "auditoria") return;
     YS.shell.encabezado({ subtitulo: `Página ${pagina} · los más recientes primero` });
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("auditoria") }]);
@@ -845,7 +845,7 @@ async function renderAuditoria(c, pagina = 1) {
 }
 
 async function renderRecuperacion(c) {
-    const datos = await fetch(`${API}/recuperacion-password/pendientes`).then(r => r.json());
+    const datos = await YS.fetch(`/recuperacion-password/pendientes`).then(r => r.json());
     if (!encabezadoListado("recuperacion", datos.length, "pendientes")) return;
 
     YS.tabla(c, {
@@ -866,7 +866,7 @@ async function renderRecuperacion(c) {
 
 async function aceptarRecuperacion(id) {
     if (!await confirmar("¿Generar contraseña temporal para este usuario?")) return;
-    const res = await fetch(`${API}/recuperacion-password/${id}/aceptar`, { method: "PUT" });
+    const res = await YS.fetch(`/recuperacion-password/${id}/aceptar`, { method: "PUT" });
     if (!res.ok) { toast(await YS.leerMensaje(res, "Error al procesar la solicitud."), "error"); return; }
     const data = await res.json();
     const cuerpo = YS.el("div", {},
@@ -881,7 +881,7 @@ async function aceptarRecuperacion(id) {
 
 async function rechazarRecuperacion(id) {
     if (!await confirmar("¿Rechazar esta solicitud de recuperación de contraseña?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
-    const res = await fetch(`${API}/recuperacion-password/${id}/rechazar`, { method: "PUT" });
+    const res = await YS.fetch(`/recuperacion-password/${id}/rechazar`, { method: "PUT" });
     if (res.ok) { toast("Solicitud rechazada.", "warn"); mostrarTab("recuperacion"); }
     else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
 }
@@ -892,7 +892,7 @@ async function reportes() {
 
     let profesionales = [];
     try {
-        const r = await fetch(API + '/profesionales');
+        const r = await YS.fetch('/profesionales');
         profesionales = await r.json();
     } catch(e) {}
 
@@ -933,7 +933,7 @@ async function verEstadisticas() {
     const url = API + '/reportes/atenciones' + (idProf ? '?idProfesional=' + idProf : '');
     let datos = [];
     try {
-        const r = await fetch(url);
+        const r = await YS.fetch(url);
         datos = await r.json();
     } catch(e) {
         YS.toast('No se pudieron obtener los datos del reporte.', 'error');
@@ -1023,7 +1023,7 @@ async function descargarReporteConf() {
     const url = API + '/reportes/atenciones' + (idProf ? '?idProfesional=' + idProf : '');
     let datos = [];
     try {
-        const r = await fetch(url);
+        const r = await YS.fetch(url);
         datos = await r.json();
     } catch(e) {
         YS.toast('No se pudieron obtener los datos del reporte.', 'error');
@@ -1057,7 +1057,7 @@ async function descargarReporteHtml() {
     const url = API + '/reportes/atenciones/html' + (idProf ? '?idProfesional=' + idProf : '');
     let res;
     try {
-        res = await fetch(url, { headers: { "X-Usuario-Id": localStorage.getItem("idUsuario") ?? "0" } });
+        res = await YS.fetch(url, { headers: { "X-Usuario-Id": localStorage.getItem("idUsuario") ?? "0" } });
     } catch(e) {
         YS.toast('No se pudo generar el reporte.', 'error');
         return;
@@ -1095,7 +1095,7 @@ async function admisiones() {
     const c = document.getElementById("contenido");
     c.innerHTML = YS.cargando();
     try {
-        const r = await fetch(API + "/informes-admision-detalle");
+        const r = await YS.fetch("/informes-admision-detalle");
         _admisionesCache = await r.json();
     } catch(e) { _admisionesCache = []; }
 
@@ -1198,7 +1198,7 @@ function verAdmision(idInforme) {
 
 async function cargarProfesionalesDerivacion() {
     let profs = [];
-    try { profs = await (await fetch(API + "/profesionales")).json(); } catch(e) {}
+    try { profs = await (await YS.fetch("/profesionales")).json(); } catch(e) {}
     const sel = document.getElementById("derProf");
     if (sel === null) return;
     sel.innerHTML = '<option value="">Elegí un profesional</option>' + profs
@@ -1213,7 +1213,7 @@ async function programarEntrevista(idInforme) {
     if (!fecha) YS.form.marcar("entFecha", "Elegí la fecha.");
     if (!hora) YS.form.marcar("entHora", "Elegí la hora.");
     if (!fecha || !hora) return;
-    const r = await fetch(API + "/informes-admision/" + idInforme + "/entrevista", {
+    const r = await YS.fetch("/informes-admision/" + idInforme + "/entrevista", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fecha: fecha + "T" + hora + ":00", observaciones: null })
@@ -1226,7 +1226,7 @@ async function derivarAdmision(idInforme) {
     const idProf = parseInt(document.getElementById("derProf").value);
     const obs    = document.getElementById("derObs").value || null;
     if (isNaN(idProf)) { YS.form.marcar("derProf", "Elegí el profesional."); return; }
-    const r = await fetch(API + "/informes-admision/" + idInforme + "/derivar", {
+    const r = await YS.fetch("/informes-admision/" + idInforme + "/derivar", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProfesional: idProf, observaciones: obs })
@@ -1237,12 +1237,12 @@ async function derivarAdmision(idInforme) {
 
 async function verHCAdmision(idPaciente) {
     let paciente = null, historia = null, evoluciones = [], sesiones = [];
-    try { paciente = await (await fetch(API + "/pacientes/" + idPaciente)).json(); } catch(e) {}
-    try { historia = await (await fetch(API + "/pacientes/" + idPaciente + "/historiaclinica")).json(); } catch(e) {}
+    try { paciente = await (await YS.fetch("/pacientes/" + idPaciente)).json(); } catch(e) {}
+    try { historia = await (await YS.fetch("/pacientes/" + idPaciente + "/historiaclinica")).json(); } catch(e) {}
     if (historia !== null && historia.idHistoria !== undefined) {
-        try { evoluciones = await (await fetch(API + "/historiasclinicas/" + historia.idHistoria + "/evoluciones")).json(); } catch(e) {}
+        try { evoluciones = await (await YS.fetch("/historiasclinicas/" + historia.idHistoria + "/evoluciones")).json(); } catch(e) {}
     }
-    try { sesiones = await (await fetch(API + "/pacientes/" + idPaciente + "/sesiones-clinicas")).json(); } catch(e) {}
+    try { sesiones = await (await YS.fetch("/pacientes/" + idPaciente + "/sesiones-clinicas")).json(); } catch(e) {}
 
     const evHtml = evoluciones.map(function(e) {
         return '<div class="item-historia">' +
@@ -1272,7 +1272,7 @@ async function iniciarEntrevistaVideo(codigoSala) {
     if (codigoSala === "" || codigoSala === "null" || codigoSala === "-") { toast("Este informe no tiene codigo de sala.", "warn"); return; }
     let idAdm = null;
     try {
-        const profs = await (await fetch(API + "/profesionales")).json();
+        const profs = await (await YS.fetch("/profesionales")).json();
         const adm = profs.find(function(p) { return p.matricula === "ADM-001"; });
         if (adm !== undefined) idAdm = adm.idProfesional;
     } catch(e) {}

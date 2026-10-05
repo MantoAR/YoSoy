@@ -61,7 +61,7 @@ async function renderInicio(c) {
     try {
         const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
         const [res, turnos, consentimiento] = await Promise.all([
-            fetch(`${API}/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
+            YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
             pedir(`/pacientes/${idPaciente}/turnos-detalle`, []),
             pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null)
         ]);
@@ -155,7 +155,7 @@ async function renderInicio(c) {
 // ── AGENDA / CALENDARIO ────────────────────────────────────
 async function renderAgenda(c) {
     try {
-        const res = await fetch(`${API}/pacientes/${idPaciente}/turnos-detalle`);
+        const res = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
         turnosCalendario = await res.json();
     } catch {
         turnosCalendario = [];
@@ -164,7 +164,7 @@ async function renderAgenda(c) {
     // Cargar profesionales del paciente
     let profesionales = [];
     try {
-        profesionales = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
+        profesionales = await YS.fetch(`/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
     } catch {}
 
     if (YS.shell.actual !== "agenda") return;
@@ -215,7 +215,7 @@ async function cambiarProfCalendario() {
     }
 
     try {
-        const agenda = await fetch(`${API}/profesionales/${_idProfCalendario}/agenda`).then(r => r.json());
+        const agenda = await YS.fetch(`/profesionales/${_idProfCalendario}/agenda`).then(r => r.json());
         _agendaProfCalendario = agenda.filter(a => a.disponible);
     } catch {}
 
@@ -435,7 +435,7 @@ async function cargarProfesionalesSolicitud(fechaStr) {
         document.querySelector(".btn-accion.btn-guardar[onclick*='confirmarSolicitudDia']")?.setAttribute("disabled", true);
         return;
     }
-    const profs = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
+    const profs = await YS.fetch(`/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
     sel.innerHTML = profs.length
         ? `<option value="">Seleccioná un profesional</option>` + profs.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")
         : `<option value="">Sin profesionales asignados</option>`;
@@ -452,7 +452,7 @@ async function cargarHorasSolicitud(fechaStr) {
 
     const fecha  = new Date(fechaStr + "T12:00:00");
     const diaSem = fecha.getDay();
-    const agenda = await fetch(`${API}/profesionales/${idProf}/agenda`).then(r => r.json()).catch(() => []);
+    const agenda = await YS.fetch(`/profesionales/${idProf}/agenda`).then(r => r.json()).catch(() => []);
     const slot   = agenda.find(a => a.disponible && DIA_DB_NUM[normalizar(a.dia)] === diaSem);
 
     if (!slot) { sel.innerHTML = `<option value="">Sin disponibilidad ese día</option>`; sel.disabled = true; return; }
@@ -466,7 +466,7 @@ async function cargarHorasSolicitud(fechaStr) {
     // Obtener turnos ya ocupados ese día para ese profesional
     let turnosOcupados = [];
     try {
-        const r = await fetch(`${API}/turnos/ocupados?idProfesional=${idProf}&fecha=${fechaStr}`);
+        const r = await YS.fetch(`/turnos/ocupados?idProfesional=${idProf}&fecha=${fechaStr}`);
         if (r.ok) turnosOcupados = await r.json();
     } catch {}
 
@@ -495,7 +495,7 @@ async function confirmarSolicitudDia(fechaStr) {
     if (!idProf) { toast("Seleccioná un profesional.", "warn"); return; }
     if (!hora)   { toast("Seleccioná un horario.", "warn"); return; }
 
-    const res = await fetch(`${API}/turnos/solicitar`, {
+    const res = await YS.fetch(`/turnos/solicitar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -510,7 +510,7 @@ async function confirmarSolicitudDia(fechaStr) {
 
     if (res.ok) {
         toast("Turno solicitado. El profesional lo confirmará.");
-        const r = await fetch(`${API}/pacientes/${idPaciente}/turnos-detalle`);
+        const r = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
         turnosCalendario = await r.json();
         dibujarCalendario();
         document.getElementById("panelTurno").classList.remove("visible");
@@ -523,8 +523,8 @@ function toggleReprogramar() {
 
 async function cancelarTurno(id) {
     if (!await confirmar("¿Cancelar este turno?", { titulo: "Cancelar turno", textoConfirmar: "Cancelar turno", textoCancelar: "Volver", peligro: true })) return;
-    await fetch(`${API}/turnos/${id}/cancelar`, { method: "PUT" });
-    const res = await fetch(`${API}/pacientes/${idPaciente}/turnos-detalle`);
+    await YS.fetch(`/turnos/${id}/cancelar`, { method: "PUT" });
+    const res = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
     turnosCalendario = await res.json();
     dibujarCalendario();
     document.getElementById("panelTurno").classList.remove("visible");
@@ -541,7 +541,7 @@ async function abrirFormReprogramar(idTurno, idProf) {
     _reprogFechaSeleccionada = null;
 
     try {
-        const agenda = await fetch(`${API}/profesionales/${idProf}/agenda`).then(r => r.json());
+        const agenda = await YS.fetch(`/profesionales/${idProf}/agenda`).then(r => r.json());
         _reprogAgenda = agenda.filter(a => a.disponible);
     } catch { _reprogAgenda = []; }
 
@@ -595,9 +595,9 @@ async function confirmarReprogramar(idTurno) {
 
     const fechaNueva = _reprogFechaSeleccionada;
 
-    await fetch(`${API}/turnos/${idTurno}/cancelar`, { method: "PUT" });
+    await YS.fetch(`/turnos/${idTurno}/cancelar`, { method: "PUT" });
 
-    await fetch(`${API}/turnos/solicitar`, {
+    await YS.fetch(`/turnos/solicitar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -614,7 +614,7 @@ async function confirmarReprogramar(idTurno) {
     _reprogFechaSeleccionada = null;
     _reprogAgenda = [];
 
-    const res = await fetch(`${API}/pacientes/${idPaciente}/turnos-detalle`);
+    const res = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
     turnosCalendario = await res.json();
     dibujarCalendario();
     document.getElementById("panelTurno").classList.remove("visible");
@@ -665,7 +665,7 @@ async function abrirModalCambio(idProfOrigen, idEsp, nombreProf = null) {
 
 async function enviarSolicitudCambio(idProfOrigen, motivo) {
     try {
-        const res = await fetch(`${API}/derivaciones`, {
+        const res = await YS.fetch(`/derivaciones`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -746,7 +746,7 @@ async function guardarPerfil(id) {
     const boton = document.getElementById("btnGuardarPerfil");
     boton.disabled = true;
     try {
-        const res = await fetch(`${API}/pacientes/${id}`, {
+        const res = await YS.fetch(`/pacientes/${id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -878,7 +878,7 @@ async function enviarAdmision() {
     const boton = document.getElementById("btnEnviarAdmision");
     boton.disabled = true;
     try {
-        const r = await fetch(API + "/informes-admision", {
+        const r = await YS.fetch("/informes-admision", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -896,7 +896,7 @@ async function enviarAdmision() {
 
 async function cargarNotificaciones() {
     let notifs = [];
-    try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
+    try { notifs = await (await YS.fetch("/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
     const noLeidas = notifs.filter(function(n) { return n.leida === false; });
     window._notifsFlotantes = noLeidas;
     if (noLeidas.length === 0) return;
@@ -925,7 +925,7 @@ async function cargarNotificaciones() {
 }
 
 async function marcarLeida(idNotif) {
-    try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
+    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
     YS.shell.campana.refrescar();
     cargarNotificaciones();
     const cont = document.getElementById("notif-container");
@@ -937,7 +937,7 @@ async function marcarLeida(idNotif) {
 async function unirseEntrevista(codigoSala, idNotif) {
     codigoSala ??= (window._notifsFlotantes || []).find(n => n.idNotificacion === idNotif)?.link;
     if (!codigoSala) return;
-    try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
+    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
     window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
 }
 
@@ -951,11 +951,11 @@ function propuestoPorProfesional(t) {
 async function confirmarTurnoPaciente(idTurno) {
     if (!await confirmar("¿Confirmar este turno?", { titulo: "Confirmar turno", textoConfirmar: "Confirmar" })) return;
     try {
-        const r = await fetch(API + "/turnos/" + idTurno + "/confirmar-paciente", { method: "PUT" });
+        const r = await YS.fetch("/turnos/" + idTurno + "/confirmar-paciente", { method: "PUT" });
         if (r.ok) {
             toast("Turno confirmado. El profesional va a generar la sala para ese día.");
             if (document.getElementById("calGrid")) {
-                const res = await fetch(API + "/pacientes/" + idPaciente + "/turnos-detalle");
+                const res = await YS.fetch("/pacientes/" + idPaciente + "/turnos-detalle");
                 turnosCalendario = await res.json();
                 dibujarCalendario();
                 document.getElementById("panelTurno").classList.remove("visible");
