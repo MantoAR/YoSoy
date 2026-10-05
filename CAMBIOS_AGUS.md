@@ -3,7 +3,7 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0 a 4 terminados. Sigue el Paso 5 (resto de las pantallas).
+**Estado:** Pasos 0 a 4 terminados. Paso 5 en curso: listos acceso y registro, el Inicio de cada rol, los listados del Configurador (sin Bootstrap) y la corrección de XSS en cuatro pantallas. Faltan historia clínica y sesiones, consentimiento y perfil.
 
 ---
 
@@ -295,6 +295,75 @@ La agenda Día/Semana/Mes ya venía de `rediseno-visual`. En este paso se corrig
 - la firma del consentimiento de telemedicina del paciente 13;
 - mensajes del simulador con el teléfono 1155550002.
 
+### Paso 5: resto de las pantallas (en curso)
+
+**Acceso y registro.**
+- Login, acuerdo, registro de paciente y de profesional, crear cuenta profesional y restablecer contraseña usan el sistema de diseño (`shared/acceso.css`) y ya no cargan Bootstrap.
+- Mismos campos, ids, endpoints y datos enviados.
+- Validación en cada campo, en lugar de `alert()` o de mandar el formulario incompleto.
+- Los errores del servidor se muestran en la pantalla.
+- El DNI del registro acepta solo números, que es como lo busca el asistente del chat.
+- Bug 8 corregido: el acuerdo de atención tenía el HTML mal cerrado.
+- Crear cuenta profesional y restablecer contraseña muestran el error hasta que se haga el merge de `videollamadas-seguras`, donde están sus endpoints.
+- Los datos del tutor de un menor siguen sin guardarse: es un pendiente anterior y necesita cambios en el backend.
+
+**Inicio de cada rol.**
+- **Profesional:** tablero con turnos de hoy, pedidos para confirmar, pacientes asignados y próximo turno. Debajo, las sesiones y los pacientes de hoy y los pendientes.
+  - Los turnos se piden una vez (antes, tres).
+  - El próximo turno ahora considera la hora. Antes un turno de hoy más tarde nunca figuraba.
+- **Paciente:** turnos próximos, turnos por confirmar y estado del consentimiento. Debajo, el próximo turno con "Confirmar turno" y la lista de los siguientes.
+- **Configurador:** el tablero del Paso 2, con las tarjetas de chats cuando la mensajería está encendida.
+
+**Listados del Configurador** con un componente nuevo, `YS.tabla`.
+- Búsqueda, filtros con contador, orden por columna y paginación de 25, todo en el navegador sobre lo que ya trae la API.
+- Estado vacío propio y "Sin resultados" cuando la búsqueda no encuentra nada.
+- **Turnos:** vista propia.
+  - Muestra nombres de paciente y profesional, día de la semana y estado como chip, incluido "Propuesto".
+  - Filtros por estado y por profesional.
+  - El link "Ver turnos del paciente" que sale de los chats filtra y muestra el nombre del paciente.
+- **Catálogos** (agendas, evoluciones, eventos de crisis, roles, especialidades, coberturas, interacciones IA):
+  - columnas con nombre legible;
+  - ids de paciente y profesional reemplazados por nombres;
+  - horas y fechas formateadas;
+  - Sí/No y estados como chips.
+- **Solicitudes de registro, de cambio de profesional y de recuperación, y admisiones:** filtros por estado. Las solicitudes de cambio arrancan en "Pendientes" y las admisiones en "Por resolver".
+- **Auditoría:** botones para pasar a registros más antiguos. Antes se veía solo la primera página del servidor.
+- **Recuperación:** la contraseña temporal se muestra en un modal con "Copiar". Antes era un toast de 8 segundos.
+- **Usuarios:**
+  - buscador en el encabezado;
+  - tarjetas como botones, que se pueden usar con teclado;
+  - acciones como botones del sistema;
+  - la selección se mantiene al buscar.
+- **Bootstrap:** ya no se carga. Los dos modales de la página usan la estructura del sistema de diseño:
+  - se cierran con Esc, con la X, con Cancelar o con un clic afuera;
+  - el foco vuelve al botón que los abrió;
+  - el título y el botón cambian según la acción.
+- **`toast()` y `confirmar()`** de la página usan los del sistema. Dar de baja, rechazar y eliminar piden confirmación con botón de peligro.
+- **Modal de edición:**
+  - etiquetas legibles;
+  - ayuda con el nombre actual del paciente o profesional;
+  - validación de ids, fechas y horas: solo lo que la API rechazaría igual.
+
+> **Cambio de comportamiento menor:** asignar y cambiar de profesional ya no preseleccionan el primero de la lista; hay que elegirlo. Si el servidor falla, el modal queda abierto con su mensaje en lugar de cerrarse.
+
+**Seguridad: XSS almacenado en cuatro pantallas** (un commit por pantalla).
+- **El problema:** datos que escribe un rol se insertaban como HTML en la pantalla de otro:
+  - el informe de admisión y los nombres del paciente, en el Configurador;
+  - el motivo del turno y la historia clínica, en la pantalla del profesional;
+  - nombre y datos del profesional, en la del paciente;
+  - los nombres en el select de la sesión de video.
+- **Ejemplo:** un paciente podía poner `<img src=x onerror=...>` en su nombre o en el motivo de un turno, y se ejecutaba en la sesión del profesional o del configurador.
+- **Botones "Historia" y "Solicitar cambio":** pasaban el nombre dentro del `onclick` con un escape incompleto. Ahora pasan solo ids.
+- **Cómo se probó:** se interceptaron las respuestas de la API en el navegador, sin tocar la base. La versión anterior ejecuta el código inyectado y la nueva lo muestra como texto.
+
+**Bugs corregidos en este paso** (cada uno en su commit):
+- **Bug 10:** "Ver todos los turnos" no hacía nada. El router comparaba la sección pero no los parámetros (`#turnos?paciente=N` → `#turnos`).
+- **Bug 11:** al abrir desde el aviso una conversación que ya estaba elegida, no se bajaba al mensaje nuevo y la conversación nunca quedaba leída.
+- **Bug 12:** editar una agenda desde el Configurador siempre daba 400. `disponible` viajaba como texto `"true"`; ahora se elige con Sí/No y se manda como booleano.
+
+**Datos de prueba en la base local:** solo un `PUT /agendas/1` con los mismos valores que ya tenía, para comprobar el bug 12.
+
+**Pruebas que se ajustaron:** varias pruebas de Playwright del Paso 3 y del Paso 4 dependían de datos que cambian con cada corrida. Ahora calculan lo esperado desde la API, o usan datos inventados en el navegador para no escribir en la base.
 
 ## Pendientes
 
