@@ -207,3 +207,7 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 /* Mis profesionales */
 .prof-cabecera { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .prof-cambio { margin-top: 10px; align-self: flex-start; }
+
+/* Avisos flotantes: el último resume los que quedan en la campana */
+.notif-flotante--mas { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-left-color: var(--border-strong); }
+.notif-flotante--mas .notif-mensaje, .notif-flotante--mas .notif-botones { margin: 0; }

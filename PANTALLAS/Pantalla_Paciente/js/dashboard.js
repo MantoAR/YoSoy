@@ -910,7 +910,11 @@ async function cargarNotificaciones() {
     }
     cont.innerHTML = "";
 
-    noLeidas.forEach(function(n) {
+    // Como máximo tres, primero los que tienen acción (entrar a la entrevista); el resto queda en la campana
+    const MAX_FLOTANTES = 3;
+    const conAccion = noLeidas.filter(n => n.link);
+    const visibles = conAccion.concat(noLeidas.filter(n => !n.link)).slice(0, MAX_FLOTANTES);
+    visibles.forEach(function(n) {
         const card = document.createElement("div");
         card.className = "notif-flotante";
         let botones = '<button class="ui-btn ui-btn--sm" onclick="marcarLeida(' + n.idNotificacion + ')">Cerrar</button>';
@@ -922,6 +926,14 @@ async function cargarNotificaciones() {
             '<div class="notif-botones">' + botones + '</div>';
         cont.appendChild(card);
     });
+    const resto = noLeidas.length - visibles.length;
+    if (resto > 0) {
+        const mas = document.createElement("div");
+        mas.className = "notif-flotante notif-flotante--mas";
+        mas.innerHTML = '<div class="notif-mensaje">Tenés ' + resto + ' aviso' + (resto === 1 ? '' : 's') + ' más.</div>' +
+            '<div class="notif-botones"><button class="ui-btn ui-btn--sm" onclick="YS.shell.campana.abrir()">Ver todos</button></div>';
+        cont.appendChild(mas);
+    }
 }
 
 async function marcarLeida(idNotif) {
