@@ -13,15 +13,9 @@ function activarTab(nombre) {
     tabs[nombre]();
 }
 
+// Avisos del sistema de diseño (shared/ui.js)
 function toast(msg, tipo = 'ok') {
-    let cont = document.getElementById('toast-container');
-    if (!cont) { cont = document.createElement('div'); cont.id = 'toast-container'; document.body.appendChild(cont); }
-    const iconos = { ok: '✔', error: '✖', warn: '⚠' };
-    const t = document.createElement('div');
-    t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? 'ℹ'}</span><span>${msg}</span>`;
-    cont.appendChild(t);
-    setTimeout(() => { t.classList.add('saliendo'); t.addEventListener('animationend', () => t.remove()); }, 3500);
+    YS.toast(msg, tipo);
 }
 
 // ── Inicio: tablero del día ─────────────────────────────────
@@ -552,7 +546,7 @@ async function guardarHorario() {
 }
 
 async function eliminarHorario(id) {
-    const ok = await confirmar('¿Eliminar este horario?');
+    const ok = await confirmar('¿Eliminar este horario? Los turnos ya dados no cambian.', { titulo: 'Eliminar horario', textoConfirmar: 'Eliminar', peligro: true });
     if (!ok) return;
     try {
         const r = await fetch(`${API}/agendas/${id}`, { method:'DELETE' });
@@ -566,46 +560,59 @@ function fmtHora(h) {
     return h.substring(0, 5);
 }
 
-function cerrarModal() {
-    document.getElementById('modalHistoria')?.classList.remove('visible');
-}
+// ── HISTORIA CLÍNICA ────────────────────────────────────────
+// Modal del sistema (se cierra con Esc o con clic afuera) con tres pestañas.
+async function verHistoria(idPaciente) {
+    const cuerpo = YS.el('div', { class: 'hc', html: YS.cargando('Cargando la historia clínica…') });
+    const m = YS.modal({
+        titulo: 'Historia clínica', cuerpo, tamano: 'grande', clase: 'modal-historia',
+        acciones: [
+            { texto: 'Abrir sesión de video', alClick: c => { c.cerrar(); abrirSesionCon(idPaciente); } },
+            { texto: 'Cerrar', tipo: 'primary', foco: true, alClick: c => c.cerrar() }
+        ]
+    });
+    const [paciente, historia, sesiones] = await Promise.all([
+        YS.api(`/pacientes/${idPaciente}`).catch(() => null),
+        YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true }).catch(() => null),
+        YS.api(`/pacientes/${idPaciente}/sesiones-clinicas`).catch(() => [])
+    ]);
+    const evoluciones = historia?.idHistoria
+        ? await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`).catch(() => [])
+        : [];
+    if (m.cerrado) return;
+    if (paciente) m.elemento.querySelector('.ui-modal-titulo').textContent = `Historia clínica · ${YS.nombreCompleto(paciente)}`;
 
-async function verHistoria(idPaciente, nombrePaciente = null) {
-    document.getElementById('modalTitulo').textContent = nombrePaciente ? `Historia Clínica — ${nombrePaciente}` : 'Historia Clínica';
-    document.getElementById('modalBody').innerHTML = '<div class="spinner">Cargando...</div>';
-    document.getElementById('modalHistoria').classList.add('visible');
-
-        let paciente = null, historia = null, evoluciones = [], sesiones = [];
-    try { paciente = await (await fetch(`${API}/pacientes/${idPaciente}`)).json(); } catch {}
-    try { historia = await (await fetch(`${API}/pacientes/${idPaciente}/historiaclinica`)).json(); } catch {}
-    if (historia?.idHistoria) {
-        try { evoluciones = await (await fetch(`${API}/historiasclinicas/${historia.idHistoria}/evoluciones`)).json(); } catch {}
-    }
-    try { sesiones = await (await fetch(`${API}/pacientes/${idPaciente}/sesiones-clinicas`)).json(); } catch {}
-    if (!nombrePaciente && paciente) document.getElementById('modalTitulo').textContent = `Historia Clínica — ${YS.nombreCompleto(paciente)}`;
-
-    document.getElementById('modalBody').innerHTML = `
-        <div class="modal-tabs">
-            <button class="modal-tab activo" id="mtab-datos" onclick="modalTab('datos')">Datos del paciente</button>
-            <button class="modal-tab" id="mtab-evoluciones" onclick="modalTab('evoluciones')">Evoluciones</button>
-            <button class="modal-tab" id="mtab-sesiones" onclick="modalTab('sesiones')">Sesiones clínicas</button>
+    const pestanas = [
+        { id: 'datos', texto: 'Datos del paciente', html: renderDatosPaciente(paciente) },
+        { id: 'evoluciones', texto: 'Evoluciones', n: evoluciones.length, html: renderEvoluciones(evoluciones) },
+        { id: 'sesiones', texto: 'Sesiones clínicas', n: sesiones.length, html: renderSesionesClinicas(sesiones) }
+    ];
+    cuerpo.innerHTML = `
+        <div class="ui-tabs" role="tablist" aria-label="Historia clínica">
+            ${pestanas.map((p, i) => `<button type="button" class="ui-tab${i ? '' : ' activo'}" role="tab" id="hc-tab-${p.id}"
+                aria-controls="hc-panel-${p.id}" aria-selected="${!i}" data-tab="${p.id}">${p.texto}${p.n != null
+                ? ` <span class="ui-contador ui-contador--suave">${p.n}</span>` : ''}</button>`).join('')}
         </div>
-        <div id="mpanel-datos">${renderDatosPaciente(paciente)}</div>
-        <div id="mpanel-evoluciones" style="display:none">${renderEvoluciones(evoluciones)}</div>
-        <div id="mpanel-sesiones" style="display:none">${renderSesionesClinicas(sesiones)}</div>
-    `;
-}
-
-function modalTab(nombre) {
-    ['datos','evoluciones','sesiones'].forEach(t => {
-        document.getElementById('mtab-' + t)?.classList.toggle('activo', t === nombre);
-        const p = document.getElementById('mpanel-' + t);
-        if (p) p.style.display = t === nombre ? 'block' : 'none';
+        ${pestanas.map((p, i) => `<div class="hc-panel${i ? ' oculto' : ''}" role="tabpanel" id="hc-panel-${p.id}" aria-labelledby="hc-tab-${p.id}">${p.html}</div>`).join('')}`;
+    cuerpo.querySelector('.ui-tabs').addEventListener('click', e => {
+        const b = e.target.closest('[data-tab]');
+        if (!b) return;
+        cuerpo.querySelectorAll('.ui-tab').forEach(t => {
+            t.classList.toggle('activo', t === b);
+            t.setAttribute('aria-selected', t === b);
+        });
+        cuerpo.querySelectorAll('.hc-panel').forEach(p => p.classList.toggle('oculto', p.id !== 'hc-panel-' + b.dataset.tab));
     });
 }
 
+// Sesión de video con el paciente ya elegido (desde Mis pacientes o desde la historia clínica)
+function abrirSesionCon(idPaciente) {
+    YS.shell.marcar('sesion');
+    sesion(idPaciente);
+}
 
 function renderSesionesClinicas(lista) {
+    if (!lista?.length) return YS.vacio({ icono: 'video', texto: 'Todavía no hay sesiones clínicas registradas.' });
     return lista.map(s => {
         let emociones = '';
         try {
@@ -628,24 +635,19 @@ function renderSesionesClinicas(lista) {
 }
 
 function renderDatosPaciente(p) {
-    if (!p) return '<div class="sin-datos">Sin datos.</div>';
-    return `
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Nombre</span><span class="dato-valor">${YS.esc(YS.nombreCompleto(p) || '—')}</span></div>
-            <div class="dato-item"><span class="dato-label">DNI</span><span class="dato-valor">${YS.esc(p.dni ?? '—')}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Fecha de nacimiento</span><span class="dato-valor">${p.fechaNacimiento ? new Date(p.fechaNacimiento).toLocaleDateString('es-AR') : '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">Estado</span><span class="dato-valor">${YS.esc(p.estado ?? '—')}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Mail</span><span class="dato-valor">${YS.esc(p.mail ?? '—')}</span></div>
-            <div class="dato-item"><span class="dato-label">Teléfono</span><span class="dato-valor">${YS.esc(p.telefono ?? '—')}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Domicilio</span><span class="dato-valor">${YS.esc(p.domicilio ?? '—')}</span></div>
-        </div>
-    `;
+    if (!p) return YS.vacio({ icono: 'usuario', texto: 'No se pudieron cargar los datos del paciente.' });
+    const dato = (etiqueta, valor) => `
+        <div class="ui-dato"><span class="ui-dato-etiqueta">${etiqueta}</span>
+            <span class="ui-dato-valor${valor ? '' : ' vacio'}">${YS.esc(valor || '—')}</span></div>`;
+    return `<div class="ui-datos">
+        ${dato('Nombre', YS.nombreCompleto(p))}
+        ${dato('DNI', p.dni)}
+        ${dato('Fecha de nacimiento', p.fechaNacimiento ? YS.fecha.corta(p.fechaNacimiento) : '')}
+        ${dato('Estado', p.estado)}
+        ${dato('Mail', p.mail)}
+        ${dato('Teléfono', p.telefono)}
+        ${dato('Domicilio', p.domicilio)}
+    </div>`;
 }
 
 // ── RN-02: consentimiento de telemedicina ───────────────────
@@ -660,47 +662,18 @@ async function avisoConsentimiento(r) {
 
 // Modal con el mensaje y el link para compartir con el paciente (el profesional no puede firmar por él).
 function mostrarAvisoConsentimiento(mensaje, url) {
-    document.getElementById('avisoConsentimiento')?.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'avisoConsentimiento';
-    overlay.className = 'dialogo-overlay';
-    const box = document.createElement('div');
-    box.className = 'dialogo dialogo--ancho';
-    box.setAttribute('role', 'alertdialog');
-    const titulo = document.createElement('h3');
-    titulo.className = 'dialogo-titulo';
-    titulo.textContent = 'No se puede confirmar el turno';
-    const texto = document.createElement('p');
-    texto.className = 'dialogo-mensaje';
-    texto.textContent = mensaje;
-    box.append(titulo, texto);
+    const cuerpo = YS.el('div', { id: 'avisoConsentimiento' }, YS.el('p', { class: 'mb-12', text: mensaje }));
     if (url) {
-        const etiqueta = document.createElement('label');
-        etiqueta.className = 'ui-label';
-        etiqueta.textContent = 'Compartile al paciente este link para que lo firme desde su panel:';
-        const fila = document.createElement('div');
-        fila.className = 'dialogo-link';
-        const input = document.createElement('input');
-        input.className = 'ui-input';
-        input.readOnly = true; input.value = url;
-        const copiar = document.createElement('button');
-        copiar.className = 'ui-btn';
-        copiar.textContent = 'Copiar';
-        copiar.onclick = () => { input.select(); navigator.clipboard?.writeText(url); copiar.textContent = 'Copiado'; };
-        fila.append(input, copiar);
-        box.append(etiqueta, fila);
+        const input = YS.el('input', { class: 'ui-input', id: 'linkConsentimiento', readonly: true, value: url });
+        cuerpo.append(
+            YS.el('label', { class: 'ui-label', for: 'linkConsentimiento', text: 'Compartile al paciente este link para que lo firme desde su panel:' }),
+            YS.el('div', { class: 'dialogo-link mt-8' }, input,
+                YS.el('button', { class: 'ui-btn', type: 'button', text: 'Copiar', on: { click: () => { input.select(); YS.copiar(url, 'Link copiado'); } } })));
     }
-    const botones = document.createElement('div');
-    botones.className = 'dialogo-botones';
-    const ok = document.createElement('button');
-    ok.className = 'ui-btn ui-btn--primary';
-    ok.textContent = 'Entendido';
-    ok.onclick = () => overlay.remove();
-    botones.appendChild(ok);
-    box.appendChild(botones);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-    ok.focus();
+    YS.modal({
+        titulo: 'No se puede confirmar el turno', cuerpo, rol: 'alertdialog', enfocarCampo: false,
+        acciones: [{ texto: 'Entendido', tipo: 'primary', foco: true, alClick: c => c.cerrar() }]
+    });
 }
 
 // Aviso persistente en la vista de sesión: la sesión arranca igual, pero el turno
@@ -810,22 +783,9 @@ async function cerrarSesion() {
     await YS.sesion.cerrar();
 }
 
-function confirmar(msg) {
-    return new Promise(resolve => {
-        const overlay = document.createElement('div');
-        overlay.className = 'dialogo-overlay';
-        overlay.innerHTML = `
-            <div class="dialogo" role="alertdialog">
-                <p class="dialogo-mensaje">${msg}</p>
-                <div class="dialogo-botones">
-                    <button id="conf-no" class="ui-btn">No</button>
-                    <button id="conf-si" class="ui-btn ui-btn--primary">Sí</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-        overlay.querySelector('#conf-si').onclick = () => { overlay.remove(); resolve(true); };
-        overlay.querySelector('#conf-no').onclick = () => { overlay.remove(); resolve(false); };
-    });
+// Confirmaciones del sistema de diseño: confirmar(texto, { titulo, textoConfirmar, peligro })
+function confirmar(msg, opciones = {}) {
+    return YS.confirmar({ mensaje: msg, ...opciones });
 }
 
 const MESES      = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -1343,7 +1303,7 @@ async function confirmarSolicitudDiaProf(fechaStr) {
 }
 
 async function cancelarTurnoProf(id) {
-    if (!await confirmar('¿Cancelar este turno?')) return;
+    if (!await confirmar('¿Cancelar este turno? Al paciente le llega el aviso.', { titulo: 'Cancelar turno', textoConfirmar: 'Cancelar turno', peligro: true })) return;
     await fetch(`${API}/turnos/${id}/cancelar`, { method: 'PUT' });
     await renderCalendario();
     mostrarPanelDiaProfesional(_diaSeleccionadoProf);
@@ -1435,12 +1395,12 @@ function cancelarModoReprogramarProf() {
 
 async function reportes() {
     const cont = document.getElementById('contenido');
-    cont.innerHTML =
-        '<div class="card">' +
-        '<div class="titulo-seccion titulo-seccion--tarjeta">Mis Atenciones</div>' +
-        '<p class="texto-suave mb-12">Descarga el reporte de tus propias atenciones.</p>' +
-        '<button class="ui-btn ui-btn--primary" onclick="descargarReporte()">Descargar Excel</button>' +
-        '</div>';
+    cont.innerHTML = `
+        <div class="card reporte-card">
+            <div class="titulo-seccion titulo-seccion--tarjeta">Mis atenciones</div>
+            <p class="texto-suave mb-12">Descargá el detalle de tus atenciones (paciente, fecha, hora y tipo de cierre) en un archivo que se abre con Excel.</p>
+            <button class="ui-btn ui-btn--primary" onclick="descargarReporte()">${YS.icono('descargar')}Descargar Excel</button>
+        </div>`;
 }
 
 async function descargarReporte() {
@@ -1450,11 +1410,11 @@ async function descargarReporte() {
         const r = await fetch(url);
         datos = await r.json();
     } catch(e) {
-        alert('Error al obtener los datos.');
+        toast('No se pudieron obtener tus atenciones. Probá de nuevo en un rato.', 'error');
         return;
     }
     if (!datos.length) {
-        alert('No hay datos para el filtro seleccionado.');
+        toast('Todavía no tenés atenciones registradas.', 'warn');
         return;
     }
     const encabezado = ['Nombre y Apellido', 'DNI', 'NHC', 'Fecha', 'Hora', 'Tipo de Cierre', 'Profesional'];
@@ -1472,122 +1432,157 @@ async function descargarReporte() {
     link.click();
 }
 
-// Mis Pacientes v2: asignaciones nuevas, confirmar y derivar
+// ── MIS PACIENTES ───────────────────────────────────────────
+// Los pacientes asignados. Las asignaciones nuevas (vienen de admisión) se confirman
+// proponiendo un primer turno o se devuelven a admisión.
 async function pacientes() {
-    const c = document.getElementById("contenido");
-    let lista = [];
-    try {
-        const r = await fetch(API + "/profesionales/" + idProfesional + "/pacientes-detalle");
-        lista = await r.json();
-    } catch(e) {}
-
-    const filas = lista.map(function(p) {
-        const esNuevo = p.estadoAsignacion === "Nueva";
-        let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ')">Historia</button> ' +
-            '<button class="btn-sesion" onclick="activarTab(&quot;sesion&quot;)">Sesion</button>';
-        if (esNuevo) {
-            acciones = '<button class="btn-ver" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
-                '<button class="btn-confirmar" onclick="confirmarNuevoPaciente(' + p.idPaciente + ')">Confirmar</button> ' +
-                '<button class="btn-peligro" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
-        }
-        return '<tr>' +
-            '<td>' + YS.esc(p.nombre) + (esNuevo ? ' <span class="ui-chip ui-chip--info">Nuevo</span>' : "") + '</td>' +
-            '<td>' + YS.esc(p.dni || "-") + '</td>' +
-            '<td>' + YS.esc(p.mail || "-") + '</td>' +
-            '<td>' + YS.esc(p.telefono || "-") + '</td>' +
-            '<td class="celda-acciones">' + acciones + '</td>' +
-            '</tr>';
-    }).join("");
-
+    const c = document.getElementById('contenido');
+    let lista;
+    try { lista = await YS.api(`/profesionales/${idProfesional}/pacientes-detalle`); }
+    catch (e) {
+        if (YS.shell.actual === 'pacientes') c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('pacientes')" });
+        return;
+    }
     if (YS.shell.actual !== 'pacientes') return;
-    c.innerHTML = '<div class="card">' +
-        (lista.length === 0 ? '<div class="sin-turnos">No tenes pacientes asignados.</div>' :
-        '<div class="tabla-wrapper"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Mail</th><th>Telefono</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>') +
-        '</div>' +
-        '<div id="panelNuevoPaciente"></div>' +
-        '<div class="modal-overlay" id="modalHistoria">' +
-        '<div class="modal-box">' +
-        '<div class="modal-header">' +
-        '<span class="modal-titulo" id="modalTitulo">Historia Clinica</span>' +
-        '<button class="modal-cerrar" onclick="cerrarModal()">X</button>' +
-        '</div>' +
-        '<div class="modal-body" id="modalBody"></div>' +
-        '</div>' +
-        '</div>';
+    window._misPacientes = lista;
+    const nuevos = lista.filter(p => p.estadoAsignacion === 'Nueva').length;
+    YS.shell.encabezado({ subtitulo: `${lista.length} paciente${lista.length === 1 ? '' : 's'}` +
+        (nuevos ? ` · ${nuevos} asignación${nuevos === 1 ? '' : 'es'} nueva${nuevos === 1 ? '' : 's'}` : '') });
+    YS.shell.acciones([{ texto: 'Actualizar', icono: 'refrescar', alClick: () => activarTab('pacientes') }]);
+
+    c.innerHTML = '<div id="tablaPacientes"></div><div id="panelNuevoPaciente"></div>';
+    YS.tabla(document.getElementById('tablaPacientes'), {
+        filas: lista, unidad: ['paciente', 'pacientes'], placeholder: 'Buscar por nombre, DNI, mail o teléfono',
+        buscar: p => [p.nombre, p.dni, p.mail, p.telefono].join(' '),
+        filtros: [
+            { id: 'todos', texto: 'Todos', pasa: () => true },
+            { id: 'nuevos', texto: 'Asignaciones nuevas', pasa: p => p.estadoAsignacion === 'Nueva' }
+        ],
+        ordenInicial: { col: 0 },
+        vacio: { icono: 'pacientes', titulo: 'Todavía no tenés pacientes asignados', texto: 'Te los asigna el equipo de admisión o el configurador.' },
+        columnas: [
+            { titulo: 'Paciente', orden: p => YS.normalizar(p.nombre),
+              html: p => `<span class="ui-flex">${YS.avatar(p.nombre, p.idPaciente, 'sm')}<span class="principal">${YS.esc(p.nombre)}</span>` +
+                  (p.estadoAsignacion === 'Nueva' ? '<span class="ui-chip ui-chip--info">Nuevo</span>' : '') + '</span>' },
+            { titulo: 'DNI', html: p => YS.esc(p.dni || '—'), orden: p => p.dni || '' },
+            { titulo: 'Mail', html: p => YS.esc(p.mail || '—') },
+            { titulo: 'Teléfono', html: p => YS.esc(p.telefono || '—') },
+            { titulo: '', clase: 'acciones', html: p => p.estadoAsignacion === 'Nueva'
+                ? `<button class="ui-btn ui-btn--sm" onclick="verEvolucionAdmision(${p.idPaciente})">Motivo de la asignación</button>
+                   <button class="ui-btn ui-btn--sm ui-btn--ok" onclick="confirmarNuevoPaciente(${p.idPaciente})">Confirmar</button>
+                   <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="derivarNuevoPaciente(${p.idPaciente})">Devolver a admisión</button>`
+                : `<button class="ui-btn ui-btn--sm" onclick="verHistoria(${p.idPaciente})">Historia clínica</button>
+                   <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${p.idPaciente})">${YS.icono('video')}Sesión</button>` }
+        ]
+    });
+}
+
+const nombreDeMiPaciente = id => (window._misPacientes || []).find(p => p.idPaciente === id)?.nombre ?? null;
+
+function cerrarPanelNuevo() {
+    document.getElementById('panelNuevoPaciente').innerHTML = '';
+}
+
+function cabeceraPanelNuevo(titulo) {
+    return `<div class="ui-entre mb-12">
+        <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">${YS.esc(titulo)}</div>
+        <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" onclick="cerrarPanelNuevo()">Cerrar</button>
+    </div>`;
 }
 
 async function verEvolucionAdmision(idPaciente) {
-    let historia = null, evoluciones = [];
-    try { historia = await (await fetch(API + "/pacientes/" + idPaciente + "/historiaclinica")).json(); } catch(e) {}
-    if (historia !== null && historia.idHistoria !== undefined) {
-        try { evoluciones = await (await fetch(API + "/historiasclinicas/" + historia.idHistoria + "/evoluciones")).json(); } catch(e) {}
-    }
-    const deAdmision = evoluciones.filter(function(e) { return ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1); });
-    const panel = document.getElementById("panelNuevoPaciente");
-    if (deAdmision.length === 0) {
-        panel.innerHTML = '<div class="card mt-16"><p class="texto-suave">No hay evolucion de admision registrada.</p></div>';
+    const panel = document.getElementById('panelNuevoPaciente');
+    const nombre = nombreDeMiPaciente(idPaciente);
+    panel.innerHTML = `<div class="card mt-16">${YS.cargando()}</div>`;
+    let evoluciones = [];
+    try {
+        const historia = await YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true });
+        if (historia?.idHistoria) evoluciones = await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`);
+    } catch (e) {
+        panel.innerHTML = `<div class="card mt-16">${YS.errorCarga({ texto: e.message, reintentar: `verEvolucionAdmision(${idPaciente})` })}</div>`;
         return;
     }
-    panel.innerHTML = '<div class="card card--acento-info mt-16">' +
-        '<div class="titulo-seccion titulo-seccion--tarjeta">Evolucion del Equipo de Admision</div>' +
-        deAdmision.map(function(e) {
-            return '<div class="caja-suave mb-12">' +
-                '<div class="texto-fuerte mb-8">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-                (e.observaciones ? '<div class="mb-8">' + YS.esc(e.observaciones) + '</div>' : "") +
-                (e.planTratamiento ? '<div class="texto-accent texto-fuerte">' + YS.esc(e.planTratamiento) + '</div>' : "") +
-                '</div>';
-        }).join("") +
-        '</div>';
-    panel.scrollIntoView({ behavior: "smooth" });
+    const deAdmision = evoluciones.filter(e => (e.diagnostico || '').toLowerCase().includes('admis'));
+    panel.innerHTML = `<div class="card card--acento-info mt-16">
+        ${cabeceraPanelNuevo('Evolución del equipo de admisión' + (nombre ? ' · ' + nombre : ''))}
+        ${deAdmision.length ? deAdmision.map(e => `
+            <div class="caja-suave mb-12">
+                <div class="texto-fuerte mb-8">${YS.esc(YS.fecha.larga(e.fecha))}</div>
+                ${e.observaciones ? `<div class="mb-8">${YS.esc(e.observaciones)}</div>` : ''}
+                ${e.planTratamiento ? `<div class="texto-accent texto-fuerte">${YS.esc(e.planTratamiento)}</div>` : ''}
+            </div>`).join('')
+            : YS.vacio({ icono: 'portapapeles', texto: 'El equipo de admisión no dejó una evolución para este paciente.' })}
+    </div>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function confirmarNuevoPaciente(idPaciente) {
-    const panel = document.getElementById("panelNuevoPaciente");
-    panel.innerHTML = '<div class="card card--acento-ok mt-16">' +
-        '<div class="titulo-seccion titulo-seccion--tarjeta">Proponer primer turno</div>' +
-        '<p class="texto-suave mb-12">Elegi una fecha estimativa. Al paciente le llegara como turno pendiente y podra confirmarlo o reprogramarlo segun tu agenda.</p>' +
-        '<div class="form-fila form-fila--abajo">' +
-        '<div class="campo"><label for="npFecha">Fecha</label><input type="date" id="npFecha"></div>' +
-        '<div class="campo"><label for="npHora">Hora</label><input type="time" id="npHora"></div>' +
-        '<button class="ui-btn ui-btn--primary" onclick="enviarPrimerTurno(' + idPaciente + ')">Enviar propuesta</button>' +
-        '</div></div>';
-    panel.scrollIntoView({ behavior: "smooth" });
+    const panel = document.getElementById('panelNuevoPaciente');
+    const nombre = nombreDeMiPaciente(idPaciente);
+    panel.innerHTML = `<div class="card card--acento-ok mt-16">
+        ${cabeceraPanelNuevo('Proponer el primer turno' + (nombre ? ' · ' + nombre : ''))}
+        <p class="texto-suave mb-12">Elegí una fecha estimativa. Al paciente le llega como turno pendiente y puede confirmarlo o reprogramarlo según tu agenda.</p>
+        <div class="form-fila form-fila--abajo">
+            <div class="ui-campo"><label for="npFecha">Fecha</label><input type="date" id="npFecha" class="ui-input" min="${YS.fecha.aISO(new Date())}"></div>
+            <div class="ui-campo"><label for="npHora">Hora</label><input type="time" id="npHora" class="ui-input"></div>
+            <button class="ui-btn ui-btn--primary" id="npEnviar" onclick="enviarPrimerTurno(${idPaciente})">Enviar propuesta</button>
+        </div>
+    </div>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('npFecha').focus();
 }
 
 async function enviarPrimerTurno(idPaciente) {
-    const fecha = document.getElementById("npFecha").value;
-    const hora  = document.getElementById("npHora").value;
-    if (fecha === "" || hora === "") { toast("Completa fecha y hora.", "warn"); return; }
+    const fecha = document.getElementById('npFecha').value;
+    const hora  = document.getElementById('npHora').value;
+    const hoy = YS.fecha.aISO(new Date());
+    if (!fecha) YS.form.marcar('npFecha', 'Elegí la fecha.');
+    else if (fecha < hoy) YS.form.marcar('npFecha', 'Elegí una fecha de hoy en adelante.');
+    if (!hora) YS.form.marcar('npHora', 'Elegí la hora.');
+    if (!fecha || fecha < hoy || !hora) return;
+
+    const boton = document.getElementById('npEnviar');
+    boton.disabled = true;
     try {
         const r = await fetch(API + "/turnos/profesional-solicitar", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, fecha: fecha, hora: hora + ":00", motivo: "Primer turno - derivacion de admision" })
         });
-        if (r.ok) {
-            await fetch(API + "/asignaciones/estado", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
-            });
-            toast("Propuesta enviada. El paciente podra confirmar o reprogramar el turno.");
-            pacientes();
-        } else toast("Error al crear el turno.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo crear el turno.'), 'error'); return; }
+        const rAsignacion = await fetch(API + "/asignaciones/estado", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
+        });
+        if (rAsignacion.ok) toast('Propuesta enviada. El paciente puede confirmar o reprogramar el turno.');
+        else toast('La propuesta se envió, pero la asignación sigue figurando como nueva.', 'warn');
+        pacientes();
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function derivarNuevoPaciente(idPaciente) {
-    const motivo = prompt("Indica el motivo por el cual no vas a atender a este paciente:");
-    if (motivo === null || motivo.trim() === "") return;
+    const nombre = nombreDeMiPaciente(idPaciente);
+    const motivo = await YS.pedirTexto({
+        titulo: 'Devolver a admisión',
+        mensaje: `${nombre ? nombre + ' vuelve' : 'El paciente vuelve'} al equipo de admisión para que lo asignen a otro profesional.`,
+        etiqueta: 'Por qué no vas a atender a este paciente', multilinea: true, maximo: 500,
+        mensajeRequerido: 'Contale al equipo el motivo.', textoConfirmar: 'Devolver a admisión', peligro: true
+    });
+    if (!motivo) return;
     try {
         const r = await fetch(API + "/informes-admision/rechazar", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, motivo: motivo })
         });
-        if (r.ok) { toast("El caso volvio al equipo de admision para re-derivar.", "warn"); pacientes(); }
-        else toast("Error al derivar.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        if (r.ok) { toast('El caso volvió al equipo de admisión para asignarlo de nuevo.', 'warn'); pacientes(); }
+        else toast(await YS.leerMensaje(r, 'No se pudo devolver el caso.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
 }
 
 function calcularTurnos(s) {
@@ -1616,7 +1611,7 @@ function actualizarPreviewNuevo() {
 
 // Evoluciones v2: las de admision se muestran en azul
 function renderEvoluciones(lista) {
-    if (lista === null || lista === undefined || lista.length === 0) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
+    if (lista === null || lista === undefined || lista.length === 0) return YS.vacio({ icono: 'documento', texto: 'Todavía no hay evoluciones registradas.' });
     return lista.map(function(e) {
         const esAdmision = ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1);
         return '<div class="evolucion-item' + (esAdmision ? ' evolucion-item--admision' : '') + '">' +

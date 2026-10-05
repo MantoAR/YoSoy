@@ -400,7 +400,7 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
     font-family: var(--font); font-size: var(--fs-md); font-weight: 500; line-height: 1;
     border-radius: var(--r-md); border: 1px solid var(--border-strong);
     background: var(--surface); color: var(--text-2);
-    cursor: pointer; white-space: nowrap; text-decoration: none;
+    cursor: pointer; white-space: nowrap; text-decoration: none; vertical-align: middle;
     transition: background .12s, border-color .12s, color .12s, box-shadow .12s;
 }
 .ui-btn:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
