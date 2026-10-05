@@ -1464,7 +1464,8 @@ async function descargarReporte() {
     const csvContent = [encabezado].concat(filas)
         .map(function(row) { return row.map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(','); })
         .join('\n');
-    const blob = new Blob(['' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    // El BOM hace que Excel lea el archivo como UTF-8 (sin él, "García" sale como "GarcÃ­a")
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'mis_atenciones.csv';
