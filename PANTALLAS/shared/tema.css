@@ -549,6 +549,10 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 .ui-tabla .principal { color: var(--text); font-weight: 500; }
 .ui-tabla .secundario { display: block; font-size: var(--fs-sm); color: var(--text-3); }
 .ui-tabla tr.clickeable { cursor: pointer; }
+.ui-th-orden { all: unset; cursor: pointer; display: inline-flex; gap: 4px; }
+.ui-th-orden:hover { color: var(--text); }
+.ui-th-orden:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.ui-tabla .ui-vacio-estado { padding: 28px 12px; }
 
 /* Paginación */
 .ui-paginacion {
@@ -613,6 +617,7 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 .ui-alerta--info   { border-color: var(--info-border);   background: var(--info-bg);   color: var(--info); }
 .ui-alerta--ok     { border-color: var(--ok-border);     background: var(--ok-bg);     color: var(--ok); }
 .ui-alerta--marca  { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-strong); }
+.ui-alerta--bloque { display: block; }   /* título + párrafos uno debajo del otro */
 
 .ui-vacio { color: var(--text-3); font-size: var(--fs-md); padding: 18px 4px; text-align: center; }
 .ui-vacio-estado {

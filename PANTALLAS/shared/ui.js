@@ -589,6 +589,118 @@
         tabla: (filas = 5) => `<div class="ui-esqueleto-tabla" aria-hidden="true">${Array.from({ length: filas }, () => `<span class="ui-esqueleto"></span>`).join("")}</div>`
     };
 
+    // ── Listados: tabla densa con búsqueda, filtros, orden y paginación ──
+    /**
+     * Todo en el navegador, sobre las filas que ya trajo la pantalla.
+     * YS.tabla(contenedor, {
+     *   filas, columnas: [{ titulo, html: fila => "...", clase, orden: fila => valor }],
+     *   buscar: fila => "texto donde buscar", placeholder,
+     *   filtros: [{ id, texto, pasa: fila => bool }], filtro: "id inicial",
+     *   porPagina: 25 (0 = sin paginar), vacio: { icono, titulo, texto }, unidad: ["turno", "turnos"],
+     *   barra: [nodos extra a la derecha], ordenInicial: { col, desc }
+     * }) → { actualizar(filas), estado }
+     * Las celdas son HTML: los datos del servidor van con YS.esc.
+     */
+    YS.tabla = (contenedor, op) => {
+        const est = {
+            filas: op.filas || [], q: "", filtro: op.filtro || op.filtros?.[0]?.id || null, pagina: 1,
+            col: op.ordenInicial?.col ?? null, desc: !!op.ordenInicial?.desc
+        };
+        const porPagina = op.porPagina ?? 25;
+        contenedor.innerHTML = "";
+        const barra = YS.el("div", { class: "ui-barra" });
+        let input = null;
+        if (op.buscar) {
+            input = YS.el("input", { class: "ui-input", type: "search", placeholder: op.placeholder || "Buscar…", "aria-label": op.placeholder || "Buscar" });
+            const lupa = YS.el("span", { html: YS.icono("buscar") }).firstChild;
+            barra.appendChild(YS.el("label", { class: "ui-buscador" }, lupa, input));
+            input.addEventListener("input", YS.debounce(() => { est.q = YS.normalizar(input.value); est.pagina = 1; dibujar(); }, 120));
+        }
+        const filtros = op.filtros?.length ? YS.el("div", { class: "ui-filtros", role: "group", "aria-label": "Filtrar" }) : null;
+        if (filtros) {
+            barra.appendChild(filtros);
+            filtros.addEventListener("click", e => {
+                const b = e.target.closest("[data-filtro]");
+                if (!b) return;
+                est.filtro = b.dataset.filtro; est.pagina = 1; dibujar();
+            });
+        }
+        barra.appendChild(YS.el("span", { class: "ui-barra-espacio" }));
+        const info = YS.el("span", { class: "ui-barra-info", "aria-live": "polite" });
+        barra.appendChild(info);
+        (op.barra || []).forEach(n => barra.appendChild(n));
+        const panel = YS.el("div", { class: "ui-tabla-panel" });
+        const scroll = YS.el("div", { class: "ui-tabla-scroll ui-tabla-scroll--alta" });
+        const tabla = YS.el("table", { class: "ui-tabla ui-tabla--densa" });
+        const thead = YS.el("thead"), tbody = YS.el("tbody");
+        tabla.append(thead, tbody); scroll.appendChild(tabla);
+        const pie = YS.el("div", { class: "ui-paginacion" });
+        panel.append(scroll, pie);
+        contenedor.append(barra, panel);
+
+        thead.addEventListener("click", e => {
+            const b = e.target.closest("[data-col]");
+            if (!b) return;
+            const col = parseInt(b.dataset.col);
+            est.desc = est.col === col ? !est.desc : false;
+            est.col = col; dibujar();
+        });
+        pie.addEventListener("click", e => {
+            const b = e.target.closest("[data-pag]");
+            if (b) { est.pagina += parseInt(b.dataset.pag); dibujar(); scroll.scrollTop = 0; }
+        });
+
+        function dibujar() {
+            const pasaFiltro = f => !op.filtros || !est.filtro || (op.filtros.find(x => x.id === est.filtro)?.pasa(f) ?? true);
+            const pasaBusqueda = f => !est.q || YS.normalizar(op.buscar(f)).includes(est.q);
+            let vis = est.filas.filter(f => pasaFiltro(f) && pasaBusqueda(f));
+            const c = op.columnas[est.col];
+            if (c?.orden) {
+                vis = vis.slice().sort((a, b) => {
+                    const va = c.orden(a), vb = c.orden(b);
+                    const r = va < vb ? -1 : va > vb ? 1 : 0;
+                    return est.desc ? -r : r;
+                });
+            }
+            if (filtros) {
+                filtros.innerHTML = op.filtros.map(fl => {
+                    const n = est.filas.filter(x => fl.pasa(x) && pasaBusqueda(x)).length;
+                    const si = fl.id === est.filtro;
+                    return `<button type="button" class="ui-filtro${si ? " activo" : ""}" data-filtro="${fl.id}" aria-pressed="${si}">${YS.esc(fl.texto)}<span class="ui-contador ui-contador--suave">${n}</span></button>`;
+                }).join("");
+            }
+            thead.innerHTML = "<tr>" + op.columnas.map((col, i) => {
+                const sort = est.col === i ? (est.desc ? "descending" : "ascending") : null;
+                const flecha = est.col === i ? (est.desc ? " ↓" : " ↑") : "";
+                return `<th class="${col.clase || ""}"${sort ? ` aria-sort="${sort}"` : ""}>${col.orden
+                    ? `<button type="button" class="ui-th-orden" data-col="${i}">${YS.esc(col.titulo)}${flecha}</button>`
+                    : YS.esc(col.titulo || "")}</th>`;
+            }).join("") + "</tr>";
+            const paginas = porPagina ? Math.max(1, Math.ceil(vis.length / porPagina)) : 1;
+            est.pagina = Math.min(Math.max(1, est.pagina), paginas);
+            const desde = porPagina ? (est.pagina - 1) * porPagina : 0;
+            const pagina = porPagina ? vis.slice(desde, desde + porPagina) : vis;
+            if (!pagina.length) {
+                const v = est.filas.length
+                    ? { icono: "buscar", titulo: "Sin resultados", texto: "Probá con otra búsqueda o sacá el filtro." }
+                    : (op.vacio || { icono: "bandeja", titulo: "No hay registros para mostrar" });
+                tbody.innerHTML = `<tr><td colspan="${op.columnas.length}">${YS.vacio(v)}</td></tr>`;
+            } else {
+                tbody.innerHTML = pagina.map(f => `<tr>${op.columnas.map(col => `<td class="${col.clase || ""}">${col.html(f)}</td>`).join("")}</tr>`).join("");
+            }
+            info.textContent = `${vis.length} ${vis.length === 1 ? (op.unidad?.[0] || "resultado") : (op.unidad?.[1] || "resultados")}`;
+            pie.classList.toggle("oculto", !porPagina || vis.length <= porPagina);
+            pie.innerHTML = `<span>${vis.length ? `${desde + 1}–${Math.min(desde + porPagina, vis.length)} de ${vis.length}` : ""}</span>
+                <div class="ui-paginacion-botones">
+                    <button type="button" class="ui-btn ui-btn--sm" data-pag="-1"${est.pagina <= 1 ? " disabled" : ""}>Anterior</button>
+                    <span class="ui-paginacion-pagina">${est.pagina} / ${paginas}</span>
+                    <button type="button" class="ui-btn ui-btn--sm" data-pag="1"${est.pagina >= paginas ? " disabled" : ""}>Siguiente</button>
+                </div>`;
+        }
+        dibujar();
+        return { actualizar(filas) { est.filas = filas || []; dibujar(); }, estado: est, buscador: input };
+    };
+
     // ── Menús desplegables accesibles ───────────────────────────
     const abiertos = new Set();
     /**
