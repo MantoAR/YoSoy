@@ -199,7 +199,8 @@ async function confirmarCitaUrgente() {
 
     try {
         const ahora = new Date();
-        const fechaStr = ahora.toISOString().split('T')[0];
+        // Fecha y hora locales (toISOString da la fecha en UTC: después de las 21 era "mañana")
+        const fechaStr = YS.fecha.aISO(ahora);
         const horaStr = ahora.toTimeString().substring(0, 8);
 
         const rTurno = await fetch(`${API}/turnos/profesional-solicitar`, {
