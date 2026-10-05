@@ -230,7 +230,7 @@ app.MapGet("/usuarios/{id}", (int id) =>
 
 app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     u.Estado = "Activo";
     u.PasswordHash = Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(
@@ -253,7 +253,7 @@ app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
 
 app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     new UsuarioDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Usuario", Entidad = "Usuario", IdEntidad = id });
     return Results.NoContent();
@@ -285,7 +285,7 @@ app.MapPut("/pacientes/{id}", (int id, Paciente p) =>
 
 app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     new PacienteDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Paciente", Entidad = "Paciente", IdEntidad = id });
     return Results.NoContent();
@@ -293,7 +293,7 @@ app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 
 app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var p = new PacienteDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -314,7 +314,7 @@ app.MapGet("/profesionales/{id}", (int id) =>
 
 app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     p.Estado = "Pendiente";
     new ProfesionalDAO().Insertar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
@@ -330,7 +330,7 @@ app.MapPut("/profesionales/{id}", (int id, Profesional p) =>
 
 app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     new ProfesionalDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.NoContent();
@@ -338,7 +338,7 @@ app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 
 app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -352,7 +352,7 @@ app.MapGet("/profesionales/solicitudes", () =>
 
 app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -363,7 +363,7 @@ app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 
 app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Rechazado";
@@ -642,7 +642,7 @@ app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
 
 app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.IdProfesionalDestino = req.IdProfesionalDestino;
@@ -659,7 +659,7 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
 
 app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.Estado = "Rechazada";
@@ -671,7 +671,7 @@ app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 // Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
 app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpContext ctx) =>
 {
-    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    int? auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : null;
 
     using var con = Conexion.ObtenerConexion();
     con.Open();
