@@ -270,7 +270,13 @@
     // ── Hilo ────────────────────────────────────────────────────
     async function seleccionar(id) {
         if (!id) return;
-        if (id === est.actual) { $("#chatsTexto")?.focus(); return; }
+        if (id === est.actual) {
+            // Ya estaba elegida (p. ej. se abre desde el aviso de un mensaje nuevo):
+            // se baja al último mensaje para que se vea y quede leída.
+            if (est.hiloCargado) { irAbajo(false); marcarLeidaSiCorresponde(); }
+            $("#chatsTexto")?.focus();
+            return;
+        }
         est.generacion++;
         est.actual = id;
         est.hiloCargado = false;
