@@ -592,9 +592,9 @@ function renderTabla(titulo, cols, datos, tab, contenido) {
 
     const filas = datos.map(row => {
         const id = row[idCampo[tab]];
-        const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
+        const celdas = cols.map(c => `<td>${YS.esc(row[c] ?? "-")}</td>`).join("");
         const acciones = editable ? `<td>
-            <button class="btn-accion btn-editar" onclick='abrirModal(${JSON.stringify(row)})'>✏️</button>
+            <button class="btn-accion btn-editar" onclick='abrirModal(${YS.esc(JSON.stringify(row))})'>✏️</button>
             <button class="btn-accion btn-eliminar" onclick="eliminar('${tab}', ${id})">🗑️</button>
         </td>` : "";
         return `<tr>${celdas}${acciones}</tr>`;
@@ -786,7 +786,7 @@ async function reportes() {
 
     const opts = profesionales
         .filter(function(p) { return p.estado === 'Activo'; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + p.nombre + '</option>'; })
+        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(p.nombre) + '</option>'; })
         .join('');
 
     c.innerHTML =
