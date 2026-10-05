@@ -90,43 +90,52 @@ async function renderInicio(c) {
         if (YS.shell.actual === "inicio" && u.nombre)
             YS.shell.encabezado({ titulo: `Hola, ${u.nombre.split(" ")[0]}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
     });
+    c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3);
     try {
-        const res = await fetch(`${API}/pacientes/${idPaciente}/proximo-turno`);
+        const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
+        const [res, turnos, consentimiento] = await Promise.all([
+            fetch(`${API}/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
+            pedir(`/pacientes/${idPaciente}/turnos-detalle`, []),
+            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null)
+        ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
+        const t = res.status === 404 ? null : await res.json();
 
-        if (res.status === 404) {
-            c.innerHTML = `
-                <div class="card">
-                    <p class="sin-turnos">No tenés turnos próximos.</p>
-                </div>`;
-            return;
-        }
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        const proximos = turnos
+            .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
+            .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
+        const porConfirmar = proximos.filter(propuestoPorProfesional);
 
-        const t = await res.json();
-        const fecha = new Date(t.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
-        const hora  = t.hora.substring(0,5);
+        const tarjetaConsentimiento = consentimiento == null
+            ? `<div class="ui-stat"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">—</span><span class="ui-stat-pie">No se pudo consultar</span></div>`
+            : consentimiento.firmado
+                ? `<a class="ui-stat ui-stat--ok" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Firmado</span><span class="ui-stat-pie">El ${YS.esc(YS.fecha.corta(consentimiento.fechaFirma))}</span></a>`
+                : `<a class="ui-stat ui-stat--warn" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Sin firmar</span><span class="ui-stat-pie">Hace falta para confirmar tus turnos</span></a>`;
 
-        c.innerHTML = `
+        const proximoHtml = !t
+            ? `<div class="card">${YS.vacio({ icono: "agenda", titulo: "No tenés turnos próximos", texto: "Podés pedir uno desde Mis turnos eligiendo un día en el calendario.", accion: { texto: "Ir a Mis turnos", onclick: "location.hash = '#agenda'" } })}</div>`
+            : `
             <div class="card proximo-turno">
                 <p class="proximo-etiqueta">Próximo turno</p>
-                <div class="proximo-fecha">${fecha}</div>
-                <div class="proximo-hora">${hora} hs</div>
+                <div class="proximo-fecha">${YS.esc(YS.fecha.larga(t.fecha, true))}</div>
+                <div class="proximo-hora">${YS.esc(t.hora.substring(0, 5))} hs</div>
                 <div class="proximo-datos">
                     <div>
                         <div class="etiqueta">Profesional</div>
-                        <div class="valor">${t.nombreProfesional}</div>
+                        <div class="valor">${YS.esc(t.nombreProfesional)}</div>
                     </div>
                     <div>
                         <div class="etiqueta">Especialidad</div>
-                        <div class="valor">${t.especialidad}</div>
+                        <div class="valor">${YS.esc(t.especialidad)}</div>
                     </div>
                     <div>
                         <div class="etiqueta">Modalidad</div>
-                        <div class="valor">${t.modalidad ?? "-"}</div>
+                        <div class="valor">${YS.esc(t.modalidad ?? "-")}</div>
                     </div>
                     <div>
                         <div class="etiqueta">Estado</div>
-                        <div class="valor"><span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span></div>
+                        <div class="valor"><span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span></div>
                     </div>
                 </div>
                 ${propuestoPorProfesional(t) ? `
@@ -135,8 +144,44 @@ async function renderInicio(c) {
                     <button class="btn-accion btn-guardar" onclick="confirmarTurnoPaciente(${t.idTurno})">Confirmar turno</button>
                 </div>` : ""}
             </div>`;
+
+        const listaHtml = proximos.length
+            ? `<ul class="inicio-turnos">${proximos.slice(0, 5).map(x => `
+                <li>
+                    <div class="inicio-turno-fecha"><span>${YS.fecha.parse(x.fecha).getDate()}</span>${YS.esc(YS.fecha.parse(x.fecha).toLocaleString("es-AR", { month: "short" }))}</div>
+                    <div class="inicio-turno-datos">
+                        <div class="texto-fuerte">${YS.esc(x.hora.substring(0, 5))} hs · ${YS.esc(x.nombreProfesional)}</div>
+                        <div class="texto-suave texto-chico">${YS.esc(x.especialidad)}${x.modalidad ? " · " + YS.esc(x.modalidad) : ""}</div>
+                    </div>
+                    ${propuestoPorProfesional(x)
+                        ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
+                        : `<span class="panel-estado-badge estado-${YS.esc(x.estadoDescripcion)}">${YS.esc(x.estadoDescripcion)}</span>`}
+                </li>`).join("")}</ul>`
+            : YS.vacio({ icono: "agenda", texto: "Todavía no tenés turnos agendados." });
+
+        c.innerHTML = `
+            <div class="ui-stats">
+                <a class="ui-stat" href="#agenda">
+                    <span class="ui-stat-etiqueta">${YS.icono("agenda")}Turnos próximos</span>
+                    <span class="ui-stat-valor">${proximos.length}</span>
+                    <span class="ui-stat-pie">Ver el calendario</span>
+                </a>
+                <a class="ui-stat${porConfirmar.length ? " ui-stat--marca" : ""}" href="#agenda">
+                    <span class="ui-stat-etiqueta">${YS.icono("check")}Por confirmar</span>
+                    <span class="ui-stat-valor">${porConfirmar.length}</span>
+                    <span class="ui-stat-pie">${porConfirmar.length ? "Te los propuso tu profesional" : "Nada pendiente de tu parte"}</span>
+                </a>
+                ${tarjetaConsentimiento}
+            </div>
+            <div class="inicio-columnas">
+                ${proximoHtml}
+                <div class="card">
+                    <div class="titulo-tarjeta">Tus próximos turnos</div>
+                    ${listaHtml}
+                </div>
+            </div>`;
     } catch {
-        c.innerHTML = `<p class="texto-error">Error al cargar los datos.</p>`;
+        c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
 }
 
@@ -339,7 +384,9 @@ async function mostrarPanelDia(dia) {
                     <div class="panel-profesional">${t.nombreProfesional}</div>
                     <div class="panel-especialidad">${t.especialidad}</div>
                 </div>
-                <span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span>
+                ${propuestoPorProfesional(t)
+                    ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
+                    : `<span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span>`}
             </div>
             <div class="panel-chips">
                 <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${t.modalidad ?? "-"}</span></div>

@@ -99,6 +99,7 @@
 .estado-Confirmado { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
 .estado-Cancelado  { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 .estado-Realizado  { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
+.estado-propuesto  { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-border); }
 .estado-En-entrevista { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .estado-Derivado   { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
 .panel-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -223,3 +224,18 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
     background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-weight: 500;
 }
 .panel-aviso { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-md); background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-size: var(--fs-md); }
+
+/* Inicio: próximo turno y lista de turnos debajo de las tarjetas de resumen */
+.inicio-columnas { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.inicio-columnas > .card { margin-bottom: 0; }
+.inicio-turnos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.inicio-turnos li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.inicio-turnos li:last-child { border-bottom: none; }
+.inicio-turno-fecha {
+    width: 46px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding: 4px 0;
+    border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
+    font-size: var(--fs-xs); color: var(--text-3); text-transform: uppercase; letter-spacing: .05em;
+}
+.inicio-turno-fecha span { font-size: var(--fs-xl); font-weight: 600; color: var(--text); letter-spacing: 0; line-height: 1.1; }
+.inicio-turno-datos { flex: 1; min-width: 0; }
+@media (max-width: 1100px) { .inicio-columnas { grid-template-columns: minmax(0, 1fr); } }
