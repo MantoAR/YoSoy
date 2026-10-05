@@ -177,9 +177,9 @@ async function renderAgenda(c) {
             </div>
             <div class="cal-grid" id="calGrid"></div>
             <div class="cal-leyenda">
-                <span class="ui-chip ui-chip--info">Mis turnos</span>
+                <span class="ui-chip ui-chip--ok">Turno confirmado</span>
                 <span class="ui-chip ui-chip--warn">Pendiente</span>
-                <span class="ui-chip ui-chip--ok">Días disponibles del profesional</span>
+                <span class="ui-chip ui-chip--marca">Días que atiende el profesional</span>
                 <span class="ui-chip ui-chip--neutral">Sin disponibilidad</span>
             </div>
         </div>

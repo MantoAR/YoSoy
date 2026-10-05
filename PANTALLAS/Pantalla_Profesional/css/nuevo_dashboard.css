@@ -197,7 +197,8 @@ tbody tr:hover td { background: #FAFAFB; }
 .cal-dia.futuro { cursor: pointer; }
 .cal-dia.futuro:hover { background: var(--surface-2); }
 .cal-dia.hoy { color: var(--accent-strong); font-weight: 600; }
-.cal-dia.hoy::before { content: ""; position: absolute; inset: 0; border: 2px solid var(--accent); pointer-events: none; }
+/* Hoy: barra violeta arriba (el día elegido lleva el borde completo, .seleccionado) */
+.cal-dia.hoy::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--accent); pointer-events: none; }
 /* Días con turnos: número + barra de color según el estado */
 .cal-dia.con-turno, .cal-dia.con-turno-pendiente, .cal-dia.con-turno-pendiente-yo,
 .cal-dia.con-turno-pendiente-ellos, .cal-dia.con-turno-cancelado { cursor: pointer; }
@@ -213,7 +214,7 @@ tbody tr:hover td { background: #FAFAFB; }
 .cal-dia.con-turno-cancelado { color: var(--text-4); text-decoration: line-through; }
 .cal-dia:hover { background: var(--surface-2); }
 .cal-dia.vacio:hover, .cal-dia.pasado:not([onclick]):hover { background: inherit; }
-.cal-dia.seleccionado { background: var(--accent-soft); }
+.cal-dia.seleccionado { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
 .cal-dia.reprog-valido { background: var(--ok-bg); color: var(--ok); cursor: pointer; font-weight: 600; }
 .cal-dia.reprog-valido:hover { background: #DCFCE7; }
 .cal-dia.reprog-invalido { color: var(--text-4); background: #FBFBFC; }
