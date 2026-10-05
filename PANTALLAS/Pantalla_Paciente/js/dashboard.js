@@ -1090,6 +1090,7 @@ async function refrescarBadgeNotif() {
 async function abrirCasillaNotificaciones() {
     let notifs = [];
     try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) {}
+    window._notifsCasilla = notifs;
 
     let overlay = document.getElementById("casilla-overlay");
     if (overlay === null) {
@@ -1103,10 +1104,10 @@ async function abrirCasillaNotificaciones() {
     const items = notifs.length === 0 ? '<p style="color:#888;padding:20px">No tenes notificaciones.</p>' :
         notifs.map(function(n) {
             const link = (n.link !== null && n.link !== "") ?
-                '<button onclick="unirseDesdeCasilla(\'' + n.link + '\', ' + n.idNotificacion + ')" style="margin-top:8px;padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold">Unirse / Ver sala</button>' : "";
+                '<button onclick="unirseDesdeCasilla(' + n.idNotificacion + ')" style="margin-top:8px;padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold">Unirse / Ver sala</button>' : "";
             return '<div style="background:' + (n.leida ? "#f8f8f8" : "#eef5ff") + ';border-left:4px solid ' + (n.leida ? "#ccc" : "#0d6efd") + ';border-radius:8px;padding:12px 14px;margin-bottom:10px">' +
-                '<div style="font-weight:bold;color:#333;margin-bottom:4px">' + n.titulo + '</div>' +
-                '<div style="font-size:13px;color:#555">' + n.mensaje + '</div>' +
+                '<div style="font-weight:bold;color:#333;margin-bottom:4px">' + YS.esc(n.titulo) + '</div>' +
+                '<div style="font-size:13px;color:#555">' + YS.esc(n.mensaje) + '</div>' +
                 '<div style="font-size:11px;color:#aaa;margin-top:4px">' + n.fecha + '</div>' +
                 link +
                 '</div>';
@@ -1125,7 +1126,9 @@ async function abrirCasillaNotificaciones() {
     refrescarBadgeNotif();
 }
 
-async function unirseDesdeCasilla(codigoSala, idNotif) {
+async function unirseDesdeCasilla(idNotif) {
+    const codigoSala = (window._notifsCasilla || []).find(function(n) { return n.idNotificacion === idNotif; })?.link;
+    if (!codigoSala) return;
     try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
     window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
 }
