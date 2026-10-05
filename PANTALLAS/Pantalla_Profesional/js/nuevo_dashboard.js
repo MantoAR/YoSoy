@@ -561,133 +561,10 @@ async function eliminarHorario(id) {
     } catch { toast('Error de conexión', 'error'); }
 }
 
-async function responderTurno(id, aceptar) {
-    try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-        turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
-        if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); activarTab('agenda'); }
-        else if (r.status === 409) await avisoConsentimiento(r);
-        else toast('Error al responder', 'error');
-    } catch { toast('Error de conexión', 'error'); }
-}
-
-async function crearTurnoProfesional() {
-    const msg = document.getElementById('nt-msg');
-    const idPac = document.getElementById('nt-paciente').value;
-    const fecha = document.getElementById('nt-fecha').value;
-    const hora  = document.getElementById('nt-hora').value;
-    const modalidad = document.getElementById('nt-modalidad').value;
-    const motivo    = document.getElementById('nt-motivo').value;
-
-    if (!idPac || !fecha || !hora) { msg.style.color='#e74c3c'; msg.textContent='Completá paciente, fecha y hora.'; return; }
-
-    try {
-        const r = await fetch(`${API}/turnos/profesional-solicitar`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ idPaciente:parseInt(idPac), idProfesional, fecha, hora:hora+':00', modalidad, motivo: motivo||null })
-        });
-        if (r.ok) { toast('Turno enviado al paciente'); activarTab('agenda'); }
-        else { msg.style.color='#e74c3c'; msg.textContent='Error al crear el turno.'; }
-    } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
-}
-
-async function renderTodosLosTurnos() {
-    let turnos = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
-        turnos = await r.json();
-    } catch { return '<div class="sin-turnos">Error al cargar.</div>'; }
-
-    const futuros = turnos
-        .filter(t => new Date(t.fecha) >= new Date() && t.idEstadoTurno !== 3)
-        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
-    if (!futuros.length) return '<div class="sin-turnos">Sin turnos próximos.</div>';
-
-    const pacientes = {};
-    await Promise.all(futuros.map(async t => {
-        try { const r = await fetch(`${API}/pacientes/${t.idPaciente}`); pacientes[t.idPaciente] = await r.json(); } catch {}
-    }));
-
-    const estadoBadge = { 1:'badge-pendiente', 2:'badge-confirmado', 3:'badge-cancelado', 4:'badge-realizado' };
-    const estadoLabel = { 1:'Pendiente', 2:'Confirmado', 3:'Cancelado', 4:'Realizado' };
-
-    return `<div class="turnos-lista">` + futuros.map(t => {
-        const fecha = new Date(t.fecha);
-        const p = pacientes[t.idPaciente];
-        return `
-        <div class="turno-item">
-            <div class="turno-fecha-bloque">
-                <div class="turno-fecha-dia">${fecha.getDate()}</div>
-                <div class="turno-fecha-mes">${fecha.toLocaleString('es-AR', {month:'short'})}</div>
-            </div>
-            <div class="turno-info">
-                <div class="turno-paciente">${p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente}</div>
-                <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + t.motivo : ''}</div>
-            </div>
-            <span class="badge-estado ${estadoBadge[t.idEstadoTurno] ?? ''}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
-        </div>`;
-    }).join('') + `</div>`;
-}
-
 function fmtHora(h) {
     if (!h) return '—';
     return h.substring(0, 5);
 }
-
-async function pacientes() {
-    const c = document.getElementById('contenido');
-    let lista = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/pacientes`);
-        lista = await r.json();
-    } catch {}
-
-    c.innerHTML = `
-        <div class="titulo-seccion">Mis Pacientes</div>
-        <div class="card">
-            ${!lista.length ? '<div class="sin-turnos">No tenés pacientes asignados.</div>' : `
-            <div class="tabla-wrapper">
-                <table>
-                    <thead><tr>
-                        <th>Nombre</th>
-                        <th>DNI</th>
-                        <th>Mail</th>
-                        <th>Teléfono</th>
-                        <th></th>
-                    </tr></thead>
-                    <tbody>
-                        ${lista.map(p => `
-                        <tr>
-                            <td>${[p.nombre, p.apellido].filter(Boolean).join(' ')}</td>
-                            <td>${p.dni ?? '—'}</td>
-                            <td>${p.mail ?? '—'}</td>
-                            <td>${p.telefono ?? '—'}</td>
-                            <td>
-                                <button class="btn-ver" onclick="verHistoria(${p.idPaciente}, '${escHtml([p.nombre, p.apellido].filter(Boolean).join(' '))}')">Historia</button>
-                                <button class="btn-sesion" onclick="activarTab('sesion')">Sesión</button>
-                            </td>
-                        </tr>`).join('')}
-                    </tbody>
-                </table>
-            </div>`}
-        </div>
-
-        <div class="modal-overlay" id="modalHistoria">
-            <div class="modal-box">
-                <div class="modal-header">
-                    <span class="modal-titulo" id="modalTitulo">Historia Clínica</span>
-                    <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
-                </div>
-                <div class="modal-body" id="modalBody"></div>
-            </div>
-        </div>
-    `;
-}
-
-function escHtml(s) { return s.replace(/'/g, "\\'"); }
 
 function cerrarModal() {
     document.getElementById('modalHistoria')?.classList.remove('visible');
@@ -769,18 +646,6 @@ function renderDatosPaciente(p) {
             <div class="dato-item"><span class="dato-label">Domicilio</span><span class="dato-valor">${YS.esc(p.domicilio ?? '—')}</span></div>
         </div>
     `;
-}
-
-function renderEvoluciones(lista) {
-    if (!lista?.length) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
-    return lista.map(e => `
-        <div class="evolucion-item">
-            <div class="evolucion-fecha">${new Date(e.fecha).toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
-            ${e.diagnostico ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnóstico</div><div class="evolucion-bloque-texto">${e.diagnostico}</div></div>` : ''}
-            ${e.observaciones ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones / Transcripción IA</div><div class="evolucion-bloque-texto">${e.observaciones}</div></div>` : ''}
-            ${e.planTratamiento ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Emociones / Plan</div><div class="evolucion-bloque-texto">${e.planTratamiento}</div></div>` : ''}
-        </div>
-    `).join('');
 }
 
 // ── RN-02: consentimiento de telemedicina ───────────────────
