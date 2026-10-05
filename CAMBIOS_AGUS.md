@@ -3,7 +3,26 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0 a 4 terminados. Paso 5 en curso: listos acceso y registro, el Inicio de cada rol, los listados del Configurador (sin Bootstrap) y la corrección de XSS en cuatro pantallas. Faltan historia clínica y sesiones, consentimiento y perfil.
+**Estado:** Pasos 0 a 6 terminados. Son 62 commits locales sobre `rediseno-visual`; no se hizo ningún push.
+Al cierre:
+- `dotnet build`: 0 errores y los mismos 167 warnings de nulabilidad que había al empezar;
+- `dotnet test`: 96 de 96;
+- el recorrido de todas las pantallas de los tres roles no muestra errores en la consola.
+
+---
+
+## Para revisar primero
+
+1. **Seguridad: XSS almacenado** en el configurador, el profesional, el paciente y la sesión de video. Son 5 commits `fix`; el detalle está en el Paso 5 y en la tabla de bugs. Es lo más importante de la rama: un paciente podía ejecutar código en la sesión del profesional o del configurador.
+2. **Decisiones que tocan comportamiento.** Ninguna se activó sola; todas están detalladas más abajo.
+   - El cierre de sesión por inactividad nunca funcionó (bug 13). No lo activé porque cortaría las videollamadas largas.
+   - La autoconfirmación de la agenda del profesional quedó apagada (Paso 4).
+   - "Confirmar" desde el Inicio un turno que propuso el mismo profesional ahora pregunta antes. El botón sigue.
+   - Asignar o cambiar de profesional en el configurador ya no preselecciona el primero de la lista.
+   - Los avisos flotantes del paciente muestran como máximo tres. El resto queda en la campana.
+3. **Migración:** `migrations/add_lectura_conversacion.sql` (Paso 3). Sin ella, la bandeja de chats da error.
+4. **Merge con `videollamadas-seguras`:** va a tener conflictos en casi todo `PANTALLAS/`. Hay una guía en "Pendientes".
+5. **Cómo probar:** ver la última sección. Las capturas de antes y después y las pruebas de interfaz quedaron en `docs/` como carpetas locales, sin versionar.
 
 ---
 
@@ -295,7 +314,7 @@ La agenda Día/Semana/Mes ya venía de `rediseno-visual`. En este paso se corrig
 - la firma del consentimiento de telemedicina del paciente 13;
 - mensajes del simulador con el teléfono 1155550002.
 
-### Paso 5: resto de las pantallas (en curso)
+### Paso 5: resto de las pantallas
 
 **Acceso y registro.**
 - Login, acuerdo, registro de paciente y de profesional, crear cuenta profesional y restablecer contraseña usan el sistema de diseño (`shared/acceso.css`) y ya no cargan Bootstrap.
@@ -346,28 +365,199 @@ La agenda Día/Semana/Mes ya venía de `rediseno-visual`. En este paso se corrig
 
 > **Cambio de comportamiento menor:** asignar y cambiar de profesional ya no preseleccionan el primero de la lista; hay que elegirlo. Si el servidor falla, el modal queda abierto con su mensaje en lugar de cerrarse.
 
-**Seguridad: XSS almacenado en cuatro pantallas** (un commit por pantalla).
-- **El problema:** datos que escribe un rol se insertaban como HTML en la pantalla de otro:
-  - el informe de admisión y los nombres del paciente, en el Configurador;
-  - el motivo del turno y la historia clínica, en la pantalla del profesional;
-  - nombre y datos del profesional, en la del paciente;
-  - los nombres en el select de la sesión de video.
-- **Ejemplo:** un paciente podía poner `<img src=x onerror=...>` en su nombre o en el motivo de un turno, y se ejecutaba en la sesión del profesional o del configurador.
-- **Botones "Historia" y "Solicitar cambio":** pasaban el nombre dentro del `onclick` con un escape incompleto. Ahora pasan solo ids.
-- **Cómo se probó:** se interceptaron las respuestas de la API en el navegador, sin tocar la base. La versión anterior ejecuta el código inyectado y la nueva lo muestra como texto.
+**Historia clínica y sesiones (profesional).**
+- **Mis pacientes:** tabla con `YS.tabla`:
+  - búsqueda;
+  - filtro "Asignaciones nuevas";
+  - estado vacío;
+  - "Actualizar" en el encabezado.
+- **"Sesión"** abre la sala de video con ese paciente ya elegido. Antes abría la sala sin paciente.
+- **Historia clínica:** modal del sistema con tres pestañas accesibles (datos, evoluciones y sesiones clínicas), contadores y estados vacíos.
+  - Se cierra con Esc o con un clic afuera.
+  - Desde ahí se puede abrir la sesión de video.
+- **Asignaciones nuevas:**
+  - "Devolver a admisión" pide el motivo en un modal validado. Antes era un `prompt()`.
+  - Proponer el primer turno valida fecha y hora en el campo y no deja elegir una fecha pasada.
+- **Aviso de RN-02** (paciente sin consentimiento): modal del sistema con el link para copiar.
+- **Reportes:** avisos del sistema en lugar de `alert()`. El CSV de "Mis atenciones" ahora sale con BOM (bug 15).
+- **Mis horarios y cita urgente:**
+  - mostrar y ocultar con clases, sin estilos inline;
+  - validación en el campo (horas faltantes, fin antes que inicio);
+  - el mensaje del servidor cuando algo falla;
+  - la cita urgente avisa si el paciente no firmó el consentimiento, igual que al entrar a una sala desde el Inicio.
 
-**Bugs corregidos en este paso** (cada uno en su commit):
-- **Bug 10:** "Ver todos los turnos" no hacía nada. El router comparaba la sección pero no los parámetros (`#turnos?paciente=N` → `#turnos`).
-- **Bug 11:** al abrir desde el aviso una conversación que ya estaba elegida, no se bajaba al mensaje nuevo y la conversación nunca quedaba leída.
-- **Bug 12:** editar una agenda desde el Configurador siempre daba 400. `disponible` viajaba como texto `"true"`; ahora se elige con Sí/No y se manda como booleano.
+**Sesiones de video.**
+- Bug 7: la sala del paciente toma el código de `?sala=`, que traen el panel, la campana y la notificación.
+- Las dos páginas usan la tipografía, los colores y los botones del sistema, sin estilos inline estáticos. Se mantienen los mismos ids, el mismo WebRTC, la misma señalización y face-api.
+- Los `alert()` de la sesión del profesional pasan al aviso de la página.
 
-**Datos de prueba en la base local:** solo un `PUT /agendas/1` con los mismos valores que ya tenía, para comprobar el bug 12.
+> **Rediseño liviano a propósito.** `videollamadas-seguras` trae su propia versión de las dos páginas, con links con token en lugar de códigos de sala. En esa rama son archivos nuevos, así que el merge va a chocar con cualquier versión de acá.
+>
+> Lo práctico es tomar la versión de esa rama y aplicarle el sistema de diseño (`tema.css`, `ui.js`, `shell.js`).
 
-**Pruebas que se ajustaron:** varias pruebas de Playwright del Paso 3 y del Paso 4 dependían de datos que cambian con cada corrida. Ahora calculan lo esperado desde la API, o usan datos inventados en el navegador para no escribir en la base.
+**Consentimiento.**
+- Muestra un estado de carga mientras consulta. Antes quedaba en blanco.
+- Si el servidor falla, ofrece "Reintentar". Antes cualquier error mostraba "tenés que ingresar con tu usuario"; eso ahora queda solo para 401/404 o cuando no hay sesión.
+- Botones y alertas del sistema.
+- La firma, la versión del texto y RN-02 no cambian. El texto legal sigue siendo el marcador `[COMPLETAR CON TEXTO LEGAL VALIDADO]`.
+
+**Perfiles** ("Mis datos" del paciente y "Mi perfil" del profesional).
+- Formularios del sistema, con etiquetas asociadas a sus campos y `autocomplete`.
+- Validación en el campo con las mismas reglas que el registro: DNI de 7 a 9 números, mail válido, teléfono y fecha de nacimiento no futura. El mail es obligatorio para el profesional, porque ahí le llegan los avisos.
+- Un aviso al guardar y el mensaje del servidor si falla.
+- Bug 16: un campo opcional que estaba en NULL y se deja vacío se manda como `null`. Antes, guardar sin tocar nada cambiaba NULL por `""`.
+
+**Paciente.**
+- **Mis profesionales:** tarjetas con avatar. "Solicitar cambio" abre un modal del sistema; el motivo sigue siendo opcional.
+- **Informe de admisión:**
+  - formulario del sistema, con tildes y voseo;
+  - "¿Cuál?" aparece solo si se contesta "Sí", y si se contesta "No" ya no se manda el detalle que había quedado escondido;
+  - especialidad y motivo validados en el campo.
+- **Avisos flotantes:** como máximo tres, primero los que tienen una acción, más "Tenés N avisos más · Ver todos", que abre la campana. Antes, con datos reales, se apilaban quince tarjetas.
+- **Confirmaciones del sistema:** cancelar turno pide confirmar con botón de peligro y "Volver". El aviso de RN-02 ofrece "Firmar ahora" / "Más tarde".
+
+**Seguridad: XSS almacenado.** Al seguir revisando aparecieron más lugares, en total 5 commits:
+- `a9eeb16`: configurador. El informe de admisión, la historia clínica y los nombres en Usuarios y en los modales.
+- `7e62c59`: profesional. El motivo del turno (lo escribe el paciente), el nombre y los datos del paciente en el panel del día, la vista semanal, Mis pacientes y la historia clínica. Además, el botón "Historia" pasaba el nombre en el `onclick` sin escapar `&quot;`.
+- `9491bcb`: paciente. Nombre, especialidad, mail y teléfono del profesional, y motivo y modalidad del turno.
+- `6d7d641`: sesión de video del profesional. Los nombres en el select de pacientes.
+- `327d9b3`: paciente. Título y mensaje de las notificaciones flotantes y el estado del informe de admisión. El código de la sala viajaba dentro del `onclick`.
+
+Cada uno se probó interceptando las respuestas de la API en el navegador, sin tocar la base. La versión anterior ejecuta el código inyectado y la nueva lo muestra como texto.
+
+### Paso 6: consolidación
+
+- **Una sola capa de `fetch`.** Los 90 `fetch()` directos de los paneles de paciente, profesional y configurador y de la página de consentimiento pasan a `YS.fetch`:
+  - la misma base de la API en todas las pantallas;
+  - `X-Usuario-Id` en todos los pedidos, así la auditoría registra quién hizo cada acción en lugar de 0;
+  - un error con mensaje legible cuando no hay conexión;
+  - un 401 lleva a "sesión vencida".
+
+  Fue un reemplazo mecánico: mismas rutas, métodos y cuerpos. Las dos sesiones de video no cargan `ui.js` y siguen con `fetch`.
+- **`toast()` y `confirmar()`.** Los de cada pantalla ahora delegan en `YS.toast` / `YS.confirmar`. No queda ningún `alert()`, `confirm()` ni `prompt()` en las pantallas en uso.
+- **Estilos incrustados** (`style=`, `.style.`, `cssText`), al cierre:
+
+  | Archivo | `main` | al cierre | Qué queda |
+  |---|---|---|---|
+  | `Pantalla_Profesional/js/nuevo_dashboard.js` | 155 | 10 | Geometría de la vista semanal (posiciones y alturas calculadas) |
+  | `Pantalla_Paciente/js/dashboard.js` | 113 | 0 | |
+  | `Pantalla_Configurador/js/dashboard.js` | 71 | 0 | |
+  | `Pantalla_Profesional/sesion_video.html` | 21 | 2 | Ancho de las barras de emociones y color del punto del historial (cambian en vivo) |
+  | `Pantalla_Usuario/Usuario/registro_profesional.html` | 6 | 0 | |
+  | `Pantalla_ChatSimulado/js/bandeja.js` | nuevo | 2 | Alto automático del cuadro de texto |
+  | `js/sesion.js` | 15 | 15 | No se tocó (ver bug 13) |
+
+- **Código muerto quitado:**
+  - **Profesional:** `responderTurno()`, `crearTurnoProfesional()` y `renderTodosLosTurnos()`, que no tenían llamadas. También las versiones viejas de `pacientes()` y `renderEvoluciones()`, pisadas por otra declaración con el mismo nombre, y `escHtml()`.
+  - **Paciente:** el modal "Solicitar turno" (`abrirModalTurno()`, `actualizarHorasDisponibles()`, `cerrarModalTurno()`, `enviarSolicitudTurno()`), que ningún botón abría.
+  - **CSS:** 89 selectores de componentes que ya no existen en paciente y profesional. El CSS del configurador pasó de 210 a 106 líneas: se fueron los ajustes a Bootstrap y los componentes propios que reemplazó el sistema.
+  - Cada clase se verificó contra todo el HTML/JS, incluidas las páginas sin uso.
+- **La guía de componentes** muestra `YS.tabla` con un ejemplo de uso.
+- **"Victoria"** no aparece en el código, los textos ni los mensajes de commit.
+- **Backend:** sin cambios en este paso.
+
+---
+
+## Bugs encontrados y corregidos
+
+| # | Bug | Commit |
+|---|---|---|
+| 1 | `/profesionales/{id}/turnos-confirmados` respondía 500 (formato de `TimeSpan`) | `8fc5973` |
+| 2 | `generar-sala` respondía 500 y no avisaba al paciente | `7ee939d` |
+| 3 | `creadoPor` no llegaba al frontend: Aceptar/Rechazar nunca aparecía y el paciente no podía confirmar una propuesta | `5e9f89f`, `832d1ed` |
+| 4 | "Mis horarios" no ordenaba por día y al editar perdía el día | `aeacefa` |
+| 5 | Con dos turnos el mismo día, reprogramar actuaba sobre el primero | `256dc37` |
+| 6 | Cerrar sesión en el configurador no limpiaba `localStorage` | `0124128` (shell) |
+| 7 | La sala del paciente ignoraba `?sala=` | `eb90f3a` |
+| 8 | HTML mal cerrado en el acuerdo de atención | `d5bb4b9` |
+| 9 | Después de reprogramar, `null.getDate()` | `81e07df` |
+| 10 | "Ver todos los turnos" no hacía nada: el router ignoraba los parámetros | `1d5224e` |
+| 11 | Chats: al abrir desde el aviso una conversación ya elegida, no se veía el mensaje nuevo ni quedaba leída | `4217d45` |
+| 12 | Editar una agenda desde el configurador siempre daba 400 (`disponible` iba como texto) | `5d23c16` |
+| 13 | El aviso y el cierre de sesión por inactividad (`js/sesion.js`) nunca se muestran | **No se corrigió** (ver abajo) |
+| 14 | La cita urgente pedida después de las 21 quedaba para el día siguiente (fecha en UTC) | `359ead2` |
+| 15 | El CSV de "Mis atenciones" mostraba mal los acentos en Excel (faltaba el BOM) | `9ae94b4` |
+| 16 | Guardar un perfil sin tocar nada cambiaba NULL por `""` | `318b604` |
+| 17 | "Confirmar" desde el Inicio confirmaba una propuesta propia sin preguntar | `00d874e` |
+| — | XSS almacenado (5 lugares) | `a9eeb16`, `7e62c59`, `9491bcb`, `6d7d641`, `327d9b3` |
+
+Menores, corregidos dentro de commits de estilo:
+- editar desde la tabla del configurador se rompía con un apóstrofo en los datos (`0e7ba80`);
+- cancelar un turno desde la agenda del profesional no revisaba la respuesta (`aa849fd`);
+- el calendario del profesional mostraba la vista Mes un instante al abrirse (`76e7c8a`).
+
+> **Bug 13, para decidir con el equipo: cierre por inactividad.**
+>
+> - **Qué pasa:** `js/sesion.js` crea un contenedor con el mismo id que el overlay que tiene adentro. `getElementById` devuelve el contenedor y muestra ese, mientras el overlay sigue con `display:none`. Ni el aviso de "1 minuto" ni el de "sesión expirada" aparecieron nunca: en la práctica nadie pierde la sesión por inactividad. Se comprobó adelantando el reloj del navegador.
+> - **Por qué no lo arreglé:** la sala de video del profesional va en un iframe, y lo que pasa adentro (hablar, mirar el video) no cuenta como actividad de la página que lo contiene. Activarlo cortaría con "sesión expirada" cualquier videollamada de más de 10 minutos en la que no se toque el panel.
+> - **Para activarlo:** pausar el contador mientras la sala está abierta, o contar la actividad del iframe con `postMessage`. `videollamadas-seguras` conserva la misma estructura con ids duplicados.
+
+## Pantallas: estado final
+
+| Pantalla | Estado |
+|---|---|
+| Login, acuerdo, registro de paciente y de profesional, crear cuenta profesional, restablecer contraseña | Rediseñadas, sin Bootstrap |
+| Inicio de los tres roles | Rediseñados, como tableros con datos reales |
+| Agenda Día/Semana/Mes (profesional y paciente) | Venía de `rediseno-visual`; bugs y colores corregidos en el Paso 4 |
+| Mis horarios, cita urgente | Rediseñados |
+| Mis pacientes e historia clínica | Rediseñados |
+| Configurador: 16 secciones con listados, Usuarios y modales | Rediseñados con `YS.tabla`, sin Bootstrap |
+| Chats | Rehechos como cajón desde la barra (Paso 3) |
+| Consentimiento | Rediseñado (Paso 2) y pulido (Paso 5) |
+| Perfiles, informe de admisión, Mis profesionales | Rediseñados |
+| Reportes | Botones y avisos del sistema; el gráfico del configurador no se tocó |
+| Sesiones de video (las dos) | Rediseño liviano a propósito (merge) |
+| Aviso de inactividad (`js/sesion.js`) | Sin tocar (bug 13) |
+| Panel viejo del profesional (`Pantalla_Profesional/dashboard.html`) | Sin uso; no se toca |
+
+## Archivos y código sin uso (estado final)
+
+Siguen sin tocarse, para no generar conflictos "modificado vs. borrado" con `videollamadas-seguras`:
+- `Pantalla_Profesional/dashboard.html`, `js/dashboard.js` y `css/dashboard.css`;
+- `Pantalla_Usuario/Usuario/consentimiento_crear_cuenta.html`;
+- `Pantalla_Configurador/css/estilos.css`.
+
+Las funciones sin uso que estaban dentro de archivos que igual se reescribieron sí se quitaron (Paso 6).
+
+## Migraciones
+
+- `migrations/add_lectura_conversacion.sql` (Paso 3): agrega `Conversacion.IdUltimoMensajeLeido`. Es idempotente y está aplicada en la base local. La bandeja de chats la necesita.
+- No hay otros cambios de esquema.
+
+## Datos de prueba que quedaron en la base local
+
+- **Paso 3:**
+  - mensajes del simulador con el teléfono 1155550002 (conversación 4), que crecen con cada corrida de `p3_chats`;
+  - la conversación 4 se cerró y la reabrió el bot.
+- **Paso 4:**
+  - el turno 1007 reprogramado al 5/10;
+  - la propuesta 2007, confirmada por el paciente 13;
+  - la firma del consentimiento de telemedicina del paciente 13;
+  - un código de sala en el turno 1006.
+- **Pasos 5 y 6:**
+  - `PUT` con los mismos valores a `/agendas/1`, `/pacientes/1` y `/profesionales/1`, para comprobar guardados (los datos no cambian).
+  - El `segundoNombre` del profesional 1 pasó de NULL a `""` en una prueba (el bug 16) y se volvió a NULL con la API.
+  - **Una prueba confirmó por error el turno 1** (11/08, paciente 1). Se volvió a Pendiente con la API. Quedaron los avisos que había generado: la notificación 1010 "Turno confirmado" del paciente 1, los registros de envío 1018 (Chat) y 1019 (App) y el mensaje 1190 en la conversación 1. No los borré porque no se borran datos.
+  - Las notificaciones del paciente 1 quedaron leídas, porque una prueba abrió su campana. `p2_paciente` y `p2_profesional` también las marcan al abrirla.
 
 ## Pendientes
 
-_(se completan en cada paso)_
+- **Decidir con el equipo:**
+  - el cierre por inactividad (bug 13);
+  - la autoconfirmación (Paso 4);
+  - si se quita el "Confirmar" de las propuestas propias en el Inicio del profesional (bug 17);
+  - las respuestas rápidas de `plantillas.json`;
+  - el texto legal del consentimiento.
+- **Merge con `videollamadas-seguras`.** Esa rama toca unos 40 archivos de `PANTALLAS/`: login en React, `js/sesion.js`, las dos `sesion_video.html` y los JS de profesional y paciente. Sugerencia:
+  - **paneles** (`nuevo_dashboard.js`, `Pantalla_Paciente/js/dashboard.js`, configurador): quedarse con los de esta rama y portar las validaciones y el uso del token de la otra;
+  - **sesiones de video:** tomar las de esa rama y aplicarles el sistema de diseño;
+  - **login:** decidir entre la versión en React y el HTML de esta rama, que mantiene los mismos ids y flujos;
+  - **`js/sesion.js`:** tomar el de esa rama y resolver el bug 13 de una vez;
+  - **endpoints** `/profesionales/activar-cuenta` y `/recuperacion-password/reset`: vienen con ese merge. Hasta entonces, crear cuenta profesional y restablecer contraseña muestran el error del servidor.
+- **Backend:**
+  - Los datos del tutor de un menor no se guardan en el registro (pendiente anterior).
+  - Usuarios del configurador pide los profesionales de cada paciente por separado (un pedido por paciente). Con muchos pacientes conviene un endpoint que los traiga juntos.
+- **Identidad:** `X-Usuario-Id` lo declara el navegador y no está firmado. Lo reemplaza el JWT de `videollamadas-seguras` (ver `Services/AutorizacionReporte.cs`).
 
 ## Ideas futuras (no se construyen)
 
@@ -385,4 +575,8 @@ dotnet test YoSoy.Tests/YoSoy.Tests.csproj
 $env:Email__Password = " "; dotnet run
 ```
 
-La app queda en `http://localhost:5000/pantallas/index.html`.
+- La app queda en `http://localhost:5000/pantallas/index.html` y la guía de componentes en `/pantallas/shared/guia-componentes.html`.
+- La bandeja de chats necesita la migración `add_lectura_conversacion.sql` y la mensajería simulada encendida (`Mensajeria:ChatSimuladoHabilitado`, solo local).
+- **Pruebas de interfaz:** `docs/pruebas-ui-cambios-agus/`. Son scripts de Playwright con Edge; su `README.md` explica cómo correrlas y cuáles escriben en la base.
+- **Capturas:** `docs/capturas-cambios-agus/`. En `antes/` está el recorrido del Paso 0, previo a los cambios; en `despues/`, las mismas pantallas al cierre, más modales y detalles.
+- Las dos carpetas están excluidas en `.git/info/exclude`: quedan solo en esta máquina.
