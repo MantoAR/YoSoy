@@ -846,7 +846,7 @@ async function renderAdmision(c) {
             const inf = await r.json();
             c.innerHTML = '<div class="card card--angosta">' +
                 '<div class="titulo-tarjeta">Tu informe de admision ya fue enviado</div>' +
-                '<p class="mb-12">Estado actual: <span class="panel-estado-badge estado-' + String(inf.estado).replace(/\s+/g, '-') + '">' + inf.estado + '</span></p>' +
+                '<p class="mb-12">Estado actual: <span class="panel-estado-badge estado-' + YS.esc(String(inf.estado).replace(/\s+/g, '-')) + '">' + YS.esc(inf.estado) + '</span></p>' +
                 '<p class="texto-suave">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
                 '</div>';
             return;
@@ -940,6 +940,7 @@ async function cargarNotificaciones() {
     let notifs = [];
     try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
     const noLeidas = notifs.filter(function(n) { return n.leida === false; });
+    window._notifsFlotantes = noLeidas;
     if (noLeidas.length === 0) return;
 
     let cont = document.getElementById("notif-container");
@@ -956,10 +957,10 @@ async function cargarNotificaciones() {
         card.className = "notif-flotante";
         let botones = '<button class="ui-btn ui-btn--sm" onclick="marcarLeida(' + n.idNotificacion + ')">Cerrar</button>';
         if (n.link !== null && n.link !== "") {
-            botones = '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseEntrevista(\'' + n.link + '\', ' + n.idNotificacion + ')">Unirse a la entrevista</button>' + botones;
+            botones = '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseEntrevista(null, ' + n.idNotificacion + ')">Unirse a la entrevista</button>' + botones;
         }
-        card.innerHTML = '<div class="notif-titulo">' + n.titulo + '</div>' +
-            '<div class="notif-mensaje">' + n.mensaje + '</div>' +
+        card.innerHTML = '<div class="notif-titulo">' + YS.esc(n.titulo) + '</div>' +
+            '<div class="notif-mensaje">' + YS.esc(n.mensaje) + '</div>' +
             '<div class="notif-botones">' + botones + '</div>';
         cont.appendChild(card);
     });
@@ -974,7 +975,10 @@ async function marcarLeida(idNotif) {
     cargarNotificaciones();
 }
 
+// El código de la sala se toma de la notificación cargada (antes viajaba dentro del onclick)
 async function unirseEntrevista(codigoSala, idNotif) {
+    codigoSala ??= (window._notifsFlotantes || []).find(n => n.idNotificacion === idNotif)?.link;
+    if (!codigoSala) return;
     try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
     window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
 }
