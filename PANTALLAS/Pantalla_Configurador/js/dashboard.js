@@ -323,7 +323,7 @@ async function renderSolicitudes(c) {
     const cols = ["idProfesional", "nombre", "apellido", "dni", "mail", "matricula", "provincia", "fechaSolicitud"];
     const headers = cols.map(col => `<th>${col}</th>`).join("") + "<th>Acciones</th>";
     const filas = datos.map(row => {
-        const celdas = cols.map(c => `<td>${row[c] ?? "-"}</td>`).join("");
+        const celdas = cols.map(c => `<td>${YS.esc(row[c] ?? "-")}</td>`).join("");
         return `<tr>${celdas}<td>
             <button class="btn-ok" onclick="aprobarSolicitud(${row.idProfesional})">Aprobar</button>
             <button class="btn-ko" onclick="rechazarSolicitud(${row.idProfesional})">Rechazar</button>
