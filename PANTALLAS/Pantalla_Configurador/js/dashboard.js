@@ -186,14 +186,14 @@ function renderCardsUsuarios() {
 
     document.getElementById("listaPacientes").innerHTML = pacientes.map(p => `
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="pac-${p.idPaciente}" onclick="seleccionarPaciente(${p.idPaciente})">
-            <div class="usr-nombre">${p.nombre ?? "-"}</div>
-            <div class="usr-sub">DNI: ${p.dni ?? "-"} &bull; ${p.estado ?? "-"}</div>
+            <div class="usr-nombre">${YS.esc(p.nombre ?? "-")}</div>
+            <div class="usr-sub">DNI: ${YS.esc(p.dni ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
         </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
 
     document.getElementById("listaProfesionales").innerHTML = profesionales.map(p => `
         <div class="usr-card${mostrarBaja ? " usr-card-inactivo" : ""}" id="prof-${p.idProfesional}" onclick="seleccionarProfesional(${p.idProfesional})">
-            <div class="usr-nombre">${p.nombre ?? "-"}${p.apellido ? " " + p.apellido : ""}</div>
-            <div class="usr-sub">Mat: ${p.matricula ?? "-"} &bull; ${p.estado ?? "-"}</div>
+            <div class="usr-nombre">${YS.esc(YS.nombreCompleto(p) || "-")}</div>
+            <div class="usr-sub">Mat: ${YS.esc(p.matricula ?? "-")} &bull; ${YS.esc(p.estado ?? "-")}</div>
         </div>`).join("") || `<div class="split-vacio">Sin resultados.</div>`;
 
     document.getElementById("splitInfo").innerHTML = "";
@@ -237,8 +237,8 @@ function seleccionarPaciente(idPac) {
         : "";
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${pac?.nombre}</strong> tiene asignados: ${nombres.join(", ")}. ${btnCambio} ${btnAsignar} ${btnAccion}`
-        : `<strong>${pac?.nombre}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
+        ? `<strong>${YS.esc(pac?.nombre)}</strong> tiene asignados: ${YS.esc(nombres.join(", "))}. ${btnCambio} ${btnAsignar} ${btnAccion}`
+        : `<strong>${YS.esc(pac?.nombre)}</strong> no tiene profesionales asignados. ${btnAsignar} ${btnAccion}`;
 }
 
 function seleccionarProfesional(idProf) {
@@ -262,8 +262,8 @@ function seleccionarProfesional(idProf) {
         : `<button class="btn-cambio-baja" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
 
     document.getElementById("splitInfo").innerHTML = relacionados.size
-        ? `<strong>${prof?.nombre}${prof?.apellido ? " " + prof.apellido : ""}</strong> atiende a: ${nombres.join(", ")}. ${btnAccionProf}`
-        : `<strong>${prof?.nombre}</strong> no tiene turnos registrados. ${btnAccionProf}`;
+        ? `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> atiende a: ${YS.esc(nombres.join(", "))}. ${btnAccionProf}`
+        : `<strong>${YS.esc(YS.nombreCompleto(prof))}</strong> no tiene turnos registrados. ${btnAccionProf}`;
 }
 
 async function darDeBajaPaciente(idPac) {
@@ -417,11 +417,11 @@ async function abrirModalAsignar(idPac) {
 
     const opciones = window._profesionales
         .filter(p => p.estado === "Activo" && !yaAsignados.has(p.idProfesional))
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — ${p.especialidad ?? ""}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — ${YS.esc(p.especialidad ?? "")}</option>`)
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p class="modal-texto">Asignar profesional a: <strong>${pac?.nombre}</strong></p>
+        <p class="modal-texto">Asignar profesional a: <strong>${YS.esc(pac?.nombre)}</strong></p>
         <div class="campo-modal">
             <label>Profesional</label>
             <select id="selectProfAsignar" class="input-modal">
@@ -442,11 +442,11 @@ async function abrirModalCambioDirecto(idPac) {
     const opcionesOrigen = relacionados.map(idP => {
         const pro = window._profesionales.find(p => p.idProfesional === idP);
         const nombre = pro ? (pro.nombre + (pro.apellido ? " " + pro.apellido : "")) : idP;
-        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${nombre}</option>`;
+        return `<option value="${idP}" data-esp="${pro?.idEspecialidad ?? 0}">${YS.esc(nombre)}</option>`;
     }).join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
-        <p class="modal-texto">Cambio para: <strong>${pac?.nombre}</strong></p>
+        <p class="modal-texto">Cambio para: <strong>${YS.esc(pac?.nombre)}</strong></p>
         <div class="campo-modal">
             <label>Profesional actual</label>
             <select id="selectProfOrigen" class="input-modal" onchange="cargarProfesionalesDestino()">
@@ -479,7 +479,7 @@ async function cargarProfesionalesDestino() {
     const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
     const opciones = profs
         .filter(p => p.idProfesional !== idOrigen)
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}</option>`)
         .join("");
     document.getElementById("selectProfDestino").innerHTML = opciones || '<option value="">Sin profesionales disponibles</option>';
 }
@@ -493,7 +493,7 @@ async function abrirModalDeriv(idDeriv, idEsp, idProfOrigen) {
     const profs = await fetch(`${API}/profesionales/activos/especialidad/${idEsp}`).then(r => r.json());
     const opciones = profs
         .filter(p => p.idProfesional !== idProfOrigen)
-        .map(p => `<option value="${p.idProfesional}">${p.nombre}${p.apellido ? " " + p.apellido : ""} — Mat. ${p.matricula ?? "-"}</option>`)
+        .map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))} — Mat. ${YS.esc(p.matricula ?? "-")}</option>`)
         .join("");
 
     document.getElementById("modalDerivBody").innerHTML = `
@@ -717,7 +717,7 @@ function abrirModal(row) {
         const val = row[c] ?? "";
         return `<div class="campo-modal">
             <label>${c}</label>
-            <input type="text" id="field_${c}" value="${val}" class="input-modal">
+            <input type="text" id="field_${c}" value="${YS.esc(val)}" class="input-modal">
         </div>`;
     }).join("");
 
@@ -1088,7 +1088,7 @@ function verAdmision(idInforme) {
 
     const campo = function(label, valor) {
         if (valor === null || valor === undefined || valor === "") return "";
-        return '<div class="dato-admision"><span class="etiqueta-dato">' + label + '</span><span class="valor-dato">' + valor + '</span></div>';
+        return '<div class="dato-admision"><span class="etiqueta-dato">' + label + '</span><span class="valor-dato">' + YS.esc(valor) + '</span></div>';
     };
 
     const esEntrevista = a.estado === "En entrevista" || a.estado === "Rechazado";
@@ -1108,11 +1108,11 @@ function verAdmision(idInforme) {
     if (esEntrevista) {
         acciones = '<div class="caja-accion">' +
             '<h4>Derivar al profesional</h4>' +
-            (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + (a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
-            '<p class="texto-chico mb-4">Entrevista programada: ' + (a.fechaEntrevista || "-") + '</p>' +
-            '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + (a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +
+            (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
+            '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
+            '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +
             '<div class="campo-form mb-12"><label for="derObs">Observaciones de la entrevista</label>' +
-            '<textarea id="derObs" rows="3">' + (a.observacionesEntrevista || "") + '</textarea></div>' +
+            '<textarea id="derObs" rows="3">' + YS.esc(a.observacionesEntrevista || "") + '</textarea></div>' +
             '<div class="campo-form"><label for="derProf">Profesional asignado</label></div>' +
             '<div class="fila-form">' +
             '<div class="campo-form campo-form--ancho"><select id="derProf"><option value="">Cargando...</option></select></div>' +
@@ -1121,14 +1121,14 @@ function verAdmision(idInforme) {
     }
     if (esDerivado) {
         acciones = '<div class="ui-alerta ui-alerta--ok ui-alerta--bloque mt-16">' +
-            '<strong>Derivado a: ' + (a.nombreProfesionalDerivado || "-") + '</strong>' +
-            (a.observacionesEntrevista ? '<p class="mt-8 mb-0">' + a.observacionesEntrevista + '</p>' : "") +
+            '<strong>Derivado a: ' + YS.esc(a.nombreProfesionalDerivado || "-") + '</strong>' +
+            (a.observacionesEntrevista ? '<p class="mt-8 mb-0">' + YS.esc(a.observacionesEntrevista) + '</p>' : "") +
             '</div>';
     }
 
     document.getElementById("detalleAdmision").innerHTML =
         '<div class="tarjeta">' +
-        '<h3 class="tarjeta-titulo">Informe de ' + a.nombrePaciente + '</h3>' +
+        '<h3 class="tarjeta-titulo">Informe de ' + YS.esc(a.nombrePaciente) + '</h3>' +
         '<div class="grilla-2">' +
         campo("DNI", a.dni) +
         campo("Fecha de nacimiento", a.fechaNacimiento) +
@@ -1157,7 +1157,7 @@ async function cargarProfesionalesDerivacion() {
     if (sel === null) return;
     sel.innerHTML = '<option value="">Selecciona un profesional</option>' + profs
         .filter(function(p) { return p.estado === "Activo"; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + p.nombre + " " + (p.apellido || "") + '</option>'; })
+        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + '</option>'; })
         .join("");
 }
 
@@ -1199,22 +1199,22 @@ async function verHCAdmision(idPaciente) {
     const evHtml = evoluciones.map(function(e) {
         return '<div class="item-historia">' +
             '<strong>' + new Date(e.fecha).toLocaleDateString("es-AR") + '</strong>' +
-            (e.diagnostico ? '<div><em>Diagnostico:</em> ' + e.diagnostico + '</div>' : "") +
-            (e.observaciones ? '<div><em>Observaciones:</em> ' + e.observaciones + '</div>' : "") +
+            (e.diagnostico ? '<div><em>Diagnóstico:</em> ' + YS.esc(e.diagnostico) + '</div>' : "") +
+            (e.observaciones ? '<div><em>Observaciones:</em> ' + YS.esc(e.observaciones) + '</div>' : "") +
             '</div>';
     }).join("") || '<p class="texto-suave">Sin evoluciones.</p>';
 
     const sesHtml = sesiones.map(function(s) {
         return '<div class="item-historia item-historia--sesion">' +
             '<strong>' + new Date(s.fechaHora).toLocaleDateString("es-AR") + '</strong>' +
-            (s.tipoCierre ? " - " + s.tipoCierre : "") +
-            (s.notasEvolucion ? '<div>' + s.notasEvolucion + '</div>' : "") +
+            (s.tipoCierre ? " - " + YS.esc(s.tipoCierre) : "") +
+            (s.notasEvolucion ? '<div>' + YS.esc(s.notasEvolucion) + '</div>' : "") +
             '</div>';
     }).join("") || '<p class="texto-suave">Sin sesiones clinicas.</p>';
 
     document.getElementById("detalleAdmision").innerHTML +=
         '<div class="tarjeta mt-16">' +
-        '<h3 class="tarjeta-titulo">Historia Clinica - ' + (paciente !== null ? paciente.nombre : "") + '</h3>' +
+        '<h3 class="tarjeta-titulo">Historia clínica - ' + YS.esc(paciente !== null ? paciente.nombre : "") + '</h3>' +
         '<h4 class="mt-16">Evoluciones</h4>' + evHtml +
         '<h4 class="mt-16">Sesiones clínicas</h4>' + sesHtml +
         '</div>';
