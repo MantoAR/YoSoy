@@ -697,10 +697,10 @@ async function renderAuditoria(c, pagina = 1) {
         const fecha = new Date(d.fechaHora).toLocaleString("es-AR");
         return `<tr>
             <td>${fecha}</td>
-            <td>${d.accion}</td>
-            <td>${d.entidad}</td>
+            <td>${YS.esc(d.accion)}</td>
+            <td>${YS.esc(d.entidad)}</td>
             <td>${d.idEntidad ?? "-"}</td>
-            <td>${d.detalle ?? "-"}</td>
+            <td>${YS.esc(d.detalle ?? "-")}</td>
             <td>${d.idUsuario}</td>
         </tr>`;
     }).join("");
