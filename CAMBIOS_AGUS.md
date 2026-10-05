@@ -3,7 +3,7 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0 a 3 terminados. Sigue el Paso 4 (agenda).
+**Estado:** Pasos 0 a 4 terminados. Sigue el Paso 5 (resto de las pantallas).
 
 ---
 
@@ -259,6 +259,41 @@ Cambia el contenido del menú según el rol, no el esqueleto.
 - **"Cerrar derivación"** pide confirmación con el modal propio, en vez del `confirm()` nativo.
 - **Envío.** Los mensajes del equipo ahora mandan `X-Usuario-Id`, así que la "Respuesta manual en chat" queda en la auditoría. Antes no se registraba porque la pantalla no mandaba el header.
 - **Bot.** No se tocó su lógica. No aparecieron bugs nuevos en el recorrido.
+
+### Paso 4: agenda
+
+La agenda Día/Semana/Mes ya venía de `rediseno-visual`. En este paso se corrigieron cuatro bugs, cada uno en su commit:
+
+- **Bug 4: "Mis horarios de trabajo".**
+  - Ordena por número de día (`YS.dias`) y no por el texto.
+  - Al editar, el select toma bien el día guardado: con `miercoles` quedaba en "Lunes" y guardar movía el horario a lunes.
+  - Los días se muestran con su forma prolija. No se migraron datos: el backend ya normaliza el día.
+- **Bug 5: reprogramar con dos turnos activos el mismo día.** Los ids llevan el `idTurno`, así que cada turno tiene su formulario.
+- **Bug 9 (nuevo): después de reprogramar, `null.getDate()`** tiraba un error y no se actualizaba el panel.
+- **Bug 3: `creadoPor`.**
+  - `Turno` y `TurnoDetalle` lo exponen, y el pedido web del paciente lo guarda como `paciente`, igual que el bot.
+  - En la agenda del profesional aparecen Aceptar/Rechazar para los pedidos del paciente.
+  - Los turnos que propuso el profesional se ven en violeta con la etiqueta "Propuesto".
+  - El paciente tiene el botón **Confirmar turno** para las propuestas, en el panel del día y en el Inicio. RN-02 sigue aplicando: sin consentimiento, ofrece firmarlo.
+
+**Colores de estado únicos en toda la app:** confirmado verde, pendiente amarillo, propuesto violeta, cancelado gris y realizado azul. En la agenda del paciente los días que atiende el profesional pasan a violeta claro (antes verde, que es "confirmado"). Hoy lleva una barra arriba y el día elegido, un borde.
+
+> **Decisión para revisar juntos: autoconfirmación de la agenda del profesional.**
+>
+> - **Qué hace:** si el mismo día hay un pedido del paciente y una propuesta del profesional, confirma todos los pendientes de ese día.
+> - **Por qué nunca corrió:** porque `creadoPor` no llegaba.
+> - **Por qué la dejé apagada:** al arreglar `creadoPor` se hubiera activado sola, y tiene dos problemas.
+>   - Confirmaría turnos de **pacientes distintos** del mismo día.
+>   - Escribe en la base solo por abrir el calendario.
+>
+> Quedó apagada a propósito con `AUTOCONFIRMAR = false`, en `dibujarCalendarioProfesional`. Si se quiere, habría que limitarla al mismo paciente y pedir confirmación.
+
+**Datos de prueba que quedaron en la base local:**
+
+- el turno 1007 reprogramado al 5/10;
+- la propuesta 2007, confirmada por el paciente 13;
+- la firma del consentimiento de telemedicina del paciente 13;
+- mensajes del simulador con el teléfono 1155550002.
 
 
 ## Pendientes
