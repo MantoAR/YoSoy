@@ -1,45 +1,12 @@
 const API = YS.API;   // mismo origen que la página (shared/ui.js)
 
-function confirmar(msg) {
-    return new Promise(resolve => {
-        let overlay = document.getElementById("confirmOverlay");
-        if (!overlay) {
-            overlay = document.createElement("div");
-            overlay.id = "confirmOverlay";
-            overlay.innerHTML = `
-                <div class="confirm-box">
-                    <p class="confirm-msg" id="confirmMsg"></p>
-                    <div class="confirm-btns">
-                        <button class="confirm-btn-no"  id="confirmNo">Cancelar</button>
-                        <button class="confirm-btn-si"  id="confirmSi">Aceptar</button>
-                    </div>
-                </div>`;
-            document.body.appendChild(overlay);
-        }
-        document.getElementById("confirmMsg").textContent = msg;
-        overlay.classList.add("visible");
-        const cerrar = (val) => { overlay.classList.remove("visible"); resolve(val); };
-        document.getElementById("confirmSi").onclick = () => cerrar(true);
-        document.getElementById("confirmNo").onclick = () => cerrar(false);
-    });
+// Avisos y confirmaciones del sistema de diseño (shared/ui.js)
+function confirmar(msg, opciones = {}) {
+    return YS.confirmar({ mensaje: msg, ...opciones });
 }
 
 function toast(msg, tipo = "ok", duracion = 3500) {
-    let cont = document.getElementById("toast-container");
-    if (!cont) {
-        cont = document.createElement("div");
-        cont.id = "toast-container";
-        document.body.appendChild(cont);
-    }
-    const iconos = { ok: "✔", error: "✖", warn: "⚠" };
-    const t = document.createElement("div");
-    t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
-    cont.appendChild(t);
-    setTimeout(() => {
-        t.classList.add("saliendo");
-        t.addEventListener("animationend", () => t.remove());
-    }, duracion);
+    YS.toast(msg, tipo, duracion);
 }
 
 const idPaciente = localStorage.getItem("idPaciente");
@@ -401,7 +368,7 @@ async function mostrarPanelDia(dia) {
             </div>
             <div class="form-reprogramar" id="formReprogramar">
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
-                <div id="reprogDetalles" style="display:none">
+                <div id="reprogDetalles" class="oculto">
                     <div class="reprog-dia-seleccionado" id="reprogDiaLabel"></div>
                     <div class="form-fila mt-12">
                         <div class="form-grupo form-grupo--ancho">
@@ -555,7 +522,7 @@ function toggleReprogramar() {
 }
 
 async function cancelarTurno(id) {
-    if (!await confirmar("¿Cancelar este turno?")) return;
+    if (!await confirmar("¿Cancelar este turno?", { titulo: "Cancelar turno", textoConfirmar: "Cancelar turno", textoCancelar: "Volver", peligro: true })) return;
     await fetch(`${API}/turnos/${id}/cancelar`, { method: "PUT" });
     const res = await fetch(`${API}/pacientes/${idPaciente}/turnos-detalle`);
     turnosCalendario = await res.json();
@@ -608,7 +575,7 @@ function seleccionarDiaReprog(dia) {
         sel.innerHTML = `<option value="">Sin horarios ese día</option>`;
     }
 
-    document.getElementById("reprogDetalles").style.display = "block";
+    document.getElementById("reprogDetalles").classList.remove("oculto");
 }
 
 function cancelarModoReprogramar() {
@@ -656,86 +623,63 @@ async function confirmarReprogramar(idTurno) {
 
 // ── MIS PROFESIONALES ──────────────────────────────────────
 async function renderProfesionales(c) {
-    try {
-        const lista = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
-        window._misProfesionales = lista;
+    let lista;
+    try { lista = await YS.api(`/pacientes/${idPaciente}/mis-profesionales`); }
+    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('profesionales')" }); return; }
+    if (YS.shell.actual !== "profesionales") return;
+    window._misProfesionales = lista;
 
-        if (!lista.length) {
-            c.innerHTML = `<div class="card"><p class="sin-turnos">No tenés profesionales asignados aún.</p></div>`;
-            return;
-        }
-
-        const cards = lista.map(p => `
-            <div class="prof-card">
-                <div class="prof-nombre">${YS.esc(p.nombre)}</div>
-                <div class="prof-especialidad">${YS.esc(p.especialidad)}</div>
-                ${p.mail     ? `<div class="prof-dato">${YS.esc(p.mail)}</div>`     : ""}
-                ${p.telefono ? `<div class="prof-dato">${YS.esc(p.telefono)}</div>` : ""}
-                <button class="btn-solicitar-cambio" onclick="abrirModalCambio(${p.idProfesional}, ${p.idEspecialidad})">Solicitar cambio de profesional</button>
-            </div>`).join("");
-
-        c.innerHTML = `<div class="prof-lista">${cards}</div>
-
-            <!-- Modal solicitar cambio -->
-            <div class="modal-overlay-cambio" id="modalCambioOverlay" onclick="cerrarModalCambio()"></div>
-            <div class="modal-cambio" id="modalCambio">
-                <div class="modal-cambio-header">
-                    <span id="modalCambioTitulo">Solicitar cambio de profesional</span>
-                    <button class="modal-cerrar-x" onclick="cerrarModalCambio()" aria-label="Cerrar">✕</button>
-                </div>
-                <div id="modalCambioBody" class="modal-cuerpo"></div>
-                <div class="modal-pie">
-                    <button class="btn-mc-cancelar" onclick="cerrarModalCambio()">Cancelar</button>
-                    <button class="btn-mc-enviar" onclick="enviarSolicitudCambio()">Enviar solicitud</button>
-                </div>
-            </div>`;
-    } catch {
-        c.innerHTML = `<p class="texto-error">Error al cargar.</p>`;
+    if (!lista.length) {
+        c.innerHTML = `<div class="card">${YS.vacio({ icono: "pacientes", titulo: "Todavía no tenés profesionales asignados",
+            texto: "Cuando el equipo de admisión te asigne uno, va a aparecer acá." })}</div>`;
+        return;
     }
+    c.innerHTML = `<div class="prof-lista">${lista.map(p => `
+        <div class="prof-card">
+            <div class="prof-cabecera">
+                ${YS.avatar(p.nombre, "p" + p.idProfesional)}
+                <div>
+                    <div class="prof-nombre">${YS.esc(p.nombre)}</div>
+                    <div class="prof-especialidad">${YS.esc(p.especialidad || "")}</div>
+                </div>
+            </div>
+            ${p.mail     ? `<div class="prof-dato">${YS.esc(p.mail)}</div>`     : ""}
+            ${p.telefono ? `<div class="prof-dato">${YS.esc(p.telefono)}</div>` : ""}
+            <button class="ui-btn ui-btn--sm prof-cambio" onclick="abrirModalCambio(${p.idProfesional}, ${p.idEspecialidad})">Solicitar cambio de profesional</button>
+        </div>`).join("")}</div>`;
 }
 
 // ── SOLICITAR CAMBIO ────────────────────────────────────────
-let _cambioIdProfOrigen = null;
-
-function abrirModalCambio(idProfOrigen, idEsp, nombreProf = null) {
-    _cambioIdProfOrigen = idProfOrigen;
+// El motivo es opcional, como antes. El configurador elige el nuevo profesional al aceptar.
+async function abrirModalCambio(idProfOrigen, idEsp, nombreProf = null) {
     nombreProf ??= (window._misProfesionales || []).find(p => p.idProfesional === idProfOrigen)?.nombre ?? "tu profesional";
-    document.getElementById("modalCambioTitulo").textContent = `Solicitar cambio de: ${nombreProf}`;
-
-    document.getElementById("modalCambioBody").innerHTML = `
-        <p class="texto-suave mb-12">Tu solicitud será revisada por el equipo. Te avisaremos cuando sea procesada.</p>
-        <div>
-            <label class="turno-label" for="motivoCambio">Motivo</label>
-            <textarea id="motivoCambio" rows="3" class="turno-input" placeholder="Contanos por qué querés cambiar de profesional..."></textarea>
-        </div>`;
-
-    document.getElementById("modalCambioOverlay").classList.add("visible");
-    document.getElementById("modalCambio").classList.add("visible");
-}
-
-function cerrarModalCambio() {
-    document.getElementById("modalCambioOverlay").classList.remove("visible");
-    document.getElementById("modalCambio").classList.remove("visible");
-    _cambioIdProfOrigen = null;
-}
-
-async function enviarSolicitudCambio() {
-    const motivo = document.getElementById("motivoCambio").value || null;
-
-    const res = await fetch(`${API}/derivaciones`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            idPaciente:           parseInt(idPaciente),
-            idProfesionalOrigen:  _cambioIdProfOrigen,
-            idProfesionalDestino: _cambioIdProfOrigen, // el configurador elige el destino al aceptar
-            motivo
-        })
+    const motivo = await YS.pedirTexto({
+        titulo: "Solicitar cambio de profesional",
+        mensaje: `Profesional actual: ${nombreProf}. Tu solicitud será revisada por el equipo y te avisaremos cuando sea procesada.`,
+        etiqueta: "Motivo (opcional)", placeholder: "Contanos por qué querés cambiar de profesional…",
+        multilinea: true, maximo: 500, requerido: false, textoConfirmar: "Enviar solicitud"
     });
+    if (motivo === null) return;   // canceló
+    await enviarSolicitudCambio(idProfOrigen, motivo || null);
+}
 
-    cerrarModalCambio();
-    if (res.ok) toast("Solicitud enviada correctamente. El configurador la revisará.");
-    else toast("Error al enviar la solicitud.", "error");
+async function enviarSolicitudCambio(idProfOrigen, motivo) {
+    try {
+        const res = await fetch(`${API}/derivaciones`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                idPaciente:           parseInt(idPaciente),
+                idProfesionalOrigen:  idProfOrigen,
+                idProfesionalDestino: idProfOrigen, // el configurador elige el destino al aceptar
+                motivo
+            })
+        });
+        if (res.ok) toast("Solicitud enviada. El equipo la va a revisar.");
+        else toast(await YS.leerMensaje(res, "No se pudo enviar la solicitud."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    }
 }
 
 // ── MI PERFIL ──────────────────────────────────────────────
@@ -839,90 +783,100 @@ function entrarSesion() {
 }
 
 async function renderAdmision(c) {
-    // Ver si ya tiene informe enviado
-    try {
-        const r = await fetch(API + "/pacientes/" + idPaciente + "/informe-admision");
-        if (r.ok) {
-            const inf = await r.json();
-            c.innerHTML = '<div class="card card--angosta">' +
-                '<div class="titulo-tarjeta">Tu informe de admision ya fue enviado</div>' +
-                '<p class="mb-12">Estado actual: <span class="panel-estado-badge estado-' + YS.esc(String(inf.estado).replace(/\s+/g, '-')) + '">' + YS.esc(inf.estado) + '</span></p>' +
-                '<p class="texto-suave">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
-                '</div>';
-            return;
-        }
-    } catch(e) {}
+    // ¿Ya mandó el informe? (404 = todavía no)
+    let inf;
+    try { inf = await YS.api(`/pacientes/${idPaciente}/informe-admision`, { permitir404: true }); }
+    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('admision')" }); return; }
+    if (YS.shell.actual !== "admision") return;
+    if (inf) {
+        c.innerHTML = `
+            <div class="card card--angosta">
+                <div class="titulo-tarjeta">Tu informe de admisión ya fue enviado</div>
+                <p class="mb-12">Estado actual: <span class="panel-estado-badge estado-${YS.esc(String(inf.estado).replace(/\s+/g, "-"))}">${YS.esc(inf.estado)}</span></p>
+                <p class="texto-suave">Cuando el equipo de admisión revise tu informe, te vamos a contactar para coordinar la primera entrevista.</p>
+            </div>`;
+        return;
+    }
 
-    // No tiene informe: mostrar formulario
-    let especialidades = [];
-    try { especialidades = await (await fetch(API + "/especialidades")).json(); } catch(e) {}
+    const especialidades = await YS.api("/especialidades").catch(() => []);
+    if (YS.shell.actual !== "admision") return;
     const opts = especialidades
-        .filter(function(e) { return e.estado === "Activo"; })
-        .map(function(e) { return '<option value="' + e.idEspecialidad + '">' + YS.esc(e.nombre) + '</option>'; })
+        .filter(e => e.estado === "Activo")
+        .map(e => `<option value="${e.idEspecialidad}">${YS.esc(e.nombre)}</option>`)
         .join("");
+    const texto = (id, etiqueta, filas, placeholder = "") => `
+        <div class="ui-campo ui-campo--ancho"><label for="${id}">${etiqueta}</label>
+            <textarea id="${id}" class="ui-textarea" rows="${filas}" maxlength="1000" placeholder="${placeholder}"></textarea></div>`;
 
+    c.innerHTML = `
+        <div class="card card--angosta form-admision">
+            <p class="texto-suave mb-16">Completá este formulario para que el equipo de admisión pueda conocerte y asignarte el profesional adecuado. Los campos con * son obligatorios.</p>
+            <form id="formAdmision" novalidate>
+                <div class="ui-form-grid">
+                    <div class="ui-campo ui-campo--ancho"><label for="admEspecialidad">Especialidad solicitada *</label>
+                        <select id="admEspecialidad" class="ui-select"><option value="">Elegí una especialidad</option>${opts}</select></div>
+                    ${texto("admMotivo", "Motivo de consulta *", 3, "Contanos brevemente por qué buscás atención")}
+                    <div class="ui-campo"><label for="admTratAnterior">¿Hiciste algún tratamiento antes?</label>
+                        <select id="admTratAnterior" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
+                    <div class="ui-campo oculto" id="campoTratDetalle"><label for="admTratDetalle">¿Cuál?</label>
+                        <input type="text" id="admTratDetalle" class="ui-input" maxlength="300"></div>
+                    <div class="ui-campo"><label for="admMedicacion">¿Tomás alguna medicación?</label>
+                        <select id="admMedicacion" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
+                    <div class="ui-campo oculto" id="campoMedDetalle"><label for="admMedDetalle">¿Cuál?</label>
+                        <input type="text" id="admMedDetalle" class="ui-input" maxlength="300"></div>
+                </div>
 
-    c.innerHTML = '<div class="card card--angosta form-admision">' +
-        '<p class="texto-suave">Completa este formulario para que el equipo de admision pueda conocerte y asignarte el profesional adecuado.</p>' +
-
-        '<label class="ui-label">Especialidad solicitada *</label>' +
-        '<select id="admEspecialidad" class="campo-texto"><option value="">Selecciona una especialidad</option>' + opts + '</select>' +
-
-        '<label class="ui-label">Motivo de consulta *</label>' +
-        '<textarea id="admMotivo" rows="3" class="campo-texto" placeholder="Describe brevemente el motivo por el cual solicitas atencion"></textarea>' +
-
-        '<label class="ui-label">Has recibido tratamiento anteriormente?</label>' +
-        '<select id="admTratAnterior" class="campo-texto" onchange="document.getElementById(\'admTratDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
-        '<input type="text" id="admTratDetalle" class="campo-texto" style="display:none" placeholder="Indica cual">' +
-
-        '<label class="ui-label">Actualmente recibes medicacion?</label>' +
-        '<select id="admMedicacion" class="campo-texto" onchange="document.getElementById(\'admMedDetalle\').style.display = this.value === \'true\' ? \'block\' : \'none\'"><option value="false">No</option><option value="true">Si</option></select>' +
-        '<input type="text" id="admMedDetalle" class="campo-texto" style="display:none" placeholder="Cual?">' +
-
-        '<h4>Conociendote mejor</h4>' +
-        '<p class="texto-suave">Estas preguntas nos ayudan a brindarte una atencion personalizada.</p>' +
-
-        '<label class="ui-label">Gustos e intereses</label>' +
-        '<textarea id="admGustos" rows="3" class="campo-texto" placeholder="Actividades que disfrutas, hobbies, musica, peliculas o libros, deportes, que te ayuda a relajarte, algo que quieras aprender"></textarea>' +
-
-        '<label class="ui-label">Preferencias durante la atencion</label>' +
-        '<textarea id="admPreferencias" rows="3" class="campo-texto" placeholder="Como preferis que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites"></textarea>' +
-
-        '<label class="ui-label">Tipo de entrevista preferida</label>' +
-        '<select id="admTipoEntrevista" class="campo-texto"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select>' +
-
-        '<label class="ui-label">Red de apoyo</label>' +
-        '<textarea id="admRedApoyo" rows="2" class="campo-texto" placeholder="Con quien convivis? Contas con familiares o personas de confianza que te acompanen?"></textarea>' +
-
-        '<label class="ui-label">Que esperas lograr con el tratamiento?</label>' +
-        '<textarea id="admObjetivos" rows="2" class="campo-texto"></textarea>' +
-
-        '<button class="btn-primario btn-bloque" onclick="enviarAdmision()">Enviar informe de admision</button>' +
-        '</div>';
+                <div class="ui-form-seccion">Conociéndote mejor</div>
+                <p class="texto-suave mb-12">Estas preguntas nos ayudan a darte una atención personalizada. Son opcionales.</p>
+                <div class="ui-form-grid">
+                    ${texto("admGustos", "Gustos e intereses", 3, "Actividades que disfrutás, hobbies, música, películas o libros, deportes, qué te ayuda a relajarte, algo que quieras aprender")}
+                    ${texto("admPreferencias", "Preferencias durante la atención", 3, "Cómo preferís que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites")}
+                    <div class="ui-campo"><label for="admTipoEntrevista">Tipo de entrevista preferida</label>
+                        <select id="admTipoEntrevista" class="ui-select"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select></div>
+                    ${texto("admRedApoyo", "Red de apoyo", 2, "¿Con quién convivís? ¿Contás con familiares o personas de confianza que te acompañen?")}
+                    ${texto("admObjetivos", "¿Qué esperás lograr con el tratamiento?", 2)}
+                </div>
+                <div class="ui-form-acciones">
+                    <button type="submit" class="ui-btn ui-btn--primary" id="btnEnviarAdmision">Enviar informe de admisión</button>
+                </div>
+            </form>
+        </div>`;
+    // "¿Cuál?" aparece solo si se contesta que sí
+    const alternar = (select, campo) => document.getElementById(select).addEventListener("change", e =>
+        document.getElementById(campo).classList.toggle("oculto", e.target.value !== "true"));
+    alternar("admTratAnterior", "campoTratDetalle");
+    alternar("admMedicacion", "campoMedDetalle");
+    document.getElementById("formAdmision").addEventListener("submit", e => { e.preventDefault(); enviarAdmision(); });
 }
 
 async function enviarAdmision() {
-    const idEsp  = parseInt(document.getElementById("admEspecialidad").value);
-    const motivo = document.getElementById("admMotivo").value.trim();
-    if (isNaN(idEsp) || idEsp === 0) { toast("Selecciona una especialidad.", "warn"); return; }
-    if (motivo === "") { toast("Completa el motivo de consulta.", "warn"); return; }
+    const valido = YS.form.validar([
+        { id: "admEspecialidad", requerido: "Elegí la especialidad." },
+        { id: "admMotivo", requerido: "Contanos el motivo de consulta." }
+    ]);
+    if (!valido) return;
 
+    const valor = id => document.getElementById(id).value.trim() || null;
+    const tratamiento = document.getElementById("admTratAnterior").value === "true";
+    const medicacion  = document.getElementById("admMedicacion").value === "true";
     const body = {
         idPaciente:                 parseInt(idPaciente),
-        idEspecialidad:             idEsp,
-        motivoConsulta:             motivo,
-        tratamientoAnterior:        document.getElementById("admTratAnterior").value === "true",
-        tratamientoAnteriorDetalle: document.getElementById("admTratDetalle").value || null,
-        recibeMedicacion:           document.getElementById("admMedicacion").value === "true",
-        medicacionDetalle:          document.getElementById("admMedDetalle").value || null,
-        gustosIntereses:            document.getElementById("admGustos").value || null,
-        preferenciasAtencion:       document.getElementById("admPreferencias").value || null,
+        idEspecialidad:             parseInt(document.getElementById("admEspecialidad").value),
+        motivoConsulta:             valor("admMotivo"),
+        tratamientoAnterior:        tratamiento,
+        tratamientoAnteriorDetalle: tratamiento ? valor("admTratDetalle") : null,
+        recibeMedicacion:           medicacion,
+        medicacionDetalle:          medicacion ? valor("admMedDetalle") : null,
+        gustosIntereses:            valor("admGustos"),
+        preferenciasAtencion:       valor("admPreferencias"),
         tipoEntrevista:             document.getElementById("admTipoEntrevista").value,
-        redApoyo:                   document.getElementById("admRedApoyo").value || null,
-        objetivosPaciente:          document.getElementById("admObjetivos").value || null,
+        redApoyo:                   valor("admRedApoyo"),
+        objetivosPaciente:          valor("admObjetivos"),
         estado:                     "Pendiente"
     };
 
+    const boton = document.getElementById("btnEnviarAdmision");
+    boton.disabled = true;
     try {
         const r = await fetch(API + "/informes-admision", {
             method: "POST",
@@ -930,10 +884,14 @@ async function enviarAdmision() {
             body: JSON.stringify(body)
         });
         if (r.ok) {
-            toast("Informe enviado correctamente. El equipo de admision te contactara.");
+            toast("Informe enviado. El equipo de admisión te va a contactar.");
             mostrarSeccion("admision");
-        } else toast("Error al enviar el informe.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        } else toast(await YS.leerMensaje(r, "No se pudo enviar el informe."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function cargarNotificaciones() {
@@ -991,7 +949,7 @@ function propuestoPorProfesional(t) {
 }
 
 async function confirmarTurnoPaciente(idTurno) {
-    if (!await confirmar("¿Confirmar este turno?")) return;
+    if (!await confirmar("¿Confirmar este turno?", { titulo: "Confirmar turno", textoConfirmar: "Confirmar" })) return;
     try {
         const r = await fetch(API + "/turnos/" + idTurno + "/confirmar-paciente", { method: "PUT" });
         if (r.ok) {
@@ -1004,10 +962,11 @@ async function confirmarTurnoPaciente(idTurno) {
             } else mostrarSeccion(YS.shell.actual);
         } else if (r.status === 409) {
             // RN-02: falta firmar el consentimiento de telemedicina.
-            if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?"))
+            if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?",
+                                { titulo: "Falta el consentimiento", textoConfirmar: "Firmar ahora", textoCancelar: "Más tarde" }))
                 location.href = "consentimiento.html";
-        } else toast("Error al confirmar.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        } else toast(await YS.leerMensaje(r, "No se pudo confirmar el turno."), "error");
+    } catch(e) { toast("No se pudo conectar con el servidor.", "error"); }
 }
 
 // La campanita y su casilla de notificaciones ahora son la campana de la barra superior

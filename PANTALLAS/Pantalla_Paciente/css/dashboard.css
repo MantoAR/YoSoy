@@ -245,3 +245,7 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .sesion-entrada { max-width: 560px; }
 .sesion-entrada-fila { display: flex; gap: 8px; }
 .sesion-entrada-fila .ui-input { flex: 1; font-family: var(--mono); letter-spacing: .08em; }
+
+/* Mis profesionales */
+.prof-cabecera { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.prof-cambio { margin-top: 10px; align-self: flex-start; }

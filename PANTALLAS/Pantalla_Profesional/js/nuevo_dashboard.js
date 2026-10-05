@@ -1355,8 +1355,12 @@ async function confirmarSolicitudDiaProf(fechaStr) {
 }
 
 async function cancelarTurnoProf(id) {
-    if (!await confirmar('¿Cancelar este turno? Al paciente le llega el aviso.', { titulo: 'Cancelar turno', textoConfirmar: 'Cancelar turno', peligro: true })) return;
-    await fetch(`${API}/turnos/${id}/cancelar`, { method: 'PUT' });
+    if (!await confirmar('¿Cancelar este turno? El paciente lo va a ver cancelado en su panel.', { titulo: 'Cancelar turno', textoConfirmar: 'Cancelar turno', textoCancelar: 'Volver', peligro: true })) return;
+    try {
+        const r = await fetch(`${API}/turnos/${id}/cancelar`, { method: 'PUT' });
+        if (r.ok) toast('Turno cancelado.', 'warn');
+        else toast(await YS.leerMensaje(r, 'No se pudo cancelar el turno.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
     await renderCalendario();
     mostrarPanelDiaProfesional(_diaSeleccionadoProf);
 }
