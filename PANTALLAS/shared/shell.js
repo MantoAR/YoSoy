@@ -91,6 +91,7 @@
     const els = {};
     let resolverUsuario;
     const usuario = new Promise(r => resolverUsuario = r);   // { nombre, detalle } para saludar en Inicio
+    let capacidades = Promise.resolve({ mensajeria: false });
     const tituloBase = { texto: "YoSoy", contador: 0 };
 
     const plano = () => {
@@ -466,15 +467,25 @@
                         <div>${YS.esc(it.texto)}</div>
                         ${it.fecha ? `<div class="ui-aviso-fecha">${YS.esc(it.fecha)}</div>` : ""}
                     </div>`;
-                if (it.accion) {
-                    const acc = YS.el("div", { class: "ui-aviso-acciones" },
-                        YS.el("button", { class: "ui-btn ui-btn--sm" + (it.accion.tipo ? " ui-btn--" + it.accion.tipo : ""), type: "button", text: it.accion.texto, on: { click: it.accion.alClick } }));
-                    div.querySelector(".ui-aviso-cuerpo").appendChild(acc);
+                const acciones = it.acciones || (it.accion ? [it.accion] : []);
+                if (acciones.length) {
+                    div.querySelector(".ui-aviso-cuerpo").appendChild(YS.el("div", { class: "ui-aviso-acciones" },
+                        acciones.map(a => YS.el("button", { class: "ui-btn ui-btn--sm" + (a.tipo ? " ui-btn--" + a.tipo : ""), type: "button", text: a.texto, on: { click: a.alClick } }))));
                 }
                 return div;
             }));
         }
     };
+
+    // La bandeja vive en Pantalla_ChatSimulado (con el módulo apagado esa carpeta responde 404).
+    function cargarBandeja() {
+        const opciones = cfg.chats || {};
+        if (YS.bandeja) { YS.bandeja.iniciar(opciones); return; }
+        document.head.appendChild(YS.el("link", { rel: "stylesheet", href: YS.rutas.chats + "css/bandeja.css" }));
+        const s = YS.el("script", { src: YS.rutas.chats + "js/bandeja.js" });
+        s.onload = () => YS.bandeja?.iniciar(opciones);
+        document.body.appendChild(s);
+    }
 
     // ── API pública ─────────────────────────────────────────────
     YS.shell = {
@@ -505,6 +516,15 @@
             document.body.prepend(els.barra, els.encabezado);
             if (AVISOS[cfg.rol]) campana.iniciar(AVISOS[cfg.rol]);
 
+            // Chats: solo para el configurador (la bandeja muestra conversaciones de todos los
+            // pacientes) y solo si la mensajería está disponible para este pedido. /capacidades
+            // usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se carga
+            // nada y el botón no aparece.
+            if (cfg.rol === "configurador") {
+                capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
+                capacidades.then(c => { if (c?.mensajeria) cargarBandeja(); });
+            }
+
             if (cfg.navegar) {
                 const ir = () => {
                     const { id, params } = leerHash();
@@ -528,10 +548,14 @@
         get rol() { return cfg?.rol; },
         /** Promise con { nombre, detalle } del usuario (el mismo que muestra la barra). */
         usuario,
+        /** Promise con lo que muestra la interfaz según el servidor: { mensajeria }. */
+        get capacidades() { return capacidades; },
         get actual() { return actual; },
         /** Número entre paréntesis en el título de la pestaña (mensajes sin leer). */
         contadorTitulo(n) { tituloBase.contador = n || 0; actualizarTitulo(); },
-        campana: { refrescar: () => campana.refrescar(), abrir: () => campana.ctrl?.abrir() },
+        campana: { refrescar: () => campana.refrescar(), abrir: () => campana.ctrl?.abrir(), cerrar: () => campana.ctrl?.cerrar() },
+        /** Para módulos que traen sus propios avisos (la bandeja de chats en el configurador). */
+        instalarCampana(def) { if (!campana.def) campana.iniciar(def); },
         generarSala
     };
 })();

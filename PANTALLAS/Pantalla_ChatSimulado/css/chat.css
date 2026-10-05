@@ -1,274 +1,46 @@
-/* YoSoy · Mensajería. Colores, tipografía y componentes base: ../shared/tema.css */
+/* YoSoy · Pantalla de chats: simulador del lado del paciente.
+   La bandeja usa css/bandeja.css; colores y componentes: ../../shared/tema.css */
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; }
-body { overflow: hidden; }
-button, input { font: inherit; color: inherit; }
-button { cursor: pointer; }
-.oculto { display: none !important; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.simulador { display: grid; grid-template-columns: minmax(260px, 360px) minmax(360px, 460px); gap: 24px; align-items: start; justify-content: center; }
+.simulador-pasos { margin: 12px 0 0; padding-left: 1.2em; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
 
-/* Visibilidad por modo (chat.js cambia la clase del body) */
-body.modo-admin    .solo-paciente { display: none !important; }
-body.modo-paciente .solo-admin    { display: none !important; }
+.simulador-telefono { display: flex; flex-direction: column; gap: 12px; }
+.simulador-numero { display: flex; align-items: flex-end; gap: 8px; }
+.simulador-numero .ui-campo { flex: 1; }
 
-.ui-app { height: 100vh; }
-.ui-main { min-height: 0; }
-
-/* ── Barra superior ─────────────────────────────── */
-.topbar-izq { display: flex; align-items: center; gap: 10px; }
-
-.pill { font-size: var(--fs-xs); font-weight: 500; line-height: 20px; padding: 0 8px; border-radius: var(--r-sm); border: 1px solid; white-space: nowrap; }
-.pill-urgente  { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
-.pill-derivada { color: var(--warn);   background: var(--warn-bg);   border-color: var(--warn-border); }
-
-.avisos-wrap { position: relative; }
-.btn-avisos { position: relative; color: var(--text-2); }
-.btn-avisos svg { width: 18px; height: 18px; }
-.contador {
-    position: absolute; top: 1px; right: 0;
-    background: var(--danger); color: #fff;
-    border-radius: 999px; min-width: 16px; padding: 0 4px;
-    font-size: 10px; line-height: 16px; font-weight: 600; text-align: center;
+/* Vista "de teléfono": lo que vería el paciente en WhatsApp */
+.simulador-chat {
+    display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h) - 230px); min-height: 460px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-md);
 }
-.panel-avisos {
-    position: absolute; right: 0; top: 40px; z-index: 30;
-    width: 380px; max-height: 70vh; overflow-y: auto;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: 6px;
-}
-.aviso { padding: 9px 10px; border-radius: var(--r-md); font-size: var(--fs-md); line-height: 1.45; color: var(--text-2); }
-.aviso + .aviso { border-top: 1px solid var(--border); border-radius: 0; }
-.aviso.no-leido { background: var(--accent-soft); }
-.aviso-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.aviso.urgencia .aviso-titulo { color: var(--danger); }
-.aviso-pie { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--text-3); font-size: var(--fs-sm); }
-.aviso-pie button { border: none; background: none; color: var(--accent); font-size: var(--fs-sm); font-weight: 500; }
+.simulador-cabecera { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--accent); color: #fff; }
+.simulador-logo { width: 34px; height: 34px; border-radius: 50%; background: #fff; display: grid; place-items: center; overflow: hidden; }
+.simulador-logo img { width: 26px; height: 26px; object-fit: contain; }
+.simulador-nombre { font-weight: 600; }
+.simulador-estado { font-size: var(--fs-sm); color: rgba(255, 255, 255, .85); }
+.simulador-mensajes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 12px; background: #F4F2FB; }
+.simulador-vacio { margin: auto; max-width: 260px; text-align: center; color: var(--text-3); font-size: var(--fs-md); }
 
-/* ── Tres columnas ──────────────────────────────── */
-.app {
-    flex: 1; min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(280px, 330px) 1fr minmax(270px, 310px);
-    background: var(--surface);
-}
-body.modo-paciente .app { grid-template-columns: minmax(280px, 330px) 1fr; }
+.sm { max-width: 82%; margin-top: 8px; padding: 6px 10px 4px; border-radius: 10px; font-size: var(--fs-md); line-height: 1.45; overflow-wrap: anywhere; box-shadow: var(--shadow-sm); }
+.sm--seguido { margin-top: 2px; }
+.sm--propio { align-self: flex-end; background: var(--accent); color: #fff; border-top-right-radius: 3px; }
+.sm--propio a { color: #fff; }
+.sm--yosoy { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-top-left-radius: 3px; }
+.sm--sistema { background: var(--neutral-bg); border-style: dashed; }
+.sm-autor { margin-bottom: 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent-strong); }
+.sm-texto { white-space: pre-wrap; }
+.sm-meta { margin-top: 2px; text-align: right; font-size: 10.5px; color: var(--text-4); }
+.sm--propio .sm-meta { color: rgba(255, 255, 255, .78); }
 
-/* ── Columna izquierda ──────────────────────────── */
-.col-lista { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--border); }
-#listaAdmin { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.lista-cabecera { padding: 14px 14px 4px; }
-.lista-titulo { font-size: var(--fs-lg); font-weight: 600; }
+.simulador-composer { display: flex; align-items: flex-end; gap: 6px; padding: 10px; border-top: 1px solid var(--border); background: var(--surface); }
+.simulador-composer textarea {
+    flex: 1; min-height: 38px; max-height: 120px; resize: none; padding: 9px 12px;
+    font: inherit; font-size: var(--fs-md); line-height: 1.4; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); outline: none;
+}
+.simulador-composer textarea:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.simulador-composer textarea:disabled { opacity: .7; }
+.simulador-composer .ui-btn { width: 42px; height: 38px; padding: 0; }
+.simulador-composer .ui-btn svg { width: 17px; height: 17px; }
 
-.buscador {
-    display: flex; align-items: center; gap: 8px;
-    margin: 8px 12px 6px; padding: 0 10px; height: 32px;
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-    color: var(--text-4);
-}
-.buscador:focus-within { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
-.buscador input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-size: var(--fs-md); color: var(--text); }
-
-.lista-conversaciones { list-style: none; overflow-y: auto; flex: 1; padding: 2px 6px 8px; }
-.conversacion {
-    display: flex; gap: 10px; align-items: center; width: 100%;
-    padding: 9px 8px; border: none; background: none; text-align: left;
-    border-radius: var(--r-md); position: relative;
-}
-.conversacion:hover { background: var(--surface-2); }
-.conversacion.seleccionada { background: var(--accent-soft); }
-.conversacion.urgente::before {
-    content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--danger);
-}
-.conv-cuerpo { flex: 1; min-width: 0; }
-.conv-fila { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.conv-fila + .conv-fila { margin-top: 2px; }
-.conv-nombre { font-weight: 600; font-size: var(--fs-md); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.conv-hora { font-size: var(--fs-xs); color: var(--text-4); flex-shrink: 0; }
-.conv-ultimo { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lista-vacia { padding: 24px 16px; color: var(--text-3); text-align: center; font-size: var(--fs-md); }
-
-/* Avatares con iniciales */
-.avatar {
-    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
-    display: grid; place-items: center;
-    font-weight: 600; font-size: var(--fs-sm);
-    background: var(--info-bg); color: var(--info);
-}
-.avatar.c1 { background: #DBEAFE; color: #1D4ED8; }
-.avatar.c2 { background: #EDE9FE; color: #5B21B6; }
-.avatar.c3 { background: #DCFCE7; color: #15803D; }
-.avatar.c4 { background: #FFEDD5; color: #C2410C; }
-.avatar.anonimo { background: var(--surface-3); color: var(--text-3); }
-
-/* Estados de conversación como chips sobrios (chat.js arma .badge.badge-{Estado}) */
-.badge {
-    display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
-    font-size: var(--fs-xs); font-weight: 500; line-height: 18px;
-    padding: 0 7px; border-radius: var(--r-sm); border: 1px solid; white-space: nowrap;
-}
-.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.badge-Activa         { color: var(--ok);      background: var(--ok-bg);      border-color: var(--ok-border); }
-.badge-Urgente        { color: var(--danger);  background: var(--danger-bg);  border-color: var(--danger-border); }
-.badge-DerivadaHumano { color: var(--warn);    background: var(--warn-bg);    border-color: var(--warn-border); }
-.badge-Cerrada        { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
-
-/* Modo paciente de prueba */
-.panel-telefono { padding: 16px 14px; overflow-y: auto; }
-.fila { display: flex; gap: 8px; }
-.fila .ui-input { flex: 1; min-width: 0; }
-.ayuda { font-size: var(--fs-sm); color: var(--text-3); margin-top: 6px; line-height: 1.45; }
-.info-caja {
-    margin-top: 16px; padding: 12px 14px;
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg);
-    font-size: var(--fs-md); line-height: 1.55; color: var(--text-2);
-}
-.info-caja ul { margin: 6px 0 0 18px; }
-
-/* ── Columna central ────────────────────────────── */
-.col-chat { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
-.chat-cabecera {
-    display: flex; align-items: center; gap: 10px;
-    background: var(--surface); padding: 8px 16px; min-height: 56px;
-    border-bottom: 1px solid var(--border);
-}
-.btn-volver, .btn-info { display: none; color: var(--text-3); }
-.chat-titulos { flex: 1; min-width: 0; }
-.chat-titulo { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chat-subtitulo { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.banner-urgente {
-    background: var(--danger-bg); color: var(--danger);
-    border-bottom: 1px solid var(--danger-border);
-    padding: 8px 16px; font-size: var(--fs-md); font-weight: 500;
-}
-
-.mensajes { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 6%; display: flex; flex-direction: column; gap: 4px; }
-.vacio { margin: auto; color: var(--text-3); text-align: center; max-width: 320px; line-height: 1.5; }
-
-.separador-dia {
-    align-self: center; margin: 12px 0 6px;
-    background: var(--surface); color: var(--text-3); border: 1px solid var(--border);
-    font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em;
-    padding: 2px 10px; border-radius: 999px;
-}
-
-.burbuja {
-    max-width: min(70%, 540px);
-    padding: 7px 10px 5px; margin-top: 2px;
-    border-radius: var(--r-lg); line-height: 1.45; font-size: var(--fs-md);
-    white-space: pre-wrap; overflow-wrap: anywhere;
-    border: 1px solid var(--border);
-}
-.burbuja.izq { align-self: flex-start; background: var(--surface); border-top-left-radius: var(--r-sm); }
-.burbuja.der { align-self: flex-end;   background: #F1F5FB; border-color: #E1E8F3; border-top-right-radius: var(--r-sm); }
-.burbuja.origen-Humano  { background: var(--accent-soft); border-color: var(--info-border); }
-.burbuja.origen-Sistema { background: var(--surface); border-style: dashed; border-color: var(--border-strong); }
-.burbuja.izq.origen-Humano, .burbuja.izq.origen-Bot { background: var(--surface); border-color: var(--border); }
-.autor { display: flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 600; margin-bottom: 2px; color: var(--text-3); }
-.autor svg { width: 12px; height: 12px; }
-.origen-Humano  .autor { color: var(--accent); }
-.origen-Sistema .autor { color: var(--warn); }
-.meta { font-size: var(--fs-xs); color: var(--text-4); text-align: right; margin-top: 2px; }
-.meta.error { color: var(--danger); font-weight: 600; }
-.burbuja a { color: var(--accent); }
-
-.barra-envio {
-    display: flex; gap: 8px; align-items: center;
-    background: var(--surface); padding: 10px 16px; border-top: 1px solid var(--border);
-}
-.barra-envio input {
-    flex: 1; min-width: 0; height: 36px; padding: 0 12px;
-    border: 1px solid var(--border); border-radius: var(--r-md);
-    background: var(--surface-2); outline: none; font-size: var(--fs-md);
-}
-.barra-envio input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
-.barra-envio input:disabled { opacity: .6; cursor: not-allowed; }
-.btn-enviar { height: 36px; }
-
-/* ── Columna derecha: datos del paciente ────────── */
-.col-info { border-left: 1px solid var(--border); overflow-y: auto; background: var(--surface); position: relative; }
-.btn-cerrar-info { display: none; position: absolute; top: 8px; right: 8px; color: var(--text-3); }
-.info-vacio { padding: 32px 20px; color: var(--text-3); text-align: center; line-height: 1.5; }
-.info-cabecera {
-    display: flex; flex-direction: column; align-items: center; gap: 6px;
-    padding: 20px 16px 16px; border-bottom: 1px solid var(--border); text-align: center;
-}
-.info-cabecera .avatar { width: 56px; height: 56px; font-size: 18px; }
-.info-nombre { font-size: var(--fs-xl); font-weight: 600; }
-.info-seccion { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
-.info-seccion h3 { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin: 0; }
-
-/* Cada dato se ve como un campo de formulario: etiqueta arriba, valor en caja gris clarito */
-.dato { display: flex; flex-direction: column; gap: 4px; }
-.dato span:first-child { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); }
-.dato span:last-child {
-    font-size: var(--fs-md); color: var(--text);
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-    padding: 7px 10px; min-height: 34px; overflow-wrap: anywhere;
-}
-.dato span.sin-dato { color: var(--text-4); font-style: normal; }
-.sin-dato { color: var(--text-4); }
-
-.lista-profesionales { list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.lista-profesionales li {
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-    padding: 7px 10px; font-size: var(--fs-md); color: var(--text);
-}
-.lista-profesionales small { color: var(--text-3); display: block; font-size: var(--fs-sm); }
-
-.turno-card {
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-    padding: 9px 10px; line-height: 1.55; font-size: var(--fs-md); color: var(--text-2);
-}
-.turno-fecha { font-weight: 600; color: var(--text); text-transform: capitalize; }
-
-.info-acciones { padding: 16px; }
-.btn-resolver {
-    width: 100%; height: 34px; border-radius: var(--r-md);
-    font-weight: 500; font-size: var(--fs-md);
-    background: var(--accent); border: 1px solid var(--accent); color: #fff;
-}
-.btn-resolver:hover { background: var(--accent-hover); }
-.btn-resolver.urgente { background: var(--danger); border-color: var(--danger); }
-.btn-resolver.urgente:hover { filter: brightness(.95); }
-.nota { font-size: var(--fs-sm); color: var(--text-3); margin-top: 8px; line-height: 1.45; }
-
-/* Toast propio de esta pantalla (#toast) */
-.toast {
-    position: fixed; bottom: 20px; left: 50%; transform: translate(-50%, 16px);
-    background: var(--text); color: #fff; padding: 9px 14px; border-radius: var(--r-md);
-    font-size: var(--fs-md); font-weight: 500; box-shadow: var(--shadow-lg);
-    opacity: 0; pointer-events: none; transition: all .2s; z-index: 50;
-}
-.toast.visible { opacity: 1; transform: translate(-50%, 0); }
-.toast.error { background: var(--danger); }
-
-/* ── Anchos ─────────────────────────────────────── */
-/* Pensado para PC. Notebooks chicas o con zoom: las tres columnas siguen visibles. */
-@media (max-width: 1280px) {
-    .app { grid-template-columns: minmax(250px, 290px) 1fr minmax(240px, 270px); }
-    .mensajes { padding: 14px 4%; }
-}
-/* Por debajo de 900 px el panel del paciente pasa a ser un cajón lateral */
-@media (max-width: 900px) {
-    .app, body.modo-paciente .app { grid-template-columns: minmax(250px, 300px) 1fr; }
-    .btn-info { display: inline-flex; }
-    .col-info {
-        position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
-        width: min(320px, 90vw); box-shadow: var(--shadow-lg);
-        transform: translateX(105%); transition: transform .2s;
-    }
-    .col-info.abierta { transform: none; }
-    .btn-cerrar-info { display: inline-flex; }
-}
-/* Celular (código previo, sin trabajo nuevo): lista o chat, uno a la vez */
-@media (max-width: 760px) {
-    .app, body.modo-paciente .app { grid-template-columns: minmax(0, 1fr); }
-    .app.con-chat .col-lista { display: none; }
-    .app:not(.con-chat) .col-chat { display: none; }
-    .btn-volver { display: inline-flex; }
-    .mensajes { padding: 12px; }
-    .burbuja { max-width: 88%; }
-    .ui-topbar .ui-chip { display: none; }
-}
+@media (max-width: 900px) { .simulador { grid-template-columns: minmax(0, 1fr); } }
