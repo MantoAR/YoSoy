@@ -157,7 +157,8 @@ public class FakeConversaciones : IConversacionDAO
     }
 
     public void Guardar(Conversacion c) => Todas[c.IdConversacion] = Copia(c);
-    public List<ConversacionResumen> ListarResumen(string? estado) => new();
+    public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null) => new();
+    public void MarcarLeida(int idConversacion, int hastaIdMensaje) { }
 
     // Copias para que el test vea solo lo que el bot efectivamente guardó.
     private static Conversacion Copia(Conversacion c) => new()

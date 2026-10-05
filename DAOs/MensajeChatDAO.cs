@@ -6,6 +6,7 @@ public interface IMensajeChatDAO
     int Insertar(MensajeChat m);
     void ActualizarEstadoEnvio(int idMensaje, string estado);
     List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje);
+    List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad);
 }
 
 public class MensajeChatDAO : IMensajeChatDAO
@@ -53,17 +54,41 @@ public class MensajeChatDAO : IMensajeChatDAO
         cmd.Parameters.AddWithValue("@IdConv", idConversacion);
         cmd.Parameters.AddWithValue("@Desde",  desdeIdMensaje);
         using var r = cmd.ExecuteReader();
-        while (r.Read())
-            lista.Add(new MensajeChat
-            {
-                IdMensaje      = (int)r["IdMensaje"],
-                IdConversacion = (int)r["IdConversacion"],
-                Direccion      = (string)r["Direccion"],
-                Origen         = (string)r["Origen"],
-                Texto          = (string)r["Texto"],
-                FechaHora      = (DateTime)r["FechaHora"],
-                EstadoEnvio    = (string)r["EstadoEnvio"]
-            });
+        while (r.Read()) lista.Add(Mapear(r));
         return lista;
     }
+
+    // Historial hacia arriba: los 'cantidad' mensajes anteriores a 'antesDeIdMensaje'
+    // (sin ese id, los últimos), en orden cronológico. Lo usa la bandeja para no traer
+    // conversaciones largas enteras de una vez.
+    public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad)
+    {
+        var lista = new List<MensajeChat>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT * FROM (
+                SELECT TOP (@Cantidad) IdMensaje, IdConversacion, Direccion, Origen, Texto, FechaHora, EstadoEnvio
+                FROM MensajeChat
+                WHERE IdConversacion = @IdConv AND (@Antes IS NULL OR IdMensaje < @Antes)
+                ORDER BY IdMensaje DESC) x
+            ORDER BY IdMensaje", con);
+        cmd.Parameters.Add("@Cantidad", System.Data.SqlDbType.Int).Value = cantidad;
+        cmd.Parameters.Add("@IdConv", System.Data.SqlDbType.Int).Value = idConversacion;
+        cmd.Parameters.Add("@Antes", System.Data.SqlDbType.Int).Value = (object?)antesDeIdMensaje ?? DBNull.Value;
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(Mapear(r));
+        return lista;
+    }
+
+    private static MensajeChat Mapear(SqlDataReader r) => new()
+    {
+        IdMensaje      = (int)r["IdMensaje"],
+        IdConversacion = (int)r["IdConversacion"],
+        Direccion      = (string)r["Direccion"],
+        Origen         = (string)r["Origen"],
+        Texto          = (string)r["Texto"],
+        FechaHora      = (DateTime)r["FechaHora"],
+        EstadoEnvio    = (string)r["EstadoEnvio"]
+    };
 }

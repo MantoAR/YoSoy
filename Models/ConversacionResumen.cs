@@ -10,4 +10,7 @@ public class ConversacionResumen
     public DateTime FechaUltimaActividad { get; set; }
     public string? UltimoMensaje { get; set; }
     public DateTime? FechaUltimoMensaje { get; set; }
+    public int? IdUltimoMensaje { get; set; }
+    public string? OrigenUltimoMensaje { get; set; }      // 'Paciente', 'Bot', 'Humano', 'Sistema'
+    public int NoLeidos { get; set; }                     // mensajes del paciente que el equipo no vio
 }

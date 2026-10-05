@@ -14,6 +14,11 @@ public static class MensajeriaEndpoints
     {
         var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada();
 
+        // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
+        // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
+        // con el módulo apagado, o un pedido remoto con SoloLocal, dice false y nada más.
+        app.MapGet("/capacidades", (HttpContext http) => Results.Ok(new { mensajeria = MensajeriaDisponible(http) }));
+
         // ── Chat simulado: lado paciente ────────────────────────
         g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, BotReservasService bot, IMessageChannel canal) =>
         {
@@ -35,8 +40,10 @@ public static class MensajeriaEndpoints
         });
 
         // ── Modo administrador ──────────────────────────────────
-        g.MapGet("/conversaciones", (string? estado, IConversacionDAO conversaciones) =>
-            conversaciones.ListarResumen(string.IsNullOrWhiteSpace(estado) ? null : estado));
+        // desdeMensaje: solo las conversaciones con mensajes posteriores a ese IdMensaje
+        // (la bandeja pide así lo nuevo en cada vuelta del polling).
+        g.MapGet("/conversaciones", (string? estado, int? desdeMensaje, IConversacionDAO conversaciones) =>
+            conversaciones.ListarResumen(string.IsNullOrWhiteSpace(estado) ? null : estado, desdeMensaje));
 
         g.MapGet("/conversaciones/{id}", (int id, IConversacionDAO conversaciones) =>
         {
@@ -75,8 +82,20 @@ public static class MensajeriaEndpoints
         });
 
         // desde = último IdMensaje que ya tiene la pantalla (polling incremental).
-        g.MapGet("/conversaciones/{id}/mensajes", (int id, int? desde, IMensajeChatDAO mensajes) =>
-            mensajes.ObtenerPorConversacion(id, desde ?? 0));
+        // antes / limite = historial hacia arriba: los 'limite' mensajes anteriores a 'antes'
+        // (sin 'antes', los últimos). Sin ninguno de los dos: la conversación entera, como antes.
+        g.MapGet("/conversaciones/{id}/mensajes", (int id, int? desde, int? antes, int? limite, IMensajeChatDAO mensajes) =>
+            desde is null && (antes is not null || limite is not null)
+                ? mensajes.ObtenerAnteriores(id, antes, Math.Clamp(limite ?? 50, 1, 200))
+                : mensajes.ObtenerPorConversacion(id, desde ?? 0));
+
+        // El equipo vio la conversación hasta el mensaje 'hasta' (contador de no leídos).
+        g.MapPut("/conversaciones/{id}/leida", (int id, MarcarLeidaRequest req, IConversacionDAO conversaciones) =>
+        {
+            if (conversaciones.ObtenerPorId(id) is null) return Results.NotFound();
+            conversaciones.MarcarLeida(id, req.Hasta);
+            return Results.NoContent();
+        });
 
         g.MapPost("/conversaciones/{id}/responder", async (int id, RespuestaHumanaRequest req, HttpContext http,
             IConversacionDAO conversaciones, IServicioMensajes mensajes, TimeProvider reloj) =>
@@ -174,12 +193,15 @@ public static class MensajeriaEndpoints
     // que en producción pasa a ser el webhook del canal real con su propia firma.
     public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
         grupo.AddEndpointFilter(async (ctx, next) =>
-        {
-            var op = ctx.HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
-            if (!op.ChatSimuladoHabilitado) return Results.NotFound();
-            if (op.SoloLocal && !EsLocal(ctx.HttpContext)) return Results.NotFound();
-            return await next(ctx);
-        });
+            MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
+
+    // El mismo criterio para el filtro del grupo y para /capacidades.
+    public static bool MensajeriaDisponible(HttpContext http) =>
+        Disponible(http.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue, http);
+
+    // Separado del contenedor de servicios para poder probarlo (AccesoMensajeriaTests).
+    public static bool Disponible(MensajeriaOptions op, HttpContext http) =>
+        op.ChatSimuladoHabilitado && (!op.SoloLocal || EsLocal(http));
 
     // Un proxy o túnel que corre en la misma máquina (Caddy en videollamadas-seguras,
     // cloudflared) se conecta desde 127.0.0.1, así que la IP sola no alcanza: si el
@@ -238,3 +260,4 @@ public static class MensajeriaEndpoints
 
 public record MensajeEntranteRequest(string? Telefono, string? Texto);
 public record RespuestaHumanaRequest(string? Texto);
+public record MarcarLeidaRequest(int Hasta);
