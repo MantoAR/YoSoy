@@ -76,7 +76,7 @@
 
     /* Medidas de layout */
     --topbar-h: 56px;
-    --contenido-max: 1600px;
+    --contenido-max: none;   /* ancho completo en las pantallas principales; .ui-pagina-angosta lo acota */
 
     /* Barra lateral oscura (pantallas que todavía no pasaron al menú superior) */
     --sidebar:        #17161F;

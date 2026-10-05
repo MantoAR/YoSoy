@@ -21,10 +21,13 @@
     display: flex; align-items: center; gap: 8px; flex-shrink: 0;
 }
 .split-badge { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-3); border-radius: var(--r-sm); padding: 0 6px; font-size: var(--fs-xs); font-weight: 500; }
-.split-list { flex: 1; overflow-y: auto; padding: 6px; }
+.split-list {
+    flex: 1; overflow-y: auto; padding: 6px; align-content: start;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 2px;
+}
 .split-vacio { padding: 12px; color: var(--text-4); font-size: var(--fs-md); }
 .usr-card {
-    display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 2px; padding: 8px 10px;
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
     font: inherit; text-align: left; color: inherit; cursor: pointer;
     background: none; border: 1px solid transparent; border-radius: var(--r-md);
 }
@@ -76,7 +79,7 @@
 .dato-admision { margin-bottom: 8px; }
 .dato-admision .etiqueta-dato { display: block; }
 .dato-admision .valor-dato { font-size: var(--fs-md); color: var(--text); overflow-wrap: anywhere; }
-.grilla-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
+.grilla-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 24px; }
 .caja-accion { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 14px 16px; margin-top: 14px; }
 .caja-accion h4 { margin: 0 0 10px; }
 .codigo-sala { font-family: var(--mono); font-weight: 600; color: var(--text); letter-spacing: .04em; }
@@ -102,5 +105,4 @@
 @media (max-width: 900px) {
     .split-view { flex-direction: column; height: auto; }
     .split-col { max-height: 420px; }
-    .grilla-2 { grid-template-columns: 1fr; }
 }
