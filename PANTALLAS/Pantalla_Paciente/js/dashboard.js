@@ -208,7 +208,7 @@ async function renderAgenda(c) {
                 <label for="selProfCalendario">Ver disponibilidad de:</label>
                 <select id="selProfCalendario" class="turno-input" onchange="cambiarProfCalendario()">
                     <option value="">— Sin filtro —</option>
-                    ${profesionales.map(p => `<option value="${p.idProfesional}">${p.nombre} — ${p.especialidad}</option>`).join("")}
+                    ${profesionales.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")}
                 </select>
                 <div id="diasAtencion" class="dias-atencion"></div>
             </div>
@@ -381,16 +381,16 @@ async function mostrarPanelDia(dia) {
                     <div class="panel-hora-label">hs</div>
                 </div>
                 <div class="panel-info-principal">
-                    <div class="panel-profesional">${t.nombreProfesional}</div>
-                    <div class="panel-especialidad">${t.especialidad}</div>
+                    <div class="panel-profesional">${YS.esc(t.nombreProfesional)}</div>
+                    <div class="panel-especialidad">${YS.esc(t.especialidad)}</div>
                 </div>
                 ${propuestoPorProfesional(t)
                     ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
-                    : `<span class="panel-estado-badge estado-${t.estadoDescripcion}">${t.estadoDescripcion}</span>`}
+                    : `<span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span>`}
             </div>
             <div class="panel-chips">
-                <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${t.modalidad ?? "-"}</span></div>
-                ${t.motivo ? `<div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div>` : ""}
+                <div class="chip"><span class="chip-label">Modalidad</span><span class="chip-val">${YS.esc(t.modalidad ?? "-")}</span></div>
+                ${t.motivo ? `<div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${YS.esc(t.motivo)}</span></div>` : ""}
             </div>
             ${propuestoPorProfesional(t) ? `<p class="panel-aviso">Tu profesional te propuso este turno. Confirmalo para que quede agendado, o reprogramalo si no te queda bien.</p>` : ""}
             ${puedeAccionar ? `
@@ -470,7 +470,7 @@ async function cargarProfesionalesSolicitud(fechaStr) {
     }
     const profs = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
     sel.innerHTML = profs.length
-        ? `<option value="">Seleccioná un profesional</option>` + profs.map(p => `<option value="${p.idProfesional}">${p.nombre} — ${p.especialidad}</option>`).join("")
+        ? `<option value="">Seleccioná un profesional</option>` + profs.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")
         : `<option value="">Sin profesionales asignados</option>`;
 }
 
@@ -658,6 +658,7 @@ async function confirmarReprogramar(idTurno) {
 async function renderProfesionales(c) {
     try {
         const lista = await fetch(`${API}/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json());
+        window._misProfesionales = lista;
 
         if (!lista.length) {
             c.innerHTML = `<div class="card"><p class="sin-turnos">No tenés profesionales asignados aún.</p></div>`;
@@ -666,11 +667,11 @@ async function renderProfesionales(c) {
 
         const cards = lista.map(p => `
             <div class="prof-card">
-                <div class="prof-nombre">${p.nombre}</div>
-                <div class="prof-especialidad">${p.especialidad}</div>
-                ${p.mail     ? `<div class="prof-dato">${p.mail}</div>`     : ""}
-                ${p.telefono ? `<div class="prof-dato">${p.telefono}</div>` : ""}
-                <button class="btn-solicitar-cambio" onclick="abrirModalCambio(${p.idProfesional}, ${p.idEspecialidad}, '${p.nombre.replace(/'/g, "\\'")}')">Solicitar cambio de profesional</button>
+                <div class="prof-nombre">${YS.esc(p.nombre)}</div>
+                <div class="prof-especialidad">${YS.esc(p.especialidad)}</div>
+                ${p.mail     ? `<div class="prof-dato">${YS.esc(p.mail)}</div>`     : ""}
+                ${p.telefono ? `<div class="prof-dato">${YS.esc(p.telefono)}</div>` : ""}
+                <button class="btn-solicitar-cambio" onclick="abrirModalCambio(${p.idProfesional}, ${p.idEspecialidad})">Solicitar cambio de profesional</button>
             </div>`).join("");
 
         c.innerHTML = `<div class="prof-lista">${cards}</div>
@@ -829,8 +830,9 @@ async function enviarSolicitudTurno() {
 // ── SOLICITAR CAMBIO ────────────────────────────────────────
 let _cambioIdProfOrigen = null;
 
-function abrirModalCambio(idProfOrigen, idEsp, nombreProf) {
+function abrirModalCambio(idProfOrigen, idEsp, nombreProf = null) {
     _cambioIdProfOrigen = idProfOrigen;
+    nombreProf ??= (window._misProfesionales || []).find(p => p.idProfesional === idProfOrigen)?.nombre ?? "tu profesional";
     document.getElementById("modalCambioTitulo").textContent = `Solicitar cambio de: ${nombreProf}`;
 
     document.getElementById("modalCambioBody").innerHTML = `
@@ -877,12 +879,12 @@ async function renderPerfil(c) {
 
         c.innerHTML = `
             <div class="card perfil-form">
-                <div class="campo"><label>Nombre</label><input type="text" id="pNombre" value="${p.nombre ?? ""}"></div>
-                <div class="campo"><label>DNI</label><input type="text" id="pDni" value="${p.dni ?? ""}"></div>
+                <div class="campo"><label>Nombre</label><input type="text" id="pNombre" value="${YS.esc(p.nombre ?? "")}"></div>
+                <div class="campo"><label>DNI</label><input type="text" id="pDni" value="${YS.esc(p.dni ?? "")}"></div>
                 <div class="campo"><label>Fecha de Nacimiento</label><input type="date" id="pFechaNac" value="${fn}"></div>
-                <div class="campo"><label>Domicilio</label><input type="text" id="pDomicilio" value="${p.domicilio ?? ""}"></div>
-                <div class="campo"><label>Teléfono</label><input type="text" id="pTelefono" value="${p.telefono ?? ""}"></div>
-                <div class="campo"><label>Email</label><input type="text" id="pMail" value="${p.mail ?? ""}"></div>
+                <div class="campo"><label>Domicilio</label><input type="text" id="pDomicilio" value="${YS.esc(p.domicilio ?? "")}"></div>
+                <div class="campo"><label>Teléfono</label><input type="text" id="pTelefono" value="${YS.esc(p.telefono ?? "")}"></div>
+                <div class="campo"><label>Email</label><input type="text" id="pMail" value="${YS.esc(p.mail ?? "")}"></div>
                 <button class="btn-guardar-perfil" onclick="guardarPerfil(${p.idPaciente})">Guardar cambios</button>
                 <div class="msg-ok" id="msgOk">Cambios guardados correctamente.</div>
             </div>`;
@@ -953,7 +955,7 @@ async function renderAdmision(c) {
     try { especialidades = await (await fetch(API + "/especialidades")).json(); } catch(e) {}
     const opts = especialidades
         .filter(function(e) { return e.estado === "Activo"; })
-        .map(function(e) { return '<option value="' + e.idEspecialidad + '">' + e.nombre + '</option>'; })
+        .map(function(e) { return '<option value="' + e.idEspecialidad + '">' + YS.esc(e.nombre) + '</option>'; })
         .join("");
 
 
