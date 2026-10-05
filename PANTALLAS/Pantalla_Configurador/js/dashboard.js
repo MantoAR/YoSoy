@@ -98,7 +98,7 @@ let filaEnEdicion = null;
 const SECCIONES = ["inicio", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
     "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "coberturas", "interaccionesia"];
 
-async function mostrarTab(tab) {
+async function mostrarTab(tab, params = {}) {
     if (!SECCIONES.includes(tab)) tab = "inicio";
     YS.shell.marcar(tab);
     if (tab === 'inicio') { inicioConfigurador(); return; }
@@ -110,15 +110,22 @@ async function mostrarTab(tab) {
     contenido.innerHTML = YS.cargando();
 
     try {
-        if (tab === "usuarios")     return await renderUsuarios(contenido);
+        if (tab === "usuarios")     return await renderUsuarios(contenido, params);
         if (tab === "solicitudes")  return await renderSolicitudes(contenido);
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
         if (tab === "auditoria")    return await renderAuditoria(contenido);
         if (tab === "recuperacion") return await renderRecuperacion(contenido);
 
-        const datos = await fetch(`${API}/${tab}`).then(r => r.json());
+        let datos = await fetch(`${API}/${tab}`).then(r => r.json());
+        // Desde los chats: "Ver turnos del paciente" llega con #turnos?paciente=N
+        const idPacFiltro = tab === "turnos" ? parseInt(params.paciente) : NaN;
+        if (idPacFiltro) datos = datos.filter(t => t.idPaciente === idPacFiltro);
         datosActuales = datos;
         renderTabla(titulos[tab], columnas[tab], datos, tab, contenido);
+        if (idPacFiltro && YS.shell.actual === tab) {
+            YS.shell.encabezado({ subtitulo: `Turnos del paciente #${idPacFiltro} · ${datos.length} registro${datos.length === 1 ? "" : "s"}` });
+            YS.shell.acciones([{ texto: "Ver todos los turnos", alClick: () => { location.hash = "#turnos"; } }]);
+        }
 
     } catch {
         contenido.innerHTML = errorHtml(tab);
@@ -126,7 +133,7 @@ async function mostrarTab(tab) {
 }
 
 // ── USUARIOS ─────────────────────────────────────────────────
-async function renderUsuarios(c) {
+async function renderUsuarios(c, params = {}) {
     const [pacientes, profesionales] = await Promise.all([
         fetch(`${API}/pacientes`).then(r => r.json()),
         fetch(`${API}/profesionales`).then(r => r.json()),
@@ -166,6 +173,13 @@ async function renderUsuarios(c) {
         <div class="split-info" id="splitInfo"></div>`;
 
     renderCardsUsuarios();
+
+    // Desde los chats: "Ver ficha" llega con #usuarios?paciente=N
+    const idPac = parseInt(params.paciente);
+    if (idPac && document.getElementById(`pac-${idPac}`)) {
+        seleccionarPaciente(idPac);
+        document.getElementById(`pac-${idPac}`).scrollIntoView({ block: "center" });
+    }
 }
 
 function renderCardsUsuarios() {
@@ -1152,6 +1166,8 @@ async function inicioConfigurador() {
         pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos"),
         pedir("/auditoria?pagina=1&cantidad=8")
     ]);
+    const conChats = (await YS.shell.capacidades)?.mensajeria;
+    const chats = conChats ? await pedir("/mensajeria/conversaciones") : null;
     if (YS.shell.actual !== "inicio") return;
 
     const cuenta = (lista, filtro = () => true) => Array.isArray(lista) ? lista.filter(filtro).length : null;
@@ -1169,6 +1185,15 @@ async function inicioConfigurador() {
     const nTurnosHoy = cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3);
     const nPacientes = cuenta(pacientes, p => p.estado !== "Inactivo");
     const nProfesionales = cuenta(profesionales, p => p.estado === "Activo");
+    const nChatsSinLeer = cuenta(chats, ch => ch.noLeidos > 0);
+    const nChatsDerivados = cuenta(chats, ch => ch.estado === "DerivadaHumano" || ch.estado === "Urgente");
+    const nChatsUrgentes = cuenta(chats, ch => ch.estado === "Urgente");
+    const tarjetaChats = (filtro, etiqueta, valor, pie, peligro) => `
+        <button class="ui-stat${valor ? (peligro ? " ui-stat--danger" : " ui-stat--warn") : ""}" type="button" onclick="YS.bandeja?.abrir(null, '${filtro}')">
+            <span class="ui-stat-etiqueta">${YS.icono("chat")}${YS.esc(etiqueta)}</span>
+            <span class="ui-stat-valor">${valor ?? "—"}</span>
+            <span class="ui-stat-pie">${YS.esc(pie)}</span>
+        </button>`;
 
     const filasActividad = (actividad || []).map(a => `
         <tr><td class="ui-num">${YS.esc(new Date(a.fechaHora).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }))}</td>
@@ -1182,6 +1207,8 @@ async function inicioConfigurador() {
             ${tarjeta("derivaciones", "Solicitudes de cambio", "flechas", nCambio, "Pacientes que pidieron otro profesional", true)}
             ${tarjeta("recuperacion", "Recuperación de contraseña", "candado", nRecuperacion, "Pedidos de contraseña temporal", true)}
             ${tarjeta("admisiones", "Admisiones por resolver", "portapapeles", nAdmision, "Pendientes, en entrevista o rechazadas", true)}
+            ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", nChatsSinLeer, "Conversaciones con mensajes nuevos") : ""}
+            ${conChats ? tarjetaChats("derivadas", "Chats derivados", nChatsDerivados, nChatsUrgentes ? `${nChatsUrgentes} urgente${nChatsUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nChatsUrgentes > 0) : ""}
         </div>
         <div class="ui-titulo-seccion texto-chico ui-muted">Hoy en YoSoy</div>
         <div class="ui-stats">
@@ -1200,4 +1227,4 @@ async function inicioConfigurador() {
         </div>`;
 }
 
-YS.shell.iniciar({ rol: "configurador", navegar: id => mostrarTab(id) });
+YS.shell.iniciar({ rol: "configurador", navegar: (id, params) => mostrarTab(id, params) });
