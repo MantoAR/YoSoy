@@ -9,7 +9,6 @@
 .sin-turnos, .vacio { color: var(--text-3); font-size: var(--fs-md); }
 .spinner { text-align: center; padding: 40px; color: var(--text-3); }
 .texto-suave { color: var(--text-3); font-size: var(--fs-md); }
-.texto-error { color: var(--danger); }
 .mb-12 { margin-bottom: 12px; } .mt-8 { margin-top: 8px; } .mt-12 { margin-top: 12px; }
 
 /* ── Inicio: próximo turno ──────────────────────── */
@@ -21,11 +20,6 @@
 .proximo-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; border-top: 1px solid var(--border); padding-top: 14px; }
 .proximo-datos .etiqueta { font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 2px; }
 .proximo-datos .valor { font-size: var(--fs-lg); font-weight: 500; color: var(--text); }
-
-.turno-proximo { display: flex; gap: 28px; flex-wrap: wrap; }
-.turno-dato { display: flex; flex-direction: column; gap: 3px; }
-.turno-dato .etiqueta { font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; }
-.turno-dato .valor { font-size: var(--fs-lg); color: var(--text); font-weight: 500; }
 
 /* ── Agenda (calendario mensual) ────────────────── */
 .filtro-prof { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -39,10 +33,6 @@
 }
 .cal-nav button:hover { background: var(--surface-2); }
 .cal-mes { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin-left: 6px; }
-.btn-nuevo-turno {
-    margin-left: auto; height: 30px; padding: 0 12px; border-radius: var(--r-md);
-    background: var(--accent); border: 1px solid var(--accent); color: #fff; font-size: var(--fs-md); font-weight: 500; cursor: pointer;
-}
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
 .cal-header {
     font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em;
@@ -108,7 +98,7 @@
 .chip-label { font-size: var(--fs-xs); font-weight: 500; color: var(--text-3); }
 .chip-val { font-size: var(--fs-md); color: var(--text); }
 .panel-separador { border-top: 1px solid var(--border); margin: 14px 0; }
-.panel-acciones, .panel-fila { display: flex; gap: 8px; flex-wrap: wrap; }
+.panel-acciones { display: flex; gap: 8px; flex-wrap: wrap; }
 .panel-solicitar-bloque { margin-bottom: 4px; }
 .btn-solicitar-dia { height: 30px; padding: 0 12px; border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: transparent; color: var(--accent); font-size: var(--fs-md); font-weight: 500; cursor: pointer; }
 .btn-solicitar-dia:hover { background: var(--accent-soft); border-color: var(--info-border); }
@@ -119,13 +109,13 @@
 .form-fila { display: flex; gap: 12px; flex-wrap: wrap; }
 .form-grupo { display: flex; flex-direction: column; gap: 5px; min-width: 120px; }
 .form-grupo--ancho { flex: 1; }
-.form-grupo label, .turno-label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); display: block; }
-.form-grupo input, .turno-input, .campo-texto {
+.form-grupo label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); display: block; }
+.form-grupo input, .turno-input {
     width: 100%; height: 34px; padding: 0 10px; font-size: var(--fs-md); color: var(--text);
     background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); outline: none;
 }
-textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
-.form-grupo input:focus, .turno-input:focus, .campo-texto:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize: vertical; line-height: 1.45; }
+.form-grupo input:focus, .turno-input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
 /* Botones */
 .btn-accion {
@@ -139,18 +129,11 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .btn-cancelar:hover { background: var(--danger-bg); }
 .btn-reprogramar { color: var(--accent); border-color: var(--info-border); }
 .btn-reprogramar:hover { background: var(--accent-soft); }
-.btn-primario, .btn-guardar-perfil, .btn-solicitar-turno, .btn-mc-enviar {
-    display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 14px;
-    border-radius: var(--r-md); border: 1px solid var(--accent); background: var(--accent); color: #fff;
-    font-size: var(--fs-md); font-weight: 500; cursor: pointer;
-}
-.btn-primario:hover, .btn-guardar-perfil:hover, .btn-solicitar-turno:hover, .btn-mc-enviar:hover { background: var(--accent-hover); }
-.btn-bloque { width: 100%; margin-top: 16px; }
-.btn-secundario, .btn-mc-cancelar, .btn-solicitar-cambio {
+.btn-secundario {
     display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border-radius: var(--r-md);
     border: 1px solid var(--border-strong); background: var(--surface); color: var(--text-2); font-size: var(--fs-md); font-weight: 500; cursor: pointer;
 }
-.btn-secundario:hover, .btn-mc-cancelar:hover, .btn-solicitar-cambio:hover { background: var(--surface-2); }
+.btn-secundario:hover { background: var(--surface-2); }
 
 /* ── Mis profesionales ──────────────────────────── */
 .prof-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
@@ -167,40 +150,16 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .campo input { width: 100%; height: 34px; padding: 0 10px; font-size: var(--fs-md); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); outline: none; }
 .campo input:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .campo input:disabled { color: var(--text-3); }
-.msg-ok { color: var(--ok); font-size: var(--fs-md); margin-top: 8px; display: none; }
 
 /* ── Sesión y admisión ──────────────────────────── */
 .sesion-entrada { max-width: 480px; }
 .form-admision .ui-label { display: block; margin-top: 14px; margin-bottom: 5px; }
 .form-admision h4 { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-top: 22px; }
-
-/* ── Modales (turno y cambio de profesional) ────── */
-.modal-overlay-cambio { display: none; position: fixed; inset: 0; background: rgba(17, 24, 39, .45); z-index: 100; }
-.modal-overlay-cambio.visible { display: block; }
-.modal-cambio {
-    display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    width: 460px; max-width: 94vw; max-height: 88vh; overflow-y: auto;
-    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); z-index: 101;
-}
-.modal-cambio.visible { display: block; }
-.modal-cambio-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); font-size: var(--fs-xl); font-weight: 600; color: var(--text); }
-.modal-cerrar-x { background: none; border: none; font-size: 16px; cursor: pointer; color: var(--text-3); }
-.modal-cerrar-x:hover { color: var(--text); }
-.modal-cuerpo { padding: 16px 18px; }
-.modal-pie { padding: 0 18px 16px; display: flex; gap: 8px; justify-content: flex-end; }
 .modal-campos { display: flex; flex-direction: column; gap: 12px; }
 
 /* ── Confirmación (Sí / No) ─────────────────────── */
 #confirmOverlay { display: none; position: fixed; inset: 0; background: rgba(17, 24, 39, .45); z-index: 9998; align-items: center; justify-content: center; }
 #confirmOverlay.visible { display: flex; }
-.confirm-box { background: var(--surface); border-radius: var(--r-lg); padding: 20px 22px; width: min(380px, 92vw); box-shadow: var(--shadow-lg); }
-.confirm-msg { font-size: var(--fs-lg); color: var(--text-2); margin-bottom: 16px; line-height: 1.45; }
-.confirm-btns { display: flex; gap: 8px; justify-content: flex-end; }
-.confirm-btn-no, .confirm-btn-si { height: 32px; padding: 0 14px; border-radius: var(--r-md); font-size: var(--fs-md); font-weight: 500; cursor: pointer; }
-.confirm-btn-no { background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-2); }
-.confirm-btn-no:hover { background: var(--surface-2); }
-.confirm-btn-si { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
-.confirm-btn-si:hover { background: var(--accent-hover); }
 
 /* ── Toasts (animaciones; aspecto en tema.css) ──── */
 .toast { animation: toast-in .2s ease; }
@@ -214,7 +173,6 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .notif-flotante { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-lg); }
 .notif-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
 .notif-mensaje { font-size: var(--fs-md); color: var(--text-2); margin-bottom: 8px; line-height: 1.45; }
-.notif-fecha { font-size: var(--fs-xs); color: var(--text-4); margin-top: 4px; }
 .notif-botones { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* Turno propuesto por el profesional: aviso y botón para confirmarlo */
