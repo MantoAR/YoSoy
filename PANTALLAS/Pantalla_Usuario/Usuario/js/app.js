@@ -1,3 +1,7 @@
+// Escape de HTML para datos que cargan los usuarios. En Cambios-Agus vive en shared/ui.js (YS.esc);
+// en main no existe esa capa, asi que el parche de XSS define lo minimo que usa.
+window.YS = window.YS || {};
+YS.esc = YS.esc || (s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]));
 function toast(msg, tipo = "ok", duracion = 3500) {
     let cont = document.getElementById("toast-container");
     if (!cont) {
@@ -8,7 +12,7 @@ function toast(msg, tipo = "ok", duracion = 3500) {
     const iconos = { ok: "✔", error: "✖", warn: "⚠" };
     const t = document.createElement("div");
     t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
+    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${YS.esc(msg)}</span>`;
     cont.appendChild(t);
     setTimeout(() => {
         t.classList.add("saliendo");

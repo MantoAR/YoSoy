@@ -265,6 +265,10 @@
     </div>
 
     <script>
+        // Escape de HTML para datos que cargan los usuarios. En Cambios-Agus vive en shared/ui.js (YS.esc);
+        // en main no existe esa capa, asi que el parche de XSS define lo minimo que usa.
+        window.YS = window.YS || {};
+        YS.esc = YS.esc || (s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]));
         let rolActual = "paciente";
 
         function seleccionarRol(rol) {
@@ -412,7 +416,7 @@
                     msg.textContent = "Tu solicitud está siendo revisada por el administrador.";
                 } else if (data.estado === "Aceptada") {
                     msg.style.color = "#27ae60";
-                    msg.innerHTML = `Tu nueva contraseña temporal es: <strong>${data.passwordTemporal}</strong>. Ingresá con ella y cambiala cuanto antes.`;
+                    msg.innerHTML = `Tu nueva contraseña temporal es: <strong>${YS.esc(data.passwordTemporal)}</strong>. Ingresá con ella y cambiala cuanto antes.`;
                 } else if (data.estado === "Rechazada") {
                     msg.style.color = "#e74c3c";
                     msg.textContent = "Tu solicitud fue rechazada. Contactá al administrador.";
