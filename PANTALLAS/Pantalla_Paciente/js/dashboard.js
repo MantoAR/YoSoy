@@ -872,66 +872,102 @@ async function enviarSolicitudCambio() {
 }
 
 // ── MI PERFIL ──────────────────────────────────────────────
-async function renderPerfil(c) {
-    try {
-        const p = await fetch(`${API}/pacientes/${idPaciente}`).then(r => r.json());
-        const fn = p.fechaNacimiento ? p.fechaNacimiento.substring(0, 10) : "";
+// Las mismas reglas que el registro (Pantalla_Usuario/Usuario/js/app.js)
+const RE_DNI   = /^\d{7,9}$/;
+const RE_MAIL  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RE_TEL   = /^[\d\s+()-]{6,20}$/;
+// Un campo opcional que estaba vacío (null) y sigue vacío se manda como null, no como ""
+const opcional = (valor, original) => valor === '' && original == null ? null : valor;
 
-        c.innerHTML = `
-            <div class="card perfil-form">
-                <div class="campo"><label>Nombre</label><input type="text" id="pNombre" value="${YS.esc(p.nombre ?? "")}"></div>
-                <div class="campo"><label>DNI</label><input type="text" id="pDni" value="${YS.esc(p.dni ?? "")}"></div>
-                <div class="campo"><label>Fecha de Nacimiento</label><input type="date" id="pFechaNac" value="${fn}"></div>
-                <div class="campo"><label>Domicilio</label><input type="text" id="pDomicilio" value="${YS.esc(p.domicilio ?? "")}"></div>
-                <div class="campo"><label>Teléfono</label><input type="text" id="pTelefono" value="${YS.esc(p.telefono ?? "")}"></div>
-                <div class="campo"><label>Email</label><input type="text" id="pMail" value="${YS.esc(p.mail ?? "")}"></div>
-                <button class="btn-guardar-perfil" onclick="guardarPerfil(${p.idPaciente})">Guardar cambios</button>
-                <div class="msg-ok" id="msgOk">Cambios guardados correctamente.</div>
-            </div>`;
-    } catch {
-        c.innerHTML = `<p class="texto-error">Error al cargar.</p>`;
-    }
+async function renderPerfil(c) {
+    let p;
+    try { p = await YS.api(`/pacientes/${idPaciente}`); }
+    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('perfil')" }); return; }
+    if (YS.shell.actual !== "perfil") return;
+    window._perfilPaciente = p;
+    const fn = p.fechaNacimiento ? p.fechaNacimiento.substring(0, 10) : "";
+    const campo = (id, etiqueta, valor, extra = "", ancho = false) => `
+        <div class="ui-campo${ancho ? " ui-campo--ancho" : ""}"><label for="${id}">${etiqueta}</label>
+            <input class="ui-input" id="${id}" value="${YS.esc(valor ?? "")}"${extra}></div>`;
+
+    c.innerHTML = `
+        <div class="card perfil-form">
+            <form id="formPerfil" novalidate>
+                <div class="ui-form-grid">
+                    ${campo("pNombre", "Nombre y apellido", p.nombre, ' autocomplete="name" maxlength="100"')}
+                    ${campo("pDni", "DNI", p.dni, ' inputmode="numeric" maxlength="9"')}
+                    <div class="ui-campo"><label for="pFechaNac">Fecha de nacimiento</label>
+                        <input class="ui-input" type="date" id="pFechaNac" value="${fn}" max="${YS.fecha.aISO(new Date())}"></div>
+                    ${campo("pTelefono", "Teléfono", p.telefono, ' type="tel" autocomplete="tel" maxlength="20"')}
+                    ${campo("pMail", "Mail", p.mail, ' type="email" autocomplete="email" maxlength="100"')}
+                    ${campo("pDomicilio", "Domicilio", p.domicilio, ' autocomplete="street-address" maxlength="150"', true)}
+                </div>
+                <div class="ui-form-acciones">
+                    <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
+                </div>
+            </form>
+        </div>`;
+    document.getElementById("formPerfil").addEventListener("submit", e => { e.preventDefault(); guardarPerfil(p.idPaciente); });
 }
 
 async function guardarPerfil(id) {
+    const hoy = YS.fecha.aISO(new Date());
+    const valido = YS.form.validar([
+        { id: "pNombre", requerido: "Ingresá tu nombre y apellido.", minimo: 3 },
+        { id: "pDni", requerido: "Ingresá tu DNI.", patron: RE_DNI, mensajePatron: "El DNI tiene que tener entre 7 y 9 números, sin puntos." },
+        { id: "pFechaNac", validar: v => v && v > hoy ? "La fecha de nacimiento no puede ser futura." : null },
+        { id: "pTelefono", patron: RE_TEL, mensajePatron: "Usá solo números, espacios, + o guiones." },
+        { id: "pMail", patron: RE_MAIL, mensajePatron: "Ingresá un mail válido." }
+    ]);
+    if (!valido) return;
+
+    const valor = id_ => document.getElementById(id_).value.trim();
     const body = {
         idPaciente:      id,
-        nombre:          document.getElementById("pNombre").value,
-        dni:             document.getElementById("pDni").value,
-        fechaNacimiento: document.getElementById("pFechaNac").value || null,
-        domicilio:       document.getElementById("pDomicilio").value,
-        telefono:        document.getElementById("pTelefono").value,
-        mail:            document.getElementById("pMail").value,
-        estado:          "Activo"
+        nombre:          valor("pNombre"),
+        dni:             valor("pDni"),
+        fechaNacimiento: valor("pFechaNac") || null,
+        domicilio:       opcional(valor("pDomicilio"), window._perfilPaciente?.domicilio),
+        telefono:        opcional(valor("pTelefono"), window._perfilPaciente?.telefono),
+        mail:            opcional(valor("pMail"), window._perfilPaciente?.mail),
+        estado:          window._perfilPaciente?.estado || "Activo"
     };
-
-    const res = await fetch(`${API}/pacientes/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-    });
-
-    if (res.ok) {
-        const msg = document.getElementById("msgOk");
-        msg.style.display = "block";
-        setTimeout(() => msg.style.display = "none", 3000);
-    } else {
-        toast("Error al guardar los cambios.", "error");
+    const boton = document.getElementById("btnGuardarPerfil");
+    boton.disabled = true;
+    try {
+        const res = await fetch(`${API}/pacientes/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+        });
+        if (res.ok) { window._perfilPaciente = { ...window._perfilPaciente, ...body }; toast("Tus datos quedaron guardados."); }
+        else toast(await YS.leerMensaje(res, "No se pudieron guardar los cambios."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    } finally {
+        boton.disabled = false;
     }
 }
 
 function renderSesion() {
-    return '<div class="card sesion-entrada">' +
-        '<div class="titulo-tarjeta">Iniciar sesion de video</div>' +
-        '<p class="texto-suave mb-12">Ingresa el codigo de sala que te dio tu profesional:</p>' +
-        '<input type="text" id="codigoSala" class="turno-input" placeholder="Codigo de sala">' +
-        '<button class="btn-primario btn-bloque" onclick="entrarSesion()">Entrar a la sesion</button>' +
-        '</div>';
+    return `
+        <div class="card sesion-entrada">
+            <div class="titulo-tarjeta">Entrar a la sala de video</div>
+            <p class="texto-suave mb-12">Ingresá el código de sala que te pasó tu profesional. También te llega en las notificaciones.</p>
+            <form id="formSala" class="ui-campo" novalidate onsubmit="event.preventDefault(); entrarSesion();">
+                <label for="codigoSala">Código de sala</label>
+                <div class="sesion-entrada-fila">
+                    <input type="text" id="codigoSala" class="ui-input" placeholder="SALA-X-XXXXXX" maxlength="30" autocomplete="off"
+                           oninput="this.value = this.value.toUpperCase()">
+                    <button type="submit" class="ui-btn ui-btn--primary">Entrar</button>
+                </div>
+            </form>
+        </div>`;
 }
 
 function entrarSesion() {
-    var codigo = document.getElementById('codigoSala').value.trim();
-    if (codigo === '') { alert('Ingresa el codigo de sala.'); return; }
+    const codigo = document.getElementById('codigoSala').value.trim();
+    if (!codigo) { YS.form.marcar('codigoSala', 'Ingresá el código de sala.'); document.getElementById('codigoSala').focus(); return; }
     window.location.href = 'sesion_video.html?sala=' + encodeURIComponent(codigo) + '&idPaciente=' + idPaciente;
 }
 

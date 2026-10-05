@@ -105,7 +105,7 @@ tbody tr:hover td { background: #FAFAFB; }
     background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .campo input:disabled { color: var(--text-3); }
-.perfil-form { max-width: 560px; }
+.perfil-form { max-width: 760px; }
 .msg-ok { color: var(--ok); font-size: var(--fs-md); margin-top: 8px; display: none; }
 .form-fila { display: flex; gap: 12px; flex-wrap: wrap; }
 .form-grupo { display: flex; flex-direction: column; gap: 5px; min-width: 120px; }

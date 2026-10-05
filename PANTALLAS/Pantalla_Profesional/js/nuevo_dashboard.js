@@ -703,66 +703,96 @@ function sesion(idPaciente = null) {
 }
 
 
+// Las mismas reglas que el registro (Pantalla_Usuario/Usuario/js/app.js)
+const RE_DNI   = /^\d{7,9}$/;
+const RE_MAIL  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RE_TEL   = /^[\d\s+()-]{6,20}$/;
+// Un campo opcional que estaba vacío (null) y sigue vacío se manda como null, no como ""
+const opcional = (valor, original) => valor === '' && original == null ? null : valor;
+
 async function perfil() {
     const c = document.getElementById('contenido');
-    let prof = null, especialidades = [];
-    try { prof = await (await fetch(`${API}/profesionales/${idProfesional}`)).json(); } catch {}
-    try { especialidades = await (await fetch(`${API}/especialidades`)).json(); } catch {}
+    let prof;
+    try { prof = await YS.api(`/profesionales/${idProfesional}`); }
+    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('perfil')" }); return; }
+    const especialidades = await YS.api('/especialidades').catch(() => []);
+    if (YS.shell.actual !== 'perfil') return;
+    window._profActual = prof;
 
     const fn = prof?.fechaNacimiento ? prof.fechaNacimiento.substring(0, 10) : '';
-
+    const campo = (id, etiqueta, valor, extra = '') => `
+        <div class="ui-campo"><label for="${id}">${etiqueta}</label>
+            <input class="ui-input" id="${id}" value="${YS.esc(valor ?? '')}"${extra}></div>`;
     c.innerHTML = `
-        <div class="card">
-            <div class="perfil-form">
-                <div class="campo"><label>Nombre</label><input id="pf-nombre" value="${YS.esc(prof?.nombre ?? '')}"></div>
-                <div class="campo"><label>Apellido</label><input id="pf-apellido" value="${YS.esc(prof?.apellido ?? '')}"></div>
-                <div class="campo"><label>Segundo nombre</label><input id="pf-segundoNombre" value="${YS.esc(prof?.segundoNombre ?? '')}"></div>
-                <div class="campo"><label>DNI</label><input id="pf-dni" value="${YS.esc(prof?.dni ?? '')}"></div>
-                <div class="campo"><label>Fecha de nacimiento</label><input type="date" id="pf-fechaNacimiento" value="${fn}"></div>
-                <div class="campo"><label>Mail</label><input id="pf-mail" value="${YS.esc(prof?.mail ?? '')}"></div>
-                <div class="campo"><label>Teléfono</label><input id="pf-telefono" value="${YS.esc(prof?.telefono ?? '')}"></div>
-                <div class="campo"><label>Provincia</label><input id="pf-provincia" value="${YS.esc(prof?.provincia ?? '')}"></div>
-                <div class="campo"><label>Matrícula</label><input id="pf-matricula" value="${YS.esc(prof?.matricula ?? '')}" disabled></div>
-                <div class="campo">
-                    <label>Especialidad</label>
-                    <select id="pf-especialidad">
-                        ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${YS.esc(e.nombre ?? e.descripcion ?? e.idEspecialidad)}</option>`).join('')}
-                    </select>
+        <div class="card perfil-form">
+            <form id="formPerfil" novalidate>
+                <div class="ui-form-grid">
+                    ${campo('pf-nombre', 'Nombre', prof?.nombre, ' autocomplete="given-name" maxlength="60"')}
+                    ${campo('pf-apellido', 'Apellido', prof?.apellido, ' autocomplete="family-name" maxlength="60"')}
+                    ${campo('pf-segundoNombre', 'Segundo nombre', prof?.segundoNombre, ' autocomplete="additional-name" maxlength="60"')}
+                    ${campo('pf-dni', 'DNI', prof?.dni, ' inputmode="numeric" maxlength="9"')}
+                    <div class="ui-campo"><label for="pf-fechaNacimiento">Fecha de nacimiento</label>
+                        <input class="ui-input" type="date" id="pf-fechaNacimiento" value="${fn}" max="${YS.fecha.aISO(new Date())}"></div>
+                    ${campo('pf-mail', 'Mail', prof?.mail, ' type="email" autocomplete="email" maxlength="100"')}
+                    ${campo('pf-telefono', 'Teléfono', prof?.telefono, ' type="tel" autocomplete="tel" maxlength="20"')}
+                    ${campo('pf-provincia', 'Provincia', prof?.provincia, ' maxlength="60"')}
+                    <div class="ui-campo"><label for="pf-matricula">Matrícula</label>
+                        <input class="ui-input" id="pf-matricula" value="${YS.esc(prof?.matricula ?? '')}" disabled>
+                        <div class="ui-campo-ayuda">La cambia el equipo de YoSoy.</div></div>
+                    <div class="ui-campo"><label for="pf-especialidad">Especialidad</label>
+                        <select id="pf-especialidad" class="ui-select">
+                            ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${YS.esc(e.nombre ?? e.descripcion ?? e.idEspecialidad)}</option>`).join('')}
+                        </select></div>
                 </div>
-                <button class="btn-guardar-perfil" onclick="guardarPerfil()">Guardar cambios</button>
-                <div class="msg-ok" id="msg-perfil-ok">Perfil actualizado correctamente.</div>
-            </div>
-        </div>
-    `;
-    window._profActual = prof;
+                <div class="ui-form-acciones">
+                    <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
+                </div>
+            </form>
+        </div>`;
+    document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
 }
 
 async function guardarPerfil() {
+    const hoy = YS.fecha.aISO(new Date());
+    const valido = YS.form.validar([
+        { id: 'pf-nombre', requerido: 'Ingresá tu nombre.' },
+        { id: 'pf-apellido', requerido: 'Ingresá tu apellido.' },
+        { id: 'pf-dni', requerido: 'Ingresá tu DNI.', patron: RE_DNI, mensajePatron: 'El DNI tiene que tener entre 7 y 9 números, sin puntos.' },
+        { id: 'pf-fechaNacimiento', validar: v => v && v > hoy ? 'La fecha de nacimiento no puede ser futura.' : null },
+        { id: 'pf-mail', requerido: 'Ingresá tu mail: ahí te llegan los avisos.', patron: RE_MAIL, mensajePatron: 'Ingresá un mail válido.' },
+        { id: 'pf-telefono', patron: RE_TEL, mensajePatron: 'Usá solo números, espacios, + o guiones.' }
+    ]);
+    if (!valido) return;
+
+    const valor = id => document.getElementById(id).value.trim();
+    const antes = window._profActual || {};
     const prof = {
-        ...window._profActual,
-        nombre:          document.getElementById('pf-nombre').value,
-        apellido:        document.getElementById('pf-apellido').value,
-        segundoNombre:   document.getElementById('pf-segundoNombre').value,
-        dni:             document.getElementById('pf-dni').value,
-        fechaNacimiento: document.getElementById('pf-fechaNacimiento').value || null,
-        mail:            document.getElementById('pf-mail').value,
-        telefono:        document.getElementById('pf-telefono').value,
-        provincia:       document.getElementById('pf-provincia').value,
+        ...antes,
+        nombre:          valor('pf-nombre'),
+        apellido:        valor('pf-apellido'),
+        segundoNombre:   opcional(valor('pf-segundoNombre'), antes.segundoNombre),
+        dni:             valor('pf-dni'),
+        fechaNacimiento: valor('pf-fechaNacimiento') || null,
+        mail:            valor('pf-mail'),
+        telefono:        opcional(valor('pf-telefono'), antes.telefono),
+        provincia:       opcional(valor('pf-provincia'), antes.provincia),
         idEspecialidad:  parseInt(document.getElementById('pf-especialidad').value),
     };
+    const boton = document.getElementById('btnGuardarPerfil');
+    boton.disabled = true;
     try {
         const r = await fetch(`${API}/profesionales/${idProfesional}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(prof)
         });
-        if (r.ok) {
-            const ok = document.getElementById('msg-perfil-ok');
-            ok.style.display = 'block';
-            setTimeout(() => ok.style.display = 'none', 3000);
-            toast('Perfil actualizado');
-        } else { toast('Error al guardar', 'error'); }
-    } catch { toast('Error de conexión', 'error'); }
+        if (r.ok) { window._profActual = prof; toast('Tu perfil quedó guardado.'); }
+        else toast(await YS.leerMensaje(r, 'No se pudieron guardar los cambios.'), 'error');
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function responderTurnoDesdeCal(id, aceptar) {

@@ -239,3 +239,9 @@ textarea.turno-input, textarea.campo-texto { height: auto; min-height: 64px; pad
 .inicio-turno-fecha span { font-size: var(--fs-xl); font-weight: 600; color: var(--text); letter-spacing: 0; line-height: 1.1; }
 .inicio-turno-datos { flex: 1; min-width: 0; }
 @media (max-width: 1100px) { .inicio-columnas { grid-template-columns: minmax(0, 1fr); } }
+
+/* Mis datos y sala de video (formularios del sistema de diseño) */
+.perfil-form { max-width: 760px; }
+.sesion-entrada { max-width: 560px; }
+.sesion-entrada-fila { display: flex; gap: 8px; }
+.sesion-entrada-fila .ui-input { flex: 1; font-family: var(--mono); letter-spacing: .08em; }
