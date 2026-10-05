@@ -733,8 +733,8 @@ async function renderRecuperacion(c) {
     const filas = datos.map(d => {
         const fecha = new Date(d.fechaSolicitud).toLocaleString("es-AR");
         return `<tr>
-            <td>${d.username ?? "-"}</td>
-            <td>${d.mail ?? "-"}</td>
+            <td>${YS.esc(d.username ?? "-")}</td>
+            <td>${YS.esc(d.mail ?? "-")}</td>
             <td>${fecha}</td>
             <td>
                 <button class="btn-ok" onclick="aceptarRecuperacion(${d.idRecuperacion})">Aceptar</button>
@@ -763,7 +763,7 @@ async function aceptarRecuperacion(id) {
     const res = await fetch(`${API}/recuperacion-password/${id}/aceptar`, { method: "PUT" });
     if (!res.ok) { toast("Error al procesar la solicitud.", "error"); return; }
     const data = await res.json();
-    toast(`Solicitud aceptada. Contraseña temporal: ${data.passwordTemporal}`, "ok", 8000);
+    toast(`Solicitud aceptada. Contraseña temporal: ${YS.esc(data.passwordTemporal)}`, "ok", 8000);
     mostrarTab("recuperacion");
 }
 
