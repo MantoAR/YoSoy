@@ -1604,7 +1604,7 @@ async function cargarTurnosConfirmados() {
     cont.innerHTML = sinSala.map(function(t) {
         return '<div style="background:white;border-left:5px solid #198754;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)">' +
             '<div style="font-weight:bold;color:#0f5132;margin-bottom:4px">Turno confirmado</div>' +
-            '<div style="font-size:13px;color:#444;margin-bottom:8px">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
+            '<div style="font-size:13px;color:#444;margin-bottom:8px">' + YS.esc(t.nombrePaciente) + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
             '<button onclick="generarSalaTurno(' + t.idTurno + ')" style="padding:7px 16px;background:#198754;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold">Generar sala</button>' +
             '</div>';
     }).join("");
