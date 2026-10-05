@@ -3,166 +3,95 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registro Paciente - YoSoy</title>
-    <link rel="stylesheet" href="css/estilos.css">
+    <title>YoSoy · Registro de paciente</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../../shared/tema.css">
+    <link rel="stylesheet" href="../../shared/acceso.css">
 </head>
-<body>
+<body class="acceso acceso--arriba">
 
-<div class="contenedor-registro">
-    <div class="card-registro">
+<main class="acceso-tarjeta acceso-tarjeta--ancha" aria-labelledby="tituloRegistro">
+    <a class="acceso-marca" href="../../index.html" aria-label="YoSoy, volver al ingreso">
+        <img src="img/logo_SINFONDO.png" alt="">
+        <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+    </a>
+    <h1 class="acceso-titulo" id="tituloRegistro">Registro de paciente</h1>
+    <p class="acceso-bajada">Los campos con <span class="ui-requerido">*</span> son obligatorios.</p>
 
-        <img src="img/logo_SINFONDO.png" alt="Logo YoSoy" class="logo-registro">
-        <div class="titulo-reg">YoSoy</div>
-        <div class="subtitulo-reg">Registro de Paciente</div>
+    <form id="formRegistro" class="acceso-form" novalidate>
 
-        <form id="formRegistro" novalidate>
-
-            <!-- DATOS PERSONALES -->
-            <div class="seccion-titulo-reg">Datos Personales</div>
-
-            <div class="input-row">
-                <div class="campo">
-                    <label>Nombre *</label>
-                    <input type="text" id="nombre" class="input-reg">
-                </div>
-                <div class="campo">
-                    <label>Segundo Nombre</label>
-                    <input type="text" id="segundoNombre" class="input-reg">
-                </div>
+        <div class="acceso-seccion">Datos personales</div>
+        <div class="acceso-grid">
+            <div class="ui-campo"><label for="nombre">Nombre<span class="ui-requerido">*</span></label><input type="text" id="nombre" class="ui-input" autocomplete="given-name"></div>
+            <div class="ui-campo"><label for="segundoNombre">Segundo nombre</label><input type="text" id="segundoNombre" class="ui-input"></div>
+            <div class="ui-campo"><label for="apellido">Apellido<span class="ui-requerido">*</span></label><input type="text" id="apellido" class="ui-input" autocomplete="family-name"></div>
+            <div class="ui-campo"><label for="segundoApellido">Segundo apellido</label><input type="text" id="segundoApellido" class="ui-input"></div>
+            <div class="ui-campo"><label for="dni">DNI<span class="ui-requerido">*</span></label><input type="text" id="dni" class="ui-input" inputmode="numeric"></div>
+            <div class="ui-campo">
+                <label for="sexo">Sexo<span class="ui-requerido">*</span></label>
+                <select id="sexo" class="ui-select">
+                    <option value="" disabled selected hidden>Seleccioná</option>
+                    <option>Masculino</option>
+                    <option>Femenino</option>
+                    <option>Otros</option>
+                </select>
             </div>
+            <div class="ui-campo"><label for="fechaNacimiento">Fecha de nacimiento<span class="ui-requerido">*</span></label><input type="date" id="fechaNacimiento" class="ui-input"></div>
+            <div class="ui-campo"><label for="telefono">Teléfono</label><input type="tel" id="telefono" class="ui-input" autocomplete="tel"></div>
+            <div class="ui-campo ui-campo--ancho"><label for="email">Email<span class="ui-requerido">*</span></label><input type="email" id="email" class="ui-input" autocomplete="email"></div>
+        </div>
 
-            <div class="input-row">
-                <div class="campo">
-                    <label>Apellido *</label>
-                    <input type="text" id="apellido" class="input-reg">
-                </div>
-                <div class="campo">
-                    <label>Segundo Apellido</label>
-                    <input type="text" id="segundoApellido" class="input-reg">
-                </div>
-            </div>
+        <div class="acceso-seccion">Domicilio</div>
+        <div class="acceso-grid">
+            <div class="ui-campo"><label for="domicilio">Calle<span class="ui-requerido">*</span></label><input type="text" id="domicilio" class="ui-input" autocomplete="address-line1"></div>
+            <div class="ui-campo"><label for="numero">Número<span class="ui-requerido">*</span></label><input type="number" id="numero" class="ui-input"></div>
+            <div class="ui-campo ui-campo--ancho"><label for="provincia">Provincia<span class="ui-requerido">*</span></label><input type="text" id="provincia" class="ui-input" autocomplete="address-level1"></div>
+        </div>
 
-            <div class="input-row">
-                <div class="campo">
-                    <label>DNI *</label>
-                    <input type="text" id="dni" class="input-reg">
-                </div>
-                <div class="campo">
-                    <label>Sexo *</label>
-                    <select id="sexo" class="input-reg">
-                        <option value="" disabled selected hidden>Seleccione</option>
+        <!-- Datos del tutor: se muestran si el paciente es menor de edad -->
+        <div id="seccionTutor" class="oculto">
+            <div class="acceso-seccion">Datos del tutor responsable</div>
+            <div class="acceso-grid mt-12">
+                <div class="ui-campo"><label for="tutorNombre">Nombre</label><input type="text" id="tutorNombre" class="ui-input"></div>
+                <div class="ui-campo"><label for="tutorSegundoNombre">Segundo nombre</label><input type="text" id="tutorSegundoNombre" class="ui-input"></div>
+                <div class="ui-campo"><label for="tutorApellido">Apellido</label><input type="text" id="tutorApellido" class="ui-input"></div>
+                <div class="ui-campo"><label for="tutorSegundoApellido">Segundo apellido</label><input type="text" id="tutorSegundoApellido" class="ui-input"></div>
+                <div class="ui-campo">
+                    <label for="tutorSexo">Sexo</label>
+                    <select id="tutorSexo" class="ui-select">
+                        <option value="" disabled selected hidden>Seleccioná</option>
                         <option>Masculino</option>
                         <option>Femenino</option>
                         <option>Otros</option>
                     </select>
                 </div>
+                <div class="ui-campo"><label for="tutorFechaNacimiento">Fecha de nacimiento</label><input type="date" id="tutorFechaNacimiento" class="ui-input"></div>
+                <div class="ui-campo"><label for="tutorEmail">Email</label><input type="email" id="tutorEmail" class="ui-input"></div>
+                <div class="ui-campo"><label for="parentesco">Parentesco</label><input type="text" id="parentesco" class="ui-input"></div>
+                <div class="ui-campo ui-campo--ancho"><label for="tutorDomicilio">Domicilio</label><input type="text" id="tutorDomicilio" class="ui-input"></div>
             </div>
+        </div>
 
-            <div class="input-row">
-                <div class="campo">
-                    <label>Fecha de Nacimiento *</label>
-                    <input type="date" id="fechaNacimiento" class="input-reg">
-                </div>
-                <div class="campo">
-                    <label>Teléfono</label>
-                    <input type="text" id="telefono" class="input-reg">
-                </div>
-            </div>
+        <div class="ui-alerta ui-alerta--danger oculto" id="errorRegistro" role="alert"></div>
 
-            <div class="campo">
-                <label>Email *</label>
-                <input type="email" id="email" class="input-reg">
-            </div>
+        <div class="acceso-acciones">
+            <a class="ui-btn ui-btn--lg" href="../../index.html">Cancelar</a>
+            <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg" id="btnRegistrar">Registrarme</button>
+        </div>
+    </form>
 
-            <!-- DOMICILIO -->
-            <div class="seccion-titulo-reg">Domicilio</div>
+    <!-- Registro enviado -->
+    <section id="registroListo" class="acceso-listo oculto" role="status" aria-live="polite">
+        <div class="acceso-listo-icono" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h2>Tus datos quedaron registrados</h2>
+        <p>Gracias por registrarte en YoSoy.</p>
+        <a class="ui-btn ui-btn--primary" href="../../index.html">Volver al ingreso</a>
+    </section>
+</main>
 
-            <div class="input-row">
-                <div class="campo" style="flex:2;">
-                    <label>Calle *</label>
-                    <input type="text" id="domicilio" class="input-reg">
-                </div>
-                <div class="campo" style="flex:1;">
-                    <label>Número *</label>
-                    <input type="number" id="numero" class="input-reg">
-                </div>
-            </div>
-
-            <div class="campo">
-                <label>Provincia *</label>
-                <input type="text" id="provincia" class="input-reg">
-            </div>
-
-            <!-- DATOS TUTOR -->
-            <div id="seccionTutor" class="seccion-tutor">
-
-                <div class="seccion-titulo-reg">Datos del Tutor Responsable</div>
-
-                <div class="input-row">
-                    <div class="campo">
-                        <label>Nombre *</label>
-                        <input type="text" id="tutorNombre" class="input-reg">
-                    </div>
-                    <div class="campo">
-                        <label>Segundo Nombre</label>
-                        <input type="text" id="tutorSegundoNombre" class="input-reg">
-                    </div>
-                </div>
-
-                <div class="input-row">
-                    <div class="campo">
-                        <label>Apellido *</label>
-                        <input type="text" id="tutorApellido" class="input-reg">
-                    </div>
-                    <div class="campo">
-                        <label>Segundo Apellido</label>
-                        <input type="text" id="tutorSegundoApellido" class="input-reg">
-                    </div>
-                </div>
-
-                <div class="input-row">
-                    <div class="campo">
-                        <label>Sexo *</label>
-                        <select id="tutorSexo" class="input-reg">
-                            <option value="" disabled selected hidden>Seleccione</option>
-                            <option>Masculino</option>
-                            <option>Femenino</option>
-                            <option>Otros</option>
-                        </select>
-                    </div>
-                    <div class="campo">
-                        <label>Fecha de Nacimiento *</label>
-                        <input type="date" id="tutorFechaNacimiento" class="input-reg">
-                    </div>
-                </div>
-
-                <div class="input-row">
-                    <div class="campo">
-                        <label>Email *</label>
-                        <input type="email" id="tutorEmail" class="input-reg">
-                    </div>
-                    <div class="campo">
-                        <label>Parentesco *</label>
-                        <input type="text" id="parentesco" class="input-reg">
-                    </div>
-                </div>
-
-                <div class="campo">
-                    <label>Domicilio *</label>
-                    <input type="text" id="tutorDomicilio" class="input-reg">
-                </div>
-
-            </div>
-
-            <!-- BOTON -->
-            <button type="submit" class="boton-reg">Continuar</button>
-
-        </form>
-
-    </div>
-</div>
-
+<script src="../../shared/ui.js"></script>
 <script src="js/app.js"></script>
-
 </body>
 </html>
