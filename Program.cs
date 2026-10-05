@@ -503,6 +503,7 @@ app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador) =>
     var result = cmd.ExecuteScalar();
     if (result is null) return Results.Problem("No existe el estado 'Pendiente' en EstadoTurno.");
     t.IdEstadoTurno = (int)result;
+    t.CreadoPor = "paciente";   // igual que los pedidos por chat: el profesional lo acepta o lo rechaza
     new TurnoDAO().Insertar(t);
     notificador.TurnoSolicitado(t);
     return Results.Created("/turnos", t);

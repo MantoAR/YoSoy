@@ -49,6 +49,7 @@
 .badge-confirmado, .estado-2 { color: var(--ok);      background: var(--ok-bg);      border-color: var(--ok-border); }
 .badge-cancelado, .estado-3  { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 .badge-realizado, .estado-4  { color: var(--info);    background: var(--info-bg);    border-color: var(--info-border); }
+.estado-propuesto, .bloque-turno.propuesto { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-border); }
 .badge-disponible.si { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
 .badge-disponible.no { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 
@@ -207,7 +208,7 @@ tbody tr:hover td { background: #FAFAFB; }
 .cal-dia.con-turno::after                { background: var(--ok-bg);      border-color: var(--ok-border); }
 .cal-dia.con-turno-pendiente::after,
 .cal-dia.con-turno-pendiente-ellos::after{ background: var(--warn-bg);    border-color: var(--warn-border); }
-.cal-dia.con-turno-pendiente-yo::after   { background: var(--info-bg);    border-color: var(--info-border); }
+.cal-dia.con-turno-pendiente-yo::after   { background: var(--accent-soft); border-color: var(--accent-border); }
 .cal-dia.con-turno-cancelado::after      { background: var(--neutral-bg); border-color: var(--neutral-border); }
 .cal-dia.con-turno-cancelado { color: var(--text-4); text-decoration: line-through; }
 .cal-dia:hover { background: var(--surface-2); }

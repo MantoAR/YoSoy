@@ -275,7 +275,9 @@ async function renderTurnosPendientes() {
                 <div class="turno-paciente">${p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente}</div>
                 <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + t.motivo : ''}</div>
             </div>
-            <span class="badge-estado badge-pendiente">Pendiente</span>
+            ${t.creadoPor === 'profesional'
+                ? '<span class="badge-estado estado-propuesto" title="Lo propusiste vos: espera la confirmación del paciente">Propuesto</span>'
+                : '<span class="badge-estado badge-pendiente">Pendiente</span>'}
             <button class="btn-confirmar" onclick="confirmarTurno(${t.idTurno})">Confirmar</button>
         </div>`;
     }).join('') + `</div>`;
@@ -420,7 +422,7 @@ async function agenda() {
             <div id="vistaSemanaProf" class="oculto"></div>
             <div class="agenda-leyenda">
                 <span class="ui-chip ui-chip--warn">Pendiente</span>
-                <span class="ui-chip ui-chip--info">Propuesto por mí</span>
+                <span class="ui-chip ui-chip--marca">Propuesto por mí</span>
                 <span class="ui-chip ui-chip--ok">Confirmado</span>
                 <span class="ui-chip ui-chip--neutral">Cancelado</span>
             </div>
@@ -1077,8 +1079,17 @@ async function dibujarCalendarioProfesional() {
             const soloCancelado = tieneT && turnosPorDia[dia].every(t => t.idEstadoTurno === 3);
             const mePidieron    = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor === 'paciente');
             const yoPedi        = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor === 'profesional');
+            // Pendientes que esperan al profesional: pedidos del paciente y los anteriores a la
+            // columna CreadoPor (sin autor conocido).
+            const pendienteParaMi = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor !== 'profesional');
 
-            if (mePidieron && yoPedi) {
+            // Autoconfirmación ("si el paciente pidió y yo propuse el mismo día, se confirman todos
+            // los pendientes de ese día"): nunca corrió, porque creadoPor no llegaba del backend.
+            // Ahora que llega queda apagada a propósito: confirmaría turnos de pacientes distintos
+            // del mismo día y escribe en la base solo por abrir el calendario. Para activarla hace
+            // falta una decisión del equipo (ver CAMBIOS_AGUS.md).
+            const AUTOCONFIRMAR = false;
+            if (AUTOCONFIRMAR && mePidieron && yoPedi) {
                 turnosPorDia[dia].filter(t => t.idEstadoTurno === 1).forEach(t => {
                     autoconfirmarPromesas.push(
                         fetch(`${API}/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
@@ -1090,7 +1101,7 @@ async function dibujarCalendarioProfesional() {
             }
 
             const claseT = tieneT
-                ? (soloCancelado ? 'con-turno-cancelado' : (mePidieron && !yoPedi) ? 'con-turno-pendiente-ellos' : (yoPedi && !mePidieron) ? 'con-turno-pendiente-yo' : 'con-turno')
+                ? (soloCancelado ? 'con-turno-cancelado' : pendienteParaMi ? 'con-turno-pendiente-ellos' : yoPedi ? 'con-turno-pendiente-yo' : 'con-turno')
                 : (esPasado ? 'pasado' : 'futuro');
             clases  = ['cal-dia', claseT, esHoy ? 'hoy' : ''].join(' ').trim();
             onclick = !esPasado || tieneT ? `onclick="mostrarPanelDiaProfesional(${dia})"` : '';
@@ -1288,8 +1299,9 @@ async function dibujarSemanaProfesional() {
             const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
             const alto = Math.max(22, (intervalo / 60) * HORA_PX - 3);
             const posicion = `left:calc(3px + (100% - 6px) * ${carril} / ${carriles});width:calc((100% - 6px) / ${carriles} - 2px)`;
-            html += `<button class="bloque-turno estado-${t.idEstadoTurno}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
-                         title="${fmtHora(t.hora)} · ${nombre} · ${ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
+            const propuesto = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
+            html += `<button class="bloque-turno estado-${t.idEstadoTurno}${propuesto ? ' propuesto' : ''}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
+                         title="${fmtHora(t.hora)} · ${nombre} · ${propuesto ? 'Propuesto, espera al paciente' : ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
                          onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})">
                         <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${nombre}</span>
                     </button>`;
@@ -1349,6 +1361,7 @@ async function mostrarPanelDiaProfesional(dia) {
         const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
         const puedeAccionar = t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4;
         const esPendientePaciente = t.idEstadoTurno === 1 && t.creadoPor === 'paciente';
+        const esPropuestoPorMi    = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
         return `
         <div class="panel-top${t.idEstadoTurno === 3 ? ' panel-cancelado' : ''}">
             <div class="panel-hora-bloque">
@@ -1358,8 +1371,10 @@ async function mostrarPanelDiaProfesional(dia) {
             <div class="panel-info-principal">
                 <div class="panel-profesional">${nombre}</div>
             </div>
-            <span class="panel-estado-badge estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
+            <span class="panel-estado-badge estado-${t.idEstadoTurno}${esPropuestoPorMi ? ' estado-propuesto' : ''}">${esPropuestoPorMi ? 'Propuesto' : (estadoLabel[t.idEstadoTurno] ?? '—')}</span>
         </div>
+        ${esPropuestoPorMi ? `<p class="texto-suave mb-12">Lo propusiste vos: queda pendiente hasta que el paciente lo confirme.</p>` : ''}
+        ${esPendientePaciente ? `<p class="texto-suave mb-12">Lo pidió el paciente: aceptalo o rechazalo.</p>` : ''}
         ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div></div>` : ''}
         ${esPendientePaciente ? `
             <div class="panel-acciones">
