@@ -4,8 +4,9 @@ Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
 **Estado:** Pasos 0 a 6 terminados, más una tanda posterior (revisión XSS de mensajería, rama `fix-xss` y
-script SQL). Son 64 commits locales sobre `rediseno-visual`, y hay además una rama local `fix-xss` con 5
-commits sobre `main`. No se hizo ningún push.
+script SQL) y un sexto tramo de `fix-xss` con los lugares de `main` que quedaban sin escapar. Son 64 commits
+locales sobre `rediseno-visual`, y hay además una rama local `fix-xss` con 16 commits sobre `main` (los 5
+originales más 11 de ese sexto tramo). No se hizo ningún push.
 Al cierre:
 - `dotnet build`: 0 errores y los mismos 167 warnings de nulabilidad que había al empezar;
 - `dotnet test`: 96 de 96;
@@ -16,7 +17,7 @@ Al cierre:
 ## Para revisar primero
 
 1. **Seguridad: XSS almacenado** en el configurador, el profesional, el paciente y la sesión de video. Son 5 commits `fix`; el detalle está en el Paso 5 y en la tabla de bugs. Es lo más importante de la rama: un paciente podía ejecutar código en la sesión del profesional o del configurador.
-   - La rama local `fix-xss` lleva esos 5 commits a `main`, pero **no alcanza para dejar `main` sin XSS**: hay lugares de `main` que en esta rama se escaparon al reescribir pantallas, no en esos commits. El más grave es el listado de solicitudes de registro del configurador. Ver "Después del cierre".
+   - La rama local `fix-xss` lleva esos 5 commits a `main`, más un sexto tramo de 11 commits (ver "Después del cierre") con los lugares que en esta rama se escaparon al reescribir pantallas, no en esos commits. Entre los dos tramos quedan 16 commits sobre `main`, verificados con una prueba de interfaz de 34 verificaciones (0 fallas). El más grave que cubre el sexto tramo era el listado de solicitudes de registro del configurador (público, sin sesión).
 2. **Decisiones que tocan comportamiento.** Ninguna se activó sola; todas están detalladas más abajo.
    - El cierre de sesión por inactividad nunca funcionó (bug 13). No lo activé porque cortaría las videollamadas largas.
    - La autoconfirmación de la agenda del profesional quedó apagada (Paso 4).
@@ -506,7 +507,7 @@ Cada uno se probó interceptando las respuestas de la API en el navegador, sin t
     - el próximo turno del Inicio (profesional, especialidad, modalidad y estado);
     - la lista de notificaciones de la campanita.
 
-  Si `fix-xss` va a ir a `main`, conviene sumarle un sexto commit con estos lugares. No lo hice porque el pedido era solo los cinco.
+  Esto se cubrió después con el sexto tramo de `fix-xss` (punto 4).
 
 **3. Script para revertir los datos de prueba del turno 1 / paciente 1:** `docs/revertir-datos-prueba-turno1.sql`. No se ejecutó. Hace esto:
 - borra el mensaje 1190, los registros de envío 1018 y 1019 y la notificación 1010;
@@ -514,6 +515,29 @@ Cada uno se probó interceptando las respuestas de la API en el navegador, sin t
 - si la marca de lectura de la conversación 1 sigue en 1190, la devuelve al último mensaje que queda.
 
 Todo va en una transacción que por defecto termina con ROLLBACK. Cada paso corta si no toca exactamente las filas esperadas.
+
+**4. Sexto tramo de `fix-xss`: los lugares de `main` que quedaban sin escapar.** 11 commits más sobre `fix-xss` (local, sin push), uno por pantalla o grupo, con el de solicitudes de registro profesional primero por ser el más grave:
+
+| Commit | Pantalla / grupo | Qué escapa |
+|---|---|---|
+| `a1b18f8` | Configurador: solicitudes de registro | las celdas del listado público (nombre, apellido, dni, mail, matrícula, provincia) |
+| `e4367ba` | Configurador: solicitudes de cambio | paciente, profesional origen/destino, especialidad, motivo |
+| `c04faa4` | Configurador: recuperación de contraseña | usuario y mail del listado; la contraseña temporal del aviso |
+| `8437d77` | Configurador: auditoría | acción, entidad y detalle |
+| `9989838` | Configurador: listado de admisiones | nombre, dni y especialidad de cada fila; el detalle ya estaba escapado desde `38fef0f` |
+| `ab28cf2` | Configurador: catálogos y reportes | las celdas de la tabla genérica (roles, especialidades, coberturas, interacciones IA, turnos, agendas) y el `nombre` del select de Reportes; además, el botón "editar" pasaba la fila entera como JSON dentro de un atributo `onclick` con comillas simples — una comilla en un valor rompía el atributo e inyectaba HTML en el botón sin pasar por `innerHTML`. Ahora ese JSON también pasa por `YS.esc` |
+| `6f17d7a` | Profesional: Inicio y cita urgente | sesiones de hoy, próximo turno, saludo con el nombre del profesional, select de pacientes de la cita urgente, turnos pendientes y pacientes de hoy |
+| `4b29529` | Profesional: aviso de turno sin sala | nombre del paciente en el panel flotante |
+| `28ce341` | Paciente: próximo turno del Inicio | nombre del profesional, especialidad, modalidad y estado |
+| `54f5258` | Paciente: campanita (historial completo) | título y mensaje de cada notificación; el botón "Unirse / Ver sala" pasaba el link dentro del `onclick` entre comillas simples (mismo problema que el de catálogos) — ahora pasa solo el id, igual que ya se hacía con "Unirse a la entrevista" |
+| `4d541f8` | Bajo riesgo | la contraseña temporal del login y el `toast()` del registro de paciente, los dos casos de bajo riesgo que quedaban |
+
+- **Cómo se resolvieron:** mismo criterio que los cinco commits originales — el `YS.esc` mínimo que ya define cada archivo, escapando sobre el marcado de `main` tal cual está.
+- **Revisión con grep antes de cerrar** (`innerHTML`, `insertAdjacentHTML` y plantillas con datos de servidor en todo `PANTALLAS/`), para no dejar lugares sin cubrir. Lo que queda sin escapar y por qué es seguro:
+  - **Código muerto, no alcanzable:** `Pantalla_Profesional/dashboard.html` + `js/dashboard.js` + `css/dashboard.css` (el login nunca redirige ahí, solo a `nuevo_dashboard.html`; ese `.css` ni siquiera son reglas CSS, son JS de una versión vieja que quedó mal guardado, pero se carga con `<link>`, así que el navegador lo descarta como CSS inválido sin ejecutarlo). Dentro de `nuevo_dashboard.js`, dos funciones quedaron declaradas dos veces (`pacientes()` y `renderEvoluciones()`); la primera versión de cada una nunca corre, porque JavaScript se queda con la última declaración. `renderTodosLosTurnos()` está definida pero no la llama nadie en todo `PANTALLAS/`.
+  - **Valores fijos o numéricos:** `codigoSala` (lo genera el servidor como `"SALA-" + id + "-" + hex`, sin datos de usuario), ids, fechas, y el estado de las derivaciones (`Pendiente`/`Aceptada`/`Rechazada`, fijado por el backend, no por texto libre) cuando se usa como clase CSS.
+- **Un bug ajeno al XSS, encontrado al armar la prueba con un POST real:** el registro público de profesionales (`POST /profesionales`) siempre devuelve 500, incluso con datos válidos, porque intenta guardar un registro de auditoría con `IdUsuario = 0` (no hay sesión todavía) y esa columna tiene clave foránea a `Usuario`. El profesional queda creado igual (el error pasa después), así que quien se registra ve "Error al enviar la solicitud" aunque su solicitud sí quedó guardada. No lo corregí: no es XSS y no estaba roto por este parche, es un bug previo de `main`. Vale la pena que el equipo lo mire porque hoy el registro público de profesionales no funciona nunca del lado del usuario.
+- **Verificación:** compila con 0 errores (los mismos 167 warnings) y pasan las 89 pruebas de `main`. `p8_fixxss_main`, ampliada con estos lugares (incluye un POST real al endpoint público de solicitudes, con su fila de prueba borrada después a mano por SQL), pasa 34 de 34 verificaciones sobre `fix-xss`.
 
 ---
 
@@ -619,7 +643,7 @@ Las funciones sin uso que estaban dentro de archivos que igual se reescribieron 
   - Los datos del tutor de un menor no se guardan en el registro (pendiente anterior).
   - Usuarios del configurador pide los profesionales de cada paciente por separado (un pedido por paciente). Con muchos pacientes conviene un endpoint que los traiga juntos.
 - **Identidad:** `X-Usuario-Id` lo declara el navegador y no está firmado. Lo reemplaza el JWT de `videollamadas-seguras` (ver `Services/AutorizacionReporte.cs`).
-- **`fix-xss`:** antes de llevarla a `main`, sumarle un sexto commit con los lugares que siguen sin escapar en `main`. El más urgente es el listado de solicitudes de registro. La lista completa está en "Después del cierre".
+- **Bug previo de `main`, ajeno al XSS:** el registro público de profesionales (`POST /profesionales`) siempre responde 500 porque el log de auditoría intenta usar `IdUsuario = 0` (no hay sesión) y choca con la clave foránea a `Usuario`. El profesional queda creado pese al error, así que el usuario ve un error aunque su solicitud se guardó. Encontrado al armar la prueba del sexto tramo de `fix-xss` (ver "Después del cierre").
 
 ## Ideas futuras (no se construyen)
 
