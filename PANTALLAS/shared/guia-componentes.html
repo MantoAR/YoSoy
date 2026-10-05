@@ -190,21 +190,25 @@ YS.shell.acciones([{ texto: "+ Agregar horario", tipo: "primary", alClick: abrir
         </section>
 
         <section id="tabla">
-            <h2>Tabla densa con encabezado fijo</h2>
-            <p>Barra de herramientas (búsqueda y filtros), encabezado que queda fijo al hacer scroll y paginación.</p>
-            <div class="ui-barra">
-                <label class="ui-buscador"><span class="sr-only">Buscar</span><span id="demoLupa"></span><input class="ui-input" id="demoBuscar" placeholder="Buscar paciente…"></label>
-                <div class="ui-filtros" id="demoFiltros">
-                    <button class="ui-filtro activo" data-f="">Todos</button><button class="ui-filtro" data-f="Pendiente">Pendientes</button><button class="ui-filtro" data-f="Confirmado">Confirmados</button>
-                </div>
-                <span class="ui-barra-espacio"></span><span class="ui-barra-info" id="demoInfo"></span>
-            </div>
-            <div class="ui-tabla-panel">
-                <div class="ui-tabla-scroll guia-scroll" id="demoScroll">
-                    <table class="ui-tabla ui-tabla--densa"><thead><tr><th>Paciente</th><th>Profesional</th><th>Fecha</th><th>Estado</th><th></th></tr></thead><tbody id="demoTbody"></tbody></table>
-                </div>
-                <div class="ui-paginacion"><span id="demoRango"></span><div class="ui-paginacion-botones"><button class="ui-btn ui-btn--sm" id="demoAnt">Anterior</button><span class="ui-paginacion-pagina" id="demoPag"></span><button class="ui-btn ui-btn--sm" id="demoSig">Siguiente</button></div></div>
-            </div>
+            <h2>Listados: YS.tabla</h2>
+            <p>Tabla densa con búsqueda, filtros con contador, orden por columna (con <code>aria-sort</code>), paginación de 25 y estado vacío.
+               Todo en el navegador, sobre las filas que ya trajo la pantalla. Es lo que usan los listados del configurador y Mis pacientes.</p>
+            <div id="demoTabla"></div>
+            <pre class="guia-codigo"><code>YS.tabla(contenedor, {
+    filas: turnos, unidad: ["turno", "turnos"], porPagina: 8,
+    placeholder: "Buscar paciente…", buscar: t =&gt; t.paciente,
+    filtros: [
+        { id: "todos", texto: "Todos", pasa: () =&gt; true },
+        { id: "pendientes", texto: "Pendientes", pasa: t =&gt; t.estado === "Pendiente" }
+    ],
+    ordenInicial: { col: 2, desc: true },
+    vacio: { icono: "agenda", titulo: "No hay turnos" },
+    columnas: [
+        { titulo: "Paciente", html: t =&gt; YS.esc(t.paciente), orden: t =&gt; YS.normalizar(t.paciente) },
+        { titulo: "Estado", html: t =&gt; YS.turno.chip(t.estado) },
+        { titulo: "", clase: "acciones", html: t =&gt; `&lt;button class="ui-btn ui-btn--sm"&gt;Ver&lt;/button&gt;` }
+    ]
+});   // → { actualizar(filas), estado, buscador }</code></pre>
         </section>
 
         <section id="chips">
@@ -304,7 +308,6 @@ YS.vacio({ titulo, texto, accion })  ·  YS.errorCarga({ reintentar: "cargar()" 
     document.getElementById("demoChats").innerHTML = YS.icono("chat") + '<span class="ui-contador">3</span>';
     document.getElementById("demoCampana").innerHTML = YS.icono("campana") + '<span class="ui-contador ui-contador--peligro">1</span>';
     document.getElementById("demoIconoBtn").innerHTML = YS.icono("refrescar");
-    document.getElementById("demoLupa").outerHTML = YS.icono("buscar");
     document.getElementById("demoStat1").insertAdjacentHTML("afterbegin", YS.icono("agenda"));
     YS.desplegable(document.getElementById("demoMenuBtn"), document.getElementById("demoMenu"), { tipo: "menu" });
 
@@ -349,40 +352,32 @@ YS.vacio({ titulo, texto, accion })  ·  YS.errorCarga({ reintentar: "cargar()" 
         b.parentElement.querySelectorAll("button").forEach(x => x.classList.toggle("activo", x === b));
     }));
 
-    // Tabla con búsqueda, filtros y paginación
+    // Listado con YS.tabla
     const nombres = ["Camila Ruiz", "Juan Pérez", "Lucía Giménez", "Martín Sosa", "Ana Muñoz", "Pedro Ferreyra", "Sofía Díaz", "Tomás Herrera", "Valentina López", "Bruno Castro", "Julieta Romero", "Lautaro Medina"];
     const filas = Array.from({ length: 34 }, (_, i) => ({
         paciente: nombres[i % nombres.length], profesional: i % 2 ? "Sebastián Manto" : "Laura Giménez",
         fecha: new Date(2026, 9, 1 + (i % 25), 9 + (i % 8)), estado: ["Pendiente", "Confirmado", "Cancelado", "Realizado"][i % 4]
     }));
-    let pagina = 1, filtro = "";
-    const POR_PAGINA = 8;
-    function dibujarTabla() {
-        const q = YS.normalizar(document.getElementById("demoBuscar").value);
-        const vis = filas.filter(f => (!filtro || f.estado === filtro) && YS.normalizar(f.paciente).includes(q));
-        const paginas = Math.max(1, Math.ceil(vis.length / POR_PAGINA));
-        pagina = Math.min(pagina, paginas);
-        const desde = (pagina - 1) * POR_PAGINA;
-        document.getElementById("demoTbody").innerHTML = vis.slice(desde, desde + POR_PAGINA).map(f => `
-            <tr><td><span class="ui-flex">${YS.avatar(f.paciente, null, "sm")}<span class="principal">${YS.esc(f.paciente)}</span></span></td>
-            <td>${YS.esc(f.profesional)}</td><td>${YS.fecha.corta(f.fecha)} · ${YS.fecha.hora(f.fecha)}</td><td>${YS.turno.chip(f.estado)}</td>
-            <td class="acciones"><button class="ui-btn ui-btn--sm">Ver</button></td></tr>`).join("")
-            || `<tr><td colspan="5">${YS.vacio({ icono: "buscar", titulo: "Sin resultados", texto: "Probá con otro nombre o sacá el filtro." })}</td></tr>`;
-        document.getElementById("demoInfo").textContent = `${vis.length} turno${vis.length === 1 ? "" : "s"}`;
-        document.getElementById("demoRango").textContent = vis.length ? `${desde + 1}–${Math.min(desde + POR_PAGINA, vis.length)} de ${vis.length}` : "0 resultados";
-        document.getElementById("demoPag").textContent = `${pagina} / ${paginas}`;
-        document.getElementById("demoAnt").disabled = pagina <= 1;
-        document.getElementById("demoSig").disabled = pagina >= paginas;
-    }
-    document.getElementById("demoBuscar").addEventListener("input", YS.debounce(() => { pagina = 1; dibujarTabla(); }, 150));
-    document.getElementById("demoAnt").onclick = () => { pagina--; dibujarTabla(); };
-    document.getElementById("demoSig").onclick = () => { pagina++; dibujarTabla(); };
-    document.querySelectorAll("#demoFiltros .ui-filtro").forEach(b => b.addEventListener("click", () => {
-        filtro = b.dataset.f; pagina = 1;
-        document.querySelectorAll("#demoFiltros .ui-filtro").forEach(x => x.classList.toggle("activo", x === b));
-        dibujarTabla();
-    }));
-    dibujarTabla();
+    const deEstado = e => f => f.estado === e;
+    YS.tabla(document.getElementById("demoTabla"), {
+        filas, unidad: ["turno", "turnos"], porPagina: 8, placeholder: "Buscar paciente…",
+        buscar: f => f.paciente + " " + f.profesional,
+        filtros: [
+            { id: "todos", texto: "Todos", pasa: () => true },
+            { id: "pendientes", texto: "Pendientes", pasa: deEstado("Pendiente") },
+            { id: "confirmados", texto: "Confirmados", pasa: deEstado("Confirmado") }
+        ],
+        ordenInicial: { col: 2, desc: true },
+        vacio: { icono: "agenda", titulo: "No hay turnos" },
+        columnas: [
+            { titulo: "Paciente", orden: f => YS.normalizar(f.paciente),
+              html: f => `<span class="ui-flex">${YS.avatar(f.paciente, null, "sm")}<span class="principal">${YS.esc(f.paciente)}</span></span>` },
+            { titulo: "Profesional", html: f => YS.esc(f.profesional), orden: f => f.profesional },
+            { titulo: "Fecha", html: f => `${YS.fecha.corta(f.fecha)} · ${YS.fecha.hora(f.fecha)}`, orden: f => f.fecha.getTime() },
+            { titulo: "Estado", html: f => YS.turno.chip(f.estado), orden: f => f.estado },
+            { titulo: "", clase: "acciones", html: () => '<button class="ui-btn ui-btn--sm" type="button">Ver</button>' }
+        ]
+    });
 
     // Estados
     document.getElementById("demoVacio").innerHTML = YS.vacio({ icono: "agenda", titulo: "No tenés turnos para hoy", texto: "Cuando un paciente pida un turno lo vas a ver acá.", accion: { texto: "Ver agenda", onclick: "YS.toast('Iría a la agenda', 'info')" } });
