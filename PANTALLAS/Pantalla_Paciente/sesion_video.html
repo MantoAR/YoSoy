@@ -96,6 +96,18 @@
 const SIGNAL = 'http://localhost:3001';
 let pc, stream, socket, sala;
 
+// El link de la notificación (y los botones del panel) traen el código: ?sala=SALA-...
+// Queda cargado y solo falta "Conectarme" (la cámara se pide recién ahí).
+(function codigoDesdeElLink() {
+    const codigo = (YS.param('sala') || '').trim().toUpperCase();
+    if (!codigo) return;
+    document.getElementById('input-sala').value = codigo;
+    const estado = document.getElementById('estado-espera');
+    estado.textContent = 'El código de tu sala ya está cargado. Tocá "Conectarme" cuando estés listo.';
+    estado.className = 'estado-box';
+    document.getElementById('btn-conectar').focus();
+})();
+
 async function conectarse() {
     sala = document.getElementById('input-sala').value.trim().toUpperCase();
     const estadoBox = document.getElementById('estado-espera');
