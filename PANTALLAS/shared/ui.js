@@ -262,6 +262,7 @@
         s === 400 ? "Revisá los datos ingresados." :
         s === 403 ? "No tenés permiso para hacer esto." :
         s === 404 ? "No se encontró lo que buscabas." :
+        s === 405 ? "Esta acción no está disponible en el servidor." :
         s === 409 ? "No se pudo completar por un conflicto con otros datos." :
         s >= 500  ? "El servidor tuvo un problema. Probá de nuevo en un rato." : `Error ${s}`;
 
