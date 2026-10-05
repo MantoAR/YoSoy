@@ -359,3 +359,8 @@ tbody tr:hover td { background: #FAFAFB; }
 .dialogo-link .ui-input { flex: 1; min-width: 0; }
 .dialogo-botones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 
+
+/* Inicio: dos columnas debajo de las tarjetas de resumen */
+.inicio-columnas { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.inicio-columnas > .card { margin-bottom: 0; }
+@media (max-width: 1100px) { .inicio-columnas { grid-template-columns: minmax(0, 1fr); } }

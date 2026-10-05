@@ -375,7 +375,7 @@ body.ui-pagina-angosta { --contenido-max: 900px; }   /* páginas de lectura (con
 .ui-grilla > .ui-card + .ui-card { margin-top: 0; }
 
 /* Tarjetas de resumen (tableros de Inicio) */
-.ui-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ui-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .ui-stat {
     display: flex; flex-direction: column; gap: 4px;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
