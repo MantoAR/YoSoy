@@ -100,22 +100,22 @@ async function inicio() {
             </div>
         </div>
 
-        <!-- Panel cita urgente (citaUrgente() alterna style.display) -->
-        <div id="panel-urgente" style="display:none">
+        <!-- Panel cita urgente (citaUrgente() lo muestra u oculta) -->
+        <div id="panel-urgente" class="oculto">
             <div class="card card--acento-danger">
                 <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--danger">Cita urgente</div>
                 <p class="texto-suave mb-12">
                     Seleccioná el paciente, generá la sala al instante y el código le llega por notificación.
                 </p>
                 <div class="form-fila form-fila--abajo">
-                    <div class="campo campo--ancho">
+                    <div class="ui-campo campo--ancho">
                         <label for="urgente-paciente">Paciente</label>
-                        <select id="urgente-paciente">
-                            <option value="">Cargando...</option>
+                        <select id="urgente-paciente" class="ui-select">
+                            <option value="">Cargando…</option>
                         </select>
                     </div>
-                    <button class="ui-btn btn-urgente" onclick="confirmarCitaUrgente()">Generar sala y notificar</button>
-                    <button class="ui-btn" onclick="document.getElementById('panel-urgente').style.display='none'">Cancelar</button>
+                    <button class="ui-btn btn-urgente" id="btnUrgente" onclick="confirmarCitaUrgente()">Generar sala y notificar</button>
+                    <button class="ui-btn" onclick="cerrarCitaUrgente()">Cancelar</button>
                 </div>
                 <div id="urgente-resultado" class="mt-12"></div>
             </div>
@@ -186,16 +186,23 @@ async function generarSalaDesdeInicio(idTurno) {
 
 function citaUrgente() {
     const panel = document.getElementById('panel-urgente');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    panel.scrollIntoView({ behavior: 'smooth' });
+    const abrir = panel.classList.contains('oculto');
+    panel.classList.toggle('oculto', !abrir);
+    if (abrir) { panel.scrollIntoView({ behavior: 'smooth' }); document.getElementById('urgente-paciente').focus(); }
+}
+
+function cerrarCitaUrgente() {
+    document.getElementById('panel-urgente').classList.add('oculto');
 }
 
 async function confirmarCitaUrgente() {
     const idPac = parseInt(document.getElementById('urgente-paciente').value);
-    if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
+    if (!idPac) { YS.form.marcar('urgente-paciente', 'Elegí el paciente.'); document.getElementById('urgente-paciente').focus(); return; }
 
     const resultado = document.getElementById('urgente-resultado');
-    resultado.innerHTML = '<div class="spinner">Generando sala...</div>';
+    const boton = document.getElementById('btnUrgente');
+    resultado.innerHTML = YS.cargando('Generando la sala…');
+    boton.disabled = true;
 
     try {
         const ahora = new Date();
@@ -215,7 +222,7 @@ async function confirmarCitaUrgente() {
             })
         });
 
-        if (!rTurno.ok) { toast('Error al crear el turno urgente.', 'error'); return; }
+        if (!rTurno.ok) { toast(await YS.leerMensaje(rTurno, 'No se pudo crear el turno urgente.'), 'error'); resultado.innerHTML = ''; return; }
 
         const rTurnos = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
         const turnos = await rTurnos.json();
@@ -223,10 +230,13 @@ async function confirmarCitaUrgente() {
             .filter(t => t.idPaciente === idPac)
             .sort((a, b) => b.idTurno - a.idTurno)[0];
 
-        if (!turnoUrgente) { toast('Error al obtener el turno.', 'error'); return; }
+        if (!turnoUrgente) { toast('Se creó el turno, pero no se pudo recuperarlo para generar la sala.', 'error'); resultado.innerHTML = ''; return; }
 
-        await fetch(`${API}/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
+        // Sin consentimiento (RN-02) el turno no se confirma, pero la sesión sigue: se avisa, como en irASala()
+        const rConf = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
+        const sinConsentimiento = rConf.status === 409;
         const rSala = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
+        if (!rSala.ok) { toast(await YS.leerMensaje(rSala, 'No se pudo generar la sala.'), 'error'); resultado.innerHTML = ''; return; }
         const data = await rSala.json();
 
         toast(`Sala generada: ${data.codigoSala}`);
@@ -234,8 +244,10 @@ async function confirmarCitaUrgente() {
         // Ir a sesión con el paciente preseleccionado
         YS.shell.marcar('sesion');
         sesion(idPac);
+        if (sinConsentimiento) bannerSinConsentimiento();
 
-    } catch { toast('Error de conexión.', 'error'); resultado.innerHTML = ''; }
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); resultado.innerHTML = ''; }
+    finally { boton.disabled = false; }
 }
 
 // Pendientes de confirmación: lo que pidió el paciente y lo que propuso el profesional
@@ -428,35 +440,35 @@ async function horarios() {
                 </div>`}
             </div>
 
-            <div id="form-horario" class="form-horario">
+            <div id="form-horario" class="form-horario oculto">
                 <div class="form-horario-titulo" id="form-horario-titulo">Agregar horario</div>
                 <input type="hidden" id="fh-id">
                 <div class="form-fila">
-                    <div class="campo">
+                    <div class="ui-campo">
                         <label for="fh-dia">Día</label>
-                        <select id="fh-dia">
+                        <select id="fh-dia" class="ui-select">
                             <option>Lunes</option><option>Martes</option><option>Miércoles</option>
                             <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
                         </select>
                     </div>
-                    <div class="campo">
+                    <div class="ui-campo">
                         <label for="fh-inicio">Hora inicio</label>
-                        <input type="time" id="fh-inicio">
+                        <input type="time" id="fh-inicio" class="ui-input">
                     </div>
-                    <div class="campo">
+                    <div class="ui-campo">
                         <label for="fh-fin">Hora fin</label>
-                        <input type="time" id="fh-fin">
+                        <input type="time" id="fh-fin" class="ui-input">
                     </div>
-                    <div class="campo">
+                    <div class="ui-campo">
                         <label for="fh-disponible">Disponible</label>
-                        <select id="fh-disponible">
+                        <select id="fh-disponible" class="ui-select">
                             <option value="true">Sí</option>
                             <option value="false">No</option>
                         </select>
                     </div>
-                    <div class="campo">
+                    <div class="ui-campo">
                         <label for="fh-intervalo">Intervalo de atención</label>
-                        <select id="fh-intervalo">
+                        <select id="fh-intervalo" class="ui-select">
                             <option value="15">15 minutos</option>
                             <option value="20">20 minutos</option>
                             <option value="30" selected>30 minutos</option>
@@ -466,12 +478,11 @@ async function horarios() {
                         </select>
                     </div>
                 </div>
-                <div id="fh-preview" class="form-preview"></div>
+                <div id="fh-preview" class="form-preview" aria-live="polite"></div>
                 <div class="form-acciones">
-                    <button class="btn-guardar-perfil" onclick="guardarHorario()">Guardar</button>
-                    <button class="btn-secundario" onclick="cerrarFormHorario()">Cancelar</button>
+                    <button class="ui-btn ui-btn--primary" id="fh-guardar" onclick="guardarHorario()">Guardar</button>
+                    <button class="ui-btn" onclick="cerrarFormHorario()">Cancelar</button>
                 </div>
-                <div id="fh-msg" class="form-mensaje"></div>
             </div>
         </div>
     `;
@@ -489,10 +500,8 @@ function abrirFormNuevoHorario() {
     document.getElementById('fh-intervalo').value = '30';
     document.getElementById('fh-disponible').value = 'true';
     document.getElementById('form-horario-titulo').textContent = 'Agregar horario';
-    document.getElementById('fh-msg').textContent = '';
     document.getElementById('fh-preview').textContent = '';
-    document.getElementById('form-horario').style.display = 'block';
-    document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
+    mostrarFormHorario();
 }
 
 function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
@@ -505,18 +514,23 @@ function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
     document.getElementById('fh-disponible').value = disponible ? 'true' : 'false';
     document.getElementById('fh-intervalo').value = intervalo;
     document.getElementById('form-horario-titulo').textContent = 'Editar horario';
-    document.getElementById('fh-msg').textContent = '';
-    document.getElementById('form-horario').style.display = 'block';
-    document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
+    mostrarFormHorario();
     actualizarPreviewNuevo();
 }
 
+function mostrarFormHorario() {
+    const form = document.getElementById('form-horario');
+    YS.form.limpiarTodo(form);
+    form.classList.remove('oculto');
+    form.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fh-dia').focus();
+}
+
 function cerrarFormHorario() {
-    document.getElementById('form-horario').style.display = 'none';
+    document.getElementById('form-horario').classList.add('oculto');
 }
 
 async function guardarHorario() {
-    const msg      = document.getElementById('fh-msg');
     const id       = document.getElementById('fh-id').value;
     const dia      = document.getElementById('fh-dia').value;
     const inicio   = document.getElementById('fh-inicio').value;
@@ -524,8 +538,11 @@ async function guardarHorario() {
     const disp     = document.getElementById('fh-disponible').value === 'true';
     const intervalo = parseInt(document.getElementById('fh-intervalo')?.value ?? 30);
 
-    if (!inicio || !fin) { msg.style.color='#e74c3c'; msg.textContent='Completá hora inicio y fin.'; return; }
-    if (inicio >= fin)   { msg.style.color='#e74c3c'; msg.textContent='La hora inicio debe ser menor a la hora fin.'; return; }
+    const valido = YS.form.validar([
+        { id: 'fh-inicio', requerido: 'Elegí la hora de inicio.' },
+        { id: 'fh-fin', requerido: 'Elegí la hora de fin.', validar: v => inicio && v && v <= inicio ? 'Tiene que ser después de la hora de inicio.' : null }
+    ]);
+    if (!valido) return;
 
     const body = {
         idAgenda: id ? parseInt(id) : 0,
@@ -540,11 +557,14 @@ async function guardarHorario() {
     const url    = id ? `${API}/agendas/${id}` : `${API}/agendas`;
     const method = id ? 'PUT' : 'POST';
 
+    const boton = document.getElementById('fh-guardar');
+    boton.disabled = true;
     try {
         const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
         if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('horarios'); }
-        else { msg.style.color='#e74c3c'; msg.textContent='Error al guardar.'; }
-    } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
+        else toast(await YS.leerMensaje(r, 'No se pudo guardar el horario.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+    finally { boton.disabled = false; }
 }
 
 async function eliminarHorario(id) {
@@ -553,8 +573,8 @@ async function eliminarHorario(id) {
     try {
         const r = await fetch(`${API}/agendas/${id}`, { method:'DELETE' });
         if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('horarios'); }
-        else toast('Error al eliminar', 'error');
-    } catch { toast('Error de conexión', 'error'); }
+        else toast(await YS.leerMensaje(r, 'No se pudo eliminar el horario.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
 }
 
 function fmtHora(h) {
@@ -1204,7 +1224,7 @@ async function mostrarPanelDiaProfesional(dia) {
             </div>
             <div class="form-reprogramar" id="formReprogramarProf-${t.idTurno}">
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
-                <div id="reprogDetallesProf-${t.idTurno}" style="display:none">
+                <div id="reprogDetallesProf-${t.idTurno}" class="oculto">
                     <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf-${t.idTurno}"></div>
                     <div class="form-fila mt-12">
                         <div class="form-grupo form-grupo--ancho">
@@ -1352,7 +1372,7 @@ async function abrirFormReprogramarProf(idTurno) {
 
     _idTurnoReprogProf = idTurno;
     _reprogFechaSeleccionadaProf = null;
-    document.getElementById(`reprogDetallesProf-${idTurno}`).style.display = 'none';
+    document.getElementById(`reprogDetallesProf-${idTurno}`).classList.add('oculto');
 
     try {
         const agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json());
@@ -1370,7 +1390,7 @@ function seleccionarDiaReprogProf(dia) {
     const slot = _agendaReprogProf.find(a => DIA_DB_NUM[normalizarP(a.dia)] === _reprogFechaSeleccionadaProf.getDay());
     const label = _reprogFechaSeleccionadaProf.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
     document.getElementById(`reprogDiaLabelProf-${_idTurnoReprogProf}`).textContent = label;
-    document.getElementById(`reprogDetallesProf-${_idTurnoReprogProf}`).style.display = 'block';
+    document.getElementById(`reprogDetallesProf-${_idTurnoReprogProf}`).classList.remove('oculto');
 
     const sel = document.getElementById(`reprogHoraProf-${_idTurnoReprogProf}`);
     if (!sel) return;

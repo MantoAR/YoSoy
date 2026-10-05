@@ -294,9 +294,10 @@ tbody tr:hover td { background: #FAFAFB; }
 .reprog-detalles { display: none; }
 
 /* Horarios de trabajo */
-.form-horario { display: none; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); max-width: 720px; }
+.form-horario { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); max-width: 720px; }
 .form-horario-titulo { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 12px; }
-.form-horario .campo { margin-bottom: 0; flex: 1; min-width: 130px; }
+.form-horario .campo, .form-horario .ui-campo { margin-bottom: 0; flex: 1; min-width: 130px; }
+#panel-urgente .ui-campo { flex: 1; min-width: 220px; }
 
 /* ═══ Listas de turnos (Inicio) ═══════════════════════════════════ */
 .turnos-lista { display: flex; flex-direction: column; gap: 8px; }
