@@ -3,7 +3,9 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0 a 6 terminados. Son 62 commits locales sobre `rediseno-visual`; no se hizo ningún push.
+**Estado:** Pasos 0 a 6 terminados, más una tanda posterior (revisión XSS de mensajería, rama `fix-xss` y
+script SQL). Son 64 commits locales sobre `rediseno-visual`, y hay además una rama local `fix-xss` con 5
+commits sobre `main`. No se hizo ningún push.
 Al cierre:
 - `dotnet build`: 0 errores y los mismos 167 warnings de nulabilidad que había al empezar;
 - `dotnet test`: 96 de 96;
@@ -14,6 +16,7 @@ Al cierre:
 ## Para revisar primero
 
 1. **Seguridad: XSS almacenado** en el configurador, el profesional, el paciente y la sesión de video. Son 5 commits `fix`; el detalle está en el Paso 5 y en la tabla de bugs. Es lo más importante de la rama: un paciente podía ejecutar código en la sesión del profesional o del configurador.
+   - La rama local `fix-xss` lleva esos 5 commits a `main`, pero **no alcanza para dejar `main` sin XSS**: hay lugares de `main` que en esta rama se escaparon al reescribir pantallas, no en esos commits. El más grave es el listado de solicitudes de registro del configurador. Ver "Después del cierre".
 2. **Decisiones que tocan comportamiento.** Ninguna se activó sola; todas están detalladas más abajo.
    - El cierre de sesión por inactividad nunca funcionó (bug 13). No lo activé porque cortaría las videollamadas largas.
    - La autoconfirmación de la agenda del profesional quedó apagada (Paso 4).
@@ -456,6 +459,62 @@ Cada uno se probó interceptando las respuestas de la API en el navegador, sin t
 - **"Victoria"** no aparece en el código, los textos ni los mensajes de commit.
 - **Backend:** sin cambios en este paso.
 
+### Después del cierre: XSS en mensajería, rama `fix-xss` y script SQL
+
+**1. Revisión XSS de mensajería, registro y recuperación.** No apareció nada para corregir en esta rama.
+- **Bandeja de chats** (cajón y pantalla), datos del paciente, respuestas rápidas y avisos internos de la campana: todo lo que viene del servidor pasa por `YS.esc` o se arma con nodos de texto.
+- **Simulador del paciente** (`chat.js`): las burbujas son nodos de texto y solo se arman links `http(s)`. Un `javascript:` queda como texto.
+- **Login, recuperación, registro de paciente y de profesional, crear cuenta y restablecer contraseña:** los mensajes del servidor van con `textContent` y la contraseña temporal se escapa.
+- **Mensajería en `main`:** también es segura. Arma todo con `textContent`, y el código tiene un comentario explícito sobre no usar `innerHTML`.
+- **Prueba:** `p7_xss_mensajeria`, con 29 verificaciones, en la carpeta local de pruebas. Empieza con un control: el payload `<img src=x onerror=...>` sí se ejecuta si se inserta como HTML, así que la prueba detecta un XSS real.
+- **Bajo riesgo en `main`:** en esas páginas quedan dos casos que en esta rama ya no existen, porque se reescribieron.
+  - La contraseña temporal del login entra sin escapar, pero la genera el servidor.
+  - El `toast()` del registro de paciente arma HTML con el mensaje; como mucho sería self-XSS.
+
+**2. Rama `fix-xss`** (local, sin push). Sale de `main` (4648edb, igual a `origin/main` en el último fetch) y tiene solo los cinco commits de XSS, aplicados con `cherry-pick -x`. Mensajería no necesitó commit.
+
+| En `fix-xss` | Original | Qué arregla | Conflictos |
+|---|---|---|---|
+| `38fef0f` | `a9eeb16` | Configurador | 7 |
+| `346de0b` | `7e62c59` | Profesional | 7 |
+| `314a296` | `9491bcb` | Paciente | 1 |
+| `b49fcc3` | `6d7d641` | Sesión de video | ninguno |
+| `a2f1db7` | `327d9b3` | Notificaciones del paciente | 2 |
+
+- **Cómo se resolvieron los conflictos:**
+  - `main` no tiene `shared/ui.js`. Cada archivo afectado define al principio una versión mínima de `YS.esc` (y `YS.nombreCompleto` donde hace falta), que no pisa la de `ui.js` si algún día se carga.
+  - En cada conflicto se conservó el marcado de `main`, con sus estilos, y solo se escaparon los mismos datos. Así las líneas arregladas quedan iguales a las de esta rama.
+  - La vista semanal de la agenda no existe en `main` (llegó con `rediseno-visual`), así que ese arreglo no aplica.
+  - Cada commit explica en su mensaje cómo se adaptó.
+- **Verificación:**
+  - compila con 0 errores (los mismos 167 warnings de `main`) y pasan las 89 pruebas de `main`;
+  - `p8_fixxss_main` ataca los lugares del parche sobre la interfaz de `main`, con una etiqueta por campo: `main` falla en 15 verificaciones y `fix-xss` en 2.
+- **Lo que los cinco commits no cubren.** Las 2 fallas que quedan, más otros lugares que encontré revisando el código de `main`, siguen vulnerables en `fix-xss`. En esta rama se escaparon al reescribir esas pantallas (`0e7ba80`, `164a34f` y otros), no en un commit de XSS.
+  - **Configurador:**
+    - el listado de **solicitudes de registro**, que arma las celdas con `${row[c]}`. Es el más grave: el registro profesional es público, así que cualquiera, sin cuenta, puede dejar HTML que se ejecuta cuando el configurador abre la lista;
+    - solicitudes de cambio (nombres y motivo);
+    - recuperación de contraseña (usuario y mail);
+    - auditoría (acción, entidad y detalle);
+    - listado de admisiones (nombre y DNI);
+    - la tabla genérica de catálogos (por ejemplo, la consulta de interacciones IA);
+    - las opciones de profesional al derivar una admisión.
+  - **Profesional:**
+    - el Inicio (sesiones, pendientes y pacientes de hoy: nombre y motivo);
+    - las opciones de la cita urgente;
+    - los avisos de "turno confirmado sin sala".
+  - **Paciente:**
+    - el próximo turno del Inicio (profesional, especialidad, modalidad y estado);
+    - la lista de notificaciones de la campanita.
+
+  Si `fix-xss` va a ir a `main`, conviene sumarle un sexto commit con estos lugares. No lo hice porque el pedido era solo los cinco.
+
+**3. Script para revertir los datos de prueba del turno 1 / paciente 1:** `docs/revertir-datos-prueba-turno1.sql`. No se ejecutó. Hace esto:
+- borra el mensaje 1190, los registros de envío 1018 y 1019 y la notificación 1010;
+- vuelve a no leídas las otras 14 notificaciones del paciente 1;
+- si la marca de lectura de la conversación 1 sigue en 1190, la devuelve al último mensaje que queda.
+
+Todo va en una transacción que por defecto termina con ROLLBACK. Cada paso corta si no toca exactamente las filas esperadas.
+
 ---
 
 ## Bugs encontrados y corregidos
@@ -539,6 +598,8 @@ Las funciones sin uso que estaban dentro de archivos que igual se reescribieron 
   - El `segundoNombre` del profesional 1 pasó de NULL a `""` en una prueba (el bug 16) y se volvió a NULL con la API.
   - **Una prueba confirmó por error el turno 1** (11/08, paciente 1). Se volvió a Pendiente con la API. Quedaron los avisos que había generado: la notificación 1010 "Turno confirmado" del paciente 1, los registros de envío 1018 (Chat) y 1019 (App) y el mensaje 1190 en la conversación 1. No los borré porque no se borran datos.
   - Las notificaciones del paciente 1 quedaron leídas, porque una prueba abrió su campana. `p2_paciente` y `p2_profesional` también las marcan al abrirla.
+  - La marca de lectura de la conversación 1 quedó en el mensaje 1190, porque el recorrido final de capturas abrió esa conversación.
+  - **Para revertir esos tres puntos:** `docs/revertir-datos-prueba-turno1.sql`. No se ejecutó; corre en una transacción con ROLLBACK por defecto.
 
 ## Pendientes
 
@@ -558,6 +619,7 @@ Las funciones sin uso que estaban dentro de archivos que igual se reescribieron 
   - Los datos del tutor de un menor no se guardan en el registro (pendiente anterior).
   - Usuarios del configurador pide los profesionales de cada paciente por separado (un pedido por paciente). Con muchos pacientes conviene un endpoint que los traiga juntos.
 - **Identidad:** `X-Usuario-Id` lo declara el navegador y no está firmado. Lo reemplaza el JWT de `videollamadas-seguras` (ver `Services/AutorizacionReporte.cs`).
+- **`fix-xss`:** antes de llevarla a `main`, sumarle un sexto commit con los lugares que siguen sin escapar en `main`. El más urgente es el listado de solicitudes de registro. La lista completa está en "Después del cierre".
 
 ## Ideas futuras (no se construyen)
 
