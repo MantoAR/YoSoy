@@ -906,7 +906,7 @@ async function renderAdmision(c) {
             c.innerHTML = '<div class="titulo-seccion">Admision</div>' +
                 '<div class="card" style="max-width:600px">' +
                 '<h3 style="color:#6A5ACD;margin-bottom:16px">Tu informe de admision ya fue enviado</h3>' +
-                '<p style="margin-bottom:10px">Estado actual: <span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:4px 14px;font-weight:bold">' + inf.estado + '</span></p>' +
+                '<p style="margin-bottom:10px">Estado actual: <span style="background:' + par[0] + ';color:' + par[1] + ';border-radius:10px;padding:4px 14px;font-weight:bold">' + YS.esc(inf.estado) + '</span></p>' +
                 '<p style="font-size:13px;color:#888">Cuando el equipo de admision revise tu informe, te contactaremos para coordinar la primera entrevista.</p>' +
                 '</div>';
             return;
@@ -1003,6 +1003,7 @@ async function cargarNotificaciones() {
     let notifs = [];
     try { notifs = await (await fetch(API + "/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
     const noLeidas = notifs.filter(function(n) { return n.leida === false; });
+    window._notifsFlotantes = noLeidas;
     if (noLeidas.length === 0) return;
 
     let cont = document.getElementById("notif-container");
@@ -1019,10 +1020,10 @@ async function cargarNotificaciones() {
         card.style.cssText = "background:white;border-left:5px solid #0d6efd;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)";
         let botones = '<button onclick="marcarLeida(' + n.idNotificacion + ')" style="padding:6px 12px;background:#eee;color:#555;border:none;border-radius:6px;cursor:pointer;font-size:12px">Cerrar</button>';
         if (n.link !== null && n.link !== "") {
-            botones = '<button onclick="unirseEntrevista(\'' + n.link + '\', ' + n.idNotificacion + ')" style="padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;margin-right:8px">Unirse a la entrevista</button>' + botones;
+            botones = '<button onclick="unirseEntrevista(null, ' + n.idNotificacion + ')" style="padding:6px 14px;background:#0d6efd;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:bold;margin-right:8px">Unirse a la entrevista</button>' + botones;
         }
-        card.innerHTML = '<div style="font-weight:bold;color:#0d6efd;margin-bottom:4px">' + n.titulo + '</div>' +
-            '<div style="font-size:13px;color:#444;margin-bottom:10px">' + n.mensaje + '</div>' +
+        card.innerHTML = '<div style="font-weight:bold;color:#0d6efd;margin-bottom:4px">' + YS.esc(n.titulo) + '</div>' +
+            '<div style="font-size:13px;color:#444;margin-bottom:10px">' + YS.esc(n.mensaje) + '</div>' +
             '<div>' + botones + '</div>';
         cont.appendChild(card);
     });
@@ -1036,7 +1037,10 @@ async function marcarLeida(idNotif) {
     cargarNotificaciones();
 }
 
+// El código de la sala se toma de la notificación cargada (antes viajaba dentro del onclick)
 async function unirseEntrevista(codigoSala, idNotif) {
+    codigoSala ??= (window._notifsFlotantes || []).find(n => n.idNotificacion === idNotif)?.link;
+    if (!codigoSala) return;
     try { await fetch(API + "/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
     window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
 }
