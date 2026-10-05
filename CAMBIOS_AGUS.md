@@ -3,7 +3,7 @@
 Seguimiento de la rama local `Cambios-Agus`. Cada paso deja anotado qué se hizo, qué se decidió y
 qué queda pendiente. **La rama no se sube a GitHub**: queda local hasta revisarla juntos.
 
-**Estado:** Pasos 0, 1 y 2 terminados. Sigue el Paso 3 (chats).
+**Estado:** Pasos 0 a 3 terminados. Sigue el Paso 4 (agenda).
 
 ---
 
@@ -226,6 +226,40 @@ Cambia el contenido del menú según el rol, no el esqueleto.
 
 - bugs 1 y 2, el formato de `TimeSpan` en `turnos-confirmados` y `generar-sala`, cada uno en su commit;
 - bug 6, cerrar sesión en el Configurador, quedó resuelto por el shell.
+
+### Paso 3: chats desde un botón
+
+- **La bandeja es un cajón**, no una pantalla aparte. El botón **Chats** de la barra lo abre sobre la pantalla actual, sin recargar.
+  - Ocupa unos 780 px a la derecha, con la lista y el hilo; se puede expandir a pantalla completa y se cierra con Esc.
+  - Los datos del paciente se superponen en el cajón y son una tercera columna en pantalla completa.
+  - `Pantalla_ChatSimulado/index.html` sigue existiendo: tiene la misma bandeja en modo página y el **simulador del paciente** (lo que antes era el "modo paciente"). Para chatear no hace falta ir ahí.
+- **Quién la ve.** Solo el **configurador**: la bandeja muestra las conversaciones de todos los pacientes y no hay filtro por profesional. Mostrársela a un profesional expondría pacientes ajenos. Es el mismo destinatario ("Administrador") de los avisos internos.
+- **Mitigaciones intactas** (verificado con el módulo apagado y con un pedido por proxy):
+  - `RequiereMensajeriaHabilitada()` sigue siendo el único control. Lo usan el filtro y `GET /capacidades`, que dice si mostrar el botón.
+  - Con el módulo apagado, o un pedido remoto con `SoloLocal`, `/capacidades` da `false`, el botón no aparece y `/mensajeria` responde 404.
+  - El JS y el CSS de la bandeja viven en `Pantalla_ChatSimulado/`, que con el módulo apagado tampoco se sirve.
+- **Backend, todo aditivo** (los pedidos de antes responden igual):
+  - `desdeMensaje` en el listado (polling incremental);
+  - `noLeidos`, `idUltimoMensaje` y `origenUltimoMensaje` en el resumen;
+  - `PUT /conversaciones/{id}/leida`;
+  - historial paginado con `antes` y `limite`;
+  - 7 pruebas xUnit del control de acceso.
+- **Migración nueva:** `migrations/add_lectura_conversacion.sql` agrega `Conversacion.IdUltimoMensajeLeido`.
+  - Es idempotente y ya está aplicada en la base local.
+  - Las conversaciones existentes arrancan leídas hasta su último mensaje.
+  - **Sin esta migración, la bandeja da error.** Está en la lista del README.
+- **No leídos.** Son los mensajes del paciente posteriores a la marca de lectura. La marca es **compartida por el equipo**, como en una bandeja de WhatsApp Business. Se mueve sola cuando la conversación está abierta y a la vista, scrolleada hasta abajo.
+- **Polling.** Cada 3 s con la bandeja a la vista y cada 20 s cerrada, y se espacia hasta 12 s y 45 s si no hay novedades.
+  - Con la pestaña oculta no se pide nada.
+  - Pide solo las conversaciones con mensajes nuevos, y una vez por minuto la lista completa (para ver lo que leyeron otros).
+  - No hay WebSocket.
+- **"Escribiendo…" no se hizo:** el canal (WhatsApp o el simulado) no informa cuándo el paciente está escribiendo.
+- **Respuestas rápidas** en `Pantalla_ChatSimulado/plantillas.json`. Son seis textos administrativos sin contenido clínico, para revisar con el equipo. Se insertan en la respuesta y no se mandan solas.
+- **Avisos internos** (urgencias, derivaciones, avisos de turnos): pasan de la campanita de la pantalla de mensajería a la campana de la barra del configurador, con "Abrir chat" y "Marcar leído".
+- **"Cerrar derivación"** pide confirmación con el modal propio, en vez del `confirm()` nativo.
+- **Envío.** Los mensajes del equipo ahora mandan `X-Usuario-Id`, así que la "Respuesta manual en chat" queda en la auditoría. Antes no se registraba porque la pantalla no mandaba el header.
+- **Bot.** No se tocó su lógica. No aparecieron bugs nuevos en el recorrido.
+
 
 ## Pendientes
 
