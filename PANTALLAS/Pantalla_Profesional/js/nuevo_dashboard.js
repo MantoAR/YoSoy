@@ -82,8 +82,8 @@ async function inicio() {
                         <div class="turno-fecha-mes">hs</div>
                     </div>
                     <div class="turno-info" style="flex:1">
-                        <div class="turno-paciente">${t.nombrePaciente}</div>
-                        ${t.motivo ? `<div class="turno-meta">${t.motivo}</div>` : ''}
+                        <div class="turno-paciente">${YS.esc(t.nombrePaciente)}</div>
+                        ${t.motivo ? `<div class="turno-meta">${YS.esc(t.motivo)}</div>` : ''}
                     </div>
                     ${t.codigoSala
                         ? `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
@@ -113,7 +113,7 @@ async function inicio() {
         </div>` : '';
 
     c.innerHTML = `
-        <div class="titulo-seccion">Bienvenido, ${prof?.nombre ?? 'Profesional'}</div>
+        <div class="titulo-seccion">Bienvenido, ${YS.esc(prof?.nombre ?? 'Profesional')}</div>
 
         ${sesionesHoyHtml ? `<div class="card" style="margin-bottom:16px;border-left:4px solid #185FA5">${sesionesHoyHtml}</div>` : ''}
 
@@ -137,7 +137,7 @@ async function inicio() {
                 </div>
                 <div class="turno-dato">
                     <span class="etiqueta">Paciente</span>
-                    <span class="valor">${pacNombre}</span>
+                    <span class="valor">${YS.esc(pacNombre)}</span>
                 </div>
             </div>` : '<div class="sin-turnos">No tenés turnos próximos.</div>'}
         </div>
@@ -194,7 +194,7 @@ async function inicio() {
         const sel = document.getElementById('urgente-paciente');
         if (sel) {
             sel.innerHTML = pacs.length
-                ? `<option value="">Seleccioná un paciente</option>` + pacs.map(p => `<option value="${p.idPaciente}">${p.nombre ?? ''} ${p.apellido ?? ''}</option>`).join('')
+                ? `<option value="">Seleccioná un paciente</option>` + pacs.map(p => `<option value="${p.idPaciente}">${YS.esc(p.nombre ?? '')} ${YS.esc(p.apellido ?? '')}</option>`).join('')
                 : `<option value="">Sin pacientes asignados</option>`;
         }
     } catch {}
@@ -297,8 +297,8 @@ async function renderTurnosPendientes() {
                 <div class="turno-fecha-mes">${fecha.toLocaleString('es-AR', {month:'short'})}</div>
             </div>
             <div class="turno-info">
-                <div class="turno-paciente">${p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente}</div>
-                <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + t.motivo : ''}</div>
+                <div class="turno-paciente">${YS.esc(p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente)}</div>
+                <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + YS.esc(t.motivo) : ''}</div>
             </div>
             <span class="badge-estado badge-pendiente">Pendiente</span>
             <button class="btn-confirmar" onclick="confirmarTurno(${t.idTurno})">Confirmar</button>
@@ -362,8 +362,8 @@ async function renderPacientesHoy() {
                         return `
                         <tr>
                             <td><strong>${hora} hs</strong></td>
-                            <td>${nombre}</td>
-                            <td>${t.motivo ?? '—'}</td>
+                            <td>${YS.esc(nombre)}</td>
+                            <td>${YS.esc(t.motivo ?? '—')}</td>
                             <td><span style="${badge};border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">${estado}</span></td>
                             <td>
                                 <button onclick="irASala(${t.idTurno}, ${t.idPaciente})"
