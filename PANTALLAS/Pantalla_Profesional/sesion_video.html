@@ -245,8 +245,8 @@ async function cargarPacientes() {
             sel.innerHTML = '<option value="">Sin pacientes asignados</option>';
             return;
         }
-        sel.innerHTML = '<option value="">-- Seleccioná el paciente --</option>' +
-            lista.map(p => `<option value="${p.idPaciente}">${p.nombre} ${p.apellido ?? ''}</option>`).join('');
+        sel.innerHTML = '<option value="">-- Seleccioná el paciente --</option>';
+        lista.forEach(p => sel.add(new Option(`${p.nombre} ${p.apellido ?? ''}`.trim(), p.idPaciente)));
 
         // Preseleccionar paciente si viene por URL
         const params = new URLSearchParams(window.location.search);
@@ -464,7 +464,10 @@ function agregarLinea(quien, texto) {
 
     const div = document.createElement('div');
     div.className = quien === 'medico' ? 'msg-medico' : 'msg-paciente';
-    div.innerHTML = `<span class="msg-label">${quien === 'medico' ? '👨‍⚕️ Médico' : '🧑 Paciente'}</span>${linea}`;
+    const etiqueta = document.createElement('span');
+    etiqueta.className = 'msg-label';
+    etiqueta.textContent = quien === 'medico' ? '👨‍⚕️ Médico' : '🧑 Paciente';
+    div.append(etiqueta, linea);
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
 }
