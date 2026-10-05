@@ -116,19 +116,19 @@ async function renderInicio(c) {
                 <div style="display:flex;gap:32px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,.25);padding-top:20px">
                     <div>
                         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Profesional</div>
-                        <div style="font-size:16px;font-weight:600">${t.nombreProfesional}</div>
+                        <div style="font-size:16px;font-weight:600">${YS.esc(t.nombreProfesional)}</div>
                     </div>
                     <div>
                         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Especialidad</div>
-                        <div style="font-size:16px;font-weight:600">${t.especialidad}</div>
+                        <div style="font-size:16px;font-weight:600">${YS.esc(t.especialidad)}</div>
                     </div>
                     <div>
                         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Modalidad</div>
-                        <div style="font-size:16px;font-weight:600">${t.modalidad ?? "-"}</div>
+                        <div style="font-size:16px;font-weight:600">${YS.esc(t.modalidad ?? "-")}</div>
                     </div>
                     <div>
                         <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;opacity:.7;margin-bottom:4px">Estado</div>
-                        <div style="font-size:16px;font-weight:600">${t.estadoDescripcion}</div>
+                        <div style="font-size:16px;font-weight:600">${YS.esc(t.estadoDescripcion)}</div>
                     </div>
                 </div>
             </div>`;
