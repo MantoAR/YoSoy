@@ -416,7 +416,7 @@ async function horarios() {
                         <tbody>
                             ${slots.map(s => `
                             <tr id="slot-row-${s.idAgenda}">
-                                <td>${YS.dias.nombre(s.dia)}</td>
+                                <td>${YS.esc(YS.dias.nombre(s.dia))}</td>
                                 <td>${fmtHora(s.horaInicio)}</td>
                                 <td>${fmtHora(s.horaFin)}</td>
                                 <td>${s.intervaloMinutos ?? 30} min</td>
@@ -693,8 +693,8 @@ function cerrarModal() {
     document.getElementById('modalHistoria')?.classList.remove('visible');
 }
 
-async function verHistoria(idPaciente, nombrePaciente) {
-    document.getElementById('modalTitulo').textContent = `Historia Clínica — ${nombrePaciente}`;
+async function verHistoria(idPaciente, nombrePaciente = null) {
+    document.getElementById('modalTitulo').textContent = nombrePaciente ? `Historia Clínica — ${nombrePaciente}` : 'Historia Clínica';
     document.getElementById('modalBody').innerHTML = '<div class="spinner">Cargando...</div>';
     document.getElementById('modalHistoria').classList.add('visible');
 
@@ -705,6 +705,7 @@ async function verHistoria(idPaciente, nombrePaciente) {
         try { evoluciones = await (await fetch(`${API}/historiasclinicas/${historia.idHistoria}/evoluciones`)).json(); } catch {}
     }
     try { sesiones = await (await fetch(`${API}/pacientes/${idPaciente}/sesiones-clinicas`)).json(); } catch {}
+    if (!nombrePaciente && paciente) document.getElementById('modalTitulo').textContent = `Historia Clínica — ${YS.nombreCompleto(paciente)}`;
 
     document.getElementById('modalBody').innerHTML = `
         <div class="modal-tabs">
@@ -733,18 +734,18 @@ function renderSesionesClinicas(lista) {
         try {
             const emo = JSON.parse(s.historialEmociones || '{}');
             emociones = Object.entries(emo).map(([k,v]) =>
-                '<span class="ui-chip ui-chip--neutral ui-chip--sin-punto chip-emocion">' + k + ': <strong>' + v + '%</strong></span>'
+                '<span class="ui-chip ui-chip--neutral ui-chip--sin-punto chip-emocion">' + YS.esc(k) + ': <strong>' + YS.esc(v) + '%</strong></span>'
             ).join('');
         } catch {}
         return '<div class="evolucion-item">' +
             '<div class="evolucion-fecha">' +
                 new Date(s.fechaHora).toLocaleDateString('es-AR', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) +
                 ' &nbsp;·&nbsp; ' + new Date(s.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) +
-                (s.tipoCierre ? ' &nbsp;<span class="ui-chip ui-chip--info ui-chip--sin-punto">' + s.tipoCierre + '</span>' : '') +
+                (s.tipoCierre ? ' &nbsp;<span class="ui-chip ui-chip--info ui-chip--sin-punto">' + YS.esc(s.tipoCierre) + '</span>' : '') +
             '</div>' +
             (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div class="flex-gap mt-8">' + emociones + '</div></div>' : '') +
-            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto transcripcion">' + s.transcripcion + '</div></div>' : '') +
-            (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + s.notasEvolucion + '</div></div>' : '') +
+            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto transcripcion">' + YS.esc(s.transcripcion) + '</div></div>' : '') +
+            (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + YS.esc(s.notasEvolucion) + '</div></div>' : '') +
         '</div>';
     }).join('');
 }
@@ -753,19 +754,19 @@ function renderDatosPaciente(p) {
     if (!p) return '<div class="sin-datos">Sin datos.</div>';
     return `
         <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Nombre</span><span class="dato-valor">${[p.nombre, p.apellido].filter(Boolean).join(' ') || '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">DNI</span><span class="dato-valor">${p.dni ?? '—'}</span></div>
+            <div class="dato-item"><span class="dato-label">Nombre</span><span class="dato-valor">${YS.esc(YS.nombreCompleto(p) || '—')}</span></div>
+            <div class="dato-item"><span class="dato-label">DNI</span><span class="dato-valor">${YS.esc(p.dni ?? '—')}</span></div>
         </div>
         <div class="dato-fila">
             <div class="dato-item"><span class="dato-label">Fecha de nacimiento</span><span class="dato-valor">${p.fechaNacimiento ? new Date(p.fechaNacimiento).toLocaleDateString('es-AR') : '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">Estado</span><span class="dato-valor">${p.estado ?? '—'}</span></div>
+            <div class="dato-item"><span class="dato-label">Estado</span><span class="dato-valor">${YS.esc(p.estado ?? '—')}</span></div>
         </div>
         <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Mail</span><span class="dato-valor">${p.mail ?? '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">Teléfono</span><span class="dato-valor">${p.telefono ?? '—'}</span></div>
+            <div class="dato-item"><span class="dato-label">Mail</span><span class="dato-valor">${YS.esc(p.mail ?? '—')}</span></div>
+            <div class="dato-item"><span class="dato-label">Teléfono</span><span class="dato-valor">${YS.esc(p.telefono ?? '—')}</span></div>
         </div>
         <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Domicilio</span><span class="dato-valor">${p.domicilio ?? '—'}</span></div>
+            <div class="dato-item"><span class="dato-label">Domicilio</span><span class="dato-valor">${YS.esc(p.domicilio ?? '—')}</span></div>
         </div>
     `;
 }
@@ -874,19 +875,19 @@ async function perfil() {
     c.innerHTML = `
         <div class="card">
             <div class="perfil-form">
-                <div class="campo"><label>Nombre</label><input id="pf-nombre" value="${prof?.nombre ?? ''}"></div>
-                <div class="campo"><label>Apellido</label><input id="pf-apellido" value="${prof?.apellido ?? ''}"></div>
-                <div class="campo"><label>Segundo nombre</label><input id="pf-segundoNombre" value="${prof?.segundoNombre ?? ''}"></div>
-                <div class="campo"><label>DNI</label><input id="pf-dni" value="${prof?.dni ?? ''}"></div>
+                <div class="campo"><label>Nombre</label><input id="pf-nombre" value="${YS.esc(prof?.nombre ?? '')}"></div>
+                <div class="campo"><label>Apellido</label><input id="pf-apellido" value="${YS.esc(prof?.apellido ?? '')}"></div>
+                <div class="campo"><label>Segundo nombre</label><input id="pf-segundoNombre" value="${YS.esc(prof?.segundoNombre ?? '')}"></div>
+                <div class="campo"><label>DNI</label><input id="pf-dni" value="${YS.esc(prof?.dni ?? '')}"></div>
                 <div class="campo"><label>Fecha de nacimiento</label><input type="date" id="pf-fechaNacimiento" value="${fn}"></div>
-                <div class="campo"><label>Mail</label><input id="pf-mail" value="${prof?.mail ?? ''}"></div>
-                <div class="campo"><label>Teléfono</label><input id="pf-telefono" value="${prof?.telefono ?? ''}"></div>
-                <div class="campo"><label>Provincia</label><input id="pf-provincia" value="${prof?.provincia ?? ''}"></div>
-                <div class="campo"><label>Matrícula</label><input id="pf-matricula" value="${prof?.matricula ?? ''}" disabled></div>
+                <div class="campo"><label>Mail</label><input id="pf-mail" value="${YS.esc(prof?.mail ?? '')}"></div>
+                <div class="campo"><label>Teléfono</label><input id="pf-telefono" value="${YS.esc(prof?.telefono ?? '')}"></div>
+                <div class="campo"><label>Provincia</label><input id="pf-provincia" value="${YS.esc(prof?.provincia ?? '')}"></div>
+                <div class="campo"><label>Matrícula</label><input id="pf-matricula" value="${YS.esc(prof?.matricula ?? '')}" disabled></div>
                 <div class="campo">
                     <label>Especialidad</label>
                     <select id="pf-especialidad">
-                        ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${e.nombre ?? e.descripcion ?? e.idEspecialidad}</option>`).join('')}
+                        ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${YS.esc(e.nombre ?? e.descripcion ?? e.idEspecialidad)}</option>`).join('')}
                     </select>
                 </div>
                 <button class="btn-guardar-perfil" onclick="guardarPerfil()">Guardar cambios</button>
@@ -1259,9 +1260,9 @@ async function dibujarSemanaProfesional() {
             const posicion = `left:calc(3px + (100% - 6px) * ${carril} / ${carriles});width:calc((100% - 6px) / ${carriles} - 2px)`;
             const propuesto = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
             html += `<button class="bloque-turno estado-${t.idEstadoTurno}${propuesto ? ' propuesto' : ''}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
-                         title="${fmtHora(t.hora)} · ${nombre} · ${propuesto ? 'Propuesto, espera al paciente' : ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
+                         title="${fmtHora(t.hora)} · ${YS.esc(nombre)} · ${propuesto ? 'Propuesto, espera al paciente' : ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
                          onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})">
-                        <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${nombre}</span>
+                        <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${YS.esc(nombre)}</span>
                     </button>`;
         });
         // Línea de "ahora"
@@ -1327,13 +1328,13 @@ async function mostrarPanelDiaProfesional(dia) {
                 <div class="panel-hora-label">hs</div>
             </div>
             <div class="panel-info-principal">
-                <div class="panel-profesional">${nombre}</div>
+                <div class="panel-profesional">${YS.esc(nombre)}</div>
             </div>
             <span class="panel-estado-badge estado-${t.idEstadoTurno}${esPropuestoPorMi ? ' estado-propuesto' : ''}">${esPropuestoPorMi ? 'Propuesto' : (estadoLabel[t.idEstadoTurno] ?? '—')}</span>
         </div>
         ${esPropuestoPorMi ? `<p class="texto-suave mb-12">Lo propusiste vos: queda pendiente hasta que el paciente lo confirme.</p>` : ''}
         ${esPendientePaciente ? `<p class="texto-suave mb-12">Lo pidió el paciente: aceptalo o rechazalo.</p>` : ''}
-        ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div></div>` : ''}
+        ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${YS.esc(t.motivo)}</span></div></div>` : ''}
         ${esPendientePaciente ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-guardar" onclick="responderTurnoDesdeCal(${t.idTurno}, true)">Aceptar</button>
@@ -1418,7 +1419,7 @@ async function cargarPacientesSolicitudProf(fechaStr) {
     }
     const pacientes = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json()).catch(() => []);
     sel.innerHTML = pacientes.length
-        ? `<option value="">Seleccioná un paciente</option>` + pacientes.map(p => `<option value="${p.idPaciente}">${p.nombre}${p.apellido ? ' '+p.apellido : ''}</option>`).join('')
+        ? `<option value="">Seleccioná un paciente</option>` + pacientes.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')
         : `<option value="">Sin pacientes asignados</option>`;
     sel.disabled = !pacientes.length;
 }
@@ -1616,8 +1617,7 @@ async function pacientes() {
 
     const filas = lista.map(function(p) {
         const esNuevo = p.estadoAsignacion === "Nueva";
-        const nombreEsc = (p.nombre || "").split(String.fromCharCode(39)).join("").split(String.fromCharCode(34)).join("");
-        let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ', &quot;' + nombreEsc + '&quot;)">Historia</button> ' +
+        let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ')">Historia</button> ' +
             '<button class="btn-sesion" onclick="activarTab(&quot;sesion&quot;)">Sesion</button>';
         if (esNuevo) {
             acciones = '<button class="btn-ver" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
@@ -1625,10 +1625,10 @@ async function pacientes() {
                 '<button class="btn-peligro" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
         }
         return '<tr>' +
-            '<td>' + p.nombre + (esNuevo ? ' <span class="ui-chip ui-chip--info">Nuevo</span>' : "") + '</td>' +
-            '<td>' + (p.dni || "-") + '</td>' +
-            '<td>' + (p.mail || "-") + '</td>' +
-            '<td>' + (p.telefono || "-") + '</td>' +
+            '<td>' + YS.esc(p.nombre) + (esNuevo ? ' <span class="ui-chip ui-chip--info">Nuevo</span>' : "") + '</td>' +
+            '<td>' + YS.esc(p.dni || "-") + '</td>' +
+            '<td>' + YS.esc(p.mail || "-") + '</td>' +
+            '<td>' + YS.esc(p.telefono || "-") + '</td>' +
             '<td class="celda-acciones">' + acciones + '</td>' +
             '</tr>';
     }).join("");
@@ -1667,8 +1667,8 @@ async function verEvolucionAdmision(idPaciente) {
         deAdmision.map(function(e) {
             return '<div class="caja-suave mb-12">' +
                 '<div class="texto-fuerte mb-8">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-                (e.observaciones ? '<div class="mb-8">' + e.observaciones + '</div>' : "") +
-                (e.planTratamiento ? '<div class="texto-accent texto-fuerte">' + e.planTratamiento + '</div>' : "") +
+                (e.observaciones ? '<div class="mb-8">' + YS.esc(e.observaciones) + '</div>' : "") +
+                (e.planTratamiento ? '<div class="texto-accent texto-fuerte">' + YS.esc(e.planTratamiento) + '</div>' : "") +
                 '</div>';
         }).join("") +
         '</div>';
@@ -1756,9 +1756,9 @@ function renderEvoluciones(lista) {
         return '<div class="evolucion-item' + (esAdmision ? ' evolucion-item--admision' : '') + '">' +
             (esAdmision ? '<div class="evolucion-etiqueta-admision">Inicio del proceso - Admision</div>' : "") +
             '<div class="evolucion-fecha">' + new Date(e.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-            (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + e.diagnostico + '</div></div>' : "") +
-            (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + e.observaciones + '</div></div>' : "") +
-            (e.planTratamiento ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">' + (esAdmision ? "Derivacion" : "Plan") + '</div><div class="evolucion-bloque-texto">' + e.planTratamiento + '</div></div>' : "") +
+            (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + YS.esc(e.diagnostico) + '</div></div>' : "") +
+            (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + YS.esc(e.observaciones) + '</div></div>' : "") +
+            (e.planTratamiento ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">' + (esAdmision ? "Derivacion" : "Plan") + '</div><div class="evolucion-bloque-texto">' + YS.esc(e.planTratamiento) + '</div></div>' : "") +
             '</div>';
     }).join("");
 }
