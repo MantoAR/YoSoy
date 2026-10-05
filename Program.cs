@@ -1378,3 +1378,6 @@ public record AsignacionEstadoRequest(int IdPaciente, int IdProfesional, string 
 public record RechazoRequest(int IdPaciente, int IdProfesional, string Motivo);
 
 public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo);
+
+// Expone la clase Program (autogenerada por los top-level statements) para WebApplicationFactory<Program>.
+public partial class Program { }
