@@ -169,7 +169,7 @@ public static class CasosEndpoints
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede reasignar un caso." }, statusCode: 403);
-            int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : null;
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try
             {
                 asignacion.ReasignarManual(id, req.IdProfesional, idUsuario, req.MotivoCategoria, req.Nota);
@@ -220,7 +220,7 @@ public static class CasosEndpoints
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede confirmar una derivación." }, statusCode: 403);
-            int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : null;
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.ConfirmarDerivacion(id, idUsuario); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
@@ -229,7 +229,7 @@ public static class CasosEndpoints
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede corregir una derivación." }, statusCode: 403);
-            int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : null;
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.CorregirDerivacion(id, idUsuario, req.IdGrupo, req.IdProfesional); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
@@ -238,7 +238,7 @@ public static class CasosEndpoints
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede rechazar una derivación." }, statusCode: 403);
-            int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : null;
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.RechazarDerivacion(id, idUsuario); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });

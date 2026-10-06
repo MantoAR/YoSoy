@@ -252,18 +252,20 @@ public static class MensajeriaEndpoints
         return null;
     }
 
-    // Mismo patrón que el resto del backend: X-Usuario-Id (autodeclarado, ver TODO(JWT)).
+    // Identidad resuelta por IdentidadActualService (JWT o, en modo legacy, X-Usuario-Id)
+    // — este endpoint ya exige rol Profesional o Configurador, así que siempre hay alguien.
     // detalle: para que la auditoría diga algo útil (qué conversación, de qué paciente) en vez
     // de quedar vacía; nombrePaciente es opcional porque no siempre hay un paciente identificado.
     private static void Auditar(HttpContext http, string accion, int idConversacion, string? nombrePaciente = null)
     {
-        if (!int.TryParse(http.Request.Headers["X-Usuario-Id"], out var idUsuario) || idUsuario <= 0) return;
+        var idUsuario = http.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(http)?.IdUsuario;
+        if (idUsuario is null) return;
         try
         {
             var detalle = $"Conversación #{idConversacion}" + (string.IsNullOrWhiteSpace(nombrePaciente) ? "" : $" ({nombrePaciente})");
             new LogAuditoriaDAO().Insertar(new LogAuditoria
             {
-                IdUsuario = idUsuario, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion, Detalle = detalle
+                IdUsuario = idUsuario.Value, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion, Detalle = detalle
             });
         }
         catch (Exception) { /* la auditoría no debe impedir responder al paciente */ }
