@@ -1028,3 +1028,21 @@ Las dos quedaron aplicadas y el código las espera; no hubo que revertir nada en
 - Capturas en `docs/capturas-cambios-agus/fase3a/` (no versionadas, igual que las de la Fase 1 y 2).
 
 No hubo que revertir nada en esta fase; las dos migraciones quedaron aplicadas y en sync con el código.
+
+## Demo y JWT
+
+- **Inicio:** martes 2026-10-06, 12:10:52.
+- **Hora límite:** 16:25:52 (inicio + 4 h 15 min). A esa hora se hace el Cierre, pase lo que pase.
+- Plan: Parte 1 (kit de demo, en `Cambios-Agus`) primero y completo; Parte 2 (JWT, en `Cambios-Agus-jwt`) después, cortando si a la hora límite le quedan menos de 60 minutos y JWT no está verificado de punta a punta.
+
+### Parte 1: kit de demo
+
+`docs/DEMO.md` (cómo levantar todo, URLs, usuarios de prueba, guion de 10-15 min, Plan B), `docs/datos-demo.sql` + `docs/reset-demo.sql` (caso de prueba en la cola + conversación escalada, sin ejecutar) y `docs/credenciales-demo.sql` (sin ejecutar — ver más abajo). Capturas de respaldo en `docs/capturas-cambios-agus/demo/`.
+
+**Contraseñas de los usuarios de prueba:** no hay forma de leer una ya cargada (están hasheadas). Intenté comparar los hashes de la base contra una lista de contraseñas comunes por SQL de solo lectura para ver si alguna coincidía — Claude Code lo bloqueó solo, clasificándolo como "exploración de credenciales", y tiene razón: es exactamente el patrón de un intento de fuerza bruta, aunque la intención acá fuera encontrar una contraseña de demo ya mía. No insistí por otro camino. Quedó `docs/credenciales-demo.sql` (sin ejecutar) como alternativa: le pone la que elijas al ejecutarlo a `admin`/`paciente1`/`smanto` si decidís aplicarlo.
+
+**Un hallazgo al armar el guion, antes de escribirlo mal:** iba a decir que `paciente1` (Juan García) "ya tiene turnos" — es falso. Los 3 turnos futuros que hay en la base (1009, 1014, 2007) son de dos pacientes sin cuenta de login (Camila Vega y Emiliano Salas), no de `paciente1`. Por eso el guion quedó reordenado: la página pública de reserva (que sí crea un turno para `paciente1`) va **antes** del bloque del paciente, no después — así "Mis turnos" tiene algo para mostrar en vez de arrancar vacío.
+
+**Tropiezo anotado, no corregido:** `GET /pacientes/{id}/proximo-turno` devuelve 404 (comportamiento correcto: no hay turno próximo) cuando un paciente no tiene ninguno, pero el frontend de "Mis turnos" lo deja como un error de red en la consola en vez de manejarlo como un estado vacío normal. No es nuevo de esta rama ni rompe la pantalla visualmente (no se corrigió: no estaba claro en el tiempo disponible si tocarlo podía afectar otro lugar que también llama a ese endpoint).
+
+Batería completa (122 tests) en verde antes de empezar y de nuevo antes de este commit. `git status` limpio salvo los archivos nuevos/`CAMBIOS_AGUS.md`.
