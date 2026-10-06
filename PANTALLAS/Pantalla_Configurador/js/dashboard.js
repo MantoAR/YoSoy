@@ -327,11 +327,27 @@ function seleccionarProfesional(idProf) {
     const boton = prof?.estado === "Inactivo"
         ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
         : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
+    const botonLink = prof?.linkPublicoActivo
+        ? `<button class="ui-btn ui-btn--sm" onclick="apagarLinkPublicoAdmin(${idProf})">Apagar link público</button>` : "";
     document.getElementById("splitInfo").innerHTML = `
         <div class="split-info-texto"><strong>${YS.esc(YS.nombreCompleto(prof))}</strong> ${relacionados.size
             ? `atiende a: ${YS.esc(nombres.join(", "))}.`
-            : "no tiene pacientes asignados."}</div>
-        <div class="split-info-acciones">${boton}</div>`;
+            : "no tiene pacientes asignados."}
+            ${prof?.linkPublicoActivo ? ' <span class="ui-chip ui-chip--ok">Link público activo</span>' : ""}</div>
+        <div class="split-info-acciones">${boton}${botonLink}</div>`;
+}
+
+async function apagarLinkPublicoAdmin(idProf) {
+    const nombre = YS.nombreCompleto(window._profesionales.find(p => p.idProfesional === idProf)) || "este profesional";
+    if (!await confirmar(`¿Apagar el link público de reserva de ${nombre}? Deja de funcionar al instante.`,
+        { titulo: "Link público", textoConfirmar: "Apagar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`${API}/profesionales/${idProf}/link-publico`, {
+            method: "PUT", headers: auditorHeaders(), body: JSON.stringify({ activo: false })
+        });
+        if (res.ok) { toast("Link público apagado."); mostrarTab("usuarios"); }
+        else toast(await YS.leerMensaje(res, "No se pudo cambiar el link público."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
 }
 
 async function cambiarEstadoUsuario({ url, metodo, pregunta, titulo, textoConfirmar, peligro, ok, error }) {

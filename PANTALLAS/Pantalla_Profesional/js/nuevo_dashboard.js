@@ -819,8 +819,36 @@ async function perfil() {
                     <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
                 </div>
             </form>
+        </div>
+        <div class="card mt-16">
+            <h3>Link público de reserva</h3>
+            ${prof?.linkPublicoActivo ? `
+                <p class="texto-suave mb-12">Cualquiera que tenga este link puede ver tus próximos horarios libres y pedir un turno. Si lo apagás, deja de funcionar al instante.</p>
+                <div class="dialogo-link mb-12">
+                    <input class="ui-input" id="linkPublicoUrl" readonly value="${YS.esc(urlLinkPublico(prof.slug))}">
+                    <button class="ui-btn" type="button" onclick="document.getElementById('linkPublicoUrl').select(); YS.copiar(urlLinkPublico('${prof.slug}'), 'Link copiado')">Copiar</button>
+                </div>
+                <button class="ui-btn ui-btn--danger" type="button" onclick="toggleLinkPublico(false)">Apagar link</button>
+            ` : `
+                <p class="texto-suave mb-12">Activalo para tener una página pública con tus horarios libres, para que un paciente pida turno sin necesidad de que lo contactes antes.</p>
+                <button class="ui-btn ui-btn--primary" type="button" onclick="toggleLinkPublico(true)">Activar link público</button>
+            `}
         </div>`;
     document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
+}
+
+function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
+
+async function toggleLinkPublico(activo) {
+    try {
+        const r = await YS.fetch(`/profesionales/${idProfesional}/link-publico`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo })
+        });
+        if (r.ok) { toast(activo ? 'Link público activado' : 'Link público apagado'); activarTab('perfil'); }
+        else toast(await YS.leerMensaje(r, 'No se pudo cambiar el link público.'), 'error');
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    }
 }
 
 async function guardarPerfil() {
