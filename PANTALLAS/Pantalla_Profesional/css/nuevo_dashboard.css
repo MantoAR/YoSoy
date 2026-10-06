@@ -250,6 +250,12 @@ tbody tr:hover td { background: #FAFAFB; }
 .form-horario .campo, .form-horario .ui-campo { margin-bottom: 0; flex: 1; min-width: 130px; }
 #panel-urgente .ui-campo { flex: 1; min-width: 220px; }
 
+/* Vista previa "así te ven los pacientes" (Fase 3a, Paso 2) */
+.vista-previa-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.vista-previa-dia { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); padding: 10px; }
+.vista-previa-fecha { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.vista-previa-horas { display: flex; flex-wrap: wrap; gap: 6px; }
+
 /* ═══ Listas de turnos (Inicio) ═══════════════════════════════════ */
 .turnos-lista { display: flex; flex-direction: column; gap: 8px; }
 .turno-item {

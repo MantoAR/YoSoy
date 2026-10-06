@@ -500,11 +500,46 @@ async function horarios() {
                 </div>
             </div>
         </div>
+        ${slots.length ? `<div class="card mt-16">
+            <h3>Así te ven los pacientes</h3>
+            <p class="texto-suave mb-12">Los próximos 14 días con los horarios que les quedan libres para pedir turno — el mismo cálculo que usa la reserva real.</p>
+            <div id="vista-previa-horarios">${YS.cargando()}</div>
+        </div>` : ''}
     `;
 
     ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
     });
+
+    if (slots.length) cargarVistaPreviaHorarios();
+}
+
+async function cargarVistaPreviaHorarios() {
+    const cont = document.getElementById('vista-previa-horarios');
+    if (!cont) return;
+    let libres = [];
+    try { libres = await YS.fetch(`/profesionales/${idProfesional}/horarios-libres?dias=14`).then(r => r.json()); }
+    catch { cont.innerHTML = YS.errorCarga({ texto: 'No se pudo calcular la vista previa.', reintentar: 'cargarVistaPreviaHorarios()' }); return; }
+    if (YS.shell.actual !== 'horarios' || !document.getElementById('vista-previa-horarios')) return;
+
+    if (!libres.length) {
+        cont.innerHTML = YS.vacio({ icono: 'reloj', texto: 'No queda ningún horario libre en los próximos 14 días.' });
+        return;
+    }
+
+    const porDia = new Map();
+    libres.forEach(iso => {
+        const d = new Date(iso);
+        const clave = YS.fecha.aISO(d);
+        if (!porDia.has(clave)) porDia.set(clave, { fecha: d, horas: [] });
+        porDia.get(clave).horas.push(YS.fecha.hora(d));
+    });
+
+    cont.innerHTML = `<div class="vista-previa-grilla">${[...porDia.values()].map(dia => `
+        <div class="vista-previa-dia">
+            <div class="vista-previa-fecha">${YS.esc(YS.fecha.separador(dia.fecha))}</div>
+            <div class="vista-previa-horas">${dia.horas.map(h => `<span class="ui-chip ui-chip--neutral">${YS.esc(h)}</span>`).join('')}</div>
+        </div>`).join('')}</div>`;
 }
 
 function abrirFormNuevoHorario() {

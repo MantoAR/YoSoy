@@ -387,6 +387,16 @@ app.MapGet("/agendas/{id}", (int id) =>
 app.MapGet("/profesionales/{id}/agenda", (int id) =>
     new AgendaDAO().ObtenerPorProfesional(id));
 
+// Vista previa de "así te ven los pacientes" en Mis horarios de trabajo (Fase 3a, Paso 2):
+// los próximos horarios libres calculados igual que la reserva real, sin paciente (no aplica
+// RN-07). Autenticado (lo pide la propia pantalla del profesional) — la versión pública,
+// con sus propios límites, es /public/profesionales/{slug}/disponibilidad (Paso 3).
+app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoReglasService reglas) =>
+{
+    var rango = Math.Clamp(dias ?? 14, 1, 90);
+    return Results.Ok(reglas.HorariosLibresDelProfesional(id, rango, 500));
+});
+
 app.MapPost("/agendas", (Agenda a) =>
 {
     new AgendaDAO().Insertar(a);
