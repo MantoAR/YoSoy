@@ -542,28 +542,37 @@
             }
             if (!YS.sesion.requerir(cfg.rol)) return false;
             menu = MENUS[cfg.rol];
+            // Si la URL ya pedía una sección que un menú async todavía no agregó (ver más abajo,
+            // "Chats: solo para..."), ir() de más abajo no la va a encontrar y cae a cfg.inicial,
+            // lo que además reescribe el hash de la URL (marcar() → history.replaceState) ANTES de
+            // que el reintento pueda mirarlo: guardar el pedido original acá, una sola vez, evita
+            // depender de un location.hash que ya puede estar pisado para cuando se usa.
+            const hashInicial = leerHash();
             document.body.classList.add("ui-con-shell");
             els.barra = crearBarra();
             els.encabezado = crearEncabezado();
             document.body.prepend(els.barra, els.encabezado);
             if (AVISOS[cfg.rol]) campana.iniciar(AVISOS[cfg.rol]);
 
-            // Chats: solo para el configurador (la bandeja muestra conversaciones de todos los
-            // pacientes) y solo si la mensajería está disponible para este pedido. /capacidades
-            // usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se agrega
-            // el grupo CRM al menú ni se carga nada.
-            if (cfg.rol === "configurador") {
+            // Chats: para configurador (sección CRM propia, con el grupo CRM completo) y para
+            // profesional (cajón, sin los ítems de administración de CRM) — en los dos casos
+            // solo si la mensajería está disponible para este pedido. /capacidades usa el mismo
+            // control que el 404 de /mensajeria; con el módulo apagado no se agrega nada al menú
+            // ni se carga la bandeja.
+            if (cfg.rol === "configurador" || cfg.rol === "profesional") {
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
                 capacidades.then(c => {
                     if (!c?.mensajeria) return;
-                    agregarGrupoCRM();
-                    cargarBandeja();
-                    // Si la URL ya pedía #chats o #escalamientos antes de que esto resolviera, el
-                    // menú todavía no los tenía y la navegación cayó a cfg.inicial: reintentar.
-                    if (cfg.navegar) {
-                        const { id, params } = leerHash();
-                        if ((id === "chats" || id === "escalamientos") && actual !== id) cfg.navegar(id, params);
+                    if (cfg.rol === "configurador") {
+                        agregarGrupoCRM();
+                        // Si la URL ya pedía una sección del grupo CRM antes de que esto
+                        // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
+                        // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
+                        // reintentar con el id que se pidió en realidad, no con el hash actual.
+                        if (cfg.navegar && GRUPO_CRM.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
+                            cfg.navegar(hashInicial.id, hashInicial.params);
                     }
+                    cargarBandeja();
                 });
             }
 
