@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+    <!-- YoSoy · mosaico de fondo del chat (CRM > Chats). Íconos lineales propios, genéricos,
+         a baja opacidad, en el violeta de marca. Se repite con background-repeat en bandeja.css;
+         no imita el fondo de ninguna app de mensajería existente. -->
+    <g fill="none" stroke="#6A5ACD" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.09">
+        <!-- burbuja de diálogo -->
+        <g transform="translate(14,18)">
+            <path d="M1 1h26a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H11l-7 6v-6H1a0 0 0 0 1 0 0V5a4 4 0 0 1 4-4z"/>
+        </g>
+        <!-- corazón -->
+        <g transform="translate(130,10)">
+            <path d="M12 21S1 14 1 6.5A5.5 5.5 0 0 1 12 4a5.5 5.5 0 0 1 11 2.5C23 14 12 21 12 21z"/>
+        </g>
+        <!-- reloj -->
+        <g transform="translate(195,70)">
+            <circle cx="11" cy="11" r="10"/>
+            <path d="M11 5v6l4 3"/>
+        </g>
+        <!-- estrella -->
+        <g transform="translate(40,70)">
+            <path d="M12 1l3.1 6.6 7.2.8-5.4 5 1.5 7.1L12 17l-6.4 3.5L7 13.4 1.7 8.4l7.2-.8z"/>
+        </g>
+        <!-- nube -->
+        <g transform="translate(95,45)">
+            <path d="M7 19a5 5 0 0 1-1-9.9A6 6 0 0 1 17.6 7 4.5 4.5 0 0 1 17 16z"/>
+        </g>
+        <!-- calendario -->
+        <g transform="translate(10,110)">
+            <rect x="1" y="4" width="22" height="19" rx="2.5"/>
+            <path d="M1 10h22M7 1v6M17 1v6"/>
+        </g>
+        <!-- hoja -->
+        <g transform="translate(175,140)">
+            <path d="M3 21C3 10 10 3 21 3c0 11-7 18-18 18z"/>
+            <path d="M3 21 12 12"/>
+        </g>
+        <!-- cruz de salud -->
+        <g transform="translate(70,150)">
+            <rect x="1" y="1" width="22" height="22" rx="6"/>
+            <path d="M12 6v12M6 12h12"/>
+        </g>
+        <!-- carita -->
+        <g transform="translate(130,185)">
+            <circle cx="11" cy="11" r="10"/>
+            <path d="M7 13c1.2 1.4 2.8 2 4 2s2.8-.6 4-2"/>
+            <path d="M8 9h.01M14 9h.01"/>
+        </g>
+        <!-- burbuja chica, esquina -->
+        <g transform="translate(200,205) scale(.72)">
+            <path d="M1 1h26a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H11l-7 6v-6H1a0 0 0 0 1 0 0V5a4 4 0 0 1 4-4z"/>
+        </g>
+        <!-- estrella chica, esquina -->
+        <g transform="translate(-6,195) scale(.6)">
+            <path d="M12 1l3.1 6.6 7.2.8-5.4 5 1.5 7.1L12 17l-6.4 3.5L7 13.4 1.7 8.4l7.2-.8z"/>
+        </g>
+    </g>
+</svg>

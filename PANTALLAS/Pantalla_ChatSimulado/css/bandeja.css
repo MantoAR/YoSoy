@@ -83,7 +83,12 @@
 .chats-lista-vacia .ui-vacio-estado { padding: 28px 12px; }
 
 /* ── Hilo ──────────────────────────────────────────────────── */
-.chats-hilo { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #FAFAFC; }
+/* Fondo propio de YoSoy para el chat, ver shared/fondo-chat.svg: un mosaico de íconos lineales
+   a baja opacidad sobre un tono crema, al estilo (no al diseño) de las apps de mensajería. */
+.chats-hilo {
+    position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    background: #FBF8F3 url("../../shared/fondo-chat.svg") repeat;
+}
 .chats-hilo-vacio { flex: 1; display: grid; place-items: center; }
 .chats-hilo-cabecera {
     display: flex; align-items: center; gap: 10px; flex-shrink: 0;
@@ -150,9 +155,13 @@
 
 /* ── Composer ──────────────────────────────────────────────── */
 .chats-composer {
-    position: relative; display: flex; align-items: flex-end; gap: 6px; flex-shrink: 0;
-    padding: 10px 12px 4px; background: var(--surface); border-top: 1px solid var(--border);
+    position: relative; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+    padding: 8px 12px 4px; background: var(--surface); border-top: 1px solid var(--border);
 }
+.chats-composer-canal { display: flex; align-items: center; gap: 6px; padding: 0 2px; font-size: var(--fs-xs); color: var(--text-4); }
+.chats-composer-canal label { flex-shrink: 0; white-space: nowrap; }
+.chats-composer-canal .ui-select { flex-shrink: 0; width: auto; height: 24px; padding: 0 22px 0 8px; font-size: var(--fs-xs); border-radius: var(--r-sm); }
+.chats-composer-fila { display: flex; align-items: flex-end; gap: 6px; }
 .chats-composer textarea {
     flex: 1; min-height: 38px; max-height: 140px; resize: none;
     padding: 9px 12px; font: inherit; font-size: var(--fs-md); line-height: 1.4; color: var(--text);

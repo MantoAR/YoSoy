@@ -305,11 +305,19 @@
             <div class="chats-mensajes" id="chatsMensajes" role="log" aria-live="polite" aria-label="Mensajes">${YS.cargando("Cargando mensajes…")}</div>
             <button class="chats-ir-abajo oculto" type="button" id="chatsIrAbajo" aria-label="Ir al último mensaje">${YS.icono("flecha-abajo")}<span id="chatsNuevosAbajo"></span></button>
             <form class="chats-composer" id="chatsComposer" autocomplete="off">
-                <div class="chats-plantillas oculto" id="chatsPlantillas" role="listbox" aria-label="Respuestas rápidas"></div>
-                <button class="ui-btn-icono" type="button" id="chatsBtnPlantillas" aria-label="Respuestas rápidas (/)" title="Respuestas rápidas (/)" aria-expanded="false">${YS.icono("rayo")}</button>
-                <label class="sr-only" for="chatsTexto">Respuesta</label>
-                <textarea id="chatsTexto" rows="1" maxlength="4000" placeholder="Responder como equipo de YoSoy"></textarea>
-                <button class="ui-btn ui-btn--primary chats-enviar" type="submit" id="chatsEnviar" aria-label="Enviar (Enter)" title="Enviar (Enter)">${YS.icono("enviar")}</button>
+                <div class="chats-composer-canal">
+                    <label for="chatsCanalEnvio">Enviar por</label>
+                    <select class="ui-select" id="chatsCanalEnvio" aria-label="Canal de envío">
+                        <option value="Simulado">Chat simulado</option>
+                    </select>
+                </div>
+                <div class="chats-composer-fila">
+                    <div class="chats-plantillas oculto" id="chatsPlantillas" role="listbox" aria-label="Respuestas rápidas"></div>
+                    <button class="ui-btn-icono" type="button" id="chatsBtnPlantillas" aria-label="Respuestas rápidas (/)" title="Respuestas rápidas (/)" aria-expanded="false">${YS.icono("rayo")}</button>
+                    <label class="sr-only" for="chatsTexto">Respuesta</label>
+                    <textarea id="chatsTexto" rows="1" maxlength="4000" placeholder="Escribí un mensaje — &quot;/&quot; respuestas rápidas"></textarea>
+                    <button class="ui-btn ui-btn--primary chats-enviar" type="submit" id="chatsEnviar" aria-label="Enviar (Enter)" title="Enviar (Enter)">${YS.icono("enviar")}</button>
+                </div>
             </form>
             <div class="chats-composer-ayuda"><span class="ui-kbd">Enter</span> envía · <span class="ui-kbd">Shift</span>+<span class="ui-kbd">Enter</span> nueva línea · <span class="ui-kbd">/</span> respuestas rápidas</div>`;
         dibujarCabeceraHilo();
@@ -362,7 +370,7 @@
         t.disabled = cerrada;
         $("#chatsEnviar").disabled = cerrada;
         $("#chatsBtnPlantillas").disabled = cerrada;
-        t.placeholder = cerrada ? "La conversación está cerrada. Si el paciente vuelve a escribir, la atiende el asistente." : "Responder como equipo de YoSoy";
+        t.placeholder = cerrada ? "La conversación está cerrada. Si el paciente vuelve a escribir, la atiende el asistente." : 'Escribí un mensaje — "/" respuestas rápidas';
     }
 
     async function cargarHilo() {
