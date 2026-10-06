@@ -15,6 +15,12 @@ function error(msg) {
     $("error").classList.toggle("oculto", !msg);
 }
 
+// "sin-validar" es el placeholder de Consentimiento:VersionTexto (appsettings.json) hasta que
+// se cargue el texto legal definitivo: no es una versión real, así que no se la muestra.
+function versionEsReal(v) {
+    return !!v && v !== "sin-validar";
+}
+
 function fechaHora(valor) {
     const d = new Date(valor);
     const fecha = d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -24,7 +30,7 @@ function fechaHora(valor) {
 
 function mostrarFirmado(fechaFirma, version) {
     $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
-    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (version ? ` (versión del texto: ${version}).` : ".");
+    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (versionEsReal(version) ? ` (versión del texto: ${version}).` : ".");
     mostrar("yaFirmado");
 }
 
@@ -48,6 +54,7 @@ async function cargar() {
         if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada); return; }
         versionTexto = estado.versionTexto;
         $("versionTexto").textContent = versionTexto;
+        $("lineaVersion").classList.toggle("oculto", !versionEsReal(versionTexto));
         mostrar("paraFirmar");
     } catch {
         mostrar("sinConexion");
