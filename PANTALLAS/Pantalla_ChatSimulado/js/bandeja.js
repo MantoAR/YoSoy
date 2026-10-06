@@ -113,7 +113,15 @@
 
     // ── Abrir, cerrar y expandir el cajón ───────────────────────
     function abrir(idConversacion = null, filtro = null) {
-        if (est.modo === "pagina") { if (idConversacion) seleccionar(idConversacion); if (filtro) elegirFiltro(filtro); return; }
+        if (est.modo === "pagina") {
+            // bandeja.js no sabe nada de pestañas: si quien la contiene (dashboard.js) la
+            // tiene tapada con su propia navegación por hash, un evento es la forma de
+            // avisarle "mostrame" sin acoplarse a cómo arma sus tabs. Antes, pedir abrir una
+            // conversación desde el toast de un aviso no hacía nada visible si la pantalla
+            // estaba en otra sección: la seleccionaba igual, pero detrás de lo que ya se veía.
+            document.dispatchEvent(new CustomEvent("ys:chats-ir-a-pagina"));
+            if (idConversacion) seleccionar(idConversacion); if (filtro) elegirFiltro(filtro); return;
+        }
         if (!est.abierto) {
             est.abierto = true;
             raiz.classList.add("abierto");

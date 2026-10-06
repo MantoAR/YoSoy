@@ -136,6 +136,13 @@ function irAChatsFiltrados(filtro) {
     location.hash = filtro === "derivadas" ? "#escalamientos" : "#chats";
 }
 
+// abrir() de bandeja.js, en modo "pagina", no sabe de pestanas propias: pide esto cuando
+// hace falta mostrar la seccion (por ejemplo, "Abrir" desde el toast de un aviso con otra
+// pestana puesta) en vez de seleccionar la conversacion detras de lo que ya se ve.
+document.addEventListener("ys:chats-ir-a-pagina", () => {
+    if (location.hash !== "#chats" && location.hash !== "#escalamientos") location.hash = "#chats";
+});
+
 async function mostrarTab(tab, params = {}) {
     if (!SECCIONES.includes(tab)) tab = "inicio";
     YS.shell.marcar(tab);
