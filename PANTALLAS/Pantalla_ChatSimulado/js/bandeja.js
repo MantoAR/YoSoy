@@ -21,7 +21,7 @@
 
     const ESTADO = {
         Activa:         { texto: "Bot",      chip: "marca",   desc: "La atiende el asistente automático" },
-        DerivadaHumano: { texto: "Derivada", chip: "warn",    desc: "Pidió hablar con una persona del equipo" },
+        DerivadaHumano: { texto: "Escalada a persona", chip: "warn",    desc: "Pidió hablar con una persona del equipo" },
         Urgente:        { texto: "Urgente",  chip: "danger",  desc: "Posible situación de riesgo: el bot quedó en pausa" },
         Cerrada:        { texto: "Cerrada",  chip: "neutral", desc: "Cerrada por el equipo; el bot vuelve si el paciente escribe" }
     };
@@ -30,8 +30,8 @@
     const FILTROS = [
         { id: "todas",     texto: "Todas",     pasa: () => true },
         { id: "noLeidas",  texto: "No leídas", pasa: c => c.noLeidos > 0, contar: true },
-        { id: "derivadas", texto: "Derivadas", pasa: c => c.estado === "DerivadaHumano" || c.estado === "Urgente", contar: true,
-          titulo: "Derivadas a una persona del equipo, incluidas las urgentes" },
+        { id: "derivadas", texto: "Escaladas a persona", pasa: c => c.estado === "DerivadaHumano" || c.estado === "Urgente", contar: true,
+          titulo: "Escaladas a una persona del equipo, incluidas las urgentes" },
         { id: "bot",       texto: "Del bot",   pasa: c => c.estado === "Activa" },
         { id: "cerradas",  texto: "Cerradas",  pasa: c => c.estado === "Cerrada" }
     ];
@@ -235,7 +235,7 @@
     function textoFiltroVacio() {
         return {
             noLeidas: "No hay conversaciones sin leer.",
-            derivadas: "No hay conversaciones derivadas a una persona.",
+            derivadas: "No hay conversaciones escaladas a una persona.",
             bot: "No hay conversaciones atendidas por el asistente.",
             cerradas: "No hay conversaciones cerradas."
         }[est.filtro] || "No hay conversaciones.";
@@ -346,7 +346,7 @@
             <span class="ui-chip ui-chip--${e.chip}" title="${YS.esc(e.desc)}">${YS.esc(e.texto)}</span>
             <span class="ui-espacio"></span>
             ${c.estado === "Urgente" || c.estado === "DerivadaHumano"
-                ? `<button class="ui-btn ui-btn--sm ${c.estado === "Urgente" ? "ui-btn--danger" : ""}" type="button" id="chatsBtnResolver">${c.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar derivación"}</button>` : ""}
+                ? `<button class="ui-btn ui-btn--sm ${c.estado === "Urgente" ? "ui-btn--danger" : ""}" type="button" id="chatsBtnResolver">${c.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>` : ""}
             <button class="ui-btn-icono${est.contexto ? " activo" : ""}" type="button" id="chatsBtnContexto" aria-pressed="${est.contexto}" aria-label="Datos del paciente" title="Datos del paciente">${YS.icono("panel-der")}</button>`;
         cab.querySelector(".chats-volver").addEventListener("click", () => { raiz.classList.remove("con-conversacion"); });
         cab.querySelector("#chatsBtnResolver")?.addEventListener("click", cerrarDerivacion);
@@ -673,19 +673,19 @@
         t.setSelectionRange(t.value.length, t.value.length);
     }
 
-    // ── Cerrar derivación ───────────────────────────────────────
+    // ── Cerrar escalamiento ─────────────────────────────────────
     async function cerrarDerivacion() {
         const c = est.convs.get(est.actual);
         if (!c) return;
         const urgente = c.estado === "Urgente";
         if (!await YS.confirmar({
-            titulo: urgente ? "Marcar como resuelta" : "Cerrar derivación",
+            titulo: urgente ? "Marcar como resuelta" : "Cerrar escalamiento",
             mensaje: "La conversación pasa a Cerrada y se le avisa al paciente. Si vuelve a escribir, lo atiende el asistente desde el menú.",
-            textoConfirmar: urgente ? "Marcar como resuelta" : "Cerrar derivación"
+            textoConfirmar: urgente ? "Marcar como resuelta" : "Cerrar escalamiento"
         })) return;
         try {
             await YS.api(`${BASE}/conversaciones/${c.idConversacion}/cerrar`, { method: "PUT" });
-            YS.toast(urgente ? "Conversación marcada como resuelta." : "Derivación cerrada.");
+            YS.toast(urgente ? "Conversación marcada como resuelta." : "Escalamiento cerrado.");
             est.vueltasSinCambios = 0;
             await pulso();
             cargarContexto();
@@ -766,7 +766,7 @@
         }
         if (info.estado === "Urgente" || info.estado === "DerivadaHumano") {
             html += `<div class="chats-contexto-bloque chats-contexto-resolver">
-                <button class="ui-btn ${info.estado === "Urgente" ? "ui-btn--danger" : ""} ui-btn--bloque" type="button" id="chatsResolverContexto">${info.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar derivación"}</button>
+                <button class="ui-btn ${info.estado === "Urgente" ? "ui-btn--danger" : ""} ui-btn--bloque" type="button" id="chatsResolverContexto">${info.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>
                 <p class="chats-contexto-nota">Pasa a Cerrada y el asistente vuelve a atender si el paciente escribe de nuevo.</p></div>`;
         }
         dibujarContexto(html);
@@ -979,7 +979,7 @@
 
     // ── Avisos internos del módulo (campana del configurador) ───
     // Los que antes estaban en la campanita de la pantalla de mensajería: urgencias,
-    // derivaciones a una persona y avisos de turnos. Cada uno se marca leído por separado.
+    // escalamientos a una persona y avisos de turnos. Cada uno se marca leído por separado.
     function instalarAvisosInternos() {
         if (!YS.shell?.instalarCampana) return;
         YS.shell.instalarCampana({
