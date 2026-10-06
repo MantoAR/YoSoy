@@ -455,7 +455,7 @@ app.MapGet("/public/profesionales/{slug}/disponibilidad", (string slug, string? 
     });
 }).RequireRateLimiting("publico");
 
-app.MapPost("/public/profesionales/{slug}/reservar", (string slug, ReservaPublicaRequest req, INotificadorTurnos notificador, TurnoReglasService reglas) =>
+app.MapPost("/public/profesionales/{slug}/reservar", (string slug, ReservaPublicaRequest req, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx) =>
 {
     var p = new ProfesionalDAO().ObtenerPorSlugActivo(slug);
     if (p is null) return Results.NotFound();
@@ -463,6 +463,12 @@ app.MapPost("/public/profesionales/{slug}/reservar", (string slug, ReservaPublic
     var resultado = reglas.Solicitar(req.IdPaciente, p.IdProfesional, req.Momento, req.Motivo, creadoPor: "paciente");
     if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
     notificador.TurnoSolicitado(resultado.IdTurno!.Value);
+
+    // Auditoría (Fase 3a, Paso 4): solo ids y acción, nada clínico — igual que el resto
+    // de LogAuditoria. X-Usuario-Id lo manda YS.fetch solo si el paciente tiene sesión
+    // (que la tiene: así llegó hasta acá), igual que cualquier otro pedido autenticado.
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Turno Solicitado (Link Público)", Entidad = "Turno", IdEntidad = resultado.IdTurno });
     return Results.Created($"/public/profesionales/{slug}/reservar", new { idTurno = resultado.IdTurno });
 }).RequireRateLimiting("publico");
 
