@@ -17,6 +17,16 @@ public class AsignacionIntegrationTests
         var repo = new AsignacionRepositorioDAO();
         var servicio = new AsignacionService(repo, new Random(123));
 
+        bool vinculoYaExistia;
+        using (var conChk = Conexion.ObtenerConexion())
+        {
+            conChk.Open();
+            var cmdChk = new SqlCommand("SELECT COUNT(*) FROM PacienteProfesional WHERE IdPaciente = @P AND IdProfesional = @Pr", conChk);
+            cmdChk.Parameters.AddWithValue("@P", idPacienteReal);
+            cmdChk.Parameters.AddWithValue("@Pr", idProfesionalReal);
+            vinculoYaExistia = (int)cmdChk.ExecuteScalar() > 0;
+        }
+
         int idGrupoA = grupoDao.Insertar(new Grupo { Nombre = "[TEST] Grupo A", Activo = true });
         int idGrupoB = grupoDao.Insertar(new Grupo { Nombre = "[TEST] Grupo B", Activo = true });
         int idCasoConCarga = 0, idCasoNuevo = 0, idCasoDerivacion = 0;
@@ -47,6 +57,10 @@ public class AsignacionIntegrationTests
             var casoConfirmado = casoDao.ObtenerPorId(idCasoNuevo)!;
             Assert.Equal("Asignado", casoConfirmado.Estado);
             Assert.Equal(idProfesionalReal, casoConfirmado.IdProfesionalAsignado);
+
+            // PacienteProfesional (la tabla operativa de siempre) queda sincronizada.
+            var pacienteProfesionalDao = new PacienteProfesionalDAO();
+            Assert.Contains(pacienteProfesionalDao.ObtenerProfesionalesDePaciente(idPacienteReal), p => p.IdProfesional == idProfesionalReal);
         }
         finally
         {
@@ -69,6 +83,15 @@ public class AsignacionIntegrationTests
             Ejecutar("DELETE FROM ProfesionalGrupo WHERE IdGrupo = @Id", "@Id", idGrupoB);
             Ejecutar("DELETE FROM Grupo WHERE IdGrupo = @Id", "@Id", idGrupoA);
             Ejecutar("DELETE FROM Grupo WHERE IdGrupo = @Id", "@Id", idGrupoB);
+            // El vínculo PacienteProfesional ya existía desde antes de este test (seed real);
+            // Asignar() es un upsert (IF NOT EXISTS), así que no creó nada que haya que borrar.
+            if (!vinculoYaExistia)
+            {
+                var cmdDesv = new SqlCommand("DELETE FROM PacienteProfesional WHERE IdPaciente = @P AND IdProfesional = @Pr", con);
+                cmdDesv.Parameters.AddWithValue("@P", idPacienteReal);
+                cmdDesv.Parameters.AddWithValue("@Pr", idProfesionalReal);
+                cmdDesv.ExecuteNonQuery();
+            }
 
             // Verifica que no quedó nada propio: ni rastro de los dos IdGrupo de prueba.
             var cmdVerificar = new SqlCommand(

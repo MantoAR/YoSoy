@@ -13,6 +13,12 @@ public interface IAsignacionRepositorio
     CasoDerivacion? ObtenerCasoDerivacion(int idCasoDerivacion);
     void ResolverCasoDerivacion(int idCasoDerivacion, string estado, int? idGrupo, int? idProfesionalAsignado);
     void InsertarHistorial(int idCaso, int? idProfesional, string motivo, int? idRealizadoPor);
+
+    // PacienteProfesional sigue siendo la tabla operativa ("quién atiende a quién ahora"
+    // que ya usan turnos y agenda) — esto solo agrega el vínculo, nunca saca al profesional
+    // anterior: un paciente puede tener más de uno (N:M), y sacar al que ya no corresponde
+    // a este caso en particular sigue siendo una decisión de "Solicitudes de cambio".
+    void SincronizarPacienteProfesional(int idPaciente, int idProfesional);
 }
 
 public class AsignacionRepositorioDAO : IAsignacionRepositorio
@@ -74,4 +80,7 @@ public class AsignacionRepositorioDAO : IAsignacionRepositorio
             Motivo         = motivo,
             IdRealizadoPor = idRealizadoPor
         });
+
+    public void SincronizarPacienteProfesional(int idPaciente, int idProfesional) =>
+        new PacienteProfesionalDAO().Asignar(idPaciente, idProfesional);
 }

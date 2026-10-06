@@ -222,6 +222,7 @@ public class FakeAsignacionRepositorio : IAsignacionRepositorio
     public List<Caso> Casos = new();
     public List<CasoDerivacion> Derivaciones = new();
     public List<HistorialAsignacion> Historial = new();
+    public List<(int IdPaciente, int IdProfesional)> VinculosPacienteProfesional = new();
 
     public void AgregarMiembro(int idGrupo, int idProfesional)
     {
@@ -270,4 +271,7 @@ public class FakeAsignacionRepositorio : IAsignacionRepositorio
             IdHistorial = Historial.Count + 1, IdCaso = idCaso, IdProfesional = idProfesional,
             Motivo = motivo, IdRealizadoPor = idRealizadoPor, FechaHora = DateTime.Now
         });
+
+    public void SincronizarPacienteProfesional(int idPaciente, int idProfesional) =>
+        VinculosPacienteProfesional.Add((idPaciente, idProfesional));
 }

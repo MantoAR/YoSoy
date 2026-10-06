@@ -145,6 +145,7 @@ public class AsignacionServiceTests
         Assert.Equal(50, h.IdProfesional);
         Assert.Equal("AutomaticaPorCarga", h.Motivo);   // el motivo de la cascada, no "Manual"
         Assert.Equal(7, h.IdRealizadoPor);
+        Assert.Contains((1, 50), repo.VinculosPacienteProfesional);   // PacienteProfesional sigue en sync
     }
 
     [Fact]
@@ -168,6 +169,7 @@ public class AsignacionServiceTests
         var h = Assert.Single(repo.Historial);
         Assert.Equal(60, h.IdProfesional);
         Assert.Equal("Manual", h.Motivo);
+        Assert.Contains((1, 60), repo.VinculosPacienteProfesional);
     }
 
     [Fact]
@@ -185,6 +187,7 @@ public class AsignacionServiceTests
         Assert.Equal("Rechazada", repo.Derivaciones[0].Estado);
         Assert.Null(repo.Casos[0].IdProfesionalAsignado);
         Assert.Empty(repo.Historial);
+        Assert.Empty(repo.VinculosPacienteProfesional);   // nadie quedó asignado, no hay nada que sincronizar
     }
 
     [Fact]
@@ -205,6 +208,7 @@ public class AsignacionServiceTests
         var h = Assert.Single(repo.Historial);
         Assert.Equal(99, h.IdProfesional);
         Assert.Equal("Manual", h.Motivo);
+        Assert.Contains((1, 99), repo.VinculosPacienteProfesional);
     }
 
     [Fact]
