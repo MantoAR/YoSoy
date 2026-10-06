@@ -1034,6 +1034,7 @@ No hubo que revertir nada en esta fase; las dos migraciones quedaron aplicadas y
 - **Inicio:** martes 2026-10-06, 12:10:52.
 - **Hora límite:** 16:25:52 (inicio + 4 h 15 min). A esa hora se hace el Cierre, pase lo que pase.
 - Plan: Parte 1 (kit de demo, en `Cambios-Agus`) primero y completo; Parte 2 (JWT, en `Cambios-Agus-jwt`) después, cortando si a la hora límite le quedan menos de 60 minutos y JWT no está verificado de punta a punta.
+- **Terminado:** 13:22, el mismo martes 2026-10-06 — con margen de sobra respecto a la hora límite (16:25:52), las dos partes completas y verificadas. Tags locales: `demo-estable` (`Cambios-Agus`) y `demo-jwt` (`Cambios-Agus-jwt`, último commit `e6d51c5`).
 
 ### Parte 1: kit de demo
 
