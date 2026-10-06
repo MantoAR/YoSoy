@@ -37,6 +37,23 @@
         </div>
     </div>
 
+    <!-- Modal compartido de la Fase 2: grupos, reglas de derivación, confirmar/corregir una
+         derivación y reasignar un caso. El cuerpo y la acción de Confirmar cambian según
+         para qué se abrió (ver abrirModalCaso() en dashboard.js). -->
+    <div class="ui-modal-fondo modal-fijo" id="modalCasoOverlay" onclick="if (event.target === this) cerrarModalCaso()">
+        <div class="ui-modal" id="modalCasoPanel" role="dialog" aria-modal="true" aria-labelledby="modalCasoTitulo" tabindex="-1">
+            <div class="ui-modal-cabecera">
+                <h2 class="ui-modal-titulo" id="modalCasoTitulo">Editar</h2>
+                <button type="button" class="ui-btn ui-btn--ghost ui-btn--icono ui-modal-cerrar" aria-label="Cerrar" onclick="cerrarModalCaso()">✕</button>
+            </div>
+            <div class="ui-modal-cuerpo" id="modalCasoBody"></div>
+            <div class="ui-modal-pie">
+                <button type="button" class="ui-btn" onclick="cerrarModalCaso()">Cancelar</button>
+                <button type="button" class="ui-btn ui-btn--primary" id="modalCasoConfirmar" onclick="confirmarModalCaso()">Guardar</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de edición de un registro (tabla genérica y turnos) -->
     <div class="ui-modal-fondo modal-fijo" id="modalOverlay" onclick="if (event.target === this) cerrarModal()">
         <div class="ui-modal" id="modalPanel" role="dialog" aria-modal="true" aria-labelledby="modalTitulo" tabindex="-1">

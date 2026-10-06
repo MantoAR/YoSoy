@@ -6,7 +6,7 @@ if (!idProfesional) window.location.href = '/pantallas/index.html';
 
 // Cada sección del menú (shared/shell.js) se dibuja en #contenido.
 function activarTab(nombre) {
-    const tabs = { inicio, agenda, horarios, pacientes, sesion, reportes, perfil };
+    const tabs = { inicio, agenda, horarios, pacientes, casos, sesion, reportes, perfil };
     if (!tabs[nombre]) nombre = 'inicio';
     YS.shell.marcar(nombre);
     document.getElementById('contenido').innerHTML = YS.cargando();
@@ -1543,6 +1543,41 @@ async function pacientes() {
                    <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="derivarNuevoPaciente(${p.idPaciente})">Devolver a admisión</button>`
                 : `<button class="ui-btn ui-btn--sm" onclick="verHistoria(${p.idPaciente})">Historia clínica</button>
                    <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${p.idPaciente})">${YS.icono('video')}Sesión</button>` }
+        ]
+    });
+}
+
+// ── Mis casos (Fase 2) ───────────────────────────────────────
+async function casos() {
+    const c = document.getElementById('contenido');
+    let lista;
+    try { lista = await YS.api(`/profesionales/${idProfesional}/casos`); }
+    catch (e) {
+        if (YS.shell.actual === 'casos') c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('casos')" });
+        return;
+    }
+    if (YS.shell.actual !== 'casos') return;
+    YS.shell.encabezado({ subtitulo: `${lista.length} caso${lista.length === 1 ? '' : 's'}` });
+    YS.shell.acciones([{ texto: 'Actualizar', icono: 'refrescar', alClick: () => activarTab('casos') }]);
+
+    const tono = { Nuevo: 'neutral', Derivado: 'info', Asignado: 'ok', 'En atención': 'ok', Cerrado: 'neutral' };
+    YS.tabla(c, {
+        filas: lista, unidad: ['caso', 'casos'], placeholder: 'Buscar por paciente o grupo',
+        buscar: cs => [cs.nombrePaciente, cs.nombreGrupo].join(' '),
+        filtros: [
+            { id: 'activos', texto: 'Activos', pasa: cs => cs.estado !== 'Cerrado' },
+            { id: 'todos', texto: 'Todos', pasa: () => true }
+        ],
+        ordenInicial: { col: 2, desc: true },
+        vacio: { icono: 'portapapeles', titulo: 'Todavía no tenés casos asignados', texto: 'Te los asigna el sistema o el configurador cuando entra una admisión.' },
+        columnas: [
+            { titulo: 'Paciente', orden: cs => YS.normalizar(cs.nombrePaciente),
+              html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, 'sm')}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },
+            { titulo: 'Grupo', html: cs => YS.esc(cs.nombreGrupo || '—') },
+            { titulo: 'Estado', html: cs => `<span class="ui-chip ui-chip--${tono[cs.estado] || 'neutral'}">${YS.esc(cs.estado)}</span>`, orden: cs => cs.estado },
+            { titulo: '', clase: 'acciones', html: cs => `
+                <button class="ui-btn ui-btn--sm" onclick="verHistoria(${cs.idPaciente})">Historia clínica</button>
+                <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${cs.idPaciente})">${YS.icono('video')}Sesión</button>` }
         ]
     });
 }

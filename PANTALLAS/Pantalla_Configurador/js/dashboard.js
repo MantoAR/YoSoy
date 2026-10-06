@@ -40,7 +40,30 @@ document.addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
     if (document.getElementById("modalOverlay")?.classList.contains("visible")) { e.preventDefault(); cerrarModal(); }
     else if (document.getElementById("modalDerivOverlay")?.classList.contains("visible")) { e.preventDefault(); cerrarModalDeriv(); }
+    else if (document.getElementById("modalCasoOverlay")?.classList.contains("visible")) { e.preventDefault(); cerrarModalCaso(); }
 });
+
+// ── Modal compartido de la Fase 2 (Grupos, Reglas, Derivaciones, Reasignar) ──
+let _accionModalCaso = null;
+
+function abrirModalCaso(titulo, textoConfirmar, cuerpoHtml, alConfirmar) {
+    document.getElementById("modalCasoBody").innerHTML = cuerpoHtml;
+    _accionModalCaso = alConfirmar;
+    abrirModalFijo("modalCaso", titulo, textoConfirmar);
+}
+
+function cerrarModalCaso() {
+    cerrarModalFijo("modalCaso");
+    _accionModalCaso = null;
+}
+
+async function confirmarModalCaso() {
+    if (!_accionModalCaso) return;
+    const boton = document.getElementById("modalCasoConfirmar");
+    boton.disabled = true;
+    try { await _accionModalCaso(); }
+    finally { boton.disabled = false; }
+}
 
 const SOLO_LECTURA = ["evoluciones", "eventoscrisis"];
 
@@ -95,8 +118,8 @@ let filaEnEdicion = null;
 
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
-const SECCIONES = ["inicio", "chats", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
-    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "coberturas", "interaccionesia"];
+const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
+    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "coberturas", "interaccionesia"];
 
 // La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
 // paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
@@ -142,6 +165,10 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
         if (tab === "auditoria")    return await renderAuditoria(contenido);
         if (tab === "recuperacion") return await renderRecuperacion(contenido);
+        if (tab === "casos")              return await renderCasos(contenido, params);
+        if (tab === "casosderivaciones")  return await renderCasosDerivaciones(contenido);
+        if (tab === "grupos")             return await renderGrupos(contenido);
+        if (tab === "reglasderivacion")   return await renderReglasDerivacion(contenido);
 
         if (tab === "turnos") return await renderTurnos(contenido, params);
         const datos = await YS.fetch(`/${tab}`).then(r => r.json());
@@ -1393,6 +1420,389 @@ async function inicioConfigurador() {
         <div class="inicio-ir-auditoria">
             <a class="ui-btn ui-btn--sm" href="#auditoria">${YS.icono("lista")}Ver auditoría completa</a>
         </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// FASE 2: Grupos, Reglas de derivación, Casos y Derivaciones
+// ══════════════════════════════════════════════════════════════
+const TONO_CASO = { Nuevo: "neutral", Derivado: "info", Asignado: "ok", "En atención": "ok", Cerrado: "neutral" };
+function chipCaso(estado) { return `<span class="ui-chip ui-chip--${TONO_CASO[estado] || "neutral"}">${YS.esc(estado)}</span>`; }
+const TEXTO_ORIGEN_DERIV = { Regla: "Regla de derivación", Manual: "Elegido a mano", Bot: "Bot" };
+const TEXTO_MOTIVO_HIST = {
+    AutomaticaPorCarga: "Automática (menor carga)", AutomaticaAleatoria: "Automática (sorteo entre empatados)",
+    Manual: "Asignación manual", SolicitudCambio: "Solicitud de cambio de profesional", SinDisponibles: "Nadie disponible"
+};
+function datoCasoHtml(etiqueta, html) {
+    return `<div class="ui-dato"><span class="etiqueta-dato">${YS.esc(etiqueta)}</span><span class="valor-dato">${html}</span></div>`;
+}
+
+// ── GRUPOS ───────────────────────────────────────────────────
+async function renderGrupos(c) {
+    const [grupos, profesionales] = await Promise.all([YS.api("/grupos"), YS.api("/profesionales")]);
+    if (YS.shell.actual !== "grupos") return;
+    window._grupos = grupos; window._profesionalesGrupos = profesionales;
+    YS.shell.encabezado({ subtitulo: `${grupos.length} grupo${grupos.length === 1 ? "" : "s"}` });
+    YS.shell.acciones([
+        { texto: "Nuevo grupo", icono: "mas", alClick: () => abrirModalGrupo() },
+        { texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("grupos") }
+    ]);
+    c.innerHTML = `
+        <div class="split-view">
+            <section class="split-col" aria-labelledby="tituloGrupos">
+                <div class="split-header"><span id="tituloGrupos">Grupos</span> <span class="split-badge" id="badgeGrupos"></span></div>
+                <div class="split-list" id="listaGrupos"></div>
+            </section>
+            <section class="split-col" aria-labelledby="tituloMiembros">
+                <div class="split-header"><span id="tituloMiembros">Miembros</span> <span class="split-badge" id="badgeMiembros"></span></div>
+                <div class="split-list" id="listaMiembros"></div>
+            </section>
+        </div>
+        <div class="split-info" id="grupoInfo" aria-live="polite"></div>`;
+    renderListaGrupos();
+}
+
+function renderListaGrupos() {
+    const grupos = window._grupos;
+    document.getElementById("badgeGrupos").textContent = grupos.length;
+    document.getElementById("listaGrupos").innerHTML = grupos.map(g => `
+        <button type="button" class="usr-card${g.activo ? "" : " usr-card-inactivo"}" id="grupo-${g.idGrupo}" onclick="seleccionarGrupo(${g.idGrupo})">
+            ${YS.avatar(g.nombre, g.idGrupo, "sm")}
+            <span class="usr-textos"><span class="usr-nombre">${YS.esc(g.nombre)}</span><span class="usr-sub">${g.activo ? "Activo" : "Inactivo"}</span></span>
+        </button>`).join("") || `<div class="split-vacio">${YS.vacio({ icono: "pacientes", titulo: "No hay grupos todavía", texto: "Creá el primero para empezar a derivar casos.", accion: { texto: "Nuevo grupo", onclick: "abrirModalGrupo()" } })}</div>`;
+    if (window._grupoSeleccionado && grupos.some(g => g.idGrupo === window._grupoSeleccionado)) seleccionarGrupo(window._grupoSeleccionado);
+    else {
+        document.getElementById("listaMiembros").innerHTML = "";
+        document.getElementById("badgeMiembros").textContent = "";
+        document.getElementById("grupoInfo").innerHTML = '<span class="ui-muted">Elegí un grupo para ver y gestionar sus miembros.</span>';
+    }
+}
+
+async function seleccionarGrupo(id) {
+    window._grupoSeleccionado = id;
+    document.querySelectorAll("#listaGrupos .usr-card").forEach(el => el.classList.toggle("seleccionado", el.id === `grupo-${id}`));
+    const g = window._grupos.find(x => x.idGrupo === id);
+    const miembros = await YS.api(`/grupos/${id}/miembros`).catch(() => []);
+    if (window._grupoSeleccionado !== id || YS.shell.actual !== "grupos") return;
+
+    document.getElementById("badgeMiembros").textContent = miembros.length;
+    document.getElementById("listaMiembros").innerHTML = miembros.map(p => `
+        <div class="usr-card" style="cursor:default">
+            ${YS.avatar(YS.nombreCompleto(p), "p" + p.idProfesional, "sm")}
+            <span class="usr-textos"><span class="usr-nombre">${YS.esc(YS.nombreCompleto(p))}</span><span class="usr-sub">${YS.esc(p.especialidad || "")}</span></span>
+            <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost ui-btn--icono btn-icono-peligro" title="Quitar del grupo" aria-label="Quitar a ${YS.esc(YS.nombreCompleto(p))} del grupo" onclick="quitarMiembroGrupo(${id}, ${p.idProfesional})">${YS.icono("cerrar")}</button>
+        </div>`).join("") || `<div class="split-vacio">${YS.vacio({ icono: "pacientes", titulo: "Sin miembros", texto: "Agregá profesionales para que puedan recibir casos de este grupo." })}</div>`;
+
+    const disponibles = window._profesionalesGrupos.filter(p => p.estado === "Activo" && !miembros.some(m => m.idProfesional === p.idProfesional));
+    const opciones = disponibles.map(p => `<option value="${p.idProfesional}">${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("");
+    document.getElementById("grupoInfo").innerHTML = `
+        <div class="split-info-texto"><strong>${YS.esc(g.nombre)}</strong>${g.descripcion ? " — " + YS.esc(g.descripcion) : ""}</div>
+        <div class="split-info-acciones">
+            ${campoSelect("selectAgregarMiembro", "Agregar profesional", opcionesConElegir(opciones, "No hay más profesionales activos para agregar"))}
+            <button class="ui-btn ui-btn--sm" onclick="agregarMiembroGrupo(${id})">Agregar</button>
+            <button class="ui-btn ui-btn--sm" onclick="abrirModalGrupo(${id})">Editar</button>
+            <button class="ui-btn ui-btn--sm ${g.activo ? "ui-btn--danger" : "ui-btn--ok"}" onclick="cambiarActivoGrupo(${id}, ${!g.activo})">${g.activo ? "Desactivar" : "Activar"}</button>
+        </div>`;
+}
+
+async function agregarMiembroGrupo(idGrupo) {
+    const sel = document.getElementById("selectAgregarMiembro");
+    const idProf = parseInt(sel?.value);
+    if (!idProf) { toast("Elegí un profesional para agregar.", "error"); return; }
+    try {
+        const res = await YS.fetch(`/grupos/${idGrupo}/miembros`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idProfesional: idProf }) });
+        if (res.ok || res.status === 204) { toast("Profesional agregado al grupo."); seleccionarGrupo(idGrupo); }
+        else toast(await YS.leerMensaje(res, "No se pudo agregar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+async function quitarMiembroGrupo(idGrupo, idProfesional) {
+    if (!await confirmar("¿Quitar a este profesional del grupo? No afecta los casos que ya tiene asignados.", { titulo: "Quitar del grupo", textoConfirmar: "Quitar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/grupos/${idGrupo}/miembros/${idProfesional}`, { method: "DELETE" });
+        if (res.ok || res.status === 204) { toast("Profesional quitado del grupo."); seleccionarGrupo(idGrupo); }
+        else toast(await YS.leerMensaje(res, "No se pudo quitar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+async function cambiarActivoGrupo(id, activo) {
+    const verbo = activo ? "activar" : "desactivar";
+    if (!await confirmar(`¿${YS.capitalizar(verbo)} este grupo?`, { titulo: YS.capitalizar(verbo) + " grupo", textoConfirmar: YS.capitalizar(verbo) })) return;
+    try {
+        const res = await YS.fetch(`/grupos/${id}/${verbo}`, { method: "PUT" });
+        if (res.ok || res.status === 204) { toast(`Grupo ${activo ? "activado" : "desactivado"}.`); mostrarTab("grupos"); }
+        else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+function abrirModalGrupo(id) {
+    const g = id ? window._grupos.find(x => x.idGrupo === id) : null;
+    abrirModalCaso(g ? "Editar grupo" : "Nuevo grupo", g ? "Guardar" : "Crear", `
+        <div class="ui-form-grid">
+            <div class="ui-campo ui-campo--ancho"><label for="campoGrupoNombre">Nombre</label>
+                <input type="text" id="campoGrupoNombre" class="ui-input" value="${YS.esc(g?.nombre || "")}"></div>
+            <div class="ui-campo ui-campo--ancho"><label for="campoGrupoDescripcion">Descripción (opcional)</label>
+                <textarea id="campoGrupoDescripcion" class="ui-textarea" rows="2">${YS.esc(g?.descripcion || "")}</textarea></div>
+        </div>`, () => guardarGrupo(id));
+}
+
+async function guardarGrupo(id) {
+    const input = document.getElementById("campoGrupoNombre");
+    const nombre = input.value.trim();
+    if (!nombre) { YS.form.marcar(input, "El nombre es obligatorio."); input.focus(); return; }
+    const descripcion = document.getElementById("campoGrupoDescripcion").value.trim() || null;
+    try {
+        const res = await YS.fetch(id ? `/grupos/${id}` : "/grupos", {
+            method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nombre, descripcion })
+        });
+        if (res.ok || res.status === 201) { cerrarModalCaso(); toast(id ? "Grupo guardado." : "Grupo creado."); mostrarTab("grupos"); }
+        else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+// ── REGLAS DE DERIVACIÓN ─────────────────────────────────────
+async function renderReglasDerivacion(c) {
+    const [reglas, especialidades, grupos] = await Promise.all([YS.api("/reglasderivacion"), YS.api("/especialidades"), YS.api("/grupos")]);
+    if (YS.shell.actual !== "reglasderivacion") return;
+    window._reglasActuales = reglas; window._reglasEspecialidades = especialidades; window._reglasGrupos = grupos;
+    const esp = new Map(especialidades.map(e => [e.idEspecialidad, e.nombre]));
+    const grp = new Map(grupos.map(g => [g.idGrupo, g.nombre]));
+
+    YS.shell.encabezado({ subtitulo: `${reglas.length} regla${reglas.length === 1 ? "" : "s"}` });
+    YS.shell.acciones([
+        { texto: "Nueva regla", icono: "mas", alClick: () => abrirModalRegla() },
+        { texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("reglasderivacion") }
+    ]);
+
+    YS.tabla(c, {
+        filas: reglas, unidad: ["regla", "reglas"], placeholder: "Buscar por especialidad o grupo",
+        buscar: r => [esp.get(r.idEspecialidad), grp.get(r.idGrupoDestino)].join(" "),
+        filtros: [
+            { id: "activas", texto: "Activas", pasa: r => r.activa },
+            { id: "todas", texto: "Todas", pasa: () => true },
+            { id: "inactivas", texto: "Inactivas", pasa: r => !r.activa }
+        ],
+        ordenInicial: { col: 2, desc: true },
+        vacio: { icono: "flechas", titulo: "No hay reglas de derivación", texto: "Sin una regla, un caso nuevo queda sin grupo hasta que alguien lo derive a mano.", accion: { texto: "Nueva regla", onclick: "abrirModalRegla()" } },
+        columnas: [
+            { titulo: "Si la especialidad solicitada es…", html: r => `<span class="principal">${celda(esp.get(r.idEspecialidad))}</span>`, orden: r => YS.normalizar(esp.get(r.idEspecialidad) || "") },
+            { titulo: "…el grupo es", html: r => `<span class="principal">${celda(grp.get(r.idGrupoDestino))}</span>`, orden: r => YS.normalizar(grp.get(r.idGrupoDestino) || "") },
+            { titulo: "Prioridad", html: r => `<span class="ui-num">${r.prioridad}</span>`, orden: r => r.prioridad },
+            { titulo: "Estado", html: r => r.activa ? '<span class="ui-chip ui-chip--ok">Activa</span>' : '<span class="ui-chip ui-chip--neutral">Inactiva</span>', orden: r => r.activa ? 1 : 0 },
+            { titulo: "", clase: "acciones", html: r => `
+                <button class="ui-btn ui-btn--sm ui-btn--ghost ui-btn--icono" title="Editar" aria-label="Editar regla" onclick="abrirModalRegla(${r.idRegla})">${YS.icono("lapiz")}</button>
+                <button class="ui-btn ui-btn--sm" onclick="cambiarActivaRegla(${r.idRegla}, ${!r.activa})">${r.activa ? "Desactivar" : "Activar"}</button>` }
+        ]
+    });
+}
+
+function abrirModalRegla(id) {
+    const r = id ? window._reglasActuales.find(x => x.idRegla === id) : null;
+    const opcEsp = window._reglasEspecialidades.filter(e => e.estado === "Activo" || r?.idEspecialidad === e.idEspecialidad)
+        .map(e => `<option value="${e.idEspecialidad}"${e.idEspecialidad === r?.idEspecialidad ? " selected" : ""}>${YS.esc(e.nombre)}</option>`).join("");
+    const opcGrp = window._reglasGrupos.filter(g => g.activo || r?.idGrupoDestino === g.idGrupo)
+        .map(g => `<option value="${g.idGrupo}"${g.idGrupo === r?.idGrupoDestino ? " selected" : ""}>${YS.esc(g.nombre)}</option>`).join("");
+    abrirModalCaso(r ? "Editar regla" : "Nueva regla", r ? "Guardar" : "Crear", `
+        <div class="ui-form-grid">
+            ${campoSelect("campoReglaEspecialidad", "Si la especialidad solicitada es…", opcEsp || '<option value="">No hay especialidades activas</option>')}
+            ${campoSelect("campoReglaGrupo", "…el grupo es", opcGrp || '<option value="">No hay grupos activos — creá uno primero</option>')}
+            <div class="ui-campo"><label for="campoReglaPrioridad">Prioridad</label>
+                <input type="text" id="campoReglaPrioridad" class="ui-input" inputmode="numeric" value="${r?.prioridad ?? 0}">
+                <div class="ui-campo-ayuda">Si hay más de una regla activa para la misma especialidad, gana la de mayor prioridad.</div></div>
+        </div>`, () => guardarRegla(id));
+}
+
+async function guardarRegla(id) {
+    const idEspecialidad = parseInt(document.getElementById("campoReglaEspecialidad").value);
+    const idGrupoDestino = parseInt(document.getElementById("campoReglaGrupo").value);
+    const prioridadInput = document.getElementById("campoReglaPrioridad");
+    const prioridad = parseInt(prioridadInput.value);
+    if (!idEspecialidad || !idGrupoDestino) { toast("Elegí una especialidad y un grupo.", "error"); return; }
+    if (!Number.isInteger(prioridad)) { YS.form.marcar(prioridadInput, "Tiene que ser un número entero."); prioridadInput.focus(); return; }
+    const actual = id ? window._reglasActuales.find(x => x.idRegla === id) : null;
+    try {
+        const res = id
+            ? await YS.fetch(`/reglasderivacion/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idRegla: id, idEspecialidad, idGrupoDestino, prioridad, activa: actual?.activa ?? true }) })
+            : await YS.fetch("/reglasderivacion", { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ idEspecialidad, idGrupoDestino, prioridad }) });
+        if (res.ok || res.status === 201) { cerrarModalCaso(); toast(id ? "Regla guardada." : "Regla creada."); mostrarTab("reglasderivacion"); }
+        else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+async function cambiarActivaRegla(id, activa) {
+    try {
+        const res = await YS.fetch(`/reglasderivacion/${id}/${activa ? "activar" : "desactivar"}`, { method: "PUT" });
+        if (res.ok || res.status === 204) { toast(`Regla ${activa ? "activada" : "desactivada"}.`); mostrarTab("reglasderivacion"); }
+        else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+// ── CASOS ────────────────────────────────────────────────────
+async function renderCasos(c, params = {}) {
+    const [casos, grupos, profesionales] = await Promise.all([YS.api("/casos"), YS.api("/grupos"), YS.api("/profesionales")]);
+    if (YS.shell.actual !== "casos") return;
+    window._casosActuales = casos; window._casosGrupos = grupos; window._casosProfesionales = profesionales;
+
+    YS.shell.encabezado({ subtitulo: `${casos.length} caso${casos.length === 1 ? "" : "s"}` });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("casos") }]);
+
+    const sinAsignar = casos.filter(cs => !cs.idProfesionalAsignado && cs.estado !== "Cerrado");
+    const aviso = sinAsignar.length
+        ? `<div class="ui-alerta ui-alerta--warn mb-12">${sinAsignar.length} caso${sinAsignar.length === 1 ? "" : "s"} sin asignar.
+            <button class="ui-btn ui-btn--sm" type="button" onclick="document.querySelector('[data-filtro=sinasignar]')?.click()">Ver</button></div>`
+        : "";
+
+    c.innerHTML = `${aviso}<div class="casos-layout"><div id="casosTabla"></div><aside class="casos-detalle" id="casosDetalle">${YS.vacio({ icono: "portapapeles", texto: "Elegí un caso para ver el detalle." })}</aside></div>`;
+
+    YS.tabla(document.getElementById("casosTabla"), {
+        filas: casos, unidad: ["caso", "casos"], placeholder: "Buscar por paciente, grupo o profesional",
+        buscar: cs => [cs.nombrePaciente, cs.nombreGrupo, cs.nombreProfesionalAsignado].join(" "),
+        filtros: [
+            { id: "activos", texto: "Activos", pasa: cs => cs.estado !== "Cerrado" },
+            { id: "todos", texto: "Todos", pasa: () => true },
+            { id: "sinasignar", texto: "Sin asignar", pasa: cs => !cs.idProfesionalAsignado && cs.estado !== "Cerrado" },
+            { id: "cerrados", texto: "Cerrados", pasa: cs => cs.estado === "Cerrado" }
+        ],
+        ordenInicial: { col: 4, desc: true },
+        vacio: { icono: "portapapeles", titulo: "No hay casos todavía", texto: "Se crean solos cuando se manda un informe de admisión." },
+        columnas: [
+            { titulo: "Paciente", orden: cs => YS.normalizar(cs.nombrePaciente),
+              html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, "sm")}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },
+            { titulo: "Grupo", html: cs => celda(cs.nombreGrupo), orden: cs => cs.nombreGrupo || "" },
+            { titulo: "Profesional", html: cs => celda(cs.nombreProfesionalAsignado), orden: cs => cs.nombreProfesionalAsignado || "" },
+            { titulo: "Estado", html: cs => chipCaso(cs.estado), orden: cs => cs.estado },
+            { titulo: "Creado", html: cs => `<span class="ui-num">${YS.esc(YS.fecha.corta(cs.fechaCreacion))}</span>`, orden: cs => cs.fechaCreacion },
+            { titulo: "", clase: "acciones", html: cs => `<button class="ui-btn ui-btn--sm" onclick="verDetalleCaso(${cs.idCaso})">Ver</button>` }
+        ]
+    });
+
+    const idCaso = parseInt(params.caso);
+    if (idCaso) verDetalleCaso(idCaso);
+}
+
+async function verDetalleCaso(id) {
+    if (location.hash.replace("#", "").split("?")[0] === "casos") location.hash = `#casos?caso=${id}`;
+    const panel = document.getElementById("casosDetalle");
+    if (!panel) return;
+    panel.innerHTML = YS.cargando();
+    const [detalle, historial] = await Promise.all([
+        YS.api(`/casos/${id}`).catch(() => null), YS.api(`/casos/${id}/historial`).catch(() => [])
+    ]);
+    if (YS.shell.actual !== "casos" || !document.getElementById("casosDetalle")) return;
+    if (!detalle) { panel.innerHTML = YS.vacio({ icono: "alerta", texto: "No se pudo cargar este caso." }); return; }
+    window._casoDetalleActual = detalle;
+
+    const profNombre = idp => YS.nombreCompleto(window._casosProfesionales.find(p => p.idProfesional === idp)) || `#${idp}`;
+    const histTexto = h => `${TEXTO_MOTIVO_HIST[h.motivo] || h.motivo}${h.idProfesional ? " — " + YS.esc(profNombre(h.idProfesional)) : ""}`;
+
+    panel.innerHTML = `
+        <h3 class="tarjeta-titulo">${YS.esc(detalle.nombrePaciente)}</h3>
+        <div class="ui-datos">
+            ${datoCasoHtml("Estado", chipCaso(detalle.estado))}
+            ${datoCasoHtml("Grupo", celda(detalle.nombreGrupo))}
+            ${datoCasoHtml("Profesional asignado", celda(detalle.nombreProfesionalAsignado))}
+            ${datoCasoHtml("Origen", celda(detalle.origen))}
+            ${datoCasoHtml("Creado", fechaHoraCelda(detalle.fechaCreacion))}
+        </div>
+        <div class="split-info-acciones mt-12">
+            <a class="ui-btn ui-btn--sm" href="#usuarios?paciente=${detalle.idPaciente}">Ver ficha</a>
+            ${detalle.idGrupoActual ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalReasignarCaso(${id})">Reasignar</button>` : ""}
+        </div>
+        <h4 class="tarjeta-titulo mt-16">Historial</h4>
+        ${historial.length ? `<div>${historial.map(h => `<div class="item-historia">${fechaHoraCelda(h.fechaHora)} · ${histTexto(h)}</div>`).join("")}</div>`
+            : YS.vacio({ icono: "lista", texto: "Todavía no hay asignaciones registradas." })}`;
+}
+
+function abrirModalReasignarCaso(idCaso) {
+    const detalle = window._casoDetalleActual;
+    const opciones = window._casosProfesionales.filter(p => p.estado === "Activo")
+        .map(p => `<option value="${p.idProfesional}"${p.idProfesional === detalle.idProfesionalAsignado ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("");
+    abrirModalCaso("Reasignar caso", "Reasignar", `
+        <p class="modal-texto">Paciente: <strong>${YS.esc(detalle.nombrePaciente)}</strong></p>
+        <div class="ui-form-grid">
+            ${campoSelect("campoReasignarProfesional", "Nuevo profesional", opcionesConElegir(opciones, "No hay profesionales activos"))}
+            <div class="ui-campo ui-campo--ancho"><label for="campoReasignarMotivo">Motivo (opcional)</label>
+                <input type="text" id="campoReasignarMotivo" class="ui-input" maxlength="200"></div>
+        </div>`, () => confirmarReasignarCaso(idCaso));
+}
+
+async function confirmarReasignarCaso(idCaso) {
+    const idProfesional = parseInt(document.getElementById("campoReasignarProfesional").value);
+    if (!idProfesional) { toast("Elegí un profesional.", "error"); return; }
+    const motivo = document.getElementById("campoReasignarMotivo").value.trim() || null;
+    try {
+        const res = await YS.fetch(`/casos/${idCaso}/reasignar`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idProfesional, motivo }) });
+        if (res.ok || res.status === 204) { cerrarModalCaso(); toast("Caso reasignado."); mostrarTab("casos", { caso: idCaso }); }
+        else toast(await YS.leerMensaje(res, "No se pudo reasignar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+// ── DERIVACIONES (cola de CasoDerivacion pendientes) ─────────
+async function renderCasosDerivaciones(c) {
+    const [pendientes, grupos, profesionales] = await Promise.all([YS.api("/casosderivaciones/pendientes"), YS.api("/grupos"), YS.api("/profesionales")]);
+    if (YS.shell.actual !== "casosderivaciones") return;
+    window._derivPendientes = pendientes; window._derivGrupos = grupos; window._derivProfesionales = profesionales;
+    if (!encabezadoListado("casosderivaciones", pendientes.length, "pendientes")) return;
+
+    YS.tabla(c, {
+        filas: pendientes, unidad: ["pendiente", "pendientes"], placeholder: "Buscar por paciente o grupo",
+        buscar: d => [d.nombrePaciente, d.nombreGrupo, d.nombreProfesionalSugerido].join(" "),
+        vacio: { icono: "flechas", titulo: "No hay derivaciones pendientes", texto: "Las admisiones con una regla que coincide aparecen acá para confirmar." },
+        columnas: [
+            { titulo: "Paciente", orden: d => YS.normalizar(d.nombrePaciente),
+              html: d => `<span class="ui-flex">${YS.avatar(d.nombrePaciente, d.idCaso, "sm")}<span class="principal">${YS.esc(d.nombrePaciente)}</span></span>` },
+            { titulo: "Grupo sugerido", html: d => celda(d.nombreGrupo), orden: d => d.nombreGrupo || "" },
+            { titulo: "Profesional sugerido", html: d => celda(d.nombreProfesionalSugerido), orden: d => d.nombreProfesionalSugerido || "" },
+            { titulo: "Cómo se sugirió", html: d => `${celda(TEXTO_ORIGEN_DERIV[d.origen] || d.origen)}${d.motivo && TEXTO_MOTIVO_HIST[d.motivo] ? `<br><span class="texto-chico ui-muted">${YS.esc(TEXTO_MOTIVO_HIST[d.motivo])}</span>` : ""}` },
+            { titulo: "Fecha", html: d => `<span class="ui-num">${YS.esc(YS.fecha.corta(d.fechaCreacion))}</span>`, orden: d => d.fechaCreacion },
+            { titulo: "", clase: "acciones", html: d => `
+                ${d.idProfesionalSugerido ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="confirmarDerivacionCaso(${d.idCasoDerivacion})">Confirmar</button>` : ""}
+                <button class="ui-btn ui-btn--sm" onclick="abrirModalCorregirDerivacion(${d.idCasoDerivacion})">Corregir</button>
+                <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="rechazarDerivacionCaso(${d.idCasoDerivacion})">Rechazar</button>` }
+        ]
+    });
+}
+
+async function confirmarDerivacionCaso(id) {
+    if (!await confirmar("¿Confirmar esta derivación tal cual la sugirió el sistema?", { titulo: "Confirmar derivación", textoConfirmar: "Confirmar" })) return;
+    try {
+        const res = await YS.fetch(`/casosderivaciones/${id}/confirmar`, { method: "PUT" });
+        if (res.ok || res.status === 204) { toast("Derivación confirmada."); mostrarTab("casosderivaciones"); }
+        else toast(await YS.leerMensaje(res, "No se pudo confirmar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+async function rechazarDerivacionCaso(id) {
+    if (!await confirmar("¿Rechazar esta derivación? El caso queda derivado al grupo, pero sin profesional.", { titulo: "Rechazar derivación", textoConfirmar: "Rechazar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/casosderivaciones/${id}/rechazar`, { method: "PUT" });
+        if (res.ok || res.status === 204) { toast("Derivación rechazada."); mostrarTab("casosderivaciones"); }
+        else toast(await YS.leerMensaje(res, "No se pudo rechazar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+function abrirModalCorregirDerivacion(id) {
+    const d = window._derivPendientes.find(x => x.idCasoDerivacion === id);
+    const opcGrp = window._derivGrupos.filter(g => g.activo).map(g => `<option value="${g.idGrupo}"${g.idGrupo === d.idGrupo ? " selected" : ""}>${YS.esc(g.nombre)}</option>`).join("");
+    const opcProf = window._derivProfesionales.filter(p => p.estado === "Activo").map(p => `<option value="${p.idProfesional}"${p.idProfesional === d.idProfesionalSugerido ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}</option>`).join("");
+    abrirModalCaso("Corregir derivación", "Guardar", `
+        <p class="modal-texto">Paciente: <strong>${YS.esc(d.nombrePaciente)}</strong></p>
+        <div class="ui-form-grid">
+            ${campoSelect("campoCorregirGrupo", "Grupo", opcGrp)}
+            ${campoSelect("campoCorregirProfesional", "Profesional", opcionesConElegir(opcProf, "No hay profesionales activos"))}
+        </div>`, () => confirmarCorregirDerivacion(id));
+}
+
+async function confirmarCorregirDerivacion(id) {
+    const idGrupo = parseInt(document.getElementById("campoCorregirGrupo").value) || null;
+    const idProfesional = parseInt(document.getElementById("campoCorregirProfesional").value) || null;
+    try {
+        const res = await YS.fetch(`/casosderivaciones/${id}/corregir`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idGrupo, idProfesional }) });
+        if (res.ok || res.status === 204) { cerrarModalCaso(); toast("Derivación corregida."); mostrarTab("casosderivaciones"); }
+        else toast(await YS.leerMensaje(res, "No se pudo corregir."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
 }
 
 YS.shell.iniciar({

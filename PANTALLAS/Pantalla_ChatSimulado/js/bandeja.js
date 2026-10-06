@@ -723,11 +723,12 @@
         const id = est.actual, gen = est.generacion;
         if (!id) return;
         dibujarContexto(YS.esqueleto.lista(3));
-        let info, consentimiento = null;
+        let info, consentimiento = null, caso = null;
         try { info = await YS.api(`${BASE}/conversaciones/${id}/paciente`); }
         catch (e) { if (gen === est.generacion) dibujarContexto(YS.errorCarga({ texto: e.message, reintentar: "YS.bandeja.recargarContexto()" })); return; }
         if (info.paciente) {
             try { consentimiento = await YS.api(`/pacientes/${info.paciente.idPaciente}/consentimiento-telemedicina`); } catch { }
+            try { caso = await YS.api(`/pacientes/${info.paciente.idPaciente}/caso`); } catch { }   // 404 = todavía no tiene caso (Fase 2)
         }
         if (gen !== est.generacion) return;
         const p = info.paciente;
@@ -782,6 +783,7 @@
                         ${datoHtml("Estado", `<span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>`)}
                         ${datoHtml("Próximo turno", turnoHtml)}
                         ${datoHtml("Consentimiento", consentimientoHtml)}
+                        ${caso ? datoHtml("Caso", `<a href="#casos?caso=${caso.idCaso}">${YS.esc(caso.estado)}${caso.nombreGrupo ? " · " + YS.esc(caso.nombreGrupo) : ""}${caso.nombreProfesionalAsignado ? " · " + YS.esc(caso.nombreProfesionalAsignado) : ""}</a>`) : ""}
                     </div>
                     ${consentimiento != null && !consentimiento.firmado ? `<p class="chats-contexto-nota">Sin firma no se pueden confirmar sus turnos (RN-02).</p>
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsLinkFirma">Insertar link para firmar</button>` : ""}

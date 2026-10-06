@@ -14,6 +14,14 @@
    que hay arriba acá, el encabezado y el margen propio. */
 .vista-chats-crm { margin: 0 24px 24px; --chats-pagina-arriba: 104px; }
 
+/* ── Casos: tabla + panel lateral de detalle ──────── */
+.casos-layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+.casos-detalle {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 16px; position: sticky; top: 16px; max-height: calc(100vh - 160px); overflow-y: auto;
+}
+@media (max-width: 1100px) { .casos-layout { grid-template-columns: 1fr; } .casos-detalle { position: static; max-height: none; } }
+
 /* ── Usuarios: dos columnas ─────────────────────── */
 .ui-encabezado-acciones .ui-buscador { width: 300px; }
 .split-view { display: flex; gap: 16px; height: calc(100vh - 230px); min-height: 320px; }
