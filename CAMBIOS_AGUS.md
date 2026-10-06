@@ -827,3 +827,63 @@ Nada de esto reemplaza `PacienteProfesional`: sigue siendo la tabla operativa de
 - Tabla `Derivacion`/rutas `/derivaciones/*` existentes: **no se tocan**. La palabra "Derivación" sola, sin calificar, sigue siendo "solicitud de cambio de profesional" en la interfaz existente; lo nuevo de esta fase se llama siempre "caso derivado"/`CasoDerivacion` en código y "Derivaciones" (de casos a grupos) solo dentro del menú **CRM** nuevo, donde el contexto ya lo deja claro.
 - `Models/InformeAdmision.cs` y `Models/PacienteProfesional.cs` quedan desactualizados respecto de la tabla real (no es de esta fase arreglarlo); el Paso 1 no los toca, sigue sumando SQL crudo donde hace falta leer las columnas que el modelo no tiene, igual que ya hace el resto de `Program.cs`.
 - El motivo de `CasoDerivacion`/`HistorialAsignacion` usa vocabulario cerrado (enum-string), nunca el texto libre de `InformeAdmision.MotivoConsulta` ni de la historia clínica — ni siquiera por referencia desde la auditoría.
+
+### Paso 1: migración y DAOs
+
+`migrations/add_grupos_casos_derivacion.sql` — las 6 tablas del Paso 0, con índices en `Caso.Estado/IdGrupoActual/IdProfesionalAsignado` y `CasoDerivacion.Estado/IdCaso`. Aplicada dos veces contra la base local: la segunda corrida no hizo nada (idempotente, confirmado). Un DAO por entidad (`GrupoDAO`, `CasoDAO`, `CasoDerivacionDAO`, `ReglaDerivacionDAO`, `HistorialAsignacionDAO`), más `CasoDetalle`/`CasoDerivacionDetalle` con nombres ya resueltos para las pantallas.
+
+**Dos bugs reales que encontró el test de integración del Paso 2** (y que quedaron arreglados en el propio Paso 1, antes de seguir):
+1. `Caso.IdInforme` como `UNIQUE CONSTRAINT` de tabla rompía al segundo `Caso` sin admisión: a diferencia de otros motores, SQL Server solo deja **un** NULL por columna en una UNIQUE normal. Arreglado con un índice único **filtrado** (`WHERE IdInforme IS NOT NULL`), que si deja cualquier cantidad de NULL.
+2. Los índices/scripts filtrados piden `SET QUOTED_IDENTIFIER ON` — sin eso, tanto crear el índice como después tocar filas de `Caso` desde `sqlcmd -Q` suelto falla con el error 1934. Se agregó al principio de la migración y hay que acordarse de ponerlo también en cualquier script nuevo que toque `Caso` fuera de la app (los DAOs no necesitan nada especial: ADO.NET ya lo deja en `ON` por conexión).
+
+### Paso 2: AsignacionService
+
+Único servicio que decide asignaciones (`Services/AsignacionService.cs`). `Elegir()` es la cascada en estado puro — sin acceso a datos, recibe la lista de candidatos ya resuelta y un `Random` inyectado — menor carga → desempate por antigüedad de la última asignación → aleatorio → `SinDisponibles` si no hay nadie. El resto del servicio (`SugerirDerivacion`, `ConfirmarDerivacion`, `CorregirDerivacion`, `RechazarDerivacion`, `ReasignarManual`) orquesta esa decisión contra `IAsignacionRepositorio`, dejando rastro en `HistorialAsignacion` con el motivo real (el de la cascada si fue automática, `Manual` si no, `SolicitudCambio` si vino del mecanismo viejo).
+
+`CasoDerivacion.Motivo` cumple doble función a propósito: para una derivación por regla guarda el mismo vocabulario cerrado que `HistorialAsignacion.Motivo` (`AutomaticaPorCarga`/`AutomaticaAleatoria`/`SinDisponibles`) — así la pantalla de Derivaciones puede mostrar "cómo se sugirió" sin otra columna — y para una manual puede ser un texto corto que escribe el administrador (ver el punto de privacidad más abajo).
+
+16 tests en `YoSoy.Tests/AsignacionServiceTests.cs` (con `FakeAsignacionRepositorio` en `Fakes.cs`, sin base de datos) cubren los 7 escenarios que pedía el pedido (menor carga, desempate, aleatorio con semilla fija y reproducible, grupo sin profesionales, nadie disponible, reasignación manual, un profesional en dos grupos) más las operaciones de orquestación. `AsignacionIntegrationTests.cs` es el test de integración contra la base real: crea dos grupos y un caso propios, confirma que `ObtenerCandidatos` ve la carga de un caso aunque haya llegado por otro grupo, corre la cascada de punta a punta, y borra todo en el `finally` (verificado: 0 filas propias al final, sin tocar nada que ya existiera).
+
+**Bug encontrado después, al preparar la verificación de "solicitud de cambio" por la interfaz** (commit `ed27937`): `ConfirmarDerivacion`/`CorregirDerivacion`/`ReasignarManual` nunca tocaban `PacienteProfesional` — a pesar de que el Paso 0 ya decía que esa tabla debía quedar en sync. Un caso asignado solo por el camino nuevo no dejaba rastro ahí: el paciente no aparecía en "Mis Pacientes" del profesional ni el profesional en "Mis profesionales" del paciente, aunque "Mis casos" sí lo mostrara. Arreglado agregando `IAsignacionRepositorio.SincronizarPacienteProfesional` (upsert nada más — nunca desasigna al profesional anterior; sacar a alguien sigue siendo una decisión de "Solicitudes de cambio"), llamado desde las tres operaciones que asignan de verdad, nunca desde `SugerirDerivacion` (una sugerencia no es una asignación) ni `RechazarDerivacion`. Confirmado a mano contra la base real: antes de confirmar un caso la paciente no aparecía en `/profesionales/1/pacientes-detalle`, después sí.
+
+### Paso 3: endpoints
+
+`Endpoints/CasosEndpoints.cs` — grupos (+ miembros), reglas de derivación, casos (listar con filtros/detalle/historial/reasignar), derivaciones de casos (pendientes/confirmar/corregir/rechazar), "Mis casos" del profesional, y el caso de un paciente (para el panel del lead). Verificación de rol igual que `AutorizacionReporte` (CB-04): `Services/AutorizacionCasos.cs` resuelve por `X-Usuario-Id` contra `UsuarioProfesional` — con vínculo es profesional (alcance: solo sus casos), sin vínculo es administrador (todo). Mismo `TODO(JWT)` que el resto de la app.
+
+Integración aditiva con lo existente, verificada a mano de punta a punta contra la base real (y revertida después, sin dejar nada):
+- `POST /informes-admision` crea el `Caso` y, si hay una regla activa para la especialidad solicitada, sugiere la derivación — sin cambiar la respuesta del POST.
+- `PUT /informes-admision/{id}/derivar` (la pantalla de admisión de siempre) sincroniza ese `Caso` con lo que elige el administrador ahí — confirma o corrige la derivación sugerida, o asigna directo si ningún regla había sugerido nada — sin cambiar su propio comportamiento visible.
+- `PUT /derivaciones/{id}/aceptar` y `POST /derivaciones/cambio-directo` (el mecanismo viejo, "Solicitudes de cambio") actualizan el `Caso` abierto del paciente si tiene uno, con su propia fila en `HistorialAsignacion` (`SolicitudCambio`); si no tiene un caso abierto (pacientes de antes de esta fase), no hacen nada nuevo.
+
+### Paso 4: pantallas
+
+`Pantalla_Configurador`: **Grupos** (Configuración ▾) en un split-view grupo↔miembros como el de Usuarios; **Reglas de derivación** (Configuración ▾), tabla editable con alta; **Casos** (CRM ▾), tabla con filtros (activos/todos/sin asignar/cerrados) + panel lateral con detalle, historial y reasignar, con aviso cuando hay casos sin asignar; **Derivaciones** (CRM ▾, `id` interno `casosderivaciones` para no chocar con el `derivaciones` que ya usaba Usuarios ▾ > Solicitudes de cambio), cola de pendientes con confirmar/corregir/rechazar. Modal compartido nuevo (`modalCaso` en `dashboard.html`/`.js`) para las cuatro.
+
+`Pantalla_Profesional/js/nuevo_dashboard.js`: **Mis casos**, solo los propios, reusando las acciones que ya tenía Mis Pacientes (historia clínica, sesión).
+
+`Pantalla_ChatSimulado/js/bandeja.js`: el panel "Información del lead" de CRM > Chats suma un renglón **Caso** (estado · grupo · profesional, con link al caso) solo si el paciente ya tiene uno — de solo lectura, sin tocar el resto del panel.
+
+Verificado por Playwright contra la interfaz real, en varias corridas (todas sin errores de consola, todos los datos de prueba revertidos después): crear grupo, agregar/quitar miembro, crear regla, admisión real → derivación sugerida → confirmar, ver detalle y reasignar, Mis casos del profesional, panel del lead con el link, grupo sin nadie disponible → cola "Sin asignar" visible → corregir una → rechazar la otra, y que lo existente (turnos, agendas, Solicitudes de cambio, auditoría, usuarios, consentimiento, chats) siga andando igual.
+
+## Fase 2: datos de prueba
+
+`docs/datos-prueba-grupos-fase2.sql`, sin ejecutar: 4 grupos de ejemplo basados en las especialidades y los profesionales de prueba que ya existen (Psicología clínica con Santiago Manto y Laura Giménez, Psicología educativa con Ángeles Muñoz, Trabajo Social con Sebastián O'Brien, Terapia Ocupacional con Carolina Ferreyra) y 3 reglas de derivación — nada de Psiquiatría. "Psicología educativa" queda sin regla propia a propósito: la admisión hoy no tiene un campo más fino que "especialidad" para elegir clínica vs. educativa, así que la derivación automática va siempre al grupo más grande y el otro sirve de ejemplo de derivación a mano. Probado: corre limpio y confirma 0 filas propias después del `ROLLBACK`.
+
+## Fase 2: privacidad de datos de salud mental
+
+- **Vocabulario cerrado por defecto:** `CasoDerivacion.Origen/Estado` y `HistorialAsignacion.Motivo` son siempre un enum-string fijo, nunca texto libre — ni la auditoría ni el historial de asignación referencian `MotivoConsulta` ni ningún campo clínico.
+- **Un campo sigue siendo texto libre a propósito, y hay que tenerlo presente:** `CasoDerivacion.Motivo` cuando el origen es `Manual` (al reasignar un caso o corregir una derivación, el campo "Motivo" del modal es opcional y lo escribe quien lo usa). Es información operativa ("pidió otro horario", "se fue de licencia"), pero nada impide que alguien escriba ahí algo clínico — no hay validación de contenido, como tampoco la hay hoy en `Derivacion.Motivo` (el mecanismo viejo de "Solicitudes de cambio", que además lo manda tal cual al `Detalle` de `LogAuditoria` — ver la Fase 1, bug 2, donde quedó anotado que ese patrón viejo no se tocó). Si esto preocupa, la corrección más chica sería no guardar ese texto libre en ningún lado que vaya a auditoría o reportes — hoy no se guarda ahí, solo en `CasoDerivacion.Motivo`, pero conviene decidirlo a propósito y no por omisión.
+- **`TODO(JWT)` en los endpoints nuevos:** `Services/AutorizacionCasos.cs`, igual que `AutorizacionReporte` — la identidad hoy es `X-Usuario-Id`, un header que pone el navegador sin firmar. Mientras tanto, cualquiera que conozca o adivine un id puede pedir `/casos`, `/profesionales/{id}/casos`, etc. en nombre de otro. Se cierra solo al mergear `videollamadas-seguras`.
+- **Grupos y especialidades no son, en sí, un dato más sensible** que lo que ya exponía `Especialidad` — pero `Caso`/`CasoDerivacion` sí nuevo: ahora hay una tabla más con el recorrido completo de a qué profesional llegó cada paciente y por qué (aunque sea solo con el motivo cerrado). Vale la misma consideración que ya tenía `PacienteProfesional`: nada de esto pasa por un canal cifrado distinto del resto de la app ni tiene controles de acceso más allá de lo que ya hace `AutorizacionCasos`.
+
+## Fase 2: archivos sin uso
+
+Ninguno. Esta fase solo agregó: no reemplazó ni dejó obsoleta ninguna pantalla, tabla o endpoint existente.
+
+## Fase 2: pendientes
+
+- **Vocabulario de chips de la Fase 1** (Paso 3: "Respondido por el bot"/"Nueva"/"Sin responder"): seguía pendiente de la fase anterior, sigue sin tocarse acá.
+- **El texto libre de `CasoDerivacion.Motivo` en reasignaciones manuales** (ver "privacidad" arriba): decidir si conviene limitarlo o dejarlo como está.
+- **Entrenamiento del bot:** a propósito fuera de esta fase (el menú CRM no lo agrega). `CasoDerivacion.Origen = 'Bot'` y `Caso.Origen = 'Canal'/'Bot'` ya están reservados en el modelo para cuando llegue.
+- **Reasignación manual no permite cambiar de grupo**, solo de profesional (un cambio de grupo pasa por "Corregir" mientras la derivación sigue pendiente, o por derivar de nuevo). Si hace falta reasignar de grupo a un caso ya confirmado, hoy no hay una acción directa para eso.
+- **No se migraron los pacientes/casos de antes de esta fase:** un paciente que ya tenía un profesional asignado por el mecanismo viejo no tiene un `Caso` hasta que entre una admisión nueva o alguien lo cree a mano (no hay un endpoint para crear un `Caso` suelto, solo vía admisión) — es consistente con "no se inventan datos", pero significa que "Mis casos" y el panel del lead van a estar vacíos para esos pacientes hasta que pase algo nuevo.
