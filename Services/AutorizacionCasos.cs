@@ -1,15 +1,22 @@
-// Mismo patrón que AutorizacionReporte (CB-04) para los endpoints nuevos de Grupos,
-// Casos y Derivaciones de la Fase 2: identidad autodeclarada por X-Usuario-Id (sin
-// firmar), resuelta contra UsuarioProfesional para saber si quien llama es un
-// profesional (alcance: solo sus casos) o un administrador/configurador (todo).
-// TODO(JWT): al mergear videollamadas-seguras, cambiar la lectura de X-Usuario-Id por
-// el claim del token firmado (JwtService.Validar) — el único cambio necesario acá.
+// Mismo patrón que AutorizacionReporte (CB-04) para los endpoints de Grupos, Casos y
+// Derivaciones de la Fase 2. Reescrito en la Fase JWT para usar IdentidadActualService en
+// vez de leer X-Usuario-Id directo — cierra dos huecos que tenía la versión anterior:
+// (1) sin ninguna identidad resuelta, antes devolvía (true, null) — "administrador" por
+// default — ahora devuelve (false, null), nadie pasa los "if (!esAdmin)" que ya tenían
+// todos los endpoints de CasosEndpoints.cs, sin tocarlos uno por uno; (2) un paciente
+// (que no está en UsuarioProfesional) también caía en "administrador" por el mismo
+// motivo — ahora el rol se lee del token/claims, así que un paciente nunca es admin ni
+// profesional acá.
 public static class AutorizacionCasos
 {
     public static (bool EsAdministrador, int? IdProfesional) Resolver(HttpContext ctx)
     {
-        var idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : 0;
-        var vinculo = new UsuarioProfesionalDAO().ObtenerPorUsuario(idUsuario);
-        return vinculo != null ? (false, vinculo.IdProfesional) : (true, null);
+        var identidad = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+        return identidad switch
+        {
+            { EsConfigurador: true } => (true, null),
+            { EsProfesional: true } => (false, identidad.IdProfesional),
+            _ => (false, null)   // paciente o sin identidad: ni admin ni profesional
+        };
     }
 }

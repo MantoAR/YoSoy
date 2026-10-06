@@ -140,7 +140,7 @@ public static class CasosEndpoints
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var c = new CasoDAO().ObtenerDetalle(id);
             if (c is null) return Results.NotFound();
-            if (!esAdmin && c.IdProfesionalAsignado != idPropio)
+            if (!esAdmin && (idPropio is null || c.IdProfesionalAsignado != idPropio))
                 return Results.Json(new { mensaje = "Ese caso no es tuyo." }, statusCode: 403);
             return Results.Ok(c);
         });
@@ -150,7 +150,7 @@ public static class CasosEndpoints
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var caso = new CasoDAO().ObtenerPorId(id);
             if (caso is null) return Results.NotFound();
-            if (!esAdmin && caso.IdProfesionalAsignado != idPropio)
+            if (!esAdmin && (idPropio is null || caso.IdProfesionalAsignado != idPropio))
                 return Results.Json(new { mensaje = "Ese caso no es tuyo." }, statusCode: 403);
             return Results.Ok(new CasoDerivacionDAO().ObtenerPorCaso(id));
         });
@@ -160,7 +160,7 @@ public static class CasosEndpoints
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var caso = new CasoDAO().ObtenerPorId(id);
             if (caso is null) return Results.NotFound();
-            if (!esAdmin && caso.IdProfesionalAsignado != idPropio)
+            if (!esAdmin && (idPropio is null || caso.IdProfesionalAsignado != idPropio))
                 return Results.Json(new { mensaje = "Ese caso no es tuyo." }, statusCode: 403);
             return Results.Ok(new HistorialAsignacionDAO().ObtenerPorCaso(id));
         });

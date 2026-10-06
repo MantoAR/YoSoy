@@ -12,14 +12,23 @@ public static class MensajeriaEndpoints
 {
     public static IEndpointRouteBuilder MapMensajeria(this IEndpointRouteBuilder app)
     {
-        var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada();
+        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador — exige
+        // sesión de Profesional o Configurador. Las mitigaciones que ya tenía (flag
+        // ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
+        // RequiereMensajeriaHabilitada) siguen intactas, esto es una capa más encima.
+        var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada()
+            .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
         // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
         // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
         // con el módulo apagado, o un pedido remoto con SoloLocal, dice false y nada más.
+        // Sin auth a propósito: lo consulta cualquier pantalla, antes de saber quién sos.
         app.MapGet("/capacidades", (HttpContext http) => Results.Ok(new { mensajeria = MensajeriaDisponible(http) }));
 
-        // ── Chat simulado: lado paciente ────────────────────────
+        // ── Chat simulado: lado paciente ─────────────────────────
+        // Excepción al RequireAuthorization del grupo: estos dos simulan un mensaje
+        // ENTRANTE de un paciente (el equivalente a un webhook de WhatsApp real) — no
+        // hay, ni tiene sentido que haya, una sesión de profesional del otro lado.
         g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, BotReservasService bot, IMessageChannel canal) =>
         {
             try
@@ -31,13 +40,13 @@ public static class MensajeriaEndpoints
             {
                 return Results.BadRequest(new { mensaje = ex.Message });
             }
-        });
+        }).AllowAnonymous();
 
         g.MapGet("/simulado/conversacion", (string telefono, IConversacionDAO conversaciones, IMessageChannel canal) =>
         {
             var c = conversaciones.ObtenerPorTelefono(Telefono.Normalizar(telefono), canal.Nombre);
             return c is null ? Results.NotFound() : Results.Ok(new { c.IdConversacion, c.Estado });
-        });
+        }).AllowAnonymous();
 
         // ── Modo administrador ──────────────────────────────────
         // desdeMensaje: solo las conversaciones con mensajes posteriores a ese IdMensaje
