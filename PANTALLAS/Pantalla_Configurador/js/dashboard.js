@@ -1335,10 +1335,9 @@ async function inicioConfigurador() {
     });
 
     const pedir = ruta => YS.api(ruta).catch(() => null);
-    const [solicitudes, derivaciones, recuperacion, informes, pacientes, profesionales, turnos, actividad] = await Promise.all([
+    const [solicitudes, derivaciones, recuperacion, informes, pacientes, profesionales, turnos] = await Promise.all([
         pedir("/profesionales/solicitudes"), pedir("/derivaciones/detalle"), pedir("/recuperacion-password/pendientes"),
-        pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos"),
-        pedir("/auditoria?pagina=1&cantidad=8")
+        pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos")
     ]);
     const conChats = (await YS.shell.capacidades)?.mensajeria;
     const chats = conChats ? await pedir("/mensajeria/conversaciones") : null;
@@ -1369,11 +1368,6 @@ async function inicioConfigurador() {
             <span class="ui-stat-pie">${YS.esc(pie)}</span>
         </button>`;
 
-    const filasActividad = (actividad || []).map(a => `
-        <tr><td class="ui-num">${YS.esc(new Date(a.fechaHora).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }))}</td>
-            <td class="principal">${YS.esc(a.accion)}</td><td>${YS.esc(a.entidad)}${a.idEntidad != null ? " #" + YS.esc(a.idEntidad) : ""}</td>
-            <td>${YS.esc(a.idUsuario)}</td></tr>`).join("");
-
     c.innerHTML = `
         <div class="ui-titulo-seccion texto-chico ui-muted">Para revisar</div>
         <div class="ui-stats">
@@ -1390,14 +1384,8 @@ async function inicioConfigurador() {
             ${tarjeta("usuarios", "Pacientes activos", "pacientes", nPacientes, "Sin contar los dados de baja")}
             ${tarjeta("usuarios", "Profesionales activos", "usuario", nProfesionales, "Con cuenta aprobada")}
         </div>
-        <div class="ui-card ui-card--sin-padding">
-            <div class="ui-card-header inicio-actividad-cabecera">
-                <h2 class="ui-card-titulo">Actividad reciente</h2>
-                <a class="ui-btn ui-btn--sm" href="#auditoria">Ver auditoría</a>
-            </div>
-            ${filasActividad
-                ? `<div class="ui-tabla-scroll"><table class="ui-tabla ui-tabla--densa"><thead><tr><th>Fecha</th><th>Acción</th><th>Entidad</th><th>Usuario</th></tr></thead><tbody>${filasActividad}</tbody></table></div>`
-                : YS.vacio({ icono: "lista", texto: actividad ? "Todavía no hay acciones registradas." : "No se pudo cargar la auditoría." })}
+        <div class="inicio-ir-auditoria">
+            <a class="ui-btn ui-btn--sm" href="#auditoria">${YS.icono("lista")}Ver auditoría completa</a>
         </div>`;
 }
 

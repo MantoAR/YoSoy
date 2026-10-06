@@ -3,7 +3,7 @@
    salen del sistema de diseño; acá queda solo lo propio de esta pantalla. */
 
 /* ── Contenido ──────────────────────────────────── */
-.inicio-actividad-cabecera { padding: 14px 16px 0; }
+.inicio-ir-auditoria { margin-top: 4px; }
 .contenido h2 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin-bottom: 14px; }
 .contenido h3 { font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
 .contenido h4 { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
