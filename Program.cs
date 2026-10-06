@@ -147,25 +147,28 @@ app.MapGet("/especialidades/{id}", (int id) =>
     return e is null ? Results.NotFound() : Results.Ok(e);
 });
 
+// Fase JWT: los catálogos se leen desde pantallas de varios roles (ej. "Mi perfil" del
+// profesional lista especialidades), así que los GET quedan como estaban; solo las
+// escrituras pasan a ser de Configurador.
 app.MapPost("/especialidades", (Especialidad e) =>
 {
     e.Estado = "Activo";
     new EspecialidadDAO().Insertar(e);
     return Results.Created($"/especialidades", e);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/especialidades/{id}", (int id, Especialidad e) =>
 {
     e.IdEspecialidad = id;
     new EspecialidadDAO().Modificar(e);
     return Results.Ok(e);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/especialidades/{id}", (int id) =>
 {
     new EspecialidadDAO().Baja(id);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Rol
 app.MapGet("/roles", () =>
@@ -182,20 +185,20 @@ app.MapPost("/roles", (Rol r) =>
     r.Estado = "Activo";
     new RolDAO().Insertar(r);
     return Results.Created($"/roles", r);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/roles/{id}", (int id, Rol r) =>
 {
     r.IdRol = id;
     new RolDAO().Modificar(r);
     return Results.Ok(r);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/roles/{id}", (int id) =>
 {
     new RolDAO().Baja(id);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // EstadoTurno
 app.MapGet("/estadosturnos", () =>
@@ -304,14 +307,16 @@ app.MapPut("/tutores/{id}", (int id, Tutor t) =>
 });
 
 // Usuario
+// Administración de usuarios (Fase JWT): solo Configurador, de punta a punta.
 app.MapGet("/usuarios", () =>
-    new UsuarioDAO().ObtenerTodos().Select(u => new { u.IdUsuario, u.Username, u.Estado, u.Mail }));
+    new UsuarioDAO().ObtenerTodos().Select(u => new { u.IdUsuario, u.Username, u.Estado, u.Mail }))
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/usuarios/{id}", (int id) =>
 {
     var u = new UsuarioDAO().ObtenerPorId(id);
     return u is null ? Results.NotFound() : Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 {
@@ -323,7 +328,7 @@ app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
     new UsuarioDAO().Insertar(u);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", Detalle = u.Username });
     return Results.Created("/usuarios", new { u.IdUsuario, u.Username, u.Estado, u.Mail });
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
 {
@@ -334,7 +339,7 @@ app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
                 System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
     new UsuarioDAO().Modificar(u);
     return Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
 {
@@ -342,7 +347,7 @@ app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
     new UsuarioDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Usuario", Entidad = "Usuario", IdEntidad = id });
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Paciente
 app.MapGet("/pacientes", () =>
@@ -419,8 +424,11 @@ app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
     new ProfesionalDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
+// Dar de alta/aprobar/rechazar un profesional es administración (Fase JWT: Configurador).
+// PUT /profesionales/{id} (arriba, sin tocar) sigue abierto: lo usa el propio profesional
+// desde "Mi perfil" — no está en el alcance de este grupo.
 app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
 {
     int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
@@ -430,10 +438,11 @@ app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
     new ProfesionalDAO().Modificar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/profesionales/solicitudes", () =>
-    new ProfesionalDAO().ObtenerTodos().Where(p => p.Estado == "Pendiente").ToList());
+    new ProfesionalDAO().ObtenerTodos().Where(p => p.Estado == "Pendiente").ToList())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 {
@@ -444,7 +453,7 @@ app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
     new ProfesionalDAO().Modificar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aprobación Solicitud Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
 {
@@ -455,7 +464,7 @@ app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
     new ProfesionalDAO().Modificar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Solicitud Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Link público de reserva (Fase 3a, Paso 3): el profesional prende/apaga el suyo; el
 // administrador puede apagar el de cualquiera. Mismo patrón de identidad que Casos/Grupos
@@ -777,23 +786,30 @@ app.MapPut("/evoluciones/{id}", (int id, Evolucion e) =>
 });
 
 // Derivacion
+// "Solicitudes de cambio" (Derivacion, el mecanismo viejo — no CasoDerivacion de la Fase
+// 2): lo aceptan/rechazan desde la pantalla de administrador (abrirModalDeriv en
+// Pantalla_Configurador), nunca el profesional directo. Fase JWT: todo Configurador.
 app.MapGet("/derivaciones", () =>
-    new DerivacionDAO().ObtenerTodos());
+    new DerivacionDAO().ObtenerTodos())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/derivaciones/pendientes", () =>
-    new DerivacionDetalleDAO().ObtenerPendientes());
+    new DerivacionDetalleDAO().ObtenerPendientes())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/derivaciones/detalle", () =>
-    new DerivacionDetalleDAO().ObtenerTodosConDetalle());
+    new DerivacionDetalleDAO().ObtenerTodosConDetalle())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/derivaciones/{id}", (int id) =>
 {
     var d = new DerivacionDAO().ObtenerPorId(id);
     return d is null ? Results.NotFound() : Results.Ok(d);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/pacientes/{id}/derivaciones", (int id) =>
-    new DerivacionDAO().ObtenerPorPaciente(id));
+    new DerivacionDAO().ObtenerPorPaciente(id))
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/derivaciones", (Derivacion d) =>
 {
@@ -801,14 +817,14 @@ app.MapPost("/derivaciones", (Derivacion d) =>
     d.Estado = "Pendiente";
     new DerivacionDAO().Insertar(d);
     return Results.Created("/derivaciones", d);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
 {
     d.IdDerivacion = id;
     new DerivacionDAO().Modificar(d);
     return Results.Ok(d);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, HttpContext ctx) =>
 {
@@ -826,7 +842,7 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aceptación Derivación", Entidad = "Derivacion", IdEntidad = id });
     SincronizarCasoPorCambioDeProfesional(d.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 {
@@ -837,7 +853,7 @@ app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
     new DerivacionDAO().Modificar(d);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Derivación", Entidad = "Derivacion", IdEntidad = id });
     return Results.Ok(d);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
 app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpContext ctx) =>
@@ -863,7 +879,7 @@ app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpC
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Cambio Directo Profesional", Entidad = "Derivacion", Detalle = req.Motivo });
     SincronizarCasoPorCambioDeProfesional(req.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Fase 2, aditivo: si el paciente tiene un Caso abierto, la solicitud de cambio de
 // profesional (Derivacion/"Solicitudes de cambio", sin relación con CasoDerivacion) lo
@@ -948,20 +964,20 @@ app.MapPost("/coberturas", (Cobertura c) =>
 {
     new CoberturaDAO().Insertar(c);
     return Results.Created("/coberturas", c);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/coberturas/{id}", (int id, Cobertura c) =>
 {
     c.IdCobertura = id;
     new CoberturaDAO().Modificar(c);
     return Results.Ok(c);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/coberturas/{id}", (int id) =>
 {
     new CoberturaDAO().Baja(id);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // PacienteTutor
 app.MapGet("/pacientes/{id}/tutores", (int id) =>
@@ -980,61 +996,66 @@ app.MapDelete("/pacientetutores/{idPaciente}/{idTutor}", (int idPaciente, int id
 });
 
 // UsuarioRol
+// De aquí hasta /auditoria: tablas de asociación Usuario<->Rol/Paciente/Profesional y el
+// log — plomería administrativa, ninguna pantalla de paciente/profesional las llama
+// directo. Fase JWT: todo Configurador.
 app.MapGet("/usuarios/{id}/roles", (int id) =>
-    new UsuarioRolDAO().ObtenerPorUsuario(id));
+    new UsuarioRolDAO().ObtenerPorUsuario(id))
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/usuarioroles", (UsuarioRol ur) =>
 {
     new UsuarioRolDAO().Insertar(ur);
     return Results.Created("/usuarioroles", ur);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/usuarioroles/{idUsuario}/{idRol}", (int idUsuario, int idRol) =>
 {
     new UsuarioRolDAO().Eliminar(idUsuario, idRol);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // UsuarioPaciente
 app.MapGet("/usuarios/{id}/paciente", (int id) =>
 {
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(id);
     return up is null ? Results.NotFound() : Results.Ok(up);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/usuariopacientes", (UsuarioPaciente up) =>
 {
     new UsuarioPacienteDAO().Insertar(up);
     return Results.Created("/usuariopacientes", up);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/usuariopacientes/{idUsuario}", (int idUsuario) =>
 {
     new UsuarioPacienteDAO().Eliminar(idUsuario);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // UsuarioProfesional
 app.MapGet("/usuarios/{id}/profesional", (int id) =>
 {
     var up = new UsuarioProfesionalDAO().ObtenerPorUsuario(id);
     return up is null ? Results.NotFound() : Results.Ok(up);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/usuarioprofesionales", (UsuarioProfesional up) =>
 {
     new UsuarioProfesionalDAO().Insertar(up);
     return Results.Created("/usuarioprofesionales", up);
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapDelete("/usuarioprofesionales/{idUsuario}", (int idUsuario) =>
 {
     new UsuarioProfesionalDAO().Eliminar(idUsuario);
     return Results.NoContent();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/auditoria", (int pagina = 1, int cantidad = 50) =>
-    new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad));
+    new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad))
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
 {
@@ -1050,7 +1071,8 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
 });
 
 app.MapGet("/recuperacion-password/pendientes", () =>
-    new RecuperacionPasswordDAO().ObtenerPendientes());
+    new RecuperacionPasswordDAO().ObtenerPendientes())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/recuperacion-password/{id}/aceptar", (int id) =>
 {
@@ -1073,7 +1095,7 @@ app.MapPut("/recuperacion-password/{id}/aceptar", (int id) =>
 
     recDAO.Aceptar(id, passTemp);
     return Results.Ok(new { passwordTemporal = passTemp });
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/recuperacion-password/{id}/rechazar", (int id) =>
 {
@@ -1081,7 +1103,7 @@ app.MapPut("/recuperacion-password/{id}/rechazar", (int id) =>
     if (dao.ObtenerIdUsuario(id) == null) return Results.NotFound();
     dao.Rechazar(id);
     return Results.Ok();
-});
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
 {
