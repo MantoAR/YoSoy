@@ -1111,3 +1111,29 @@ Una auditoría de seguridad (solo lectura, antes de pushear) encontró que `docs
 De paso, `SincronizarCasoPorCambioDeProfesional` (la sincronización de `Caso`/`HistorialAsignacion` cuando se acepta una "Solicitud de cambio") tenía su propio `idUsuario == 0 ? null : idUsuario` — el mismo patrón de "0 como null disimulado" que se estaba limpiando en todos lados. Pasó a recibir `int?` directo, sin la traducción.
 
 Verificado: los 130 tests en verde (los 129 de antes + el test de integración de `fix-registro-publico`, que levanta la app entera con `WebApplicationFactory<Program>`), reproducido a mano el 500 original contra la app corriendo (ahora da 201 y la auditoría queda con `IdUsuario = NULL`, confirmado contra la base y limpiado después), y repetido el recorrido de JWT puro (Playwright, sin ningún header legacy) para confirmar que el merge no rompió nada de lo de hoy.
+
+## Mejora de chats y centrado
+
+### Paso 0: reconocimiento
+
+Rama `mejora-chats-y-centrado`, parte de `Cambios-Agus-jwt` (no existía `cierre-seguridad`). `rediseno-visual` ya es ancestro de `Cambios-Agus-jwt` desde el 2026-09-25 — `shared/tema.css` y el sistema de diseño compartido ya están, no hace falta mergear nada aparte.
+
+**Chats (`/mensajeria`, `Endpoints/MensajeriaEndpoints.cs`):**
+- Un solo archivo de UI: `PANTALLAS/Pantalla_ChatSimulado/js/bandeja.js` (~1071 líneas: bandeja + hilo + panel de contexto), cargado como cajón superpuesto por `shared/shell.js` (`cargarBandeja`) **solo para Configurador** — el backend ya autoriza a Profesional pero el botón Chats no está enganchado para ese rol todavía. Se engancha en este trabajo.
+- Tiempo real: polling adaptativo ya existente (`bandeja.js`, backoff 3-12s / 20-45s según haya hilo abierto o no), sin WebSockets. No se reemplaza, solo se arregla lo que falle.
+- Estados reales (`Services/Mensajeria/ContextoBot.cs`): `Activa` (bot) / `DerivadaHumano` (escalada) / `Urgente` / `Cerrada`. Los filtros que ya existen en la bandeja (Todas / No leídas / Escaladas a persona / Del bot / Cerradas) son casi los pedidos; falta "Mías".
+- `Conversacion` no tiene columna de asignación propia. Decisión: **no se inventa una asignación paralela.** "Asignar/reasignar conversación" = resolver el Caso abierto del paciente de esa conversación (`CasoDAO.ObtenerAbiertoPorPaciente`) y llamar al `AsignacionService.ReasignarManual` que ya usan los Casos — mismas categorías de motivo (`MotivoReasignacion.Categorias`), misma nota opcional (máx. 140, nunca a auditoría), mismo gate ("solo el administrador puede reasignar", igual que `PUT /casos/{id}/reasignar`). Si el paciente no tiene caso abierto (o la conversación todavía no tiene paciente identificado), la acción queda deshabilitada con un texto que lo explica — no se crea un caso desde el chat, no se pidió.
+- Decisión explícita, para no agrandar el alcance: **no se agrega chequeo de pertenencia para leer/responder/cerrar conversaciones.** Hoy cualquier Profesional o Configurador ve y opera cualquier conversación — parece ser el diseño real (bandeja compartida tipo mesa de entradas: cualquiera del equipo atiende lo que está escalado), no un bug. "Mías" es un filtro de comodidad (comparar el profesional asignado al caso del paciente contra el usuario logueado), no un límite de acceso nuevo. Si esto fuera un error y no la intención, avisar para tratarlo aparte — restringirlo ahora sin que se haya pedido sería alcance nuevo.
+- `NotificacionInterna` (tabla ya existente) es otra cosa (alertas para el equipo), no las "notas internas por conversación" que pide A3 — esas van en una tabla nueva.
+- No existen hoy "respuestas rápidas" ni "etiquetas" de conversación — migraciones nuevas, idempotentes.
+
+**Pantallas / migas de pan (`shared/shell.js`, `shared/tema.css`):**
+- Las migas no dicen literalmente "Menú < X": son un `<ol class="ui-migas">`, armado en `marcar()`/`encabezado()` (`shell.js` ~271-332) como `etiqueta del rol / grupo (si hay) / pantalla`, separadas por "/" puesto en CSS (no es texto "<"). El resaltado del ítem activo (`data-id` + clase `.activo` / `aria-current`) es un mecanismo **separado** de las migas — se puede sacar la miga sin tocar el resaltado.
+- El contenedor centrado ya existe: `.ui-contenido` + variable `--contenido-max`, pero el valor por defecto es `none` ("ancho completo en las pantallas principales" — decisión explícita anterior, de la rama `rediseno-visual`). Este pedido la revierte a propósito: paso el default a un ancho cómodo (~1200px) y mantengo `none` solo donde se pidió explícitamente (sala de video, cajón de Chats).
+- Pendiente de revisar aparte, no es de este frente: `Pantalla_Profesional/dashboard.html` (legacy, sin referencias fuera de un changelog) y la copia sin uso `consentimiento_crear_cuenta.html` (ya documentados más arriba en este archivo; nada que hacer ahora).
+
+**Herramientas:** sin servidor MCP de Playwright en esta sesión. Hay Node/npm y los navegadores de Playwright ya están en caché local (`%LOCALAPPDATA%\ms-playwright`, de una instalación anterior) — se instaló el paquete `playwright` en el scratchpad de la sesión (fuera del repo, no versionado) para poder seguir haciendo los recorridos reales pedidos, sin depender de un MCP dedicado.
+
+**Nota sobre anchos angostos:** la memoria de este proyecto decía no invertir en breakpoints angostos (YoSoy es PC-first, hay una app mobile aparte para eso). Este pedido pide explícitamente revisar hasta ~480px. Se sigue el pedido nuevo tal cual — es específico y a propósito — pero vale la aclaración porque cambia un criterio anotado antes.
+
+**Orden de ejecución:** A1 (bugs del chat) → A2 (diseño bandeja/hilo) → A3 (asignar, cerrar/reabrir, notas internas, respuestas rápidas, etiquetas) → A4 (panel del lead) → B (contenido centrado) → C (sin migas de pan) → verificación → informe final. Commits chicos en español en cada paso.
