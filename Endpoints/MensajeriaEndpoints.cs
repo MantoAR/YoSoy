@@ -63,13 +63,13 @@ public static class MensajeriaEndpoints
             if (c is null) return Results.NotFound();
             var p = c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac) : null;
             if (p is null)
-                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, paciente = (object?)null,
+                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion, paciente = (object?)null,
                                         profesionales = Array.Empty<object>(), proximoTurno = (object?)null });
 
             var proximo = datos.TurnosProximos(p.IdPaciente, reloj.GetLocalNow().DateTime).FirstOrDefault();
             return Results.Ok(new
             {
-                c.IdConversacion, c.Telefono, c.Estado,
+                c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion,
                 paciente      = new { p.IdPaciente, p.Nombre, p.Dni, p.Telefono },
                 profesionales = datos.ProfesionalesDelPaciente(p.IdPaciente)
                                      .Select(pr => new { pr.IdProfesional, pr.Nombre, pr.Especialidad }),

@@ -77,7 +77,7 @@
                     <ul class="chats-conversaciones" id="chatsConversaciones" aria-label="Conversaciones"></ul>
                 </section>
                 <section class="chats-hilo" id="chatsHilo" aria-label="Conversación"></section>
-                <aside class="chats-contexto" id="chatsContexto" aria-label="Datos del paciente"></aside>
+                <aside class="chats-contexto" id="chatsContexto" aria-label="Información del lead"></aside>
             </div>`;
         $("#chatsFiltros").innerHTML = FILTROS.map(f =>
             `<button class="ui-filtro${f.id === est.filtro ? " activo" : ""}" type="button" data-filtro="${f.id}" aria-pressed="${f.id === est.filtro}"${f.titulo ? ` title="${YS.esc(f.titulo)}"` : ""}>${YS.esc(f.texto)}${f.contar ? '<span class="ui-contador ui-contador--suave oculto"></span>' : ""}</button>`).join("");
@@ -347,7 +347,7 @@
             <span class="ui-espacio"></span>
             ${c.estado === "Urgente" || c.estado === "DerivadaHumano"
                 ? `<button class="ui-btn ui-btn--sm ${c.estado === "Urgente" ? "ui-btn--danger" : ""}" type="button" id="chatsBtnResolver">${c.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>` : ""}
-            <button class="ui-btn-icono${est.contexto ? " activo" : ""}" type="button" id="chatsBtnContexto" aria-pressed="${est.contexto}" aria-label="Datos del paciente" title="Datos del paciente">${YS.icono("panel-der")}</button>`;
+            <button class="ui-btn-icono${est.contexto ? " activo" : ""}" type="button" id="chatsBtnContexto" aria-pressed="${est.contexto}" aria-label="Información del lead" title="Información del lead">${YS.icono("panel-der")}</button>`;
         cab.querySelector(".chats-volver").addEventListener("click", () => { raiz.classList.remove("con-conversacion"); });
         cab.querySelector("#chatsBtnResolver")?.addEventListener("click", cerrarDerivacion);
         cab.querySelector("#chatsBtnContexto").addEventListener("click", () => mostrarContexto(!est.contexto));
@@ -703,10 +703,11 @@
     function dibujarContexto(contenido) {
         $("#chatsContexto").innerHTML = `
             <header class="chats-contexto-cabecera">
-                <span>Datos del paciente</span>
-                <button class="ui-btn-icono" type="button" id="chatsCerrarContexto" aria-label="Ocultar datos del paciente">${YS.icono("cerrar")}</button>
+                <span>Información del lead</span>
+                <span class="chats-contexto-configurar" aria-disabled="true" title="Próximamente">Configurar vista</span>
+                <button class="ui-btn-icono" type="button" id="chatsCerrarContexto" aria-label="Ocultar información del lead">${YS.icono("cerrar")}</button>
             </header>
-            <div class="chats-contexto-cuerpo" id="chatsContextoCuerpo">${contenido ?? YS.vacio({ icono: "usuario", texto: "Elegí una conversación para ver los datos del paciente." })}</div>`;
+            <div class="chats-contexto-cuerpo" id="chatsContextoCuerpo">${contenido ?? YS.vacio({ icono: "usuario", texto: "Elegí una conversación para ver la información del lead." })}</div>`;
         $("#chatsCerrarContexto").addEventListener("click", () => mostrarContexto(false));
     }
 
@@ -723,6 +724,8 @@
         if (gen !== est.generacion) return;
         const p = info.paciente;
         const dato = (etiqueta, valor) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor${valor ? "" : " vacio"}">${YS.esc(valor || "Sin cargar")}</span></div>`;
+        const datoHtml = (etiqueta, html) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor">${html}</span></div>`;
+        const CANAL_TEXTO = { Simulado: "Chat simulado" };
         const e = ESTADO[info.estado] || { texto: info.estado, chip: "neutral" };
         let html = `
             <div class="chats-contexto-persona">
@@ -735,33 +738,49 @@
                 <p class="chats-contexto-nota">El asistente todavía no pudo identificar a este paciente: el teléfono no coincide con ningún paciente y no pasó su DNI.</p>`;
         } else {
             const t = info.proximoTurno;
+            const participantes = [{ nombre: p.nombre, sub: "Paciente" }, ...info.profesionales.map(pr => ({ nombre: pr.nombre, sub: pr.especialidad || "Profesional" }))];
+            const nombresProfesionales = info.profesionales.map(pr => pr.nombre).join(", ");
+            const turnoHtml = t
+                ? `${YS.esc(YS.capitalizar(YS.fecha.larga(t.momento)))} · ${YS.esc(YS.fecha.hora(t.momento))}<br>` +
+                  `Con ${YS.esc(t.nombreProfesional)} · ${YS.esc(t.modalidad)} ${YS.turno.chip(t.estado)}`
+                : `<span class="chats-dato-vacio">Sin turno próximo</span>`;
+            const consentimientoHtml = consentimiento == null
+                ? `<span class="chats-dato-vacio">No se pudo consultar</span>`
+                : consentimiento.firmado
+                    ? `<span class="ui-chip ui-chip--ok">Firmado el ${YS.esc(YS.fecha.corta(consentimiento.fechaFirma))}</span>`
+                    : `<span class="ui-chip ui-chip--warn">Sin firmar</span>`;
             html += `
-                <div class="chats-contexto-bloque">${dato("DNI", p.dni)}${dato("Teléfono", p.telefono ? formatearTelefono(p.telefono) : formatearTelefono(info.telefono))}</div>
-                <div class="chats-contexto-bloque">
-                    <div class="chats-contexto-titulo">${info.profesionales.length === 1 ? "Profesional" : "Profesionales"}</div>
-                    ${info.profesionales.length
-                        ? `<ul class="chats-contexto-lista">${info.profesionales.map(pr => `<li><span>${YS.esc(pr.nombre)}</span><small>${YS.esc(pr.especialidad)}</small></li>`).join("")}</ul>`
-                        : `<p class="chats-contexto-nota">Sin profesionales asignados.</p>`}
+                <div class="chats-contexto-seccion">
+                    <div class="chats-contexto-seccion-titulo">Participantes</div>
+                    <div class="chats-participantes">
+                        ${participantes.map(pp => `
+                            <div class="chats-participante">
+                                ${YS.avatar(pp.nombre, pp.nombre)}
+                                <div class="chats-participante-datos"><span>${YS.esc(pp.nombre)}</span><small>${YS.esc(pp.sub)}</small></div>
+                            </div>`).join("")}
+                        <button class="chats-participante-agregar" type="button" disabled title="Próximamente" aria-label="Agregar participante">+</button>
+                    </div>
                 </div>
-                <div class="chats-contexto-bloque">
-                    <div class="chats-contexto-titulo">Próximo turno</div>
-                    ${t ? `<div class="chats-turno">
-                            <div class="chats-turno-fecha">${YS.esc(YS.capitalizar(YS.fecha.larga(t.momento)))} · ${YS.esc(YS.fecha.hora(t.momento))}</div>
-                            <div>Con ${YS.esc(t.nombreProfesional)}</div>
-                            <div class="ui-flex">${YS.esc(t.modalidad)} ${YS.turno.chip(t.estado)}</div>
-                        </div>` : `<p class="chats-contexto-nota">Sin turno próximo.</p>`}
-                </div>
-                <div class="chats-contexto-bloque">
-                    <div class="chats-contexto-titulo">Consentimiento de telemedicina</div>
-                    ${consentimiento == null ? `<p class="chats-contexto-nota">No se pudo consultar.</p>`
-                        : consentimiento.firmado
-                            ? `<span class="ui-chip ui-chip--ok">Firmado el ${YS.esc(YS.fecha.corta(consentimiento.fechaFirma))}</span>`
-                            : `<span class="ui-chip ui-chip--warn">Sin firmar</span><p class="chats-contexto-nota">Sin firma no se pueden confirmar sus turnos (RN-02).</p>
-                               <button class="ui-btn ui-btn--sm" type="button" id="chatsLinkFirma">Insertar link para firmar</button>`}
-                </div>
-                <div class="chats-contexto-acciones">
-                    <button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>
-                    <button class="ui-btn ui-btn--sm" type="button" id="chatsVerFicha">${YS.icono("usuario")}Ver ficha</button>
+                <div class="chats-contexto-seccion">
+                    <div class="chats-contexto-seccion-titulo">General</div>
+                    <div class="ui-datos chats-contexto-datos">
+                        ${dato("Nombre", p.nombre)}
+                        ${dato("DNI", p.dni)}
+                        ${dato("Teléfono", p.telefono ? formatearTelefono(p.telefono) : formatearTelefono(info.telefono))}
+                        ${dato("Profesional asignado", nombresProfesionales || "Sin asignar")}
+                        ${dato("ID de la conversación", String(info.idConversacion))}
+                        ${dato("Creado", info.fechaCreacion ? `${YS.fecha.corta(info.fechaCreacion)} ${YS.fecha.hora(info.fechaCreacion)}` : "")}
+                        ${dato("Origen", CANAL_TEXTO[info.canal] || info.canal || "")}
+                        ${datoHtml("Estado", `<span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>`)}
+                        ${datoHtml("Próximo turno", turnoHtml)}
+                        ${datoHtml("Consentimiento", consentimientoHtml)}
+                    </div>
+                    ${consentimiento != null && !consentimiento.firmado ? `<p class="chats-contexto-nota">Sin firma no se pueden confirmar sus turnos (RN-02).</p>
+                        <button class="ui-btn ui-btn--sm" type="button" id="chatsLinkFirma">Insertar link para firmar</button>` : ""}
+                    <div class="chats-contexto-acciones">
+                        <button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>
+                        <button class="ui-btn ui-btn--sm" type="button" id="chatsVerFicha">${YS.icono("usuario")}Ver ficha</button>
+                    </div>
                 </div>`;
         }
         if (info.estado === "Urgente" || info.estado === "DerivadaHumano") {
