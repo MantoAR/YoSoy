@@ -8,6 +8,7 @@
 - [Base de datos](#base-de-datos)
 - [API REST](#api-rest)
 - [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
+- [Autenticación con JWT (rama Cambios-Agus-jwt)](#autenticación-con-jwt-rama-cambios-agus-jwt)
 - [Mensajería: chatbot de reservas y recordatorios](#mensajería-chatbot-de-reservas-y-recordatorios)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Como usar git desde CMD](#como-usar-git-desde-cmd)
@@ -132,6 +133,62 @@ dotnet run
 ```
 
 5. Abrir `mockup.html` en el navegador para usar la interfaz
+
+---
+
+## Autenticación con JWT (rama `Cambios-Agus-jwt`)
+
+> **Estado:** hecho sobre `Cambios-Agus-jwt`, no sobre `main`. Reemplaza la identidad
+> autodeclarada por `X-Usuario-Id` (que sigue existiendo como modo de transición, ver
+> abajo) por un JWT real que emite `POST /login`.
+
+### Configurar la clave de firma (obligatorio para arrancar)
+
+La clave **no está en ningún archivo versionado**. Hace falta configurarla una vez por máquina:
+
+```bash
+dotnet user-secrets set "Jwt:Key" "una-clave-aleatoria-de-32-caracteres-o-mas"
+```
+
+(o la variable de entorno `Jwt__Key`, si no es un entorno de desarrollo). Sin esto, la
+app **no arranca**: tira un error claro explicando este mismo paso al intentar resolver
+`JwtEmisorService` apenas levanta, antes de aceptar ningún pedido.
+
+### Qué cambia
+
+- Los 3 logins (`POST /login`) devuelven, además de lo que ya devolvían, un campo
+  `"token"` (expira a las 8 horas, sin refresh token). El frontend lo guarda en
+  `localStorage` y `YS.fetch` lo manda como `Authorization: Bearer <token>` en todos los
+  llamados.
+- `Services/IdentidadActualService.cs` es la única manera de resolver "quién es" en el
+  backend (reemplaza a `AutorizacionCasos`/`AutorizacionReporte` y a cada
+  `X-Usuario-Id` suelto que se leía directo del header).
+- **Modo de transición:** `Auth:PermitirEncabezadoLegacy` (`appsettings.json`). En
+  `false` (el valor por defecto, una vez migrado y verificado lo de abajo): sin un JWT
+  válido, cualquier pedido a un endpoint protegido da 401, aunque mande
+  `X-Usuario-Id`. En `true`: si no hay JWT, se acepta igual el `X-Usuario-Id` de
+  siempre (con un `warning` en el log indicando qué ruta todavía no migró) — es el
+  interruptor de emergencia si algo del frontend quedó sin actualizar.
+
+### Qué quedó protegido (y con qué alcance)
+
+| Grupo | Alcance |
+|---|---|
+| Mensajería (`/mensajeria/*`) | Rol Profesional o Configurador. Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook). |
+| Consentimiento (firmar) | Rol Paciente **y** que el id de la URL sea el del propio token. |
+| Administración (usuarios, auditoría, catálogos al escribir, solicitudes, "Solicitudes de cambio"/`Derivacion`) | Solo Configurador. |
+| Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; se migró a leer la identidad del token en vez de confiar en el header a ciegas (antes, sin ninguna identidad resuelta, caía en "administrador" por default — un hueco real que quedó cerrado). |
+| Turnos | Un paciente solo ve/cancela los propios; un profesional solo ve/cancela los propios (antes, cualquier profesional podía cancelar el turno de cualquier otro, sin chequeo); cualquier profesional o Configurador puede ver los turnos de cualquier paciente (es parte de su atención). `/profesionales/{id}/agenda` queda abierto a propósito: cualquier paciente lo necesita para ver horarios de **cualquier** profesional al pedir turno. |
+| Historia clínica, evoluciones, eventos de crisis, sesiones clínicas | Rol Profesional o Configurador (ningún paciente los llama). **Alcance más amplio que Casos:** no se llegó a filtrar "solo el profesional asociado a ese paciente", cualquier profesional autenticado puede ver la de cualquier paciente — queda pendiente. |
+| Login, registro de paciente, registro de profesional, recuperación de contraseña, `/reservar/{slug}` y su disponibilidad pública, archivos estáticos | Sin token, a propósito. |
+
+**Quedó sin proteger (modo legacy, sin restricción adicional — no es peor que antes, solo no mejoró):** `/agendas` (alta/baja/edición de franjas de horario), la coincidencia entre quién pide un turno y el `idPaciente`/`idProfesional` del cuerpo en `/turnos/solicitar` y `/turnos/profesional-solicitar`, y todo `/informes-admision*` (no se alcanzó a trazar con precisión qué rol llama cada paso).
+
+### Pendiente
+
+- El filtro "solo el profesional asociado a este paciente" en historia clínica (hoy es "cualquier profesional", no "cualquiera sin identidad" — mejoró, pero no llega al nivel de `Casos`).
+- `signaling-server` (Node, WebRTC) **no autentica nada** — cualquiera que tenga o adivine un código de sala puede conectarse. No se tocó en esta rama.
+- Reconciliar con el JWT de `videollamadas-seguras` (`Services/JwtService.cs` ahí): son dos implementaciones distintas (claims, nombre de la clave de configuración, formato de token) hechas sin coordinarse — ver "Parte 2: JWT, Paso J0" en `CAMBIOS_AGUS.md` para el detalle.
 
 ---
 
