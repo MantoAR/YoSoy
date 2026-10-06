@@ -6,8 +6,44 @@ builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
 
+// Página pública de reserva (Fase 3a, Paso 3): límite por IP, ventana fija corta, en
+// memoria — no hay estado compartido entre procesos y no lo necesita, es una sola
+// instancia local. Se aplica al endpoint de disponibilidad y al de reserva (ambos
+// alcanzables sin sesión) y a la página /reservar/{slug} en sí.
+builder.Services.AddRateLimiter(opt =>
+{
+    opt.RejectionStatusCode = 429;
+    opt.OnRejected = async (ctx, token) =>
+    {
+        ctx.HttpContext.Response.ContentType = "application/json";
+        await ctx.HttpContext.Response.WriteAsync("""{"mensaje":"Demasiados pedidos. Probá de nuevo en un minuto."}""", token);
+    };
+    opt.AddPolicy("publico", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1), PermitLimit = 20, QueueLimit = 0
+        }));
+});
+
 var app = builder.Build();
 app.UseCors();
+app.UseRateLimiter();
+
+// Headers de la superficie pública (Fase 3a, Paso 3): hoy la app corre local, pero esta
+// es la primera ruta pensada para quedar expuesta — si en el futuro se despliega detrás
+// de un proxy, estos headers ya están. El resto de la app (mensajería incluida) sigue
+// siendo solo local.
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Path.StartsWithSegments("/public") || ctx.Request.Path.StartsWithSegments("/reservar"))
+    {
+        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+    }
+    await next();
+});
+
 app.UsePantallaMensajeria();
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -391,6 +427,44 @@ app.MapPut("/profesionales/{id}/link-publico", (int id, ActivarLinkPublicoReques
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = req.Activo ? "Activar Link Público" : "Desactivar Link Público", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(new { slug = p.Slug, linkPublicoActivo = p.LinkPublicoActivo });
 });
+
+// ── Superficie pública: página y API de reserva por link (Fase 3a, Paso 3) ──────────
+// Sin sesión, sin cookies, sin ids internos en la respuesta. 404 idéntico si el slug no
+// existe o si el link está apagado (nunca se revela cuál de las dos cosas pasó).
+app.MapGet("/reservar/{slug}", (string slug) =>
+{
+    if (new ProfesionalDAO().ObtenerPorSlugActivo(slug) is null) return Results.NotFound();
+    return Results.File(Path.Combine(builder.Environment.ContentRootPath, "PANTALLAS", "Pantalla_Publica", "reservar.html"), "text/html");
+}).RequireRateLimiting("publico");
+
+app.MapGet("/public/profesionales/{slug}/disponibilidad", (string slug, string? dias, TurnoReglasService reglas) =>
+{
+    int rango = 14;
+    if (dias != null && (!int.TryParse(dias, out rango) || rango < 1 || rango > 60))
+        return Results.Json(new { mensaje = "El parámetro 'dias' tiene que ser un número entre 1 y 60." }, statusCode: 400);
+
+    var p = new ProfesionalDAO().ObtenerPorSlugActivo(slug);
+    if (p is null) return Results.NotFound();
+
+    var especialidad = new EspecialidadDAO().ObtenerPorId(p.IdEspecialidad)?.Nombre;
+    return Results.Ok(new
+    {
+        nombre = $"{p.Nombre} {p.Apellido}".Trim(),
+        especialidad,
+        horariosLibres = reglas.HorariosLibresDelProfesional(p.IdProfesional, rango, 500)
+    });
+}).RequireRateLimiting("publico");
+
+app.MapPost("/public/profesionales/{slug}/reservar", (string slug, ReservaPublicaRequest req, INotificadorTurnos notificador, TurnoReglasService reglas) =>
+{
+    var p = new ProfesionalDAO().ObtenerPorSlugActivo(slug);
+    if (p is null) return Results.NotFound();
+
+    var resultado = reglas.Solicitar(req.IdPaciente, p.IdProfesional, req.Momento, req.Motivo, creadoPor: "paciente");
+    if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
+    notificador.TurnoSolicitado(resultado.IdTurno!.Value);
+    return Results.Created($"/public/profesionales/{slug}/reservar", new { idTurno = resultado.IdTurno });
+}).RequireRateLimiting("publico");
 
 // Agenda
 app.MapGet("/agendas", () =>
@@ -1476,3 +1550,4 @@ public record RechazoRequest(int IdPaciente, int IdProfesional, string Motivo);
 
 public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo, bool EsUrgente = false);
 public record ActivarLinkPublicoRequest(bool Activo);
+public record ReservaPublicaRequest(int IdPaciente, DateTime Momento, string? Motivo);
