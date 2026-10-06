@@ -98,9 +98,9 @@ let filaEnEdicion = null;
 const SECCIONES = ["inicio", "chats", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
     "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "coberturas", "interaccionesia"];
 
-// La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
+// La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajerÃ­a estÃ¡ disponible, en
 // paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
-// de cargar, se espera un toque en vez de mostrar la sección vacía.
+// de cargar, se espera un toque en vez de mostrar la secciÃ³n vacÃ­a.
 async function esperarBandeja() {
     for (let i = 0; i < 40 && !window.YS.bandeja; i++) await new Promise(r => setTimeout(r, 50));
     return !!window.YS.bandeja;
