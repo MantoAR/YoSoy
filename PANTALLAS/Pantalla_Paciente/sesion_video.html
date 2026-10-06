@@ -19,6 +19,12 @@
             flex: 1; height: 44px; font-family: var(--mono); font-size: var(--fs-lg); font-weight: 600;
             letter-spacing: .12em; text-transform: uppercase; color: var(--accent-strong);
         }
+        /* El estilo de arriba es para el código ya tipeado (mayúsculas, espaciado); el
+           placeholder es una frase, no un código, así que se ve con texto normal. */
+        .codigo-input .ui-input::placeholder {
+            font-family: var(--font); font-size: var(--fs-md); font-weight: 400;
+            letter-spacing: normal; text-transform: none; color: var(--text-4);
+        }
         .estado-box { margin-top: 12px; font-size: var(--fs-md); color: var(--text-3); min-height: 1.4em; }
         .estado-box.conectado { color: var(--ok); font-weight: 500; }
         .estado-box.error { color: var(--danger); }
@@ -48,7 +54,7 @@
                     type="text"
                     id="input-sala"
                     class="ui-input"
-                    placeholder="SALA-X-XXXXXX"
+                    placeholder="Ingresá el código de tu sala"
                     maxlength="30"
                     aria-label="Código de sala"
                     autocomplete="off"

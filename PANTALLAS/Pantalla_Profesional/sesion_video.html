@@ -295,7 +295,7 @@ Promise.all([
     faceapi.nets.faceExpressionNet.loadFromUri('../models')
 ]).then(() => {
     modelsListo = true;
-    document.getElementById('estado-conexion').textContent = 'Modelos listos. Podés crear la sala.';
+    document.getElementById('estado-conexion').textContent = 'Listo. Podés crear la sala.';
 }).catch(() => {
     document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
 });

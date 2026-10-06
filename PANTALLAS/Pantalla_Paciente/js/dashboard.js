@@ -768,7 +768,7 @@ function renderSesion() {
             <form id="formSala" class="ui-campo" novalidate onsubmit="event.preventDefault(); entrarSesion();">
                 <label for="codigoSala">Código de sala</label>
                 <div class="sesion-entrada-fila">
-                    <input type="text" id="codigoSala" class="ui-input" placeholder="SALA-X-XXXXXX" maxlength="30" autocomplete="off"
+                    <input type="text" id="codigoSala" class="ui-input" placeholder="Ingresá el código de tu sala" maxlength="30" autocomplete="off"
                            oninput="this.value = this.value.toUpperCase()">
                     <button type="submit" class="ui-btn ui-btn--primary">Entrar</button>
                 </div>
