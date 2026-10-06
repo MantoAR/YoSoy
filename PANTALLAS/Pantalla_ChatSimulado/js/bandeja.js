@@ -954,11 +954,13 @@
             document.body.appendChild(raiz);
         }
         if (YS.shell?.boton) {
+            // alPulsarBoton: lo usa el configurador integrado (CRM > Chats es una sección propia,
+            // no un cajón) para que el botón navegue ahí en vez de abrir/cerrar algo.
             est.boton = YS.shell.boton({
                 id: "btnChats", icono: "chat", etiqueta: "Chats", antes: true,
-                alClick: () => est.modo === "pagina" ? $("#chatsBuscar").focus() : (est.abierto ? cerrar() : abrir())
+                alClick: opciones.alPulsarBoton || (() => est.modo === "pagina" ? $("#chatsBuscar").focus() : (est.abierto ? cerrar() : abrir()))
             });
-            est.boton.boton.setAttribute("aria-expanded", "false");
+            if (!opciones.alPulsarBoton) est.boton.boton.setAttribute("aria-expanded", "false");
         }
         document.addEventListener("keydown", teclasGlobales, true);
         document.addEventListener("mousedown", e => {

@@ -15,9 +15,11 @@
 .chats--cajon.abierto { transform: none; visibility: visible; transition: transform .2s ease, width .2s ease, visibility 0s; }
 .chats--cajon.expandida { width: 100vw; border-left: none; box-shadow: none; }
 
-/* Página (Pantalla_ChatSimulado/index.html) */
+/* Página: modo "pagina" de iniciar(), dentro de opciones.contenedor. El espacio libre arriba
+   (encabezado y, según el contenedor, el padding de .ui-contenido) varía según quién la use;
+   --chats-pagina-arriba lo ajusta sin tocar esta regla (ver Pantalla_Configurador/css/dashboard.css). */
 .chats--pagina {
-    height: calc(100vh - var(--topbar-h) - 140px); min-height: 520px;
+    height: calc(100vh - var(--topbar-h) - var(--chats-pagina-arriba, 140px)); min-height: 520px;
     border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-sm);
 }
 .chats--pagina .solo-cajon { display: none; }

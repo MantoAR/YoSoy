@@ -95,12 +95,32 @@ let filaEnEdicion = null;
 
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
-const SECCIONES = ["inicio", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
+const SECCIONES = ["inicio", "chats", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
     "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "coberturas", "interaccionesia"];
+
+// La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
+// paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
+// de cargar, se espera un toque en vez de mostrar la sección vacía.
+async function esperarBandeja() {
+    for (let i = 0; i < 40 && !window.YS.bandeja; i++) await new Promise(r => setTimeout(r, 50));
+    return !!window.YS.bandeja;
+}
 
 async function mostrarTab(tab, params = {}) {
     if (!SECCIONES.includes(tab)) tab = "inicio";
     YS.shell.marcar(tab);
+
+    const vistaChats = document.getElementById("vistaChatsCRM");
+    if (tab === "chats" || tab === "escalamientos") {
+        document.getElementById("contenido").classList.add("oculto");
+        vistaChats.classList.remove("oculto");
+        if (!(await esperarBandeja())) { vistaChats.innerHTML = errorHtml(tab); return; }
+        if (tab === "escalamientos") YS.bandeja.filtrar("derivadas");
+        return;
+    }
+    vistaChats.classList.add("oculto");
+    document.getElementById("contenido").classList.remove("oculto");
+
     if (tab === 'inicio') { inicioConfigurador(); return; }
     if (tab === 'reportes') { reportes(); return; }
     if (tab === 'admisiones') { admisiones(); return; }
@@ -1369,4 +1389,7 @@ async function inicioConfigurador() {
         </div>`;
 }
 
-YS.shell.iniciar({ rol: "configurador", navegar: (id, params) => mostrarTab(id, params) });
+YS.shell.iniciar({
+    rol: "configurador", navegar: (id, params) => mostrarTab(id, params),
+    chats: { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }
+});

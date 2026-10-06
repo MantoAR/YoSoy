@@ -12,9 +12,14 @@
 </head>
 <body>
     <!-- La barra superior, el menú y el encabezado de página los arma shared/shell.js.
-         Cada sección (mostrarTab) se dibuja en #contenido. -->
+         Cada sección (mostrarTab) se dibuja en #contenido. CRM > Chats y Escalamientos usan
+         #vistaChatsCRM en vez de #contenido: la bandeja (js/bandeja.js, cargada por shell.js
+         si la mensajería está disponible) se dibuja ahí una sola vez y se muestra u oculta al
+         cambiar de sección, sin recrearla cada vez (mantiene el polling y el contador del botón
+         de la barra superior activos aunque no se esté viendo Chats). -->
     <main class="ui-pagina">
         <div class="ui-contenido contenido" id="contenido"></div>
+        <div id="vistaChatsCRM" class="vista-chats-crm oculto"></div>
     </main>
 
     <!-- Modal compartido: asignar profesional, cambio directo y aceptar solicitud de cambio -->

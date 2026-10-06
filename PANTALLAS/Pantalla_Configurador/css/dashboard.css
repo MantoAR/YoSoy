@@ -8,6 +8,12 @@
 .contenido h3 { font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
 .contenido h4 { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
 
+/* ── CRM > Chats / Escalamientos ───────────────────
+   #vistaChatsCRM va al lado de #contenido (no adentro, Dashboard.html): sin el padding de
+   .ui-contenido, así que --chats-pagina-arriba le pasa a .chats--pagina (bandeja.css) solo lo
+   que hay arriba acá, el encabezado y el margen propio. */
+.vista-chats-crm { margin: 0 24px 24px; --chats-pagina-arriba: 104px; }
+
 /* ── Usuarios: dos columnas ─────────────────────── */
 .ui-encabezado-acciones .ui-buscador { width: 300px; }
 .split-view { display: flex; gap: 16px; height: calc(100vh - 230px); min-height: 320px; }

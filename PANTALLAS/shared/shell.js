@@ -84,6 +84,14 @@
             usuario: []
         }
     };
+    // Grupo CRM: se agrega al menú del configurador solo si la mensajería está disponible
+    // (mismo control que el botón de chats), ver agregarGrupoCRM().
+    const GRUPO_CRM = {
+        texto: "CRM", items: [
+            { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
+            { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
+        ]
+    };
     const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
@@ -489,6 +497,21 @@
         document.body.appendChild(s);
     }
 
+    // Suma el grupo CRM (Chats, Escalamientos) al menú ya dibujado, sin reconstruir la barra:
+    // llega después, cuando /capacidades confirma que la mensajería está disponible.
+    function agregarGrupoCRM() {
+        if (menu.items.includes(GRUPO_CRM)) return;
+        menu.items.unshift(GRUPO_CRM);
+        els.barra.querySelector(".ui-menu > ul")?.prepend(crearGrupo(GRUPO_CRM));
+        const panelCompacto = els.barra.querySelector(".ui-menu-compacto .ui-desplegable");
+        if (panelCompacto) {
+            const frag = document.createDocumentFragment();
+            frag.appendChild(YS.el("div", { class: "ui-desplegable-titulo", text: GRUPO_CRM.texto }));
+            GRUPO_CRM.items.forEach(s => frag.appendChild(itemDesplegable(s)));
+            panelCompacto.prepend(frag);
+        }
+    }
+
     // ── API pública ─────────────────────────────────────────────
     YS.shell = {
         /**
@@ -520,11 +543,21 @@
 
             // Chats: solo para el configurador (la bandeja muestra conversaciones de todos los
             // pacientes) y solo si la mensajería está disponible para este pedido. /capacidades
-            // usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se carga
-            // nada y el botón no aparece.
+            // usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se agrega
+            // el grupo CRM al menú ni se carga nada.
             if (cfg.rol === "configurador") {
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
-                capacidades.then(c => { if (c?.mensajeria) cargarBandeja(); });
+                capacidades.then(c => {
+                    if (!c?.mensajeria) return;
+                    agregarGrupoCRM();
+                    cargarBandeja();
+                    // Si la URL ya pedía #chats o #escalamientos antes de que esto resolviera, el
+                    // menú todavía no los tenía y la navegación cayó a cfg.inicial: reintentar.
+                    if (cfg.navegar) {
+                        const { id, params } = leerHash();
+                        if ((id === "chats" || id === "escalamientos") && actual !== id) cfg.navegar(id, params);
+                    }
+                });
             }
 
             if (cfg.navegar) {
