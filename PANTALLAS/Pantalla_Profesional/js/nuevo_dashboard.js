@@ -391,6 +391,12 @@ async function agenda() {
             <div class="ui-alerta ui-alerta--info agenda-aviso-reprog oculto" id="avisoReprogProf">
                 Reprogramando: elegí el nuevo día en el calendario del mes.
             </div>
+            ${!slots.length ? YS.vacio({
+                icono: 'reloj', clase: 'agenda-sin-horarios',
+                titulo: 'Todavía no cargaste tus horarios de trabajo',
+                texto: 'Sin horarios, el calendario no sabe qué días y franjas ofrecerte turnos a tus pacientes.',
+                accion: { texto: 'Mis horarios de trabajo', onclick: "activarTab('horarios')" }
+            }) : ""}
             <!-- Arranca en la vista elegida (por defecto Semana) para que no aparezca el mes un instante -->
             <div id="vistaMesProf"${_vistaAgendaProf === 'mes' ? '' : ' class="oculto"'}><div class="cal-grid" id="calGridProfesional"></div></div>
             <div id="vistaSemanaProf"${_vistaAgendaProf === 'mes' ? ' class="oculto"' : ''}></div>
