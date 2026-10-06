@@ -374,6 +374,24 @@ app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
     return Results.Ok(p);
 });
 
+// Link público de reserva (Fase 3a, Paso 3): el profesional prende/apaga el suyo; el
+// administrador puede apagar el de cualquiera. Mismo patrón de identidad que Casos/Grupos
+// (X-Usuario-Id sin firmar — TODO(JWT)). Auditado solo con ids, sin texto libre.
+app.MapPut("/profesionales/{id}/link-publico", (int id, ActivarLinkPublicoRequest req, HttpContext ctx) =>
+{
+    var (esAdministrador, idProfesionalDeSesion) = AutorizacionCasos.Resolver(ctx);
+    if (!esAdministrador && idProfesionalDeSesion != id)
+        return Results.Json(new { mensaje = "No podés activar el link público de otro profesional." }, statusCode: 403);
+
+    var dao = new ProfesionalDAO();
+    if (dao.ObtenerPorId(id) is null) return Results.NotFound();
+    var p = dao.ActivarLinkPublico(id, req.Activo);
+
+    int auditor = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xId) ? xId : 0;
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = req.Activo ? "Activar Link Público" : "Desactivar Link Público", Entidad = "Profesional", IdEntidad = id });
+    return Results.Ok(new { slug = p.Slug, linkPublicoActivo = p.LinkPublicoActivo });
+});
+
 // Agenda
 app.MapGet("/agendas", () =>
     new AgendaDAO().ObtenerTodos());
@@ -1457,3 +1475,4 @@ public record AsignacionEstadoRequest(int IdPaciente, int IdProfesional, string 
 public record RechazoRequest(int IdPaciente, int IdProfesional, string Motivo);
 
 public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo, bool EsUrgente = false);
+public record ActivarLinkPublicoRequest(bool Activo);

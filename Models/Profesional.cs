@@ -16,4 +16,10 @@ public class Profesional
     public string Mail { get; set; }
     public string Telefono { get; set; }
     public DateTime? FechaSolicitud { get; set; }
+
+    // Link público de reserva (Fase 3a, Paso 3). Nunca se escriben desde Insertar/Modificar
+    // (el PUT /profesionales/{id} genérico no los toca) — solo desde ProfesionalDAO.ActivarLinkPublico,
+    // así una edición de perfil que no sabe nada de esto no puede apagar el link por accidente.
+    public string? Slug { get; set; }
+    public bool LinkPublicoActivo { get; set; }
 }
