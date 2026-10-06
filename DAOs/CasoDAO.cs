@@ -58,6 +58,21 @@ public class CasoDAO
         return r.Read() ? Mapear(r) : null;
     }
 
+    // El más reciente no Cerrado de un paciente (debería haber a lo sumo uno "en curso"
+    // por vez). Lo usan la sincronización con Solicitudes de cambio y el panel del lead.
+    public Caso? ObtenerAbiertoPorPaciente(int idPaciente)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT TOP 1 IdCaso, IdPaciente, Estado, IdGrupoActual, IdProfesionalAsignado, Origen, FechaCreacion, IdInforme
+            FROM Caso WHERE IdPaciente = @IdPaciente AND Estado <> 'Cerrado'
+            ORDER BY FechaCreacion DESC", con);
+        cmd.Parameters.AddWithValue("@IdPaciente", idPaciente);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? Mapear(r) : null;
+    }
+
     public Caso? ObtenerPorInforme(int idInforme)
     {
         using var con = Conexion.ObtenerConexion();

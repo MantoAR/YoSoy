@@ -785,7 +785,7 @@ El pedido avisaba de esto ("probablemente ya significa algo") y pedía no espera
 
 Ninguna de las dos tiene hoy el sentido de "caso que entra y se deriva a un **grupo**", que es el corazón de la Fase 2. Reusar el nombre `Derivacion` para la tabla nueva del Paso 0 del pedido **no es viable**: ya existe una clase `Derivacion` en el proyecto (colisión de compilación) y, aunque se pudiera, mezclaría dos procesos de negocio independientes (cambiar de profesional a un paciente ya asignado vs. rutear un caso nuevo) bajo la misma tabla — justo lo que la regla 8 del pedido pide evitar.
 
-**Decisión (sin esperar respuesta, como indicaba el pedido):** la tabla nueva se llama **`CasoDerivacion`**, no `Derivacion`. Mismo patrón que ya usa el proyecto para esto (`Turno` → `TurnoDetalle`, `TurnoAviso`; acá `Caso` → `CasoDerivacion`). Las rutas nuevas van bajo `/casos` y `/casos-derivaciones`, nunca `/derivaciones` (ver Paso 3 más abajo). La tabla y los endpoints `Derivacion`/`/derivaciones/*` existentes **no se tocan**: siguen siendo "Solicitudes de cambio", tal cual están.
+**Decisión (sin esperar respuesta, como indicaba el pedido):** la tabla nueva se llama **`CasoDerivacion`**, no `Derivacion`. Mismo patrón que ya usa el proyecto para esto (`Turno` → `TurnoDetalle`, `TurnoAviso`; acá `Caso` → `CasoDerivacion`). Las rutas nuevas van bajo `/casos` y `/casosderivaciones`, nunca `/derivaciones` (ver Paso 3 más abajo). La tabla y los endpoints `Derivacion`/`/derivaciones/*` existentes **no se tocan**: siguen siendo "Solicitudes de cambio", tal cual están.
 
 En los textos de la interfaz nueva, "derivar" se usa siempre con objeto explícito — "derivar a un grupo" / "caso derivado" — para no sumar un tercer sentido suelto a una palabra que ya tiene dos (más el "escalar a una persona" del chat, que la Fase 1 ya renombró para sacarlo de esta familia de palabras).
 
@@ -820,7 +820,7 @@ Nada de esto reemplaza `PacienteProfesional`: sigue siendo la tabla operativa de
 
 ### Paso 3 (adelanto): nombres de endpoint, para no chocar con `/derivaciones`
 
-`/grupos` (+ `/grupos/{id}/miembros`), `/reglas-derivacion`, `/casos` (+ `/casos/{id}`, `/casos/{id}/derivaciones`, `/casos/{id}/reasignar`), `/casos-derivaciones/pendientes` (+ `/casos-derivaciones/{id}/confirmar|corregir|rechazar`), `/profesionales/{id}/casos` ("Mis casos"). Todo nuevo, nada pisa una ruta que ya existe.
+`/grupos` (+ `/grupos/{id}/miembros`), `/reglasderivacion`, `/casos` (+ `/casos/{id}`, `/casos/{id}/derivaciones`, `/casos/{id}/reasignar`), `/casosderivaciones/pendientes` (+ `/casosderivaciones/{id}/confirmar|corregir|rechazar`), `/profesionales/{id}/casos` ("Mis casos"). Todo nuevo, nada pisa una ruta que ya existe.
 
 ### Decisiones tomadas sin esperar respuesta (regla del Paso 0)
 

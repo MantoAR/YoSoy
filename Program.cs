@@ -3,6 +3,8 @@ builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddMensajeria(builder.Configuration);
+builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
+builder.Services.AddSingleton<AsignacionService>();
 
 var app = builder.Build();
 app.UseCors();
@@ -655,6 +657,7 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
     dao.Asignar(d.IdPaciente, req.IdProfesionalDestino);
 
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aceptación Derivación", Entidad = "Derivacion", IdEntidad = id });
+    SincronizarCasoPorCambioDeProfesional(d.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
 });
 
@@ -691,8 +694,26 @@ app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpC
     dao.Asignar(req.IdPaciente, req.IdProfesionalDestino);
 
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Cambio Directo Profesional", Entidad = "Derivacion", Detalle = req.Motivo });
+    SincronizarCasoPorCambioDeProfesional(req.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
 });
+
+// Fase 2, aditivo: si el paciente tiene un Caso abierto, la solicitud de cambio de
+// profesional (Derivacion/"Solicitudes de cambio", sin relación con CasoDerivacion) lo
+// actualiza también y deja su propio rastro en HistorialAsignacion. Si no tiene un caso
+// abierto (pacientes de antes de la Fase 2, o ya Cerrado), no hace nada: no se
+// reconstruye historial viejo. No cambia el comportamiento visible de arriba.
+void SincronizarCasoPorCambioDeProfesional(int idPaciente, int idProfesionalNuevo, int idUsuario)
+{
+    var caso = new CasoDAO().ObtenerAbiertoPorPaciente(idPaciente);
+    if (caso is null) return;
+    new CasoDAO().ActualizarEstadoYAsignacion(caso.IdCaso, caso.Estado, caso.IdGrupoActual, idProfesionalNuevo);
+    new HistorialAsignacionDAO().Insertar(new HistorialAsignacion
+    {
+        IdCaso = caso.IdCaso, IdProfesional = idProfesionalNuevo, Motivo = "SolicitudCambio",
+        IdRealizadoPor = idUsuario == 0 ? null : idUsuario
+    });
+}
 
 app.MapGet("/profesionales/activos/especialidad/{idEsp}", (int idEsp) =>
     new ProfesionalDAO().ObtenerPorEspecialidad(idEsp)
@@ -984,10 +1005,20 @@ app.MapGet("/reportes/atenciones/html", (int? idProfesional, HttpContext ctx) =>
 
 
 // ── Informe de Admision ─────────────────────────────────────
-app.MapPost("/informes-admision", (InformeAdmision i) =>
+app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion) =>
 {
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
+
+    // Caso nuevo para el seguimiento de la Fase 2: aditivo, no cambia esta respuesta ni
+    // el resto del flujo de admisión. Si la especialidad solicitada tiene una regla de
+    // derivación activa, sugiere grupo y profesional; si no, queda "Nuevo" sin grupo,
+    // en la cola del administrador (CAMBIOS_AGUS.md, sección Fase 2).
+    var idCaso = new CasoDAO().Insertar(new Caso { IdPaciente = i.IdPaciente, Estado = "Nuevo", Origen = "Admision", IdInforme = id });
+    var idGrupo = new ReglaDerivacionDAO().ObtenerGrupoPorEspecialidad(i.IdEspecialidad);
+    if (idGrupo is not null)
+        asignacion.SugerirDerivacion(idCaso, idGrupo.Value, "Regla", idCreadoPor: null);
+
     return Results.Created($"/informes-admision/{id}", i);
 });
 
@@ -1135,7 +1166,7 @@ app.MapPut("/notificaciones/{id}/leida", (int id) =>
     return Results.NoContent();
 });
 
-app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req) =>
+app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpContext ctx, AsignacionService asignacion) =>
 {
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -1190,6 +1221,33 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req) =>
     cmdEvo.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmdEvo.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
     cmdEvo.ExecuteNonQuery();
+
+    // Sincroniza el Caso de esta admisión (Fase 2, aditivo): no cambia nada de lo de
+    // arriba ni la respuesta. Si había una derivación sugerida pendiente, la resuelve
+    // (confirma si coincide con lo elegido acá, corrige si no); si el caso nunca llegó
+    // a tener grupo (ninguna regla coincidió al enviarse la admisión), lo deja asignado
+    // igual, sin grupo.
+    int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var xAdm) ? xAdm : null;
+    var caso = new CasoDAO().ObtenerPorInforme(id);
+    if (caso is not null)
+    {
+        var pendiente = new CasoDerivacionDAO().ObtenerPendientePorCaso(caso.IdCaso);
+        if (pendiente is not null)
+        {
+            if (pendiente.IdProfesionalSugerido == req.IdProfesional)
+                asignacion.ConfirmarDerivacion(pendiente.IdCasoDerivacion, idUsuario);
+            else
+                asignacion.CorregirDerivacion(pendiente.IdCasoDerivacion, idUsuario, nuevoProfesional: req.IdProfesional);
+        }
+        else
+        {
+            new CasoDAO().ActualizarEstadoYAsignacion(caso.IdCaso, "Asignado", caso.IdGrupoActual, req.IdProfesional);
+            new HistorialAsignacionDAO().Insertar(new HistorialAsignacion
+            {
+                IdCaso = caso.IdCaso, IdProfesional = req.IdProfesional, Motivo = "Manual", IdRealizadoPor = idUsuario
+            });
+        }
+    }
 
     return Results.NoContent();
 });
@@ -1369,6 +1427,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 
 app.MapMensajeria();
 app.MapConsentimiento();
+app.MapCasos();
 
 app.Run();
 

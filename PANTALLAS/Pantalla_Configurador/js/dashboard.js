@@ -386,15 +386,20 @@ function chipEstadoCuenta(estado) {
 
 // Nombres de pacientes y profesionales para mostrar en lugar de los ids
 async function cargarNombres() {
-    const [pacientes, profesionales] = await Promise.all([
-        YS.api("/pacientes").catch(() => []), YS.api("/profesionales").catch(() => [])
+    const [pacientes, profesionales, especialidades, grupos] = await Promise.all([
+        YS.api("/pacientes").catch(() => []), YS.api("/profesionales").catch(() => []),
+        YS.api("/especialidades").catch(() => []), YS.api("/grupos").catch(() => [])
     ]);
     const pac = new Map(pacientes.map(p => [p.idPaciente, YS.nombreCompleto(p)]));
     const pro = new Map(profesionales.map(p => [p.idProfesional, YS.nombreCompleto(p)]));
+    const esp = new Map(especialidades.map(e => [e.idEspecialidad, e.nombre]));
+    const grp = new Map(grupos.map(g => [g.idGrupo, g.nombre]));
     return {
-        profesionales,
+        profesionales, especialidades, grupos,
         paciente: id => pac.get(id) || (id ? `Paciente #${id}` : "—"),
-        profesional: id => pro.get(id) || (id ? `Profesional #${id}` : "—")
+        profesional: id => pro.get(id) || (id ? `Profesional #${id}` : "—"),
+        especialidad: id => esp.get(id) || (id ? `Especialidad #${id}` : "—"),
+        grupo: id => grp.get(id) || (id ? `Grupo #${id}` : "—")
     };
 }
 
@@ -612,7 +617,8 @@ const ETIQUETAS = {
     idPaciente: "Paciente", idProfesional: "Profesional", idHistoria: "Historia", fecha: "Fecha", hora: "Hora",
     modalidad: "Modalidad", dia: "Día", horaInicio: "Desde", horaFin: "Hasta", disponible: "Disponible",
     diagnostico: "Diagnóstico", nivelRiesgo: "Nivel de riesgo", acciones: "Acciones tomadas", nombre: "Nombre",
-    estado: "Estado", nroAfiliado: "N.º de afiliado", planCobertura: "Plan", consulta: "Consulta"
+    estado: "Estado", nroAfiliado: "N.º de afiliado", planCobertura: "Plan", consulta: "Consulta",
+    idEspecialidad: "Especialidad solicitada", idGrupoDestino: "Grupo destino", prioridad: "Prioridad", activa: "Activa"
 };
 
 function valorCelda(clave, valor, nombres) {

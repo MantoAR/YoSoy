@@ -28,6 +28,7 @@
                     ]
                 },
                 { id: "pacientes", texto: "Pacientes", titulo: "Mis pacientes" },
+                { id: "casos", texto: "Mis casos", titulo: "Mis casos", icono: "portapapeles", desc: "Casos asignados a vos" },
                 { id: "sesion", texto: "Sala de video", titulo: "Sala de video" },
                 { id: "reportes", texto: "Reportes" }
             ],
@@ -75,6 +76,8 @@
                     texto: "Configuración", items: [
                         { id: "roles", texto: "Roles", icono: "escudo" },
                         { id: "especialidades", texto: "Especialidades", icono: "etiqueta" },
+                        { id: "grupos", texto: "Grupos", icono: "pacientes", desc: "A qué grupo de profesionales se derivan los casos" },
+                        { id: "reglasderivacion", texto: "Reglas de derivación", icono: "flechas", desc: "Qué especialidad va a qué grupo" },
                         { id: "coberturas", texto: "Coberturas", icono: "tarjeta" },
                         { id: "interaccionesia", texto: "Interacciones IA", icono: "ia" }
                     ]
@@ -89,6 +92,10 @@
     const GRUPO_CRM = {
         texto: "CRM", items: [
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
+            { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
+            // id "casosderivaciones", no "derivaciones": ese id ya es Usuarios > Solicitudes
+            // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
+            { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" },
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
         ]
     };
