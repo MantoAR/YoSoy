@@ -948,4 +948,83 @@ Lo que **no** pasa por ahí, con lo que hace cada uno en su lugar:
 - **Paso 3:** `Profesional.Slug` (nullable, único) y `Profesional.LinkPublicoActivo` (bit, default 0) — migración nueva. Slug: nombre normalizado + sufijo corto aleatorio (p. ej. 6 caracteres alfanuméricos), para que no sea adivinable en secuencia ni choque entre profesionales con nombres parecidos. Página pública nueva en `PANTALLAS/` (fuera del shell con sesión, sin `shared/shell.js`) que llama a un endpoint público de **solo lectura** (`GET /public/profesionales/{slug}/disponibilidad` o similar — por decidir el prefijo) que devuelve nombre, especialidad/grupo, modalidad y horarios libres (via `HorariosLibresDelProfesional`) — nunca ids de pacientes ni de turnos, nunca quién ocupa qué horario. 404 idéntico para slug inexistente y link apagado. Límite de pedidos por IP: un limitador en memoria (ventana corta, ej. 20 pedidos/minuto), sin estado compartido entre procesos — alcanza para esta fase, local. Rango de fechas acotado server-side (máximo 60 días), parámetros validados estrictos. El profesional activa/desactiva desde "Mi perfil"; el administrador también puede apagarlo (no un botón nuevo en Usuarios, sino el mismo lugar donde ya se edita un profesional).
 - **Paso 4:** auditoría de activar/desactivar el link y de crear un turno desde ahí — mismo patrón que ya corrigió la Fase 1 (nombre de usuario resuelto, sin texto libre). El aviso al profesional de "turno solicitado" ya existe (`INotificadorTurnos.TurnoSolicitado`) y ya pasa por la agrupación de la Fase 1 — un turno creado desde el link público es un turno más, no necesita un aviso distinto.
 
-Sigo con la implementación sin esperar respuesta, como indicaba el pedido.
+### Paso 1: servicio unificado (resultado)
+
+Se construyó tal cual lo proponía el diseño, sin sorpresas grandes:
+
+- `TurnoReglasService.HorariosLibresDelProfesional(idProfesional, dias, maximo)`: nueva, al lado de `HorariosLibres` (sin tocarla). Internamente las dos llaman a un `CalcularHorariosLibres` privado compartido, parametrizado por un `Func<DateTime,bool> pasaRN07` — con paciente, el chequeo real; sin paciente, `_ => true`.
+- `POST /turnos/solicitar` ahora pasa por `reglas.Solicitar(...)`; devuelve `ComoConflicto()` (409) en RN-01/02/05/07.
+- `PUT /turnos/{id}/cancelar`: ahora toma un `int? idPaciente` opcional por query string. Si viene, pasa por `reglas.Cancelar` (dueño + RN-05); si no viene (lo llama el profesional/configurador), sigue exactamente el mismo código crudo de antes, sin restricción nueva.
+- `POST /turnos/profesional-solicitar`: `TurnoProfesionalRequest` ganó `EsUrgente` (default `false`, aditivo). Cita urgente (`confirmarCitaUrgente()`) lo manda en `true` y usa el nuevo `SolicitarUrgente` (sin RN-01/05, con la inserción segura igual). Las otras dos llamadas reales del mismo endpoint (`confirmarSolicitudDiaProf`, `enviarPrimerTurno`) no lo mandan, así que siguen aplicando todas las reglas.
+- `POST /turnos` crudo: se dejó como estaba. Se confirmó de nuevo que ninguna pantalla lo llama; cambiarlo no tenía beneficio y sí el riesgo de tocar algo sin poder probarlo con una pantalla real.
+- **La doble reserva ya estaba resuelta** (`TurnoRepositorioDAO.InsertarSiLibre`, con `WITH (UPDLOCK, HOLDLOCK)`), solo había que usarla — lo que de verdad hacía falta construir era bastante menos de lo que pedía el enunciado.
+
+Tests nuevos: 6 en `TurnoReglasServiceTests` (horarios libres sin paciente, profesional sin horarios cargados → vacío, urgente salta RN-01/05, urgente también respeta RN-07, `creadoPor` no cambia la validación) y `TurnoDobleReservaIntegrationTests` — 15 pedidos en paralelo (`Task.Run`, conexión propia cada uno) contra la base real, mismo horario: exactamente 1 se crea, confirmado también con una consulta aparte a la base. Bug propio encontrado y corregido antes de llegar a probarlo: una reescritura confusa de `Solicitar` llamaba dos veces al nuevo helper de inserción.
+
+### Paso 2: vista previa (resultado)
+
+`GET /profesionales/{id}/horarios-libres?dias=14` (autenticado — lo pide la propia pantalla del profesional) y una tarjeta nueva "Así te ven los pacientes" en "Mis horarios de trabajo", con los próximos 14 días agrupados. La duración del turno por franja ya estaba resuelta de antes (Paso 0), así que el paso se redujo a esta vista previa.
+
+Bug propio encontrado y corregido antes de commitear: la tarjeta tenía `text-transform: capitalize` en CSS pensando en un formateo de fecha casero que después se cambió por `YS.fecha.separador` (que ya devuelve el texto bien capitalizado) — el CSS de más dejaba "Miércoles, 7 De Octubre" en vez de "Miércoles, 7 de octubre". Se sacó la regla.
+
+### Paso 3: link público de reserva (resultado)
+
+- **Slug:** `Profesional.Slug` (único, índice filtrado por `WHERE Slug IS NOT NULL` — mismo patrón que `Caso.IdInforme` en la Fase 2, SQL Server solo permite un `NULL` en un `UNIQUE` sin filtrar) + `Profesional.LinkPublicoActivo` (bit, default 0). El slug es `nombre-apellido-normalizado` + 8 caracteres hex aleatorios (`RandomNumberGenerator`), se genera **una sola vez** la primera vez que se activa y se conserva siempre después — apagar y volver a prender no cambia el link. `ProfesionalDAO.Modificar`/`Insertar` (el `PUT /profesionales/{id}` genérico que usa "Mi perfil") **no tocan estas dos columnas a propósito**: confirmado con curl que guardar el perfil no las pisa aunque el cliente las reenvíe en el body.
+- **Quién lo prende/apaga:** `PUT /profesionales/{id}/link-publico`, mismo patrón de identidad que Casos/Grupos (`AutorizacionCasos.Resolver` — profesional solo el suyo, administrador cualquiera). En la interfaz: "Mi perfil" del profesional (tarjeta con el link completo para copiar, igual al patrón que ya usaba el link de consentimiento RN-02) y el panel de administrador en Usuarios (un chip de estado y, solo si está activo, el botón para apagarlo — el admin no prende el de alguien que no lo pidió).
+- **Página pública:** `GET /reservar/{slug}` (ruta limpia, fuera del shell con sesión, `PANTALLAS/Pantalla_Publica/`) sirve la página solo si el slug existe **y** el link está activo; si no, 404 — el mismo código exacto para "no existe" y "está apagado", nunca se distingue cuál de las dos cosas pasó.
+- **Disponibilidad pública:** `GET /public/profesionales/{slug}/disponibilidad?dias=` — solo lectura. Devuelve `{ nombre, especialidad, horariosLibres }`, nada más: sin ids (ni de profesional, ni de turno, ni de paciente), sin "modalidad" (no es un dato por profesional en este modelo — `Turno.Modalidad` es siempre `"Virtual"` para cualquiera, así que mostrarlo no distinguía nada; se puso como texto fijo en la página, no como dato). `dias` fuera de 1-60 (o no numérico) da 400, no un clamp silencioso — "parámetros validados estrictos" se interpretó como rechazar, no como corregir solo.
+- **Reserva desde la página pública, ya logueado:** `POST /public/profesionales/{slug}/reservar` — resuelve el slug a `idProfesional` server-side y llama al mismo `TurnoReglasService.Solicitar` del Paso 1 (mismas RN-01/02/05/07, mismo aviso al paciente). Sin sesión: la página manda a `index.html?return=/reservar/{slug}?slot=...`, y ese `return` viaja (sin validar, es solo texto de paso) por login → consentimiento → registro → login, validándose **una sola vez**, justo antes de redirigir de verdad, con `YS.rutaRetornoValida` (una regex anclada a la única forma que puede tener hoy — no una regla genérica de "empieza con /", que deja pasar `//evil.com` como protocol-relative).
+- **Límite de pedidos por IP:** `Microsoft.AspNetCore.RateLimiting` (el limitador nativo de ASP.NET Core, en memoria, por proceso — es exactamente el "limitador en memoria" que proponía el diseño, usando lo que ya trae el framework en vez de escribirlo a mano), partición por IP, ventana fija de 1 minuto, 20 pedidos, 429 con un mensaje legible. Aplicado a las tres rutas públicas (página, disponibilidad, reservar).
+- **Headers:** `X-Content-Type-Options: nosniff` y `Referrer-Policy: no-referrer` en todo lo que empiece con `/public` o `/reservar` — es la primera superficie de esta app pensada para quedar expuesta alguna vez; el resto (mensajería incluida) sigue siendo exclusivamente local.
+- **Sin cookies ni estado propio:** la página es un `GET` sin sesión de servidor. Lo único que lee del lado del cliente es el `localStorage` ya existente (`rol`/`idPaciente`) para saber si ya hay sesión de paciente — no es una cookie ni un estado nuevo, es el mismo mecanismo débil que usa el resto de la app para identificar pacientes.
+- **Escapado:** nombre y especialidad del profesional pasan por `YS.esc` en la página pública, igual que el resto de la interfaz.
+
+**Bug propio encontrado y corregido durante la verificación:** `elegirHorario` encodeaba el horario elegido con `encodeURIComponent` dos veces (una al armar `/reservar/{slug}?slot=...`, otra al colgar esa ruta entera del `?return=` de `index.html`), pero `URLSearchParams.get()` del otro lado solo decodea una vez — el `:` de la hora quedaba como el texto literal `%3A` en vez de un `:` real, y la regex de `YS.rutaRetornoValida` nunca matcheaba. El `return` se perdía en silencio y todo el que volvía de loguearse caía en el dashboard normal en vez de volver a la reserva. Se corrigió armando el `destino` sin encodear el horario (todo el string se encodea una sola vez, entero, para el `return` externo) y se reprobó de punta a punta con Playwright.
+
+### Paso 4: auditoría (resultado)
+
+Activar/desactivar el link ya quedaba auditado desde que se construyó el endpoint en el Paso 3 (`"Activar Link Público"`/`"Desactivar Link Público"`, `Entidad="Profesional"`). Faltaba crear el turno desde el link: se agregó `LogAuditoria` ahí también (`"Turno Solicitado (Link Público)"`, `Entidad="Turno"`, `IdEntidad` el turno nuevo) — mismo patrón de siempre, solo ids y acción, nada clínico ni el motivo. El usuario se resuelve vía `X-Usuario-Id`, que `YS.fetch` ya manda solo cuando el paciente tiene sesión en `localStorage` (que la tiene: así llegó a poder pedir el turno). Confirmado contra la pantalla real de auditoría que se ve legible: `Turno Solicitado (Link Público) | Turno | #2023 | paciente1`. El aviso al paciente (`INotificadorTurnos.TurnoSolicitado`) es el mismo de siempre, sin duplicar nada — un turno pedido desde el link es un turno más para ese mecanismo.
+
+## Fase 3a: migraciones
+
+- `migrations/alter_casoderivacion_motivo_cerrado.sql` (Paso 0): `CasoDerivacion.Nota NVARCHAR(140) NULL`. Aplicada en la base local, probada dos veces (idempotente).
+- `migrations/add_link_publico_profesional.sql` (Paso 3): `Profesional.Slug NVARCHAR(80) NULL` + índice único filtrado, `Profesional.LinkPublicoActivo BIT NOT NULL DEFAULT 0`. Aplicada en la base local, probada dos veces (idempotente). Necesita `SET QUOTED_IDENTIFIER ON` para crearse (filtro) y, aprendido de nuevo en esta fase, **también** para cualquier script suelto que después actualice filas de `Profesional` vía `sqlcmd` (no vía la app: el `SqlConnection` de ADO.NET ya lo trae en `ON` por defecto, así que el código de la app nunca lo necesitó — solo mis scripts de limpieza manual).
+
+Las dos quedaron aplicadas y el código las espera; no hubo que revertir nada en esta fase.
+
+## Fase 3a: qué no se tocó (y por qué)
+
+- **El registro de un paciente nuevo no resume la reserva automáticamente del todo:** el `return` viaja correctamente por consentimiento → registro → el botón "Volver al ingreso" de la pantalla de éxito, pero ahí se frena: el paciente recién registrado tiene que loguearse una vez más (el registro no inicia sesión solo, eso ya era así desde antes de esta fase) y **ahí sí** vuelve derecho a la reserva. Es un paso más que para un paciente que ya tenía cuenta, pero no se perdió el link — y evita tener que auditar de nuevo todo el flujo de consentimiento/registro para asegurar que nada se rompiera.
+- **`POST /turnos` crudo** sigue sin pasar por `TurnoReglasService` — confirmado otra vez que ninguna pantalla lo usa; no había manera de probarlo con una pantalla real, así que se dejó.
+- **Página pública sin foto del profesional:** no hay un campo de foto en `Profesional` hoy; se muestra nombre + especialidad nada más, consistente con "no se inventan datos".
+- **No se construyó el `POST /casos` retroactivo** para pacientes previos a la Fase 2 — sigue como propuesta sin construir (Paso 0, punto 2), es una decisión de negocio, no un commit.
+
+## Fase 3a: seguridad y privacidad (puntos abiertos)
+
+- **`TODO(JWT)` en toda la identidad nueva de esta fase**, igual que la Fase 2: `PUT /profesionales/{id}/link-publico` confía en `X-Usuario-Id` sin firmar — cualquiera que conozca o adivine el id de un profesional puede, hoy, apagarle (o, si es un id de administrador, prenderle) el link público a otro. Se cierra junto con el resto de `AutorizacionCasos`/`AutorizacionReporte` al mergear `videollamadas-seguras`.
+- **La reserva pública hereda la autenticación débil de los pacientes, no la empeora:** `POST /public/profesionales/{slug}/reservar` confía en el `idPaciente` que manda el cliente (del mismo `localStorage` que usa toda la app hoy — no hay token, no hay verificación server-side de que ese `idPaciente` sea realmente quien dice ser). Esto **ya era así** para cualquier pedido de turno desde el dashboard del paciente; lo nuevo es que ahora también es alcanzable sin pasar primero por el dashboard, solo con un link público y un navegador con sesión guardada. No es una superficie nueva de ataque distinta, pero sí una forma más directa de llegar a la misma debilidad de siempre.
+- **Mientras no hay JWT, la única barrera real del endpoint de reserva pública es el límite de pedidos por IP** (20/minuto) — no impide un script lento, solo un script rápido.
+- **Nota para el día que esto se despliegue de verdad (pedida explícitamente):** `/reservar/{slug}` y `/public/profesionales/{slug}/*` son, a propósito, las primeras rutas de esta app pensadas para quedar expuestas detrás de un proxy en algún momento — de ahí los headers, el rate limit y el 404 idéntico. El resto de la app, mensajería incluida, sigue pensado para correr solo local; exponerlo necesitaría su propia revisión, que no es parte de esta fase.
+
+## Fase 3a: pendientes
+
+- **Fase 3b (Google Calendar):** explícitamente aparte, no se tocó nada relacionado.
+- **El registro de un paciente nuevo no resume la reserva en un solo paso** (ver arriba) — si en algún momento se quiere resolver, el único tramo que falta es que `registro.html` inicie sesión sola después de un alta exitosa, lo que hoy no hace por diseño propio de antes de esta fase.
+- **"Modalidad" no se puede distinguir por profesional** en el modelo actual (es siempre `"Virtual"`, un dato de `Turno`, no de `Profesional`) — si en el futuro se suman modalidades por profesional, la página pública y el endpoint de disponibilidad son los lugares para agregarla.
+- **`POST /casos` retroactivo** para pacientes previos a la Fase 2, sigue como propuesta (Paso 0, punto 2).
+- Todo lo que ya estaba pendiente de la Fase 1/2 (vocabulario de chips, entrenamiento del bot, reasignación de grupo) sigue igual, sin tocar en esta fase.
+
+## Fase 3a: verificación
+
+`dotnet build` limpio y batería completa en verde (122 tests, los 13 nuevos de esta fase incluidos) en cada commit. Recorrido Playwright + curl de punta a punta, con datos de prueba limpiados después de cada corrida (turnos, `Recordatorio`, `Notificacion`, y el slug/link de los profesionales de prueba vueltos a `NULL`/apagado):
+
+- Profesional activa el link → la página pública muestra sus horarios libres → paciente sin sesión elige un horario → lo manda a loguearse con el horario colgado del link → vuelve derecho a la reserva y se confirma solo → el profesional lo ve pendiente y lo confirma desde su calendario real (RN-02 no bloqueó) → el horario deja de aparecer como libre en la disponibilidad pública.
+- Pedir el mismo horario dos veces: la segunda da 409 ("Ese horario ya está ocupado").
+- Slug inexistente y link apagado: mismo 404 en la página y en el endpoint de disponibilidad, confirmado con curl.
+- `dias` fuera de 1-60 y no numérico: 400 con mensaje, confirmado con curl.
+- Límite de pedidos por IP: 25 pedidos seguidos al endpoint de disponibilidad, el límite (20/min) se activa, 429 confirmado.
+- Respuesta cruda del endpoint público inspeccionada a mano: solo `nombre`, `especialidad`, `horariosLibres` — cero ids, cero datos de terceros.
+- Regresión general: agenda y horarios del profesional, Mis pacientes, Mis casos, perfil; Usuarios, Casos, Derivaciones y Auditoría del administrador; bandeja de CRM > Chats — todo sin errores de consola nuevos.
+- Capturas en `docs/capturas-cambios-agus/fase3a/` (no versionadas, igual que las de la Fase 1 y 2).
+
+No hubo que revertir nada en esta fase; las dos migraciones quedaron aplicadas y en sync con el código.
