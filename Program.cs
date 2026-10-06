@@ -320,7 +320,7 @@ app.MapGet("/usuarios/{id}", (int id) =>
 
 app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     u.Estado = "Activo";
     u.PasswordHash = Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(
@@ -343,7 +343,7 @@ app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
 
 app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     new UsuarioDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Usuario", Entidad = "Usuario", IdEntidad = id });
     return Results.NoContent();
@@ -375,7 +375,7 @@ app.MapPut("/pacientes/{id}", (int id, Paciente p) =>
 
 app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     new PacienteDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Paciente", Entidad = "Paciente", IdEntidad = id });
     return Results.NoContent();
@@ -383,7 +383,7 @@ app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 
 app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var p = new PacienteDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -404,7 +404,7 @@ app.MapGet("/profesionales/{id}", (int id) =>
 
 app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     p.Estado = "Pendiente";
     new ProfesionalDAO().Insertar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
@@ -420,7 +420,7 @@ app.MapPut("/profesionales/{id}", (int id, Profesional p) =>
 
 app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     new ProfesionalDAO().Baja(id);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.NoContent();
@@ -431,7 +431,7 @@ app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 // desde "Mi perfil" — no está en el alcance de este grupo.
 app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -446,7 +446,7 @@ app.MapGet("/profesionales/solicitudes", () =>
 
 app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Activo";
@@ -457,7 +457,7 @@ app.MapPut("/profesionales/{id}/aprobar", (int id, HttpContext ctx) =>
 
 app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
     p.Estado = "Rechazado";
@@ -479,7 +479,7 @@ app.MapPut("/profesionales/{id}/link-publico", (int id, ActivarLinkPublicoReques
     if (dao.ObtenerPorId(id) is null) return Results.NotFound();
     var p = dao.ActivarLinkPublico(id, req.Activo);
 
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = req.Activo ? "Activar Link Público" : "Desactivar Link Público", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(new { slug = p.Slug, linkPublicoActivo = p.LinkPublicoActivo });
 });
@@ -523,7 +523,7 @@ app.MapPost("/public/profesionales/{slug}/reservar", (string slug, ReservaPublic
     // Auditoría (Fase 3a, Paso 4): solo ids y acción, nada clínico — igual que el resto
     // de LogAuditoria. X-Usuario-Id lo manda YS.fetch solo si el paciente tiene sesión
     // (que la tiene: así llegó hasta acá), igual que cualquier otro pedido autenticado.
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Turno Solicitado (Link Público)", Entidad = "Turno", IdEntidad = resultado.IdTurno });
     return Results.Created($"/public/profesionales/{slug}/reservar", new { idTurno = resultado.IdTurno });
 }).RequireRateLimiting("publico");
@@ -872,7 +872,7 @@ app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
 
 app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.IdProfesionalDestino = req.IdProfesionalDestino;
@@ -890,7 +890,7 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
 
 app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
     d.Estado = "Rechazada";
@@ -902,7 +902,7 @@ app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 // Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
 app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpContext ctx) =>
 {
-    int auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario ?? 0;
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
 
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -930,7 +930,7 @@ app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpC
 // actualiza también y deja su propio rastro en HistorialAsignacion. Si no tiene un caso
 // abierto (pacientes de antes de la Fase 2, o ya Cerrado), no hace nada: no se
 // reconstruye historial viejo. No cambia el comportamiento visible de arriba.
-void SincronizarCasoPorCambioDeProfesional(int idPaciente, int idProfesionalNuevo, int idUsuario)
+void SincronizarCasoPorCambioDeProfesional(int idPaciente, int idProfesionalNuevo, int? idUsuario)
 {
     var caso = new CasoDAO().ObtenerAbiertoPorPaciente(idPaciente);
     if (caso is null) return;
@@ -938,7 +938,7 @@ void SincronizarCasoPorCambioDeProfesional(int idPaciente, int idProfesionalNuev
     new HistorialAsignacionDAO().Insertar(new HistorialAsignacion
     {
         IdCaso = caso.IdCaso, IdProfesional = idProfesionalNuevo, Motivo = "SolicitudCambio",
-        IdRealizadoPor = idUsuario == 0 ? null : idUsuario
+        IdRealizadoPor = idUsuario
     });
 }
 
@@ -1676,3 +1676,6 @@ public record RechazoRequest(int IdPaciente, int IdProfesional, string Motivo);
 public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo, bool EsUrgente = false);
 public record ActivarLinkPublicoRequest(bool Activo);
 public record ReservaPublicaRequest(int IdPaciente, DateTime Momento, string? Motivo);
+
+// Expone la clase Program (autogenerada por los top-level statements) para WebApplicationFactory<Program>.
+public partial class Program { }
