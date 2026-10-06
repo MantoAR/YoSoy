@@ -179,6 +179,7 @@
 
                 localStorage.setItem("idUsuario", data.idUsuario);
                 localStorage.setItem("rol", data.rol);
+                if (data.token) localStorage.setItem("token", data.token);
 
                 if (data.rol === "paciente") {
                     localStorage.setItem("idPaciente", data.idPaciente);

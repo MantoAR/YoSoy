@@ -287,6 +287,8 @@
         const headers = new Headers(resto.headers || {});
         const idU = localStorage.getItem("idUsuario");
         if (idU && !headers.has("X-Usuario-Id")) headers.set("X-Usuario-Id", idU);
+        const token = localStorage.getItem("token");
+        if (token && !headers.has("Authorization")) headers.set("Authorization", "Bearer " + token);
         if (json !== undefined) { resto.body = JSON.stringify(json); headers.set("Content-Type", "application/json"); }
         else if (typeof resto.body === "string" && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
         let res;
