@@ -545,7 +545,13 @@
     }
 
     // ── Leído ───────────────────────────────────────────────────
-    const estaMirando = id => id === est.actual && (est.abierto || est.modo === "pagina") && !document.hidden && estaAbajo();
+    // En modo cajón, "visible" es que esté abierto. En modo "pagina" no hay abrir/cerrar
+    // (ver abrir()), pero el contenedor puede estar tapado por otra pestaña del panel que
+    // lo tapa con la clase .oculto en vez de desmontarlo (Pantalla_Configurador/js/dashboard.js,
+    // mostrarTab) — sin este chequeo, un mensaje nuevo en una conversación abierta se marcaba
+    // leído (y no avisaba con toast ni sonido) aunque la persona estuviera en otra pestaña.
+    const estaVisible = () => est.modo === "pagina" ? raiz?.offsetParent !== null : est.abierto;
+    const estaMirando = id => id === est.actual && estaVisible() && !document.hidden && estaAbajo();
 
     const marcarLeidaSiCorresponde = YS.debounce(async () => {
         const c = est.convs.get(est.actual);
@@ -822,7 +828,7 @@
 
     // ── Avisos: contador, toast y sonido ────────────────────────
     function avisarNuevos(nuevos) {
-        if ((est.abierto || est.modo === "pagina") && !document.hidden) return;   // ya lo ve en la lista
+        if (estaVisible() && !document.hidden) return;   // ya lo ve en la lista
         const urgente = nuevos.find(c => c.estado === "Urgente");
         if (nuevos.length === 1 || urgente) {
             const c = urgente || nuevos[0];
@@ -884,7 +890,7 @@
 
     // Se escucha en captura: si hay un modal o un menú abierto, Esc es para ellos y no cierra los chats.
     function teclasGlobales(e) {
-        const visible = est.abierto || est.modo === "pagina";
+        const visible = estaVisible();
         if (!raiz || !visible || document.querySelector(".ui-modal-fondo")) return;
         const escribiendo = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
         if (e.key === "Escape") {
@@ -911,7 +917,7 @@
     // Cerrados: cada 20 s para el contador (hasta 45 s). Con la pestaña oculta: nada.
     function intervalo() {
         if (document.hidden) return null;
-        const viendo = est.abierto || est.modo === "pagina";
+        const viendo = estaVisible();
         const base = viendo ? 3000 : 20000, max = viendo ? 12000 : 45000;
         return Math.min(max, Math.round(base * Math.pow(1.4, Math.min(est.vueltasSinCambios, 8))));
     }
