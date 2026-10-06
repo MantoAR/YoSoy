@@ -69,7 +69,15 @@
 .chats-conv:hover { background: var(--surface-2); }
 .chats-conv.activa { background: var(--accent-soft); }
 .chats-conv.urgente { box-shadow: inset 3px 0 0 var(--danger-solid); }
-.chats-conv .ui-avatar { width: 34px; height: 34px; margin-top: 2px; }
+.chats-conv-avatar { position: relative; flex-shrink: 0; margin-top: 2px; }
+.chats-conv-avatar .ui-avatar { width: 34px; height: 34px; }
+/* Insignia chica del canal, esquina del avatar. Hoy solo hay un canal (chat simulado); cuando
+   haya más, cada uno puede tener su propio ícono acá sin tocar el resto de la tarjeta. */
+.chats-conv-canal {
+    position: absolute; right: -2px; bottom: -2px; width: 15px; height: 15px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: #fff; border: 2px solid var(--surface);
+}
+.chats-conv-canal svg { width: 9px; height: 9px; }
 .chats-conv-cuerpo { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .chats-conv-fila { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .chats-conv-fila--chip { margin-top: 3px; }

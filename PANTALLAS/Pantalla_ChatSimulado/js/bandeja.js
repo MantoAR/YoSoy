@@ -215,7 +215,7 @@
             const clases = ["chats-conv", c.idConversacion === est.actual ? "activa" : "", c.noLeidos ? "no-leida" : "", c.estado === "Urgente" ? "urgente" : ""].join(" ");
             const etiqueta = `${nombre}, ${e.texto}${c.noLeidos ? `, ${c.noLeidos} sin leer` : ""}`;
             return `<li><button type="button" class="${clases}" data-id="${c.idConversacion}" aria-label="${YS.esc(etiqueta)}"${c.idConversacion === est.actual ? ' aria-current="true"' : ""}>
-                ${YS.avatar(c.nombrePaciente, c.idConversacion)}
+                <span class="chats-conv-avatar">${YS.avatar(c.nombrePaciente, c.idConversacion)}<span class="chats-conv-canal" title="Chat simulado" aria-hidden="true">${YS.icono("chat")}</span></span>
                 <span class="chats-conv-cuerpo">
                     <span class="chats-conv-fila">
                         <span class="chats-conv-nombre">${YS.esc(nombre)}</span>
