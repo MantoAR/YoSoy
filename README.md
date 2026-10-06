@@ -120,7 +120,29 @@ git clone https://github.com/MantoAR/YoSoy.git
 cd YoSoy
 ```
 
-2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio, y después los scripts de `migrations/` (`add_columnas_faltantes.sql` agrega columnas que el código usa y el script base no crea)
+2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio, y después **todos** los scripts de `migrations/`, en este orden (cada uno depende de que el anterior ya esté aplicado):
+
+   | # | Script | Qué agrega | ¿Se puede correr dos veces? |
+   |---|---|---|---|
+   | 1 | `add_columnas_faltantes.sql` | Columnas que el código ya usa y el script base de `DataBase` no crea: `Agenda.IntervaloMinutos`, `Turno.ConfirmadoPaciente`, `Turno.CodigoSala`, `PacienteProfesional.EstadoAsignacion` | Sí |
+   | 2 | `add_creadopor_turno.sql` | `Turno.CreadoPor` | **No** — sin `IF`, una segunda corrida tira error de columna duplicada |
+   | 3 | `add_token_profesional.sql` | `Profesional.Token` | **No** |
+   | 4 | `add_token_recuperacion.sql` | `RecuperacionPassword.Token`, `TokenExpiracion` | **No** |
+   | 5 | `add_mensajeria.sql` | Tablas `Conversacion`, `MensajeChat`, `Recordatorio`, `PreguntaFrecuente`, `NotificacionInterna` (chatbot, ver [Mensajería](#mensajería-chatbot-de-reservas-y-recordatorios)) | Sí |
+   | 6 | `add_consentimiento_telemedicina.sql` | `Consentimiento.FechaFirma` pasa a `DATETIME`; crea el `TipoConsentimiento` de telemedicina (RN-02) | Sí |
+   | 7 | `add_lectura_conversacion.sql` | `Conversacion.IdUltimoMensajeLeido` (contador de no leídos de la bandeja) — requiere el 5 | Sí |
+   | 8 | `alter_logauditoria_idusuario_nullable.sql` | `LogAuditoria.IdUsuario` admite `NULL` (acciones sin sesión, como un registro público) | Sí |
+   | 9 | `add_grupos_casos_derivacion.sql` | Tablas `Grupo`, `ProfesionalGrupo`, `Caso`, `CasoDerivacion`, `ReglaDerivacion`, `HistorialAsignacion` (Grupos, Casos y derivación en cascada) | Sí |
+   | 10 | `add_link_publico_profesional.sql` | `Profesional.Slug`, `LinkPublicoActivo` (link público de reserva) | Sí |
+   | 11 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 9 | Sí |
+
+   Los marcados "No" son del script base de la materia, de antes de esta rama: no tienen una verificación de "¿ya existe esta columna?" antes de agregarla, así que si se corren una segunda vez por error, fallan con un error de SQL Server (no corrompen nada, pero hay que saltarlos). Los demás sí la tienen y se pueden volver a correr sin problema.
+
+   Para cada uno:
+   ```bash
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\<archivo>.sql
+   ```
+   (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -240,14 +262,7 @@ app **no arranca**: tira un error claro explicando este mismo paso al intentar r
 
 ### Cómo ponerlo en marcha
 
-1. Correr las migraciones en este orden (son idempotentes, se pueden correr más de una vez):
-   ```bash
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_columnas_faltantes.sql
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_mensajeria.sql
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_consentimiento_telemedicina.sql
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_lectura_conversacion.sql
-   ```
-   `-f 65001` hace falta para que los acentos de las preguntas frecuentes de ejemplo se guarden bien. También se pueden abrir y ejecutar en SQL Server Management Studio.
+1. Las migraciones que necesita puntualmente la mensajería son la 1, 5, 6 y 7 de la tabla en [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto) (son idempotentes, se pueden correr más de una vez) — pero para tener la base al día con esta rama hay que correr la lista completa de esa tabla, en orden, no solo estas 4.
 2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y el texto legal del consentimiento (ver [RN-02](#rn-02-consentimiento-de-telemedicina)).
 3. `dotnet run`, ingresar como configurador y abrir **Chats** en la barra superior. El simulador del paciente está en `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html#simulador`.
 
