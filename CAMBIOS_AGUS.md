@@ -757,3 +757,73 @@ Cada uno en su commit, con build y batería verificados después:
 6. **Dato, no código — especialidad de Martín Sosa** (`7d2cf66`): el profesional 3 figura con Psiquiatría, fuera de alcance. No se tocan datos sin OK: queda `docs/corregir-especialidad-martin-sosa.sql`, sin ejecutar, con ROLLBACK por defecto y una variable sin completar (`@IdEspecialidadNueva`) que corta el script hasta que alguien confirme la especialidad real. No tiene turnos cargados, así que el cambio quedaría aislado a esa fila.
 
 Byproducto encontrado al hacer el Paso 2/3: la tarjeta de chats escalados del Inicio llamaba a `YS.bandeja?.abrir(null, filtro)`, que abría el cajón — ahora que Chats es una página escondida (no un cajón), eso cambiaba el filtro sin mostrar nada. Se agregó `irAChatsFiltrados()`, que aplica el filtro y navega a `#chats`/`#escalamientos` por hash.
+
+## Fase 2: Grupos, Casos y derivación en cascada
+
+Plan más grande, Fase 2. Sigue en `Cambios-Agus`, local, sin push. A diferencia de la Fase 1, esta toca la base: tiene su propio Paso 0 de diseño antes de escribir código, como pedía el pedido.
+
+### Paso 0: el modelo real, hoy
+
+Árbol limpio al arrancar (`ae53cec..2b6ffb8` es toda la Fase 1, 16 commits).
+
+**Especialidad / Profesional.** `Especialidad` es una tabla chica y plana (`IdEspecialidad, Nombre, Estado`): hoy tiene 4 filas activas (Psicología, Trabajo Social, Terapia Ocupacional) más Psiquiatría, fuera de alcance del proyecto (bug 6 de la Fase 1: Martín Sosa la tiene cargada, sin corregir todavía, script en `docs/corregir-especialidad-martin-sosa.sql`). `Profesional.IdEspecialidad` es **una sola FK, obligatoria**: hoy un profesional tiene exactamente una especialidad. Esto **no se toca** — `Grupo` es una clasificación nueva y más fina que convive al lado, no un reemplazo.
+
+**PacienteProfesional.** Es la asignación "en vivo": qué profesional(es) atienden a cada paciente **ahora mismo**. Es **N:M de verdad** (`ObtenerProfesionalesDePaciente` devuelve una lista — un paciente puede tener psicólogo y trabajador social al mismo tiempo). La clase `Models/PacienteProfesional.cs` está desactualizada: el `ALTER` que agregó `EstadoAsignacion` (`'Nueva' | 'Confirmada' | 'Rechazada'`) y le dio otro uso a `FechaAsignacion` no se reflejó en el modelo, así que esas columnas solo se tocan con SQL crudo en `Program.cs`. `EstadoAsignacion = 'Nueva'` es el profesional todavía no confirmó que acepta al paciente (lo confirma con `PUT /asignaciones/estado`, o lo rechaza y `InformeAdmision` vuelve a `Rechazado` con `PUT /informes-admision/rechazar`).
+
+**InformeAdmision.** El modelo `Models/InformeAdmision.cs` también está incompleto: la tabla real tiene además `FechaEntrevista, ObservacionesEntrevista, IdProfesionalDerivado, CodigoSala, MotivoRechazo`, usadas directo con `SqlCommand` en `Program.cs` (no hay `DerivarRequest`/etc. en el DAO tipado). Estados: `Pendiente → En entrevista → Derivado | Rechazado` (el default al insertar es `Pendiente`, confirmado en `InformeAdmisionDAO`). `PUT /informes-admision/{id}/derivar` (Program.cs:1138) hace **tres cosas** en una sola llamada: (1) pone `Estado = 'Derivado'` y graba `IdProfesionalDerivado`; (2) hace upsert en `PacienteProfesional` con `EstadoAsignacion = 'Nueva'`; (3) agrega una `Evolucion` en la historia clínica con `TipoCierre = 'Derivación'` y texto libre (`'Derivado a: ' + nombre`) — eso es historia clínica de verdad, no un log de auditoría, así que no choca con la regla 7 del pedido. Ninguno de los tres pasos pasa hoy por `LogAuditoria`.
+
+**Agenda.** Son franjas (`IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos`), cada una con su propio `Disponible` — un profesional puede tener franjas cargadas y alguna desactivada. "Horarios de trabajo" (el link que agregó el Paso 4 de la Fase 1) son filas de esta misma tabla.
+
+**Derivacion / DerivacionDetalle — esto ya existe, y con otro significado.** Hay una tabla `Derivacion` (`IdDerivacion, IdPaciente, IdProfesionalOrigen, IdProfesionalDestino, Fecha, Motivo, Estado`), con endpoints `/derivaciones*` completos (listar, pendientes, detalle, crear, aceptar, rechazar) más `/derivaciones/cambio-directo`. **Esto es el cambio de profesional de un paciente que ya está en tratamiento** — lo que la interfaz llama "Solicitudes de cambio" (`shell.js`: `{ id: "derivaciones", texto: "Solicitudes de cambio" }`; el paciente las pide desde "Mis profesionales"). `/derivaciones/{id}/aceptar` y `/cambio-directo` reasignan con `PacienteProfesionalDAO.Desasignar(origen) + Asignar(destino)`, y sí quedan en `LogAuditoria` — **con el motivo de puño y letra del pedido de cambio en el campo `Detalle`** (`Program.cs:693`, `Accion = "Cambio Directo Profesional", Detalle = req.Motivo`). Es un patrón previo a esta fase, no se toca en esta rama, pero es exactamente lo que la regla 7 de la Fase 2 pide evitar en lo nuevo — queda anotado en Pendientes.
+
+### El choque de nombres: "Derivación" ya significa otra cosa (y dos, en realidad)
+
+El pedido avisaba de esto ("probablemente ya significa algo") y pedía no esperar respuesta. Con el modelo de arriba, la palabra "derivación"/"derivado" ya se usa para **dos** cosas distintas en el código, ninguna de las dos es lo que pide la Fase 2:
+
+1. La tabla `Derivacion` = cambio de profesional de un paciente en tratamiento (arriba).
+2. `InformeAdmision.Estado = 'Derivado'` = la admisión terminó asignada a un profesional (no usa la tabla `Derivacion` para nada — es un estado propio con su propia columna `IdProfesionalDerivado`).
+
+Ninguna de las dos tiene hoy el sentido de "caso que entra y se deriva a un **grupo**", que es el corazón de la Fase 2. Reusar el nombre `Derivacion` para la tabla nueva del Paso 0 del pedido **no es viable**: ya existe una clase `Derivacion` en el proyecto (colisión de compilación) y, aunque se pudiera, mezclaría dos procesos de negocio independientes (cambiar de profesional a un paciente ya asignado vs. rutear un caso nuevo) bajo la misma tabla — justo lo que la regla 8 del pedido pide evitar.
+
+**Decisión (sin esperar respuesta, como indicaba el pedido):** la tabla nueva se llama **`CasoDerivacion`**, no `Derivacion`. Mismo patrón que ya usa el proyecto para esto (`Turno` → `TurnoDetalle`, `TurnoAviso`; acá `Caso` → `CasoDerivacion`). Las rutas nuevas van bajo `/casos` y `/casos-derivaciones`, nunca `/derivaciones` (ver Paso 3 más abajo). La tabla y los endpoints `Derivacion`/`/derivaciones/*` existentes **no se tocan**: siguen siendo "Solicitudes de cambio", tal cual están.
+
+En los textos de la interfaz nueva, "derivar" se usa siempre con objeto explícito — "derivar a un grupo" / "caso derivado" — para no sumar un tercer sentido suelto a una palabra que ya tiene dos (más el "escalar a una persona" del chat, que la Fase 1 ya renombró para sacarlo de esta familia de palabras).
+
+### Modelo nuevo propuesto
+
+Mínimo, como pedía el pedido — nada más que esto:
+
+- **`Grupo`**: `IdGrupo, Nombre, Descripcion (nullable), Activo (bit)`.
+- **`ProfesionalGrupo`**: `IdProfesional, IdGrupo` (PK compuesta). N:M — no agrega columnas de más; la fecha de alta a un grupo no la pidió el pedido y no hace falta todavía.
+- **`Caso`**: `IdCaso, IdPaciente, Estado, IdGrupoActual (nullable), IdProfesionalAsignado (nullable), Origen, FechaCreacion, IdInformeAdmision (nullable)`. Estados: `Nuevo, Derivado, Asignado, En atención, Cerrado`. `Origen` es cómo entró el caso (`Admision` hoy; `Canal`/`Bot` reservados, no se usan todavía). Un caso por admisión como máximo: `IdInformeAdmision` queda `UNIQUE` cuando no es nulo.
+- **`CasoDerivacion`**: `IdCasoDerivacion, IdCaso, IdGrupo, IdProfesionalSugerido (nullable), IdProfesionalAsignado (nullable), Origen, Estado, Motivo, IdCreadoPor (nullable), FechaCreacion, FechaResolucion (nullable)`. `Origen`: `Regla | Manual | Bot` (reservado). Estado: `Pendiente de confirmar, Confirmada, Corregida, Rechazada`. `Motivo` es corto — vocabulario cerrado o texto breve, nunca el detalle clínico (regla 7).
+- **`ReglaDerivacion`**: `IdRegla, IdEspecialidad, IdGrupoDestino, Prioridad, Activa`. Criterio mínimo viable tal cual lo pedía el pedido: especialidad solicitada en la admisión → grupo. Nada de palabras clave ni IA.
+- **`HistorialAsignacion`**: `IdHistorial, IdCaso, IdProfesional (nullable, para "quedó sin asignar"), Motivo, IdRealizadoPor (nullable), FechaHora`. `Motivo` con vocabulario cerrado: `AutomaticaPorCarga | AutomaticaAleatoria | Manual | SolicitudCambio`. Esta tabla es la que permite explicar cada asignación (punto 5 del Paso 0 del pedido).
+
+Todas las FK hacia `Profesional`/`Paciente`/`Especialidad`/`Usuario` existentes, sin tocarlas. Índices en `Caso.Estado`, `Caso.IdGrupoActual`, `Caso.IdProfesionalAsignado`, `CasoDerivacion.Estado` y `CasoDerivacion.IdCaso` (las columnas de búsqueda, Paso 1 del pedido).
+
+### Cómo convive con lo existente (nada se reemplaza, se engancha al lado)
+
+La idea es que `Caso`/`CasoDerivacion` sea una capa de **seguimiento nueva, aditiva**, enganchada a los puntos donde hoy ya se decide "quién atiende a este paciente" — sin cambiar lo que esos endpoints devuelven ni lo que ve el administrador hoy (regla 2 y 3):
+
+- `POST /informes-admision` (al enviarse la admisión): además de lo que ya hace, crea un `Caso` (`Estado = Nuevo`, `Origen = Admision`, `IdInformeAdmision` = el nuevo informe). Aplica `ReglaDerivacion` por la especialidad solicitada; si hay regla, genera una `CasoDerivacion` sugerida (`Origen = Regla`, `Estado = Pendiente de confirmar`) pasando los candidatos del grupo por `AsignacionService`. Si no hay regla, el caso queda `Nuevo` sin grupo, en la cola del administrador. **La respuesta del POST no cambia.**
+- `PUT /informes-admision/{id}/derivar` (el admin asigna profesional desde la pantalla de admisión que ya existe): además de lo que ya hace (los tres pasos de arriba), sincroniza el `Caso` de ese informe — `IdProfesionalAsignado`, `Estado = Asignado` — y resuelve la `CasoDerivacion` pendiente (`Confirmada` si coincide con lo sugerido, `Corregida` si el admin eligió otro profesional o grupo), con su fila en `HistorialAsignacion` (`Motivo = Manual`). **La pantalla de admisión sigue igual**; lo nuevo se ve en Casos/Derivaciones.
+- `PUT /derivaciones/{id}/aceptar` y `POST /derivaciones/cambio-directo` (solicitud de cambio, la de siempre): si el paciente tiene un `Caso` abierto (`Estado` no `Cerrado`), además de lo que ya hacen, actualizan `Caso.IdProfesionalAsignado` y agregan una fila a `HistorialAsignacion` (`Motivo = SolicitudCambio`) — así el historial del caso cuenta también estos cambios. Si el paciente no tiene un `Caso` abierto (pacientes de antes de esta fase), no hacen nada nuevo: no se reconstruye historial viejo. **El comportamiento visible de "Solicitudes de cambio" no cambia.**
+
+Nada de esto reemplaza `PacienteProfesional`: sigue siendo la tabla operativa de "quién atiende a quién ahora" que ya usan turnos y agenda. `Caso.IdProfesionalAsignado` es la misma información vista desde el seguimiento nuevo, mantenida en sync por los mismos puntos de código que ya tocan `PacienteProfesional`.
+
+### "Disponible" y "carga"
+
+- **Disponible** = `Profesional.Estado = 'Activo'` **y** tiene al menos una fila en `Agenda` con `Disponible = 1`. No hay hoy ningún dato de vacaciones/licencias en el modelo — no se inventa; si hace falta más adelante, es una columna nueva en otra fase.
+- **Carga** = cantidad de `Caso` con `IdProfesionalAsignado` = ese profesional y `Estado` en (`Asignado`, `En atención`). Casos `Cerrado` no cuentan.
+- **Desempate**: menor carga → más antigua `HistorialAsignacion` del profesional (el que hace más tiempo no recibe un caso nuevo) → aleatorio con el generador inyectado.
+
+### Paso 3 (adelanto): nombres de endpoint, para no chocar con `/derivaciones`
+
+`/grupos` (+ `/grupos/{id}/miembros`), `/reglas-derivacion`, `/casos` (+ `/casos/{id}`, `/casos/{id}/derivaciones`, `/casos/{id}/reasignar`), `/casos-derivaciones/pendientes` (+ `/casos-derivaciones/{id}/confirmar|corregir|rechazar`), `/profesionales/{id}/casos` ("Mis casos"). Todo nuevo, nada pisa una ruta que ya existe.
+
+### Decisiones tomadas sin esperar respuesta (regla del Paso 0)
+
+- Tabla `Derivacion`/rutas `/derivaciones/*` existentes: **no se tocan**. La palabra "Derivación" sola, sin calificar, sigue siendo "solicitud de cambio de profesional" en la interfaz existente; lo nuevo de esta fase se llama siempre "caso derivado"/`CasoDerivacion` en código y "Derivaciones" (de casos a grupos) solo dentro del menú **CRM** nuevo, donde el contexto ya lo deja claro.
+- `Models/InformeAdmision.cs` y `Models/PacienteProfesional.cs` quedan desactualizados respecto de la tabla real (no es de esta fase arreglarlo); el Paso 1 no los toca, sigue sumando SQL crudo donde hace falta leer las columnas que el modelo no tiene, igual que ya hace el resto de `Program.cs`.
+- El motivo de `CasoDerivacion`/`HistorialAsignacion` usa vocabulario cerrado (enum-string), nunca el texto libre de `InformeAdmision.MotivoConsulta` ni de la historia clínica — ni siquiera por referencia desde la auditoría.
