@@ -17,13 +17,26 @@ function toast(msg, tipo = "ok", duracion = 3500) {
     setTimeout(() => t.remove(), duracion);
 }
 
-function aceptar() {
-    window.location.href = "registro.html";
+// "return" (Fase 3a, Paso 3: volver a la reserva por link público tras loguearse o
+// registrarse) solo se reenvía tal cual acá — se valida una sola vez, en index.html,
+// que es la única página de esta cadena que carga shared/ui.js sin condición.
+function conRetorno(url) {
+    const retorno = new URLSearchParams(location.search).get("return");
+    return url + (retorno ? "?return=" + encodeURIComponent(retorno) : "");
 }
+
+function aceptar() {
+    window.location.href = conRetorno("registro.html");
+}
+
+// registro.html: el botón de éxito ("Volver al ingreso") también tiene que llevar el
+// return, para que el paciente recién registrado pueda volver derecho a la reserva.
+const linkVolver = document.getElementById("linkVolverIngreso");
+if (linkVolver) linkVolver.href = conRetorno("../../index.html");
 
 function rechazar() {
     toast("Para registrarte tenés que aceptar el acuerdo de atención.", "warn");
-    setTimeout(() => window.location.href = "index.html", 2000);
+    setTimeout(() => window.location.href = conRetorno("index.html"), 2000);
 }
 
 function calcularEdad(fechaNacimiento) {

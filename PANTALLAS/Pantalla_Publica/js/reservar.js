@@ -9,8 +9,7 @@ const params = new URLSearchParams(location.search);
 const slotPreseleccionado = params.get('slot');
 
 function sesionPaciente() {
-    const idPaciente = localStorage.getItem('idPaciente');
-    return localStorage.getItem('rol') === 'paciente' && idPaciente ? parseInt(idPaciente) : null;
+    return YS.sesion.rol() === 'paciente' ? YS.sesion.idPaciente() : null;
 }
 
 function agrupar(lista) {
@@ -78,7 +77,11 @@ function render(data) {
 function elegirHorario(iso) {
     const idPaciente = sesionPaciente();
     if (!idPaciente) {
-        const destino = `/reservar/${slug}?slot=${encodeURIComponent(iso)}`;
+        // "iso" sin encodeURIComponent: todo "destino" se encodea una sola vez abajo.
+        // URLSearchParams.get() del otro lado decodea una sola vez — encodearlo dos
+        // veces acá dejaba ":" como "%3A" literal y la regex de YS.rutaRetornoValida
+        // nunca matcheaba.
+        const destino = `/reservar/${slug}?slot=${iso}`;
         location.href = `/pantallas/index.html?return=${encodeURIComponent(destino)}`;
         return;
     }

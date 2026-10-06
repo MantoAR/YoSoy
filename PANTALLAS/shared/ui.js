@@ -22,6 +22,16 @@
         chats: "/pantallas/Pantalla_ChatSimulado/"
     };
 
+    /**
+     * Para volver a la reserva por link público después de loguearse o registrarse
+     * (Fase 3a, Paso 3): valida un "?return=" contra la única forma interna que puede
+     * tener hoy, en vez de aceptar cualquier ruta que empiece con "/" (eso deja pasar
+     * "//evil.com", que el navegador trata como protocol-relative). Si no matchea
+     * exactamente, se descarta — nunca se redirige a un valor sin validar.
+     */
+    YS.rutaRetornoValida = valor =>
+        /^\/reservar\/[a-zA-Z0-9-]{1,80}(\?slot=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?)?$/.test(valor || "") ? valor : null;
+
     // ── DOM ─────────────────────────────────────────────────────
     const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
     /** Escapa texto para insertarlo en HTML (nombres, motivos, mensajes del servidor). */

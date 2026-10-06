@@ -58,7 +58,7 @@
         </form>
 
         <p class="acceso-pie" id="linkRegistro">
-            ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html">Registrate</a>
+            ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html" id="linkRegistroHref">Registrate</a>
         </p>
         <p class="acceso-pie oculto" id="linkRegistroProfesional">
             ¿Sos profesional? <a href="Pantalla_Usuario/Usuario/registro_profesional.html">Pedí tu cuenta acá</a>
@@ -100,6 +100,15 @@
     <script src="shared/ui.js"></script>
     <script>
         let rolActual = "paciente";
+
+        // Volver a la reserva por link público (Fase 3a, Paso 3): si llegamos con un
+        // "?return=" válido, lo llevamos colgando al link de registro para no perderlo
+        // en ese salto — y lo usa iniciarSesion() si el login es el que termina el viaje.
+        const retornoPendiente = YS.rutaRetornoValida(new URLSearchParams(location.search).get("return"));
+        if (retornoPendiente) {
+            const a = document.getElementById("linkRegistroHref");
+            a.href = a.href + "?return=" + encodeURIComponent(retornoPendiente);
+        }
 
         function seleccionarRol(rol) {
             rolActual = rol;
@@ -173,7 +182,7 @@
 
                 if (data.rol === "paciente") {
                     localStorage.setItem("idPaciente", data.idPaciente);
-                    window.location.href = "Pantalla_Paciente/dashboard.html";
+                    window.location.href = retornoPendiente || "Pantalla_Paciente/dashboard.html";
                 } else if (data.rol === "profesional") {
                     localStorage.setItem("idProfesional", data.idProfesional);
                     window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
