@@ -1137,3 +1137,9 @@ Rama `mejora-chats-y-centrado`, parte de `Cambios-Agus-jwt` (no existía `cierre
 **Nota sobre anchos angostos:** la memoria de este proyecto decía no invertir en breakpoints angostos (YoSoy es PC-first, hay una app mobile aparte para eso). Este pedido pide explícitamente revisar hasta ~480px. Se sigue el pedido nuevo tal cual — es específico y a propósito — pero vale la aclaración porque cambia un criterio anotado antes.
 
 **Orden de ejecución:** A1 (bugs del chat) → A2 (diseño bandeja/hilo) → A3 (asignar, cerrar/reabrir, notas internas, respuestas rápidas, etiquetas) → A4 (panel del lead) → B (contenido centrado) → C (sin migas de pan) → verificación → informe final. Commits chicos en español en cada paso.
+
+### Corrección al leer `shared/shell.js` completo
+
+El párrafo de arriba decía "se engancha [Chats para Profesional] en este trabajo" como si fuera solo un cable suelto. No es así: `shell.js:551-553` tiene un comentario explícito — Chats es solo para Configurador **porque** la bandeja muestra las conversaciones de todos los pacientes, no porque falte enganchar un botón. Es una decisión de privacidad a propósito, no un bug.
+
+Para poder darle Chats a Profesional (como pide el recorrido de A1) sin reabrir ese problema: no se agrega una restricción dura de pertenencia en el backend (seguiría rompiendo escalamientos sin asignar todavía, que cualquiera del equipo tiene que poder atender). En cambio, el filtro "Mías" (DAO: `ConversacionResumen` suma `IdProfesionalAsignado`/`NombreProfesionalAsignado` vía el Caso abierto del paciente, igual que para A3) se usa como **default** al abrir la bandeja en rol Profesional — arranca viendo su propia cartera, no todo el mundo — con "Todas" disponible para cuando necesite entrar a algo escalado sin asignar. En Configurador "Mías" no tiene referente (no tiene cartera propia): el botón del filtro no se muestra para ese rol, arranca en "Todas" como hoy.
