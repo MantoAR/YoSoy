@@ -946,7 +946,9 @@
         if (est.modo === "pagina") {
             raiz.classList.add("chats--pagina", "abierto");
             opciones.contenedor.appendChild(raiz);
-            mostrarContexto(true);
+            // Debajo de 1500px la información del lead no entra cómoda al lado de lista y chat
+            // (bandeja.css): arranca colapsada ahí, el botón de la cabecera del hilo la muestra.
+            mostrarContexto(window.innerWidth >= 1500);
         } else {
             raiz.classList.add("chats--cajon");
             raiz.setAttribute("role", "dialog");

@@ -36,7 +36,23 @@
 
 .chats-cuerpo { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 290px minmax(0, 1fr); }
 .chats.expandida .chats-cuerpo, .chats--pagina .chats-cuerpo { grid-template-columns: 330px minmax(0, 1fr); }
-.chats.expandida.con-contexto .chats-cuerpo, .chats--pagina.con-contexto .chats-cuerpo { grid-template-columns: 330px minmax(0, 1fr) 310px; }
+/* Orden visual: lista · información del lead · chat. order en vez de reordenar el HTML, para que
+   cambiarlo sea tocar estos tres números (y los grid-template-columns, en el mismo orden). */
+.chats.expandida.con-contexto .chats-cuerpo, .chats--pagina.con-contexto .chats-cuerpo { grid-template-columns: 340px 330px minmax(0, 1fr); }
+.chats-lista { order: 1; }
+.chats-contexto { order: 2; }
+.chats-hilo { order: 3; }
+
+/* Pantallas de menos de 1500px: la columna del lead no entra cómoda al lado de las otras dos.
+   Arranca colapsada (ver bandeja.js, mostrarContexto en modo página) y el botón de la cabecera
+   del hilo la muestra como un panel superpuesto, igual que ya hace el cajón angosto. */
+@media (max-width: 1499px) {
+    .chats--pagina .chats-cuerpo, .chats--pagina.con-contexto .chats-cuerpo { grid-template-columns: 300px minmax(0, 1fr); }
+    .chats--pagina .chats-contexto {
+        position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: 320px;
+        border-left: 1px solid var(--border); border-right: none; box-shadow: -8px 0 24px rgba(24, 24, 40, .12);
+    }
+}
 
 /* ── Lista ─────────────────────────────────────────────────── */
 .chats-lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--surface); }
@@ -167,13 +183,16 @@
 .chats-plantilla-texto { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chats-plantillas-vacio { padding: 12px; font-size: var(--fs-sm); color: var(--text-3); }
 
-/* ── Panel de contexto (datos del paciente) ────────────────── */
-.chats-contexto { display: none; flex-direction: column; min-height: 0; background: var(--surface); border-left: 1px solid var(--border); }
+/* ── Panel de contexto (información del lead) ──────────────── */
+/* Como columna del medio (página ancha) separa con el borde a su derecha, contra el hilo; como
+   superposición (cajón angosto o página angosta) lo lleva a la izquierda, como venía. */
+.chats-contexto { display: none; flex-direction: column; min-height: 0; background: var(--surface); }
 .chats.con-contexto .chats-contexto { display: flex; }
+.chats--pagina.con-contexto .chats-contexto { border-right: 1px solid var(--border); }
 /* En el cajón angosto se superpone al hilo */
 .chats--cajon:not(.expandida) .chats-contexto {
     position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: 310px;
-    box-shadow: -8px 0 24px rgba(24, 24, 40, .12);
+    border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(24, 24, 40, .12);
 }
 .chats-contexto-cabecera {
     display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
