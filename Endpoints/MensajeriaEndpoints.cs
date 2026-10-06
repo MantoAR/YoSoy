@@ -98,7 +98,7 @@ public static class MensajeriaEndpoints
         });
 
         g.MapPost("/conversaciones/{id}/responder", async (int id, RespuestaHumanaRequest req, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var texto = (req.Texto ?? "").Trim();
             if (texto.Length == 0) return Results.BadRequest(new { mensaje = "El mensaje está vacío." });
@@ -108,13 +108,13 @@ public static class MensajeriaEndpoints
             var m = await mensajes.EnviarAsync(c, texto, "Humano");
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
-            Auditar(http, "Respuesta manual en chat", id);
+            Auditar(http, "Respuesta manual en chat", id, c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac)?.Nombre : null);
             return Results.Ok(m);
         });
 
         // Cierra la derivación (o la urgencia): el bot vuelve a atender desde el menú.
         g.MapPut("/conversaciones/{id}/cerrar", async (int id, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var c = conversaciones.ObtenerPorId(id);
             if (c is null) return Results.NotFound();
@@ -126,7 +126,7 @@ public static class MensajeriaEndpoints
             await mensajes.EnviarAsync(c,
                 "El equipo de YoSoy cerró esta conversación. Si necesitás algo más, escribí \"menu\" y el asistente te va a ayudar.",
                 "Sistema");
-            Auditar(http, "Cierre de conversación de chat", id);
+            Auditar(http, "Cierre de conversación de chat", id, c.IdPaciente is int idPac2 ? datos.ObtenerPaciente(idPac2)?.Nombre : null);
             return Results.Ok(new { c.IdConversacion, c.Estado });
         });
 
@@ -244,14 +244,17 @@ public static class MensajeriaEndpoints
     }
 
     // Mismo patrón que el resto del backend: X-Usuario-Id (autodeclarado, ver TODO(JWT)).
-    private static void Auditar(HttpContext http, string accion, int idConversacion)
+    // detalle: para que la auditoría diga algo útil (qué conversación, de qué paciente) en vez
+    // de quedar vacía; nombrePaciente es opcional porque no siempre hay un paciente identificado.
+    private static void Auditar(HttpContext http, string accion, int idConversacion, string? nombrePaciente = null)
     {
         if (!int.TryParse(http.Request.Headers["X-Usuario-Id"], out var idUsuario) || idUsuario <= 0) return;
         try
         {
+            var detalle = $"Conversación #{idConversacion}" + (string.IsNullOrWhiteSpace(nombrePaciente) ? "" : $" ({nombrePaciente})");
             new LogAuditoriaDAO().Insertar(new LogAuditoria
             {
-                IdUsuario = idUsuario, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion
+                IdUsuario = idUsuario, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion, Detalle = detalle
             });
         }
         catch (Exception) { /* la auditoría no debe impedir responder al paciente */ }

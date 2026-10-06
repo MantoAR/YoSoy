@@ -845,10 +845,15 @@ async function cerrarSesion() {
 }
 
 async function renderAuditoria(c, pagina = 1) {
-    const datos = await YS.fetch(`/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json());
+    const [datos, usuarios] = await Promise.all([
+        YS.fetch(`/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json()),
+        YS.fetch(`/usuarios`).then(r => r.json()).catch(() => [])
+    ]);
     if (YS.shell.actual !== "auditoria") return;
     YS.shell.encabezado({ subtitulo: `Página ${pagina} · los más recientes primero` });
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("auditoria") }]);
+
+    const nombreUsuario = new Map(usuarios.map(u => [u.idUsuario, u.username]));
 
     const anterior = YS.el("button", { class: "ui-btn ui-btn--sm", type: "button", text: "Más recientes", disabled: pagina <= 1,
         on: { click: () => renderAuditoria(c, pagina - 1) } });
@@ -856,8 +861,8 @@ async function renderAuditoria(c, pagina = 1) {
         on: { click: () => renderAuditoria(c, pagina + 1) } });
     YS.tabla(c, {
         filas: datos, porPagina: 0, unidad: ["registro en esta página", "registros en esta página"],
-        placeholder: "Buscar en esta página (acción, entidad, detalle)",
-        buscar: d => [d.accion, d.entidad, d.detalle, d.idEntidad, d.idUsuario].join(" "),
+        placeholder: "Buscar en esta página (acción, entidad, detalle, usuario)",
+        buscar: d => [d.accion, d.entidad, d.detalle, d.idEntidad, d.idUsuario, nombreUsuario.get(d.idUsuario)].join(" "),
         barra: [anterior, siguiente],
         vacio: { icono: "lista", titulo: "No hay registros de auditoría" },
         columnas: [
@@ -866,7 +871,7 @@ async function renderAuditoria(c, pagina = 1) {
             { titulo: "Entidad", html: d => celda(d.entidad), orden: d => d.entidad || "" },
             { titulo: "ID", html: d => d.idEntidad != null ? `<span class="ui-muted ui-num">#${YS.esc(d.idEntidad)}</span>` : celda(null) },
             { titulo: "Detalle", html: d => celdaLarga(d.detalle) },
-            { titulo: "Usuario", html: d => `<span class="ui-muted ui-num">#${YS.esc(d.idUsuario)}</span>`, orden: d => d.idUsuario }
+            { titulo: "Usuario", html: d => celda(nombreUsuario.get(d.idUsuario) ? nombreUsuario.get(d.idUsuario) : `#${d.idUsuario}`), orden: d => nombreUsuario.get(d.idUsuario) || "" }
         ]
     });
 }
