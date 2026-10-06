@@ -6,6 +6,41 @@ builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
 
+// JWT (rama Cambios-Agus-jwt): reemplaza la identidad autodeclarada por X-Usuario-Id.
+// La clave de firma no vive en ningún archivo versionado — JwtConfig.ClaveOFallar lee
+// Jwt:Key de user-secrets (desarrollo) o de la variable de entorno Jwt__Key, y si falta
+// tira un mensaje claro en vez de una excepción oscura más adelante.
+builder.Services.AddSingleton<JwtEmisorService>();
+builder.Services.AddSingleton<IdentidadActualService>();
+
+const string EsquemaJwtOLegacy = "JwtOLegacy";
+const string EsquemaLegacy = "Legacy";
+builder.Services.AddAuthentication(EsquemaJwtOLegacy)
+    .AddPolicyScheme(EsquemaJwtOLegacy, "JWT si hay Bearer, si no el header legacy", opt =>
+    {
+        // Mismo ClaimsPrincipal resulte de uno u otro esquema — ver IdentidadActualService,
+        // que no necesita saber cuál de los dos lo autenticó.
+        opt.ForwardDefaultSelector = ctx =>
+            ctx.Request.Headers.Authorization.ToString().StartsWith("Bearer ")
+                ? Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerDefaults.AuthenticationScheme
+                : EsquemaLegacy;
+    })
+    .AddJwtBearer(opt =>
+    {
+        opt.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
+                System.Text.Encoding.UTF8.GetBytes(JwtConfig.ClaveOFallar(builder.Configuration))),
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    })
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, LegacyHeaderAuthHandler>(EsquemaLegacy, _ => { });
+builder.Services.AddAuthorization();
+
 // Página pública de reserva (Fase 3a, Paso 3): límite por IP, ventana fija corta, en
 // memoria — no hay estado compartido entre procesos y no lo necesita, es una sola
 // instancia local. Se aplica al endpoint de disponibilidad y al de reserva (ambos
@@ -27,8 +62,15 @@ builder.Services.AddRateLimiter(opt =>
 });
 
 var app = builder.Build();
+
+// Falla rápido y claro al arrancar si falta la clave, en vez de un 500 confuso en el
+// primer login — se resuelve el singleton una vez ahora mismo para forzar el chequeo.
+app.Services.GetRequiredService<JwtEmisorService>();
+
 app.UseCors();
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Headers de la superficie pública (Fase 3a, Paso 3): hoy la app corre local, pero esta
 // es la primera ruta pensada para quedar expuesta — si en el futuro se despliega detrás
@@ -55,7 +97,7 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 // Login
-app.MapPost("/login", (LoginRequest req) =>
+app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor) =>
 {
     var dao = new UsuarioDAO();
     var usuario = dao.ObtenerPorUsername(req.Username);
@@ -79,15 +121,20 @@ app.MapPost("/login", (LoginRequest req) =>
 
     dao.ResetearIntentos(usuario.IdUsuario);
 
+    // El token lleva el mismo idUsuario/idPaciente/idProfesional que ya devolvía esta
+    // respuesta (contrato existente, solo se agrega el campo "token" — nada se quita).
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
     if (up != null)
-        return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente });
+        return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente,
+            token = jwtEmisor.Emitir(usuario.IdUsuario, "paciente", idPaciente: up.IdPaciente) });
 
     var upro = new UsuarioProfesionalDAO().ObtenerPorUsuario(usuario.IdUsuario);
     if (upro != null)
-        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional });
+        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional,
+            token = jwtEmisor.Emitir(usuario.IdUsuario, "profesional", idProfesional: upro.IdProfesional) });
 
-    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario });
+    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario,
+        token = jwtEmisor.Emitir(usuario.IdUsuario, "configurador") });
 });
 
 // Especialidad
