@@ -1005,33 +1005,51 @@
     }
 
     // ── Avisos internos del módulo (campana del configurador) ───
-    // Los que antes estaban en la campanita de la pantalla de mensajería: urgencias,
-    // escalamientos a una persona y avisos de turnos. Cada uno se marca leído por separado.
+    // Los que antes estaban en la campanita de la pantalla de mensajería: urgencias y
+    // escalamientos a una persona (los de "un paciente avisó que no va a asistir" son para el
+    // profesional, no para acá: se piden aparte con destinatario=Administrador). Una misma
+    // conversación puede acumular varios avisos (cada vez que el bot deriva o detecta una
+    // urgencia); se agrupan en uno solo con la cantidad, en vez de listarlos todos sueltos.
     function instalarAvisosInternos() {
         if (!YS.shell?.instalarCampana) return;
         YS.shell.instalarCampana({
             titulo: "Avisos",
             async cargar() {
-                const lista = await YS.api(`${BASE}/notificaciones-internas`);
-                return {
-                    noLeidos: lista.filter(a => !a.leida).length,
-                    items: lista.slice(0, 40).map(a => ({
-                        id: a.idNotificacionInterna, titulo: a.titulo, texto: a.mensaje, noLeido: !a.leida, urgente: a.tipo === "Urgencia",
-                        fecha: `Para: ${a.destinatario} · ${YS.fecha.corta(a.fechaCreacion)} ${YS.fecha.hora(a.fechaCreacion)}`,
+                const lista = await YS.api(`${BASE}/notificaciones-internas?destinatario=Administrador`);
+                const grupos = new Map();
+                lista.forEach(a => {
+                    const clave = a.idConversacion ?? `a${a.idNotificacionInterna}`;
+                    if (!grupos.has(clave)) grupos.set(clave, []);
+                    grupos.get(clave).push(a);
+                });
+                const items = [...grupos.values()].map(avisos => {
+                    avisos.sort((x, y) => new Date(y.fechaCreacion) - new Date(x.fechaCreacion));
+                    // La urgencia manda el título del grupo aunque no sea la más nueva; si ya está
+                    // leída (se resolvió) vale el aviso más reciente, como si fuera uno solo.
+                    const urgente = avisos.find(a => a.tipo === "Urgencia" && !a.leida);
+                    const principal = urgente || avisos[0];
+                    const noLeidos = avisos.filter(a => !a.leida);
+                    const idConversacion = avisos[0].idConversacion;
+                    return {
+                        id: principal.idNotificacionInterna, urgente: !!urgente, noLeido: noLeidos.length > 0,
+                        titulo: principal.titulo,
+                        texto: avisos.length > 1 ? `${principal.mensaje} (${avisos.length} avisos de esta conversación)` : principal.mensaje,
+                        fecha: `Para: ${principal.destinatario} · ${YS.fecha.corta(principal.fechaCreacion)} ${YS.fecha.hora(principal.fechaCreacion)}`,
                         acciones: [
-                            a.idConversacion ? { texto: "Abrir chat", tipo: "primary", alClick: async () => { await marcarAviso(a, false); YS.shell.campana.cerrar(); abrir(a.idConversacion); } } : null,
-                            !a.leida ? { texto: "Marcar leído", alClick: () => marcarAviso(a) } : null
+                            idConversacion ? { texto: "Abrir chat", tipo: "primary", alClick: async () => { await marcarAvisos(noLeidos, false); YS.shell.campana.cerrar(); abrir(idConversacion); } } : null,
+                            noLeidos.length ? { texto: noLeidos.length > 1 ? `Marcar leídos (${noLeidos.length})` : "Marcar leído", alClick: () => marcarAvisos(noLeidos) } : null
                         ].filter(Boolean)
-                    }))
-                };
+                    };
+                });
+                return { noLeidos: lista.filter(a => !a.leida).length, items };
             },
             vacio: "No hay avisos."
         });
     }
 
-    async function marcarAviso(a, refrescar = true) {
-        if (!a.leida) {
-            try { await YS.api(`${BASE}/notificaciones-internas/${a.idNotificacionInterna}/leida`, { method: "PUT" }); }
+    async function marcarAvisos(avisos, refrescar = true) {
+        if (avisos.length) {
+            try { await Promise.all(avisos.map(a => YS.api(`${BASE}/notificaciones-internas/${a.idNotificacionInterna}/leida`, { method: "PUT" }))); }
             catch (e) { YS.toast(e.message, "error"); return; }
         }
         if (refrescar) YS.shell.campana.refrescar();
