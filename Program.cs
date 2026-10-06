@@ -545,11 +545,13 @@ app.MapGet("/profesionales/{id}/agenda", (int id) =>
 // los próximos horarios libres calculados igual que la reserva real, sin paciente (no aplica
 // RN-07). Autenticado (lo pide la propia pantalla del profesional) — la versión pública,
 // con sus propios límites, es /public/profesionales/{slug}/disponibilidad (Paso 3).
-app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoReglasService reglas) =>
+app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx);
+    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tu propia vista previa." }, statusCode: 403);
     var rango = Math.Clamp(dias ?? 14, 1, 90);
     return Results.Ok(reglas.HorariosLibresDelProfesional(id, rango, 500));
-});
+}).RequireAuthorization();
 
 app.MapPost("/agendas", (Agenda a) =>
 {
@@ -597,20 +599,36 @@ app.MapDelete("/agenda/{id}", (int id) =>
 });
 
 // Turno
+// Fase JWT: el dump completo de /turnos (sin filtrar por nadie) queda para Configurador.
 app.MapGet("/turnos", () =>
-    new TurnoDAO().ObtenerTodos());
+    new TurnoDAO().ObtenerTodos())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
-app.MapGet("/turnos/{id}", (int id) =>
+app.MapGet("/turnos/{id}", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var t = new TurnoDAO().ObtenerPorId(id);
-    return t is null ? Results.NotFound() : Results.Ok(t);
-});
+    if (t is null) return Results.NotFound();
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsPaciente: true } && yo.IdPaciente != t.IdPaciente) return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
+    if (yo is { EsProfesional: true } && yo.IdProfesional != t.IdProfesional) return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
+    return Results.Ok(t);
+}).RequireAuthorization();
 
-app.MapGet("/pacientes/{id}/turnos", (int id) =>
-    new TurnoDAO().ObtenerPorPaciente(id));
+// Un paciente solo ve los propios; cualquier profesional o el administrador puede ver los
+// de un paciente (parte de su atención) — la restricción real es "no otro paciente".
+app.MapGet("/pacientes/{id}/turnos", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsPaciente: true } && yo.IdPaciente != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+    return Results.Ok(new TurnoDAO().ObtenerPorPaciente(id));
+}).RequireAuthorization();
 
-app.MapGet("/pacientes/{id}/turnos-detalle", (int id) =>
-    new TurnoDetalleDAO().ObtenerPorPaciente(id));
+app.MapGet("/pacientes/{id}/turnos-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsPaciente: true } && yo.IdPaciente != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+    return Results.Ok(new TurnoDetalleDAO().ObtenerPorPaciente(id));
+}).RequireAuthorization();
 
 app.MapGet("/pacientes/{id}/proximo-turno", (int id) =>
 {
@@ -618,15 +636,23 @@ app.MapGet("/pacientes/{id}/proximo-turno", (int id) =>
     return t is null ? Results.NotFound() : Results.Ok(t);
 });
 
-app.MapGet("/pacientes/{id}/mis-profesionales", (int id) =>
-    new PacienteProfesionalDAO().ObtenerProfesionalesDePaciente(id));
-
-app.MapGet("/profesionales/{id}/pacientes", (int id) =>
+app.MapGet("/pacientes/{id}/mis-profesionales", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsPaciente: true } && yo.IdPaciente != id) return Results.Json(new { mensaje = "Solo podés ver tus propios profesionales." }, statusCode: 403);
+    return Results.Ok(new PacienteProfesionalDAO().ObtenerProfesionalesDePaciente(id));
+}).RequireAuthorization();
+
+// La lista de pacientes de un profesional es privada de ese profesional (no de "cualquier
+// profesional", a diferencia de los turnos de un paciente arriba).
+app.MapGet("/profesionales/{id}/pacientes", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx);
+    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
     var ids = new PacienteProfesionalDAO().ObtenerIdPacientesDeProfesional(id);
     var dao = new PacienteDAO();
-    return ids.Select(idPac => dao.ObtenerPorId(idPac)).Where(p => p != null).ToList();
-});
+    return Results.Ok(ids.Select(idPac => dao.ObtenerPorId(idPac)).Where(p => p != null).ToList());
+}).RequireAuthorization();
 
 app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp) =>
 {
@@ -643,10 +669,11 @@ app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idPro
 // Lo llaman tanto el paciente (Pantalla_Paciente) como el profesional/configurador
 // (Pantalla_Profesional) por esta misma ruta. Solo el paciente manda idPaciente (agregado
 // en la Fase 3a, Paso 1: un query param nuevo, no cambia el contrato de quien no lo manda)
-// y solo para él aplican las reglas (dueño del turno + RN-05) vía TurnoReglasService.Cancelar
-// — el profesional/configurador sigue cancelando sin restricciones, como siempre, para no
-// cambiarle el comportamiento visible.
-app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos notificador, TurnoReglasService reglas) =>
+// y solo para él aplican las reglas (dueño del turno + RN-05) vía TurnoReglasService.Cancelar.
+// Fase JWT, agregado: si cancela un profesional (no idPaciente, no Configurador), el turno
+// tiene que ser suyo — antes cualquier profesional podía cancelar el turno de cualquier
+// otro, sin chequeo ("ver o cancelar un turno ajeno").
+app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
     if (idPaciente is not null)
     {
@@ -658,14 +685,21 @@ app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos
 
     var t = new TurnoDAO().ObtenerPorId(id);
     if (t is null) return Results.NotFound();
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsProfesional: true } && yo.IdProfesional != t.IdProfesional)
+        return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
     t.IdEstadoTurno = 3; // Cancelado
     new TurnoDAO().Modificar(t);
     notificador.TurnoCancelado(id);
     return Results.Ok();
-});
+}).RequireAuthorization();
 
-app.MapGet("/profesionales/{id}/turnos", (int id) =>
-    new TurnoDAO().ObtenerPorProfesional(id));
+app.MapGet("/profesionales/{id}/turnos", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx);
+    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+    return Results.Ok(new TurnoDAO().ObtenerPorProfesional(id));
+}).RequireAuthorization();
 
 app.MapPost("/turnos", (Turno t) =>
 {
@@ -1442,8 +1476,11 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
 });
 
 // ── Mis Pacientes con estado de asignacion ──────────────────
-app.MapGet("/profesionales/{id}/pacientes-detalle", (int id) =>
+app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx);
+    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -1469,7 +1506,7 @@ app.MapGet("/profesionales/{id}/pacientes-detalle", (int id) =>
         });
     }
     return Results.Ok(lista);
-});
+}).RequireAuthorization();
 
 // ── Confirmar asignacion (el profesional acepta al paciente) ─
 app.MapPut("/asignaciones/estado", (AsignacionEstadoRequest req) =>
@@ -1543,8 +1580,11 @@ app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notifi
 });
 
 // ── Turnos confirmados por paciente, pendientes de sala (para el profesional) ──
-app.MapGet("/profesionales/{id}/turnos-confirmados", (int id) =>
+app.MapGet("/profesionales/{id}/turnos-confirmados", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx);
+    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -1570,7 +1610,7 @@ app.MapGet("/profesionales/{id}/turnos-confirmados", (int id) =>
         });
     }
     return Results.Ok(lista);
-});
+}).RequireAuthorization();
 
 // ── El profesional genera la sala: crea codigo y notifica al paciente ──
 app.MapPut("/turnos/{id}/generar-sala", (int id) =>
