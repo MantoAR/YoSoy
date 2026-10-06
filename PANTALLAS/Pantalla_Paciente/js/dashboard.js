@@ -514,7 +514,7 @@ async function confirmarSolicitudDia(fechaStr) {
         turnosCalendario = await r.json();
         dibujarCalendario();
         document.getElementById("panelTurno").classList.remove("visible");
-    } else toast("Error al solicitar el turno.", "error");
+    } else toast(await YS.leerMensaje(res, "No se pudo solicitar el turno."), "error");
 }
 
 function toggleReprogramar() {
@@ -523,7 +523,8 @@ function toggleReprogramar() {
 
 async function cancelarTurno(id) {
     if (!await confirmar("¿Cancelar este turno?", { titulo: "Cancelar turno", textoConfirmar: "Cancelar turno", textoCancelar: "Volver", peligro: true })) return;
-    await YS.fetch(`/turnos/${id}/cancelar`, { method: "PUT" });
+    const rCancel = await YS.fetch(`/turnos/${id}/cancelar?idPaciente=${idPaciente}`, { method: "PUT" });
+    if (!rCancel.ok) { toast(await YS.leerMensaje(rCancel, "No se pudo cancelar el turno."), "error"); return; }
     const res = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
     turnosCalendario = await res.json();
     dibujarCalendario();
@@ -595,9 +596,10 @@ async function confirmarReprogramar(idTurno) {
 
     const fechaNueva = _reprogFechaSeleccionada;
 
-    await YS.fetch(`/turnos/${idTurno}/cancelar`, { method: "PUT" });
+    const rCancel = await YS.fetch(`/turnos/${idTurno}/cancelar?idPaciente=${idPaciente}`, { method: "PUT" });
+    if (!rCancel.ok) { toast(await YS.leerMensaje(rCancel, "No se pudo cancelar el turno anterior."), "error"); return; }
 
-    await YS.fetch(`/turnos/solicitar`, {
+    const rNuevo = await YS.fetch(`/turnos/solicitar`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -609,6 +611,7 @@ async function confirmarReprogramar(idTurno) {
             motivo
         })
     });
+    if (!rNuevo.ok) { toast(await YS.leerMensaje(rNuevo, "No se pudo pedir el nuevo horario."), "error"); return; }
 
     _modoReprogramar = false;
     _reprogFechaSeleccionada = null;

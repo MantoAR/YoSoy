@@ -476,8 +476,22 @@ app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idPro
     return Results.Ok();
 });
 
-app.MapPut("/turnos/{id}/cancelar", (int id, INotificadorTurnos notificador) =>
+// Lo llaman tanto el paciente (Pantalla_Paciente) como el profesional/configurador
+// (Pantalla_Profesional) por esta misma ruta. Solo el paciente manda idPaciente (agregado
+// en la Fase 3a, Paso 1: un query param nuevo, no cambia el contrato de quien no lo manda)
+// y solo para él aplican las reglas (dueño del turno + RN-05) vía TurnoReglasService.Cancelar
+// — el profesional/configurador sigue cancelando sin restricciones, como siempre, para no
+// cambiarle el comportamiento visible.
+app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos notificador, TurnoReglasService reglas) =>
 {
+    if (idPaciente is not null)
+    {
+        var regla = reglas.Cancelar(id, idPaciente.Value);
+        if (!regla.Ok) return regla.ComoConflicto();
+        notificador.TurnoCancelado(id);
+        return Results.Ok();
+    }
+
     var t = new TurnoDAO().ObtenerPorId(id);
     if (t is null) return Results.NotFound();
     t.IdEstadoTurno = 3; // Cancelado
@@ -495,19 +509,17 @@ app.MapPost("/turnos", (Turno t) =>
     return Results.Created("/turnos", t);
 });
 
-// Solicitud de turno desde el paciente — estado siempre Pendiente
-app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador) =>
+// Solicitud de turno desde el paciente — estado siempre Pendiente. Pasa por
+// TurnoReglasService.Solicitar (RN-01/02/05/07 + inserción a prueba de doble reserva),
+// igual que ya hace el bot — antes insertaba directo, sin ninguna regla (Fase 3a, Paso 1).
+app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador, TurnoReglasService reglas) =>
 {
-    using var con = Conexion.ObtenerConexion();
-    con.Open();
-    var cmd = new Microsoft.Data.SqlClient.SqlCommand(
-        "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = 'Pendiente'", con);
-    var result = cmd.ExecuteScalar();
-    if (result is null) return Results.Problem("No existe el estado 'Pendiente' en EstadoTurno.");
-    t.IdEstadoTurno = (int)result;
-    t.CreadoPor = "paciente";   // igual que los pedidos por chat: el profesional lo acepta o lo rechaza
-    new TurnoDAO().Insertar(t);
-    notificador.TurnoSolicitado(t);
+    var resultado = reglas.Solicitar(t.IdPaciente, t.IdProfesional, t.Fecha.Date + t.Hora, t.Motivo);
+    if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
+    notificador.TurnoSolicitado(resultado.IdTurno!.Value);
+    // Misma forma que antes (el Turno enviado), más el id real que ya no quedaba en 0.
+    t.IdTurno = resultado.IdTurno.Value;
+    t.CreadoPor = "paciente";
     return Results.Created("/turnos", t);
 });
 
@@ -1318,21 +1330,18 @@ app.MapPut("/informes-admision/rechazar", (RechazoRequest req) =>
 
 
 // Turno propuesto por el profesional (queda pendiente de confirmacion del paciente)
-app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INotificadorTurnos notificador) =>
+// El profesional propone un turno futuro: pasa por todas las reglas (antes, ninguna).
+// Cita urgente (EsUrgente=true, "ahora mismo") usa SolicitarUrgente, que no le pide RN-01/05
+// pero sí inserta a prueba de doble reserva — ver TurnoReglasService (Fase 3a, Paso 1).
+app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INotificadorTurnos notificador, TurnoReglasService reglas) =>
 {
-    using var con = Conexion.ObtenerConexion();
-    con.Open();
-    var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-        INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor)
-        VALUES (@IdPac, @IdProf, 1, @Fecha, @Hora, 'Virtual', @Motivo, 'profesional')", con);
-    cmd.Parameters.AddWithValue("@IdPac", req.IdPaciente);
-    cmd.Parameters.AddWithValue("@IdProf", req.IdProfesional);
-    cmd.Parameters.AddWithValue("@Fecha", DateTime.Parse(req.Fecha));
-    cmd.Parameters.AddWithValue("@Hora", TimeSpan.Parse(req.Hora));
-    cmd.Parameters.AddWithValue("@Motivo", (object)req.Motivo ?? DBNull.Value);
-    cmd.ExecuteNonQuery();
-    notificador.TurnoAgendadoPorProfesional(req.IdPaciente, req.IdProfesional, DateTime.Parse(req.Fecha), TimeSpan.Parse(req.Hora));
-    return Results.Created("/turnos", null);
+    var momento = DateTime.Parse(req.Fecha).Date + TimeSpan.Parse(req.Hora);
+    var resultado = req.EsUrgente
+        ? reglas.SolicitarUrgente(req.IdPaciente, req.IdProfesional, momento, req.Motivo)
+        : reglas.Solicitar(req.IdPaciente, req.IdProfesional, momento, req.Motivo, creadoPor: "profesional");
+    if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
+    notificador.TurnoAgendadoPorProfesional(req.IdPaciente, req.IdProfesional, momento.Date, momento.TimeOfDay);
+    return Results.Created("/turnos", new { idTurno = resultado.IdTurno });
 });
 
 
@@ -1437,4 +1446,4 @@ public record DerivarRequest(int IdProfesional, string Observaciones);
 public record AsignacionEstadoRequest(int IdPaciente, int IdProfesional, string Estado);
 public record RechazoRequest(int IdPaciente, int IdProfesional, string Motivo);
 
-public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo);
+public record TurnoProfesionalRequest(int IdPaciente, int IdProfesional, string Fecha, string Hora, string Motivo, bool EsUrgente = false);

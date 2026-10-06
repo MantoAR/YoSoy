@@ -23,8 +23,12 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 ///  RN-05  Anticipación mínima de 24 h para pedir y para cancelar.
 ///  RN-07  Un paciente no puede tener dos turnos Pendientes o Confirmados con el
 ///         mismo profesional el mismo día.
-/// Lo usan el bot y, para RN-02, los endpoints de confirmación. Los demás endpoints
-/// web (POST /turnos/solicitar, PUT /turnos/{id}/cancelar) todavía NO pasan por acá.
+/// Lo usa el bot entero y, desde la Fase 3a, también los endpoints web de turnos
+/// (POST /turnos/solicitar, PUT /turnos/{id}/cancelar cuando lo llama un paciente,
+/// POST /turnos/profesional-solicitar) — antes insertaban/cancelaban directo, sin pasar
+/// por ninguna regla. El único que sigue aparte a propósito es Cita urgente
+/// (SolicitarUrgente): mismo motivo que el bot con la mensajería, no tiene sentido pedirle
+/// RN-01/05 a algo que es "ahora mismo" por definición.
 ///
 /// Zona horaria: Turno.Fecha y Turno.Hora se guardan como hora local sin zona.
 /// Se compara contra la hora local del servidor (TimeProvider.GetLocalNow),
@@ -57,7 +61,19 @@ public class TurnoReglasService
     /// Próximos horarios que cumplen RN-01, RN-05 y RN-07 para ese paciente y profesional,
     /// recorriendo como máximo <paramref name="dias"/> días desde hoy.
     /// </summary>
-    public List<DateTime> HorariosLibres(int idPaciente, int idProfesional, int dias, int maximo)
+    public List<DateTime> HorariosLibres(int idPaciente, int idProfesional, int dias, int maximo) =>
+        CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) == 0);
+
+    /// <summary>
+    /// Igual que <see cref="HorariosLibres"/> pero sin un paciente particular: no aplica
+    /// RN-07 (no hay a quién chequearle turnos repetidos ese día). La usan la vista previa
+    /// de "Mis horarios de trabajo" (Fase 3a, Paso 2) y la página pública de reserva
+    /// (Fase 3a, Paso 3) — ninguna de las dos tiene un paciente identificado todavía.
+    /// </summary>
+    public List<DateTime> HorariosLibresDelProfesional(int idProfesional, int dias, int maximo) =>
+        CalcularHorariosLibres(idProfesional, dias, maximo, _ => true);
+
+    private List<DateTime> CalcularHorariosLibres(int idProfesional, int dias, int maximo, Func<DateTime, bool> pasaRN07)
     {
         var ahora   = Ahora;
         var minimo  = ahora.AddHours(HorasMinimasAnticipacion);
@@ -69,7 +85,7 @@ public class TurnoReglasService
             var fecha  = ahora.Date.AddDays(d);
             var franjas = agenda.Where(a => DiaDeLaSemana(a.Dia) == fecha.DayOfWeek).ToList();
             if (franjas.Count == 0) continue;
-            if (_repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) > 0) continue; // RN-07
+            if (!pasaRN07(fecha)) continue;
 
             var ocupadas = _repo.HorasOcupadas(idProfesional, fecha);
             foreach (var slot in Slots(franjas).OrderBy(s => s))
@@ -116,16 +132,44 @@ public class TurnoReglasService
 
     /// <summary>
     /// Valida y crea el turno en estado Pendiente, igual que POST /turnos/solicitar.
+    /// <paramref name="creadoPor"/> es "paciente" por defecto (el paciente pide, o el bot en
+    /// su nombre); el profesional proponiendo un turno futuro (POST /turnos/profesional-solicitar
+    /// sin Cita urgente) pasa "profesional" — es lo que ya distinguía "Pedido por" en la
+    /// tabla de turnos antes de esta fase, no se inventa una categoría nueva.
     /// </summary>
-    public ResultadoSolicitud Solicitar(int idPaciente, int idProfesional, DateTime momento, string? motivo)
+    public ResultadoSolicitud Solicitar(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor = "paciente")
     {
         var regla = ValidarSolicitud(idPaciente, idProfesional, momento);
         if (!regla.Ok) return new ResultadoSolicitud(regla, null);
 
+        var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, creadoPor);
+        return id is null
+            ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-01", "Ese horario se acaba de ocupar."), null)
+            : new ResultadoSolicitud(ResultadoRegla.Valido, id);
+    }
+
+    /// <summary>
+    /// Cita urgente (POST /turnos/profesional-solicitar con esUrgente=true, Fase 3a Paso 1):
+    /// el profesional inicia una sesión ahora mismo, así que no tiene sentido pedir RN-01
+    /// (dentro de una franja futura) ni RN-05 (24 h de anticipación) — es la naturaleza de
+    /// "urgente", y así se comportaba antes de esta fase (sin ninguna regla). Lo único que
+    /// se suma es la inserción a prueba de doble reserva: si el profesional ya tiene otra
+    /// cosa exactamente a esa hora, o el paciente ya tiene otro turno activo ese mismo día
+    /// con él, no se crea un duplicado (antes sí se hubiera creado).
+    /// </summary>
+    public ResultadoSolicitud SolicitarUrgente(int idPaciente, int idProfesional, DateTime momento, string? motivo)
+    {
+        var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, "profesional");
+        return id is null
+            ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-07", "Ya hay un turno activo para ese profesional y paciente ese día, o el horario está ocupado."), null)
+            : new ResultadoSolicitud(ResultadoRegla.Valido, id);
+    }
+
+    private int? InsertarPendiente(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor)
+    {
         var idPendiente = _repo.IdEstado("Pendiente")
             ?? throw new InvalidOperationException("No existe el estado 'Pendiente' en EstadoTurno.");
-
-        var id = _repo.InsertarSiLibre(new Turno
+        return _repo.InsertarSiLibre(new Turno
         {
             IdPaciente    = idPaciente,
             IdProfesional = idProfesional,
@@ -134,11 +178,7 @@ public class TurnoReglasService
             Hora          = momento.TimeOfDay,
             Modalidad     = "Virtual",
             Motivo        = motivo!   // Turno.Motivo admite NULL en la base
-        }, "paciente");
-
-        return id is null
-            ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-01", "Ese horario se acaba de ocupar."), null)
-            : new ResultadoSolicitud(ResultadoRegla.Valido, id);
+        }, creadoPor);
     }
 
     public bool TieneConsentimiento(int idPaciente) =>

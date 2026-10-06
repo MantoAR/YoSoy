@@ -218,7 +218,8 @@ async function confirmarCitaUrgente() {
                 idProfesional: idProfesional,
                 fecha: fechaStr,
                 hora: horaStr,
-                motivo: 'Cita urgente'
+                motivo: 'Cita urgente',
+                esUrgente: true
             })
         });
 
