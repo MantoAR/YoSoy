@@ -883,7 +883,29 @@ Ninguno. Esta fase solo agregó: no reemplazó ni dejó obsoleta ninguna pantall
 ## Fase 2: pendientes
 
 - **Vocabulario de chips de la Fase 1** (Paso 3: "Respondido por el bot"/"Nueva"/"Sin responder"): seguía pendiente de la fase anterior, sigue sin tocarse acá.
-- **El texto libre de `CasoDerivacion.Motivo` en reasignaciones manuales** (ver "privacidad" arriba): decidir si conviene limitarlo o dejarlo como está.
+- ~~El texto libre de `CasoDerivacion.Motivo` en reasignaciones manuales~~ — resuelto en la Fase 3a, Paso 0: ahora es una lista cerrada más una nota aparte que nunca llega a auditoría.
 - **Entrenamiento del bot:** a propósito fuera de esta fase (el menú CRM no lo agrega). `CasoDerivacion.Origen = 'Bot'` y `Caso.Origen = 'Canal'/'Bot'` ya están reservados en el modelo para cuando llegue.
 - **Reasignación manual no permite cambiar de grupo**, solo de profesional (un cambio de grupo pasa por "Corregir" mientras la derivación sigue pendiente, o por derivar de nuevo). Si hace falta reasignar de grupo a un caso ya confirmado, hoy no hay una acción directa para eso.
-- **No se migraron los pacientes/casos de antes de esta fase:** un paciente que ya tenía un profesional asignado por el mecanismo viejo no tiene un `Caso` hasta que entre una admisión nueva o alguien lo cree a mano (no hay un endpoint para crear un `Caso` suelto, solo vía admisión) — es consistente con "no se inventan datos", pero significa que "Mis casos" y el panel del lead van a estar vacíos para esos pacientes hasta que pase algo nuevo.
+- **No se migraron los pacientes/casos de antes de esta fase:** un paciente que ya tenía un profesional asignado por el mecanismo viejo no tiene un `Caso` hasta que entre una admisión nueva o alguien lo cree a mano (no hay un endpoint para crear un `Caso` suelto, solo vía admisión) — es consistente con "no se inventan datos", pero significa que "Mis casos" y el panel del lead van a estar vacíos para esos pacientes hasta que pase algo nuevo. Ver la propuesta (sin construir) en "Fase 3a, Paso 0" más abajo.
+
+## Fase 3a: disponibilidad por profesional + link público de reserva
+
+Plan más grande, Fase 3a. Sigue en `Cambios-Agus`, local, sin push. La sincronización con Google Calendar es la Fase 3b, aparte — no se toca acá.
+
+### Paso 0, punto 1: motivo de reasignación manual, ahora lista cerrada
+
+Antes `CasoDerivacion.Motivo` para una reasignación manual era el texto que escribía el administrador, sin validar ni límite. Ahora:
+
+- `Services/AsignacionService.cs`, `MotivoReasignacion.Categorias`: `CargaEquilibrada`, `PedidoDelPaciente`, `CambioDeEspecialidad`, `ProfesionalNoDisponible`, `Otro` — es la única fuente de verdad; el endpoint `GET /casos/motivos-reasignacion` se la expone al frontend para no repetir la lista, y `ReasignarManual` tira `ArgumentException` (→ 400) si no coincide con ninguna.
+- `CasoDerivacion.Nota` (columna nueva, `migrations/alter_casoderivacion_motivo_cerrado.sql`, aplicada dos veces en la base local — idempotente): texto corto opcional, máximo 140 caracteres (`MotivoReasignacion.NotaLongitudMaxima`), para contexto operativo ("pidió otro horario", "se fue de licencia"). **Nunca se copia** a `HistorialAsignacion.Motivo` (que sigue siendo siempre `"Manual"`, el mecanismo, no el porqué) ni pasa por ningún `LogAuditoria.Insertar` — confirmado contra la base real después de reasignar con una nota: cero filas de `LogAuditoria` la mencionan.
+- No se perdió nada de lo ya guardado: la columna es `NULL` por defecto y `CasoDerivacion.Motivo` no se tocó (sigue siendo la misma columna que ya usaba la cascada automática para `AutomaticaPorCarga`/etc.).
+- Interfaz: el modal de "Reasignar caso" cambió el campo de texto libre por un `<select>` con la lista cerrada (obligatorio) más un campo de nota aparte (opcional, con la advertencia de que no va a auditoría). El panel de detalle de un caso ahora suma una sección "Notas de reasignación" cuando las hay (leyendo `/casos/{id}/derivaciones`, que no se usaba antes ahí).
+- 2 tests nuevos (motivo no reconocido, nota de más de 140) más los 2 existentes de reasignación actualizados para probar que la categoría y la nota quedan donde corresponde.
+
+### Paso 0, punto 2: pacientes sin `Caso` de antes de la Fase 2
+
+Confirmado en la base local: hoy ningún paciente viejo tiene un `Caso` a menos que haya pasado por una admisión nueva desde que se mergeó la Fase 2 — no hay forma de crearlo retroactivamente. Pasa lo mismo con cualquier paciente nuevo que un administrador dé de alta y asigne a mano por fuera del flujo de admisión (`/derivaciones/cambio-directo`, "Solicitudes de cambio" sin admisión previa).
+
+**Propuesta, sin construir, para decidir:** un endpoint `POST /casos` (solo administrador) con `{ idPaciente, idGrupo, idProfesional? }` — crea un `Caso` con `Origen = 'Manual'` y, si viene `idProfesional`, lo deja directo en `Asignado` (vía `ReasignarManual`, mismo camino que ya sincroniza `PacienteProfesional` y deja rastro en `HistorialAsignacion`); si no, queda `Derivado` sin profesional, visible en la cola de "Sin asignar". En la interfaz, el lugar más chico para esto es un botón "Crear caso" en la pantalla de Usuarios, dentro de la ficha de un paciente ya seleccionado (reusando el split-view que ya existe) — así no hace falta una pantalla nueva. No se construyó: es la clase de decisión ("¿se puede crear un caso sin que haya una admisión de por medio?") que le toca a una persona, no a un commit.
+
+### Paso 0, reconocimiento

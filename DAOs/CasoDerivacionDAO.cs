@@ -7,7 +7,7 @@ public class CasoDerivacionDAO
                cd.IdGrupo, g.Nombre AS NombreGrupo,
                cd.IdProfesionalSugerido, ps.Nombre + ISNULL(' ' + ps.Apellido, '') AS NombreProfesionalSugerido,
                cd.IdProfesionalAsignado, pa.Nombre + ISNULL(' ' + pa.Apellido, '') AS NombreProfesionalAsignado,
-               cd.Origen, cd.Estado, cd.Motivo, cd.FechaCreacion
+               cd.Origen, cd.Estado, cd.Motivo, cd.Nota, cd.FechaCreacion
         FROM CasoDerivacion cd
         JOIN Caso c               ON c.IdCaso = cd.IdCaso
         JOIN Paciente pac         ON pac.IdPaciente = c.IdPaciente
@@ -21,9 +21,9 @@ public class CasoDerivacionDAO
         con.Open();
         var cmd = new SqlCommand(@"
             INSERT INTO CasoDerivacion
-                (IdCaso, IdGrupo, IdProfesionalSugerido, IdProfesionalAsignado, Origen, Estado, Motivo, IdCreadoPor, FechaCreacion, FechaResolucion)
+                (IdCaso, IdGrupo, IdProfesionalSugerido, IdProfesionalAsignado, Origen, Estado, Motivo, Nota, IdCreadoPor, FechaCreacion, FechaResolucion)
             OUTPUT INSERTED.IdCasoDerivacion
-            VALUES (@IdCaso, @IdGrupo, @IdProfSug, @IdProfAsig, @Origen, @Estado, @Motivo, @IdCreadoPor, @Fecha, @FechaResolucion)", con);
+            VALUES (@IdCaso, @IdGrupo, @IdProfSug, @IdProfAsig, @Origen, @Estado, @Motivo, @Nota, @IdCreadoPor, @Fecha, @FechaResolucion)", con);
         cmd.Parameters.AddWithValue("@IdCaso", d.IdCaso);
         cmd.Parameters.AddWithValue("@IdGrupo", d.IdGrupo);
         cmd.Parameters.AddWithValue("@IdProfSug", (object?)d.IdProfesionalSugerido ?? DBNull.Value);
@@ -32,6 +32,7 @@ public class CasoDerivacionDAO
         cmd.Parameters.AddWithValue("@Estado", d.Estado);
         cmd.Parameters.AddWithValue("@FechaResolucion", (object?)d.FechaResolucion ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Motivo", (object?)d.Motivo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Nota", (object?)d.Nota ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@IdCreadoPor", (object?)d.IdCreadoPor ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Fecha", d.FechaCreacion == default ? DateTime.Now : d.FechaCreacion);
         return (int)cmd.ExecuteScalar();
@@ -59,7 +60,7 @@ public class CasoDerivacionDAO
         con.Open();
         var cmd = new SqlCommand(@"
             SELECT IdCasoDerivacion, IdCaso, IdGrupo, IdProfesionalSugerido, IdProfesionalAsignado,
-                   Origen, Estado, Motivo, IdCreadoPor, FechaCreacion, FechaResolucion
+                   Origen, Estado, Motivo, Nota, IdCreadoPor, FechaCreacion, FechaResolucion
             FROM CasoDerivacion WHERE IdCasoDerivacion = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var r = cmd.ExecuteReader();
@@ -73,7 +74,7 @@ public class CasoDerivacionDAO
         con.Open();
         var cmd = new SqlCommand(@"
             SELECT TOP 1 IdCasoDerivacion, IdCaso, IdGrupo, IdProfesionalSugerido, IdProfesionalAsignado,
-                   Origen, Estado, Motivo, IdCreadoPor, FechaCreacion, FechaResolucion
+                   Origen, Estado, Motivo, Nota, IdCreadoPor, FechaCreacion, FechaResolucion
             FROM CasoDerivacion WHERE IdCaso = @IdCaso AND Estado = 'Pendiente de confirmar'
             ORDER BY FechaCreacion DESC", con);
         cmd.Parameters.AddWithValue("@IdCaso", idCaso);
@@ -114,6 +115,7 @@ public class CasoDerivacionDAO
         Origen                = (string)r["Origen"],
         Estado                = (string)r["Estado"],
         Motivo                = r["Motivo"] == DBNull.Value ? null : (string)r["Motivo"],
+        Nota                  = r["Nota"] == DBNull.Value ? null : (string)r["Nota"],
         IdCreadoPor           = r["IdCreadoPor"] == DBNull.Value ? null : (int)r["IdCreadoPor"],
         FechaCreacion         = (DateTime)r["FechaCreacion"],
         FechaResolucion       = r["FechaResolucion"] == DBNull.Value ? null : (DateTime)r["FechaResolucion"]
@@ -133,6 +135,7 @@ public class CasoDerivacionDAO
         Origen                    = (string)r["Origen"],
         Estado                    = (string)r["Estado"],
         Motivo                    = r["Motivo"] == DBNull.Value ? null : (string)r["Motivo"],
+        Nota                      = r["Nota"] == DBNull.Value ? null : (string)r["Nota"],
         FechaCreacion             = (DateTime)r["FechaCreacion"]
     };
 }

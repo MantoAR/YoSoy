@@ -6,6 +6,19 @@ public record CandidatoAsignacion(int IdProfesional, bool Disponible, int CasosA
 // cerrado que HistorialAsignacion.Motivo.
 public record ResultadoAsignacion(int? IdProfesional, string Motivo);
 
+// Por qué un administrador reasignó un caso a mano (Fase 3a, Paso 0): lista cerrada —
+// antes era texto libre sin validar. Va en CasoDerivacion.Motivo; la nota aparte
+// (CasoDerivacion.Nota, opcional, máx. 140) nunca se copia a HistorialAsignacion.Motivo
+// ni a LogAuditoria (ver AsignacionService.ReasignarManual).
+public static class MotivoReasignacion
+{
+    public const int NotaLongitudMaxima = 140;
+    public static readonly string[] Categorias =
+    {
+        "CargaEquilibrada", "PedidoDelPaciente", "CambioDeEspecialidad", "ProfesionalNoDisponible", "Otro"
+    };
+}
+
 /// <summary>
 /// Asignación en cascada de casos a profesionales (Fase 2):
 ///  1. Grupo: lo decide quien llama (regla de derivación o elección manual), no este servicio.
@@ -130,9 +143,17 @@ public class AsignacionService
     /// Reasignación manual (administrador): no pasa por la cascada, el profesional ya
     /// viene elegido. Deja su propia CasoDerivacion (Origen Manual, ya Confirmada) para
     /// que el historial del caso quede completo, igual que una sugerida.
+    /// <paramref name="motivoCategoria"/> tiene que ser uno de MotivoReasignacion.Categorias;
+    /// <paramref name="nota"/> es un texto corto opcional (máx. NotaLongitudMaxima) que queda
+    /// en CasoDerivacion.Nota — nunca se copia a HistorialAsignacion.Motivo ni a auditoría.
     /// </summary>
-    public void ReasignarManual(int idCaso, int idProfesional, int? idUsuario, string? motivo = null)
+    public void ReasignarManual(int idCaso, int idProfesional, int? idUsuario, string motivoCategoria, string? nota = null)
     {
+        if (!MotivoReasignacion.Categorias.Contains(motivoCategoria))
+            throw new ArgumentException($"Motivo no reconocido: \"{motivoCategoria}\". Tiene que ser uno de: {string.Join(", ", MotivoReasignacion.Categorias)}.", nameof(motivoCategoria));
+        if (nota is { Length: > MotivoReasignacion.NotaLongitudMaxima })
+            throw new ArgumentException($"La nota no puede superar los {MotivoReasignacion.NotaLongitudMaxima} caracteres.", nameof(nota));
+
         var caso = _repo.ObtenerCaso(idCaso) ?? throw new InvalidOperationException("No existe ese caso.");
         int grupo = caso.IdGrupoActual ?? throw new InvalidOperationException("El caso todavía no tiene grupo; derivalo primero.");
 
@@ -143,7 +164,8 @@ public class AsignacionService
             IdProfesionalAsignado = idProfesional,
             Origen                = "Manual",
             Estado                = "Confirmada",
-            Motivo                = motivo ?? "Manual",
+            Motivo                = motivoCategoria,
+            Nota                  = string.IsNullOrWhiteSpace(nota) ? null : nota.Trim(),
             IdCreadoPor           = idUsuario,
             FechaResolucion       = DateTime.Now
         });

@@ -197,18 +197,43 @@ public class AsignacionServiceTests
         repo.Casos.Add(new Caso { IdCaso = 1, IdPaciente = 1, Estado = "Asignado", IdGrupoActual = 1, IdProfesionalAsignado = 50, Origen = "Admision" });
         var servicio = new AsignacionService(repo, new Random(1));
 
-        servicio.ReasignarManual(1, idProfesional: 99, idUsuario: 7);
+        servicio.ReasignarManual(1, idProfesional: 99, idUsuario: 7, motivoCategoria: "PedidoDelPaciente", nota: "Pidió otro horario");
 
         Assert.Equal(99, repo.Casos[0].IdProfesionalAsignado);
         Assert.Equal("Asignado", repo.Casos[0].Estado);
         var derivacion = Assert.Single(repo.Derivaciones);
         Assert.Equal("Manual", derivacion.Origen);
         Assert.Equal("Confirmada", derivacion.Estado);
+        Assert.Equal("PedidoDelPaciente", derivacion.Motivo);     // la categoría cerrada, no "Manual"
+        Assert.Equal("Pidió otro horario", derivacion.Nota);
         Assert.NotNull(derivacion.FechaResolucion);
         var h = Assert.Single(repo.Historial);
         Assert.Equal(99, h.IdProfesional);
-        Assert.Equal("Manual", h.Motivo);
+        Assert.Equal("Manual", h.Motivo);                          // HistorialAsignacion sigue siendo el mecanismo, no la categoría
         Assert.Contains((1, 99), repo.VinculosPacienteProfesional);
+    }
+
+    [Fact]
+    public void ReasignarManual_motivo_no_reconocido_tira_ArgumentException()
+    {
+        var repo = new FakeAsignacionRepositorio();
+        repo.Casos.Add(new Caso { IdCaso = 1, IdPaciente = 1, Estado = "Asignado", IdGrupoActual = 1, IdProfesionalAsignado = 50, Origen = "Admision" });
+        var servicio = new AsignacionService(repo, new Random(1));
+
+        Assert.Throws<ArgumentException>(() => servicio.ReasignarManual(1, 99, 7, motivoCategoria: "porque sí"));
+        Assert.Empty(repo.Derivaciones);   // no escribió nada antes de validar
+    }
+
+    [Fact]
+    public void ReasignarManual_nota_muy_larga_tira_ArgumentException()
+    {
+        var repo = new FakeAsignacionRepositorio();
+        repo.Casos.Add(new Caso { IdCaso = 1, IdPaciente = 1, Estado = "Asignado", IdGrupoActual = 1, IdProfesionalAsignado = 50, Origen = "Admision" });
+        var servicio = new AsignacionService(repo, new Random(1));
+        var notaLarga = new string('x', MotivoReasignacion.NotaLongitudMaxima + 1);
+
+        Assert.Throws<ArgumentException>(() => servicio.ReasignarManual(1, 99, 7, "Otro", notaLarga));
+        Assert.Empty(repo.Derivaciones);
     }
 
     [Fact]
@@ -218,6 +243,6 @@ public class AsignacionServiceTests
         repo.Casos.Add(new Caso { IdCaso = 1, IdPaciente = 1, Estado = "Nuevo", Origen = "Admision" });
         var servicio = new AsignacionService(repo, new Random(1));
 
-        Assert.Throws<InvalidOperationException>(() => servicio.ReasignarManual(1, 99, 7));
+        Assert.Throws<InvalidOperationException>(() => servicio.ReasignarManual(1, 99, 7, "Otro"));
     }
 }

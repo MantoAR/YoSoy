@@ -1641,9 +1641,11 @@ async function cambiarActivaRegla(id, activa) {
 
 // ── CASOS ────────────────────────────────────────────────────
 async function renderCasos(c, params = {}) {
-    const [casos, grupos, profesionales] = await Promise.all([YS.api("/casos"), YS.api("/grupos"), YS.api("/profesionales")]);
+    const [casos, grupos, profesionales, motivosReasignacion] = await Promise.all(
+        [YS.api("/casos"), YS.api("/grupos"), YS.api("/profesionales"), YS.api("/casos/motivos-reasignacion")]);
     if (YS.shell.actual !== "casos") return;
     window._casosActuales = casos; window._casosGrupos = grupos; window._casosProfesionales = profesionales;
+    window._motivosReasignacion = motivosReasignacion;
 
     YS.shell.encabezado({ subtitulo: `${casos.length} caso${casos.length === 1 ? "" : "s"}` });
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("casos") }]);
@@ -1687,8 +1689,9 @@ async function verDetalleCaso(id) {
     const panel = document.getElementById("casosDetalle");
     if (!panel) return;
     panel.innerHTML = YS.cargando();
-    const [detalle, historial] = await Promise.all([
-        YS.api(`/casos/${id}`).catch(() => null), YS.api(`/casos/${id}/historial`).catch(() => [])
+    const [detalle, historial, derivaciones] = await Promise.all([
+        YS.api(`/casos/${id}`).catch(() => null), YS.api(`/casos/${id}/historial`).catch(() => []),
+        YS.api(`/casos/${id}/derivaciones`).catch(() => [])
     ]);
     if (YS.shell.actual !== "casos" || !document.getElementById("casosDetalle")) return;
     if (!detalle) { panel.innerHTML = YS.vacio({ icono: "alerta", texto: "No se pudo cargar este caso." }); return; }
@@ -1696,6 +1699,7 @@ async function verDetalleCaso(id) {
 
     const profNombre = idp => YS.nombreCompleto(window._casosProfesionales.find(p => p.idProfesional === idp)) || `#${idp}`;
     const histTexto = h => `${TEXTO_MOTIVO_HIST[h.motivo] || h.motivo}${h.idProfesional ? " — " + YS.esc(profNombre(h.idProfesional)) : ""}`;
+    const notas = derivaciones.filter(d => d.nota);
 
     panel.innerHTML = `
         <h3 class="tarjeta-titulo">${YS.esc(detalle.nombrePaciente)}</h3>
@@ -1712,28 +1716,40 @@ async function verDetalleCaso(id) {
         </div>
         <h4 class="tarjeta-titulo mt-16">Historial</h4>
         ${historial.length ? `<div>${historial.map(h => `<div class="item-historia">${fechaHoraCelda(h.fechaHora)} · ${histTexto(h)}</div>`).join("")}</div>`
-            : YS.vacio({ icono: "lista", texto: "Todavía no hay asignaciones registradas." })}`;
+            : YS.vacio({ icono: "lista", texto: "Todavía no hay asignaciones registradas." })}
+        ${notas.length ? `<h4 class="tarjeta-titulo mt-16">Notas de reasignación</h4>
+            <div>${notas.map(d => `<div class="item-historia">${fechaHoraCelda(d.fechaCreacion)} · ${YS.esc(d.nota)}</div>`).join("")}</div>` : ""}`;
 }
+
+const TEXTO_CATEGORIA_REASIGNACION = {
+    CargaEquilibrada: "Carga equilibrada", PedidoDelPaciente: "Pedido del paciente",
+    CambioDeEspecialidad: "Cambio de especialidad", ProfesionalNoDisponible: "Profesional no disponible", Otro: "Otro"
+};
 
 function abrirModalReasignarCaso(idCaso) {
     const detalle = window._casoDetalleActual;
     const opciones = window._casosProfesionales.filter(p => p.estado === "Activo")
         .map(p => `<option value="${p.idProfesional}"${p.idProfesional === detalle.idProfesionalAsignado ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("");
+    const opcionesMotivo = (window._motivosReasignacion || []).map(m => `<option value="${m}">${YS.esc(TEXTO_CATEGORIA_REASIGNACION[m] || m)}</option>`).join("");
     abrirModalCaso("Reasignar caso", "Reasignar", `
         <p class="modal-texto">Paciente: <strong>${YS.esc(detalle.nombrePaciente)}</strong></p>
         <div class="ui-form-grid">
             ${campoSelect("campoReasignarProfesional", "Nuevo profesional", opcionesConElegir(opciones, "No hay profesionales activos"))}
-            <div class="ui-campo ui-campo--ancho"><label for="campoReasignarMotivo">Motivo (opcional)</label>
-                <input type="text" id="campoReasignarMotivo" class="ui-input" maxlength="200"></div>
+            ${campoSelect("campoReasignarMotivo", "Motivo", opcionesMotivo)}
+            <div class="ui-campo ui-campo--ancho"><label for="campoReasignarNota">Nota (opcional)</label>
+                <input type="text" id="campoReasignarNota" class="ui-input" maxlength="140" placeholder="No va a auditoría ni a logs">
+                <div class="ui-campo-ayuda">Hasta 140 caracteres. Es solo para el equipo, no queda en el registro de auditoría.</div></div>
         </div>`, () => confirmarReasignarCaso(idCaso));
 }
 
 async function confirmarReasignarCaso(idCaso) {
     const idProfesional = parseInt(document.getElementById("campoReasignarProfesional").value);
     if (!idProfesional) { toast("Elegí un profesional.", "error"); return; }
-    const motivo = document.getElementById("campoReasignarMotivo").value.trim() || null;
+    const motivoCategoria = document.getElementById("campoReasignarMotivo").value;
+    if (!motivoCategoria) { toast("Elegí un motivo.", "error"); return; }
+    const nota = document.getElementById("campoReasignarNota").value.trim() || null;
     try {
-        const res = await YS.fetch(`/casos/${idCaso}/reasignar`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idProfesional, motivo }) });
+        const res = await YS.fetch(`/casos/${idCaso}/reasignar`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ idProfesional, motivoCategoria, nota }) });
         if (res.ok || res.status === 204) { cerrarModalCaso(); toast("Caso reasignado."); mostrarTab("casos", { caso: idCaso }); }
         else toast(await YS.leerMensaje(res, "No se pudo reasignar."), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }

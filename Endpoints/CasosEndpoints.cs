@@ -172,14 +172,22 @@ public static class CasosEndpoints
             int? idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : null;
             try
             {
-                asignacion.ReasignarManual(id, req.IdProfesional, idUsuario, req.Motivo);
+                asignacion.ReasignarManual(id, req.IdProfesional, idUsuario, req.MotivoCategoria, req.Nota);
                 return Results.NoContent();
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Json(new { mensaje = ex.Message }, statusCode: 400);
             }
             catch (InvalidOperationException ex)
             {
                 return Results.Json(new { mensaje = ex.Message }, statusCode: 409);
             }
         });
+
+        // Las categorías cerradas del motivo de reasignación, para armar el <select> sin
+        // repetir la lista en el frontend.
+        app.MapGet("/casos/motivos-reasignacion", () => MotivoReasignacion.Categorias);
 
         // El caso (si existe) de un paciente: lo usa el panel "Información del lead" de
         // CRM > Chats, de solo lectura.
@@ -243,4 +251,4 @@ public record CrearGrupoRequest(string Nombre, string? Descripcion);
 public record MiembroGrupoRequest(int IdProfesional);
 public record CrearReglaRequest(int IdEspecialidad, int IdGrupoDestino, int Prioridad);
 public record CorregirDerivacionRequest(int? IdGrupo, int? IdProfesional);
-public record ReasignarCasoRequest(int IdProfesional, string? Motivo);
+public record ReasignarCasoRequest(int IdProfesional, string MotivoCategoria, string? Nota);
