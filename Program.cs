@@ -772,52 +772,62 @@ app.MapDelete("/consentimientos/{id}", (int id) =>
 });
 
 // HistoriaClinica
-app.MapGet("/historiasclinicas", () =>
-    new HistoriaClinicaDAO().ObtenerTodos());
+// Fase JWT: historia clínica/evoluciones/eventos de crisis/sesiones clínicas — lo más
+// sensible de toda la app (Ley 25.326). Ningún paciente los llama directo (no hay
+// pantalla de Pantalla_Paciente que los use — confirmado buscando en todo ese directorio),
+// así que el mínimo seguro y sin riesgo de romper nada es: Profesional o Configurador,
+// nunca Paciente ni anónimo. Queda pendiente, anotado, el paso más fino ("solo el
+// profesional asociado a ESE paciente", no cualquier profesional) — hoy cualquier
+// profesional autenticado puede ver la de cualquier paciente, un alcance más amplio que
+// Casos (que sí filtra por asignación) pero bastante más chico que "público".
+var soloClinico = (RouteHandlerBuilder b) => b.RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
-app.MapGet("/historiasclinicas/{id}", (int id) =>
+soloClinico(app.MapGet("/historiasclinicas", () =>
+    new HistoriaClinicaDAO().ObtenerTodos()));
+
+soloClinico(app.MapGet("/historiasclinicas/{id}", (int id) =>
 {
     var h = new HistoriaClinicaDAO().ObtenerPorId(id);
     return h is null ? Results.NotFound() : Results.Ok(h);
-});
+}));
 
-app.MapGet("/pacientes/{id}/historiaclinica", (int id) =>
+soloClinico(app.MapGet("/pacientes/{id}/historiaclinica", (int id) =>
 {
     var h = new HistoriaClinicaDAO().ObtenerPorPaciente(id);
     return h is null ? Results.NotFound() : Results.Ok(h);
-});
+}));
 
-app.MapPost("/historiasclinicas", (HistoriaClinica h) =>
+soloClinico(app.MapPost("/historiasclinicas", (HistoriaClinica h) =>
 {
     new HistoriaClinicaDAO().Insertar(h);
     return Results.Created("/historiasclinicas", h);
-});
+}));
 
 // Evolucion
-app.MapGet("/evoluciones", () =>
-    new EvolucionDAO().ObtenerTodos());
+soloClinico(app.MapGet("/evoluciones", () =>
+    new EvolucionDAO().ObtenerTodos()));
 
-app.MapGet("/evoluciones/{id}", (int id) =>
+soloClinico(app.MapGet("/evoluciones/{id}", (int id) =>
 {
     var e = new EvolucionDAO().ObtenerPorId(id);
     return e is null ? Results.NotFound() : Results.Ok(e);
-});
+}));
 
-app.MapGet("/historiasclinicas/{id}/evoluciones", (int id) =>
-    new EvolucionDAO().ObtenerPorHistoria(id));
+soloClinico(app.MapGet("/historiasclinicas/{id}/evoluciones", (int id) =>
+    new EvolucionDAO().ObtenerPorHistoria(id)));
 
-app.MapPost("/evoluciones", (Evolucion e) =>
+soloClinico(app.MapPost("/evoluciones", (Evolucion e) =>
 {
     new EvolucionDAO().Insertar(e);
     return Results.Created("/evoluciones", e);
-});
+}));
 
-app.MapPut("/evoluciones/{id}", (int id, Evolucion e) =>
+soloClinico(app.MapPut("/evoluciones/{id}", (int id, Evolucion e) =>
 {
     e.IdEvolucion = id;
     new EvolucionDAO().Modificar(e);
     return Results.Ok(e);
-});
+}));
 
 // Derivacion
 // "Solicitudes de cambio" (Derivacion, el mecanismo viejo — no CasoDerivacion de la Fase
@@ -937,30 +947,30 @@ app.MapGet("/profesionales/activos/especialidad/{idEsp}", (int idEsp) =>
         .Where(p => p.Estado == "Activo").ToList());
 
 // EventoCrisis
-app.MapGet("/eventoscrisis", () =>
-    new EventoCrisisDAO().ObtenerTodos());
+soloClinico(app.MapGet("/eventoscrisis", () =>
+    new EventoCrisisDAO().ObtenerTodos()));
 
-app.MapGet("/eventoscrisis/{id}", (int id) =>
+soloClinico(app.MapGet("/eventoscrisis/{id}", (int id) =>
 {
     var e = new EventoCrisisDAO().ObtenerPorId(id);
     return e is null ? Results.NotFound() : Results.Ok(e);
-});
+}));
 
-app.MapGet("/pacientes/{id}/eventoscrisis", (int id) =>
-    new EventoCrisisDAO().ObtenerPorPaciente(id));
+soloClinico(app.MapGet("/pacientes/{id}/eventoscrisis", (int id) =>
+    new EventoCrisisDAO().ObtenerPorPaciente(id)));
 
-app.MapPost("/eventoscrisis", (EventoCrisis e) =>
+soloClinico(app.MapPost("/eventoscrisis", (EventoCrisis e) =>
 {
     new EventoCrisisDAO().Insertar(e);
     return Results.Created("/eventoscrisis", e);
-});
+}));
 
-app.MapPut("/eventoscrisis/{id}", (int id, EventoCrisis e) =>
+soloClinico(app.MapPut("/eventoscrisis/{id}", (int id, EventoCrisis e) =>
 {
     e.IdEvento = id;
     new EventoCrisisDAO().Modificar(e);
     return Results.Ok(e);
-});
+}));
 
 // InteraccionIA
 app.MapGet("/interaccionesia", () =>
@@ -1151,19 +1161,19 @@ app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
 });
 
 // SesionClinica
-app.MapPost("/sesiones-clinicas", (SesionClinica s) =>
+soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s) =>
 {
     s.FechaHora = DateTime.Now;
     int id = new SesionClinicaDAO().Insertar(s);
     s.IdSesion = id;
     return Results.Created("/sesiones-clinicas", s);
-});
+}));
 
-app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id) =>
-    new SesionClinicaDAO().ObtenerPorPaciente(id));
+soloClinico(app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id) =>
+    new SesionClinicaDAO().ObtenerPorPaciente(id)));
 
-app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id) =>
-    new SesionClinicaDAO().ObtenerPorProfesional(id));
+soloClinico(app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id) =>
+    new SesionClinicaDAO().ObtenerPorProfesional(id)));
 
 
 // Reporte: atenciones por profesional
