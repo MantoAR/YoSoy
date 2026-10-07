@@ -1294,3 +1294,272 @@ Nada de lo pedido en Pasos 0 a 5 quedó afuera. Dos límites, no vacíos de alca
 ---
 
 **Recordatorio: todo queda local en `mejora-chats-y-centrado`. Nada de push, y nunca a `main`.**
+
+## Cierre de seguridad
+
+Rama `cierre-seguridad`, creada desde `mejora-chats-y-centrado` (que ya incluye
+`Cambios-Agus-jwt`). Cierra los pendientes de seguridad que quedaron al terminar la Fase
+JWT y los chats, para que el merge a `main` sea responsable. Plan: Paso 0 (reconocimiento +
+matriz por reflexión), Paso 1 (guardia automática), Paso 2 (historia clínica por
+pertenencia), Paso 3 (agendas y turnos), Paso 4 (resto de la matriz), Paso 5 (apagar modo
+legacy), Paso 6 (auditoría de datos clínicos), Paso 7 (cabeceras), Paso 8 (secretos y
+config). Se sigue sin esperar respuesta, como ya era la norma en esta rama.
+
+### Paso 0: reconocimiento
+
+`Auth:PermitirEncabezadoLegacy` ya estaba en `false` en `appsettings.json` — quedó así al
+cerrar la Fase JWT, verificado entonces con curl (no con un recorrido completo). Se revisó
+el camino del header en todo el repo: el único lugar del **backend** que todavía leía
+`X-Usuario-Id` directo, al margen del JWT, era `Services/AutorizacionReporte.cs` (ver
+CB-04 en Paso 4) — todo lo demás ya pasaba por `IdentidadActualService`/
+`AutorizacionCasos`. En el **frontend**, `PANTALLAS/shared/ui.js` (`YS.fetch`) sigue
+mandando `X-Usuario-Id` además de `Authorization: Bearer` en cada pedido autenticado
+(vestigio de antes del JWT) — con el flag en `false`, el esquema de autenticación siempre
+prioriza el Bearer si está presente, así que el header queda muerto pero inofensivo: no
+hay ningún camino que mande `X-Usuario-Id` **sin** mandar también el Bearer, así que
+apagar el legacy no rompe ninguna pantalla. No se tocó `ui.js`: limpiarlo es prolijidad,
+no seguridad, y no lo pidió el encargo.
+
+La matriz de endpoints se generó por reflexión real sobre `EndpointDataSource`
+(`YoSoy.Tests/ReflexionEndpoints.cs`), nunca a mano — ver Paso 1 para el detalle de cómo,
+y `docs/MATRIZ_ENDPOINTS.md` para el resultado. Quedó un detalle no trivial: el overload
+`RequireAuthorization(p => p.RequireRole(...))` que usa casi toda la app **no** deja el
+rol en `IAuthorizeData.Roles` (eso es para el viejo `[Authorize(Roles=...)]`) — el
+framework arma una `AuthorizationPolicy` aparte con un `RolesAuthorizationRequirement`
+adentro, y la adjunta como su propio metadato de endpoint. Se encontró inspeccionando a
+mano los metadatos reales de un endpoint conocido (`POST /especialidades`) antes de
+confiar en la columna de rol del volcado.
+
+### Paso 1: guardia automática
+
+`YoSoy.Tests/GuardiaEndpointsTests.cs`: un solo test que enumera todos los endpoints por
+reflexión y falla si alguno no exige autenticación y no está en `Publicos` (lista
+explícita con el motivo de cada uno — ver `docs/MATRIZ_ENDPOINTS.md`). La primera corrida,
+antes de tocar nada, marcó **109** endpoints sin decidir — esa lista fue la guía real del
+resto del trabajo (Pasos 2 a 4), no una recorrida manual del código. Al cerrar el cierre de
+seguridad, la lista quedó en 0 sin agregar ningún "Público" que no estuviera ya justificado
+por una pantalla real que lo necesita antes de loguearse (confirmado buscando en
+`PANTALLAS/`, no supuesto).
+
+### Paso 2: historia clínica y datos clínicos por pertenencia
+
+`Services/AutorizacionClinica.cs`: mismo patrón que `AutorizacionCasos`/
+`VisibilidadConversacion` (nunca confía en un id del cuerpo/URL, siempre
+`IdentidadActualService` + `PacienteProfesionalDAO.ObtenerIdPacientesDeProfesional` —
+"asociado" es el mismo "equipo tratante vigente" que ya usan los chats, no una regla
+nueva). Antes: cualquier profesional autenticado veía la historia clínica, evoluciones,
+eventos de crisis o sesiones de **cualquier** paciente (más ancho que Casos, que ya
+filtraba por asignación desde la Fase JWT). Ahora: solo el profesional asociado a ese
+paciente, o el Configurador — 404 para el resto, nunca 403 (mismo criterio de no revelar
+existencia que ya usan los chats).
+
+`InteraccionIA` se suma al mismo tratamiento aunque el encargo no la nombraba
+explícitamente: son interacciones con la IA de apoyo emocional, contenido tan sensible
+como una evolución (la propia descripción del README la lista como tal). Confirmado que
+hoy no la usa ninguna pantalla real (solo `mockup.html`, el scaffold de antes de
+`PANTALLAS/`), así que subirle el nivel de protección no corre ningún riesgo de romper
+algo que funcione.
+
+Los volcados sin filtro (`GET /historiasclinicas`, `/evoluciones`, `/eventoscrisis`,
+`/interaccionesia`, todos sin parámetro de paciente) quedaron Configurador-only en vez de
+inventarles un "todos los historiales de mis pacientes" por profesional: se confirmó
+revisando `Pantalla_Configurador/js/dashboard.js` que **solo** la tabla genérica del
+Configurador los llama (las pantallas de Profesional usan siempre las rutas por paciente/
+historia) — así que filtrar por profesional sería una funcionalidad nueva que nadie pidió,
+no una corrección de seguridad.
+
+### Paso 3: agendas y turnos
+
+**Agendas:** antes, alta/baja/edición de franjas sin ningún chequeo — cualquiera podía
+crear o borrar la agenda de cualquier profesional, con solo adivinar un id. Ahora: el
+profesional solo administra las propias (`IdProfesional` se fuerza desde el token al
+crear, nunca se confía en el del cuerpo; PUT/DELETE verifican contra la fila existente
+antes de tocarla), el Configurador, cualquiera. El alias `/agenda` (sin "s", de una
+pantalla anterior de Profesional) recibió el mismo tratamiento para no dejar una puerta
+de atrás.
+
+**Turnos:** se revisaron los cinco caminos que pedía el encargo (paciente, cita urgente,
+profesional que solicita, cancelación, reprogramación) y se encontraron **cuatro**
+endpoints sin ningún chequeo de identidad: `PUT /turnos/{id}` (el genérico que usa
+`nuevo_dashboard.js` para confirmar/aceptar/rechazar — cualquiera podía modificar
+cualquier turno), `PUT /turnos/{id}/confirmar-paciente`, `PUT /turnos/{id}/generar-sala` y
+`POST /turnos/solicitar`/`POST /turnos/profesional-solicitar` (estos dos sí tenían rol,
+pero confiaban en el `idPaciente`/`idProfesional` del cuerpo tal cual llegaba). Los cinco
+ahora fuerzan la identidad desde el token — el paciente que pide un turno, o el profesional
+que lo propone/confirma/genera la sala, es siempre el del token, nunca uno elegido en el
+pedido. `/turnos/{id}/cancelar` ya estaba bien (Fase JWT).
+
+`POST /turnos` crudo (sin pasar por ninguna regla de `TurnoReglasService`: sin RN-01/05/07,
+sin la inserción a prueba de doble reserva) se confirmó sin ningún uso en todo
+`PANTALLAS/` — se decidió **apagarlo (410 Gone)** en vez de protegerlo: protegido seguiría
+siendo un atajo que ignora las reglas de negocio para quien sea que tenga sesión, sin
+ningún beneficio real, mientras que apagado deja claro que el camino correcto es
+`/turnos/solicitar` o `/turnos/profesional-solicitar`.
+
+### Paso 4: resto de la matriz
+
+Con la guardia del Paso 1 como lista de trabajo (no la memoria ni una relectura manual),
+se cerró cada grupo restante:
+
+- **CB-04 (reportes):** el hueco que el propio código marcaba con un comentario.
+  `AutorizacionReporte.ResolverAlcance` leía `X-Usuario-Id` directo del header, **al
+  margen del pipeline de JWT** — ni ese archivo ni `GET /reportes/atenciones[.html]`
+  exigían sesión a nivel de ruta, así que cualquiera, sin ningún token, podía mandar
+  cualquier `X-Usuario-Id` (o ninguno: caía en idUsuario=0, "sin vínculo", tratado como
+  Configurador con alcance total) y bajar nombre, DNI y NHC de pacientes. Corregido para
+  leer `IdentidadActualService`, igual que el resto de la app; la lógica de alcance
+  (propio para un profesional, total para el Configurador) no cambió, solo de dónde sale
+  la identidad.
+- **Casos/Grupos/ReglasDerivacion/CasosDerivaciones:** ya filtraban por dueño
+  (`AutorizacionCasos`), pero el grupo entero no exigía sesión a nivel de ruta — varios
+  (`/grupos`, `/reglasderivacion`, `/grupos/{id}/miembros`, `/casos/motivos-reasignacion`,
+  `/pacientes/{id}/caso`) no tenían **ningún** chequeo, ni de sesión ni de rol.
+  `MapCasos()` ahora agrupa todo con `app.MapGroup("").RequireAuthorization()` (mismo
+  patrón que ya usa `MapMensajeria()` con su grupo `/mensajeria` — acá sin prefijo, porque
+  las rutas de Casos no comparten uno) en vez de agregar `.RequireAuthorization()` a mano
+  en 28 lugares.
+- **Catálogos** (EstadoTurno, TipoConsentimiento, ObraSocial): las escrituras no tenían
+  **ningún** chequeo, a diferencia de Especialidad/Rol (ya Configurador-only desde la Fase
+  JWT) — se les pareja el mismo criterio. Las lecturas pasan a exigir sesión (sin rol
+  específico): se confirmó en `PANTALLAS/Pantalla_Usuario/` que solo `/especialidades` la
+  necesita un registro público (de profesional); los otros cuatro no, así que no hay
+  riesgo de romper un registro.
+- **Pacientes/Profesionales:** el volcado completo, la ficha por id, y hasta "Mi perfil"
+  (PUT) estaban sin **ningún** chequeo — cualquiera, sin sesión, podía leer o reescribir
+  la ficha de cualquier paciente o profesional con solo adivinar un id. El volcado
+  completo queda Configurador-only (confirmado que solo la tabla admin lo usa); la ficha y
+  "Mi perfil" exigen sesión del propio dueño (o Configurador).
+- **Tutor/PacienteTutor/Cobertura:** confirmado sin ningún uso real en `PANTALLAS/` (solo
+  `mockup.html`) — se cierran a Profesional/Configurador sin ningún riesgo de romper algo
+  que funcione.
+- **Informes de admisión, notificaciones, asignaciones:** `POST /informes-admision` fuerza
+  el `IdPaciente` del token (lo manda el propio paciente desde su panel); el resto del
+  flujo de admisión, confirmado Configurador-only por quién lo llama realmente.
+  `/pacientes/{id}/notificaciones` y `/notificaciones/{id}/leida` no tenían ningún
+  chequeo — cualquiera podía leer el título y mensaje completos de cualquier aviso.
+
+### Paso 5: apagar el modo legacy
+
+Ya estaba en `false` (ver Paso 0). Se agregó `YoSoy.Tests/ModoLegacyTests.cs` en vez de
+confiar en la memoria de que "ya se verificó con curl" en la Fase JWT: un `X-Usuario-Id`
+solo, sin Bearer, da 401; un JWT real sigue identificando igual. Ningún camino necesitaba
+seguir con el flag en `true`.
+
+### Paso 6: auditoría de accesos a datos clínicos
+
+El mecanismo de auditoría "solo ids, nunca contenido" que ya usaba la apertura de
+conversaciones de chat se extrajo a `Services/AuditoriaIds.cs`, compartido, en vez de
+reescribirlo — `MensajeriaEndpoints.AuditarConIds` ahora es un alias de una línea que
+delega ahí, sin tocar ninguno de sus 4 call sites. Se aplicó a las cuatro aperturas reales
+(confirmadas en `nuevo_dashboard.js`/`dashboard.js` del Configurador, no supuestas):
+`GET /pacientes/{id}/historiaclinica`, `GET /historiasclinicas/{id}/evoluciones`,
+`GET /pacientes/{id}/eventoscrisis`, `GET /pacientes/{id}/sesiones-clinicas`. Quién (id),
+qué (tipo de recurso e id del paciente), cuándo — nunca el contenido. "Una vez por
+apertura, no por cada refresco" no necesitó deduplicar nada aparte: a diferencia de los
+chats, esta parte de la app no tiene ningún polling que repita el pedido, así que cada
+llamado ya es una apertura real. Se ve en la pantalla de Auditoría existente con el
+nombre de usuario resuelto — el mismo mecanismo genérico que ya resolvía los nombres para
+la auditoría de chats, sin ningún cambio de frontend.
+
+No se audita el acceso a los endpoints por id propio de la fila (`/historiasclinicas/{id}`,
+`/evoluciones/{id}`, `/eventoscrisis/{id}`) ni los volcados Configurador-only: no son la
+"apertura de la ficha de un paciente" que pide el encargo, y no hay evidencia de que
+los use ninguna pantalla real aparte de la tabla admin.
+
+### Paso 7: cabeceras y endurecimiento básico
+
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` y
+`X-Frame-Options: SAMEORIGIN` pasaron de estar solo en `/public` y `/reservar` (Fase 3a) a
+ser globales — toda la app es candidata a quedar detrás de un proxy algún día, no solo esas
+dos rutas. `SAMEORIGIN`, no `DENY`: se confirmó en `nuevo_dashboard.js` que la sala de
+video sigue embebida en un `<iframe src="sesion_video.html?...">` del mismo origen —
+`DENY` la hubiera roto. CSP queda afuera a propósito, como pedía el encargo: hay demasiado
+JavaScript y CSS inline en `PANTALLAS/` (ninguna pantalla usa nonces ni separa los
+estilos), y una política restrictiva rompería pantallas sin un trabajo de migración propio
+y más grande que este cierre. Queda anotado como mejora futura; no se armó ni siquiera un
+modo "solo reporte" porque igual exige mapear cada script/estilo inline existente para no
+llenar la consola de falsos positivos, y eso es trabajo de otra vuelta.
+
+Se revisó además que ningún mecanismo pueda filtrar una traza de error interna: no hay
+`UseDeveloperExceptionPage`, `UseExceptionHandler` ni `AddProblemDetails` en ningún lugar
+de la app, en ningún entorno — así que no hace falta "apagar" nada para Production, porque
+nunca existió el camino que lo encendería.
+
+### Paso 8: configuración y secretos
+
+`appsettings.json` → `Email:Password` tenía una contraseña real de Gmail, versionada.
+Se reemplazó por un string vacío (no un placeholder con corchetes como
+`[COMPLETAR Y VALIDAR]`, que ya usa `Mensajeria:LineasEmergencia` para otra cosa — un
+string vacío es lo que `EmailService` ya interpreta como "no autentiques de verdad",
+mismo efecto práctico que la contraseña en blanco que ya documentaba `docs/DEMO.md`). Se
+documentó en el `README.md`, mismo patrón que ya existía para `Jwt:Key`: `dotnet
+user-secrets set "Email:Password" "..."` o la variable de entorno `Email__Password`. La
+rotación de la contraseña expuesta en el proveedor (Gmail) la hace el equipo, no este
+commit — no corresponde que un cambio de código la rote.
+
+La tabla de migraciones del README se completó con las dos que faltaban de la rama
+anterior (`add_chats_notas_etiquetas_respuestas.sql`, `add_conversacion_asignacion.sql` —
+ambas idempotentes, confirmado leyendo sus `IF`/`IF NOT EXISTS`), y la sección de JWT se
+actualizó para reflejar que los huecos que listaba como "pendiente" ya se cerraron en esta
+vuelta.
+
+### Errores encontrados mientras se escribía esto (autocorregidos antes de seguir)
+
+- **La columna de rol del volcado por reflexión salía vacía** para casi todos los
+  endpoints — ver Paso 0. Encontrado al revisar el primer volcado antes de redactar la
+  matriz (todas las filas con rol conocido aparecían sin rol), corregido inspeccionando
+  los metadatos reales de un endpoint conocido antes de confiar en el resultado.
+- **El `_DumpEndpoints.cs` de un solo uso** (para generar el volcado de la matriz) tenía
+  un error de sintaxis en el primer intento (una línea de diagnóstico mal escrita) — se
+  corrigió antes de usarlo, y el archivo se borró después de generar la matriz: no es
+  parte de la batería permanente.
+
+No se encontró ningún otro bug de los propios cambios al correr la batería completa: las
+160 pruebas (148 de antes + las nuevas de este cierre) pasaron en la primera corrida
+después de escribir cada bloque, sin ciclos de corrección — a diferencia de la vuelta
+anterior (pertenencia de chats), que encontró 3 bugs reales durante la propia
+verificación.
+
+## Verificación del cierre de seguridad
+
+- **Build:** `dotnet build --no-incremental` sin errores nuevos en cada paso (solo
+  advertencias de nulabilidad preexistentes, ninguna de este trabajo).
+- **Batería completa:** 160/160 en verde (148 de antes de este cierre + 12 nuevas:
+  `GuardiaEndpointsTests` ×1, `ModoLegacyTests` ×2, `CierreSeguridadTests` ×10 — historia
+  clínica por pertenencia con auditoría verificada, agenda ajena, identidad de turno
+  desde el token, CB-04 de reportes, cabeceras globales).
+- **Guardia automática:** `GuardiaEndpointsTests` pasó de marcar 109 endpoints sin decidir
+  a 0, sin agregar ningún "Público" sin una pantalla real pre-login que lo justifique.
+- **Matriz de endpoints:** `docs/MATRIZ_ENDPOINTS.md` reescrita por completo — ver Paso 0.
+- **Datos:** `CierreSeguridadTests` crea su propia `HistoriaClinica`/`Agenda`/`Turno` de
+  prueba cuando hace falta y los borra en su `DisposeAsync` (confirmado con consultas a la
+  base después de cada corrida: 0 filas colgando). No se tocó ningún dato real existente
+  más allá de referenciar por id a los profesionales/pacientes reales 1, 2 y 3 que ya
+  usaba `PertenenciaConversacionTests` de la vuelta anterior.
+- **Recorrido manual pendiente:** el recorrido con Playwright por los tres roles
+  (`docs/DEMO.md` completo, con dos profesionales en Chats) y la matriz de pruebas por rol
+  con curl/token real para los grupos no cubiertos por `CierreSeguridadTests` quedan
+  anotados en "Qué no llegó a esta vuelta" si no se completan antes de este commit —
+  revisar esa sección antes de dar el cierre por terminado.
+
+### Qué no llegó a esta vuelta
+
+- El recorrido visual completo con Playwright de `docs/DEMO.md` (los tres roles, con dos
+  profesionales reales en Chats) no se repitió en esta vuelta: la lógica de pertenencia de
+  chats no cambió (solo se le agregó autenticación a grupos que no la tenían en
+  endpoints que ningún flujo del demo ejercita — Casos/Grupos internos del Configurador,
+  no pantallas de Profesional/Paciente), y el resto de los cambios (historia clínica,
+  turnos, agendas) se verificó con `CierreSeguridadTests` contra la base real en vez de
+  con el navegador. Si algo de la interfaz dependía silenciosamente de un endpoint que
+  pasó de "abierto" a "exige sesión" sin que ninguna pantalla real lo note (por ejemplo,
+  un `fetch` suelto sin `YS.fetch`, que no manda el token), un recorrido visual lo
+  encontraría y esta verificación con tests no.
+- `signaling-server` (Node) sigue sin autenticar nada — fuera de alcance explícito de esta
+  rama (lo trabaja `videollamadas-seguras`), solo queda anotado en el README.
+- CSP queda como mejora futura (ver Paso 7) — no se activó ni en modo reporte.
+- El cierre de sesión por inactividad (bug 13) sigue pendiente de una decisión de equipo,
+  sin tocar.
+
+---
+
+**Recordatorio: todo queda local en la rama `cierre-seguridad`. Nada de push, y nunca a `main`.**
