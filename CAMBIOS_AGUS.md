@@ -1575,3 +1575,75 @@ verificación.
 ---
 
 **Recordatorio: todo queda local en la rama `cierre-seguridad`. Nada de push, y nunca a `main`.**
+
+## Integración a la rama principal
+
+Objetivo: un único PR de toda la cadena (`fix-registro-publico` → `Cambios-Agus-jwt` →
+`mejora-chats-y-centrado` → `cierre-seguridad`) más `fix-xss`, hacia `main`. Todo local
+hasta "PUSH OK"; nada de borrado de ramas hasta "MERGE OK". `videollamadas-seguras` es de
+un compañero: solo lectura, no se toca ni se borra.
+
+### Paso 0: reconocimiento
+
+- `origin/main` confirmado como la principal real (`refs/remotes/origin/HEAD`).
+  `git fetch origin` sin novedades que requieran merge todavía.
+- **Cadena confirmada lineal** con `git merge-base --is-ancestor`: `origin/main` ⊂
+  `fix-registro-publico` ⊂ `Cambios-Agus-jwt` ⊂ `mejora-chats-y-centrado` ⊂
+  `cierre-seguridad`; `origin/main` ⊂ `fix-xss` por separado. Adelanto de cada una sobre
+  `origin/main`: `fix-registro-publico` +2, `Cambios-Agus-jwt` +123,
+  `mejora-chats-y-centrado` +146, `cierre-seguridad` +155, `fix-xss` +16.
+- **`origin/main` no avanzó desde que arrancó la cadena**: su punta (`4648edb`,
+  2026-09-25) es exactamente el mismo commit donde `fix-registro-publico` forkeó — cero
+  commits de compañeros para reconciliar. El merge de `origin/main` en `integracion-main`
+  (Paso 1.1) va a ser un no-op de contenido (ya es ancestro), se hace igual como
+  commit de merge real para el historial.
+- **Ramas locales que existen en esta máquina pero NO son parte de este pedido** (no
+  tocadas, no mergeadas, no borradas): `feature/agustin-reporte-html-interactivo`,
+  `mensajeria-whatsapp-reservas` (con remoto, en la misma punta que `main`),
+  `rediseno-visual`. Ninguna aparece en la cadena ni en la lista de limpieza del pedido.
+- **`backup-pre-limpieza`, `Cambios-Agus` (ramas locales) y `refs/original/refs/heads/
+  Cambios-Agus-jwt` que el Paso 7 espera limpiar no existen hoy en este repo** — no es un
+  error, el Paso 7 simplemente no va a encontrar nada que borrar ahí cuando llegue el
+  momento.
+- **Prueba en seco de `origin/videollamadas-seguras` sobre `cierre-seguridad`** (rama
+  temporal, abortada y borrada, sin dejar rastro): el merge real se niega de entrada por
+  `Conexion.cs` — tiene el bit `skip-worktree` puesto (la cadena de cambios en esta
+  máquina lo usa para esconder la cadena de conexión local real de `git status`/`diff`,
+  ver memoria de la sesión), y un merge sí necesita tocar el contenido real del archivo,
+  así que Git se niega antes de intentar nada en vez de arriesgar pisar la personalización
+  local. No se tocó el bit `skip-worktree` para forzarlo (hubiera significado manipular un
+  archivo con la configuración real de la base de este equipo para una prueba marcada
+  "solo informativa" — no vale el riesgo). En cambio, se comparó directamente el contenido
+  **ya commiteado** de `Conexion.cs` en las dos ramas (sin tocar el working tree): el lado
+  de la cadena solo normalizó finales de línea del mismo contenido; el lado de
+  `videollamadas-seguras` sí cambia algo real (el nombre de instancia pasa de
+  `DESKTOP-Q065FTM\SQLEXPRESS`, fijo a la máquina de quien lo escribió, a `.\SQLEXPRESS`,
+  genérico) y agrega un método `Inicializar(string?)` para poder fijar la cadena de
+  conexión en tiempo de ejecución — un conflicto de línea casi seguro si algún día se
+  mergea de verdad, pero con una resolución clara (quedarse con el agregado de
+  `videollamadas-seguras`), no una decisión difícil.
+- **`videollamadas-seguras` toca prácticamente toda la base de código**: 180 archivos
+  propios desde el ancestro común, 288 del lado de la cadena, ~115 en la intersección
+  (todos los `Models/*.cs` y `DAOs/*.cs`, `Program.cs`, `appsettings.json`, `README.md`,
+  `YoSoy.csproj`, `.gitignore`, y archivos nuevos de esa rama como `signaling-server/` y
+  un paquete de modelos de reconocimiento facial en `PANTALLAS/models/`). `Program.cs` es
+  el más pesado de los dos lados (cadena: 1917+/864-; video: 803+/25-, casi todo
+  agregado) — un merge real ahí, el día que se decida hacerlo, va a necesitar reconciliar
+  líneas a mano, no va a ser automático.
+- **Hallazgo aparte, sobre la rama del compañero (ya publicada, no es algo que yo vaya a
+  mergear ni a corregir):** el `appsettings.json` de `origin/videollamadas-seguras` tiene
+  varios valores no vacíos con forma de secreto real —
+  `Jwt.Secret`, `ConnectionStrings.YoSoy`, `Turn.StaticAuthSecret` y `Email.Password`
+  (cuatro valores no vacíos; se verificó con un script que solo mide longitud, nunca
+  imprime el contenido). `Turn.Metered.ApiKey`, `Signaling.UrlPublica`,
+  `Signaling.SecretoInterno` y `Sesion.ClaveCifrado` están vacíos. Esto **no** entra en el
+  alcance de la auditoría de secretos del Paso 3 (esa es sobre lo que publica este PR, y
+  `videollamadas-seguras` no se mergea en nada acá) ni es algo que corresponda tocar (es
+  de otra persona, "solo lectura") — queda anotado porque apareció solo mirando qué
+  cambiaría un merge, y es información que el equipo probablemente quiera tener en algún
+  momento.
+
+**Plan:** Paso 1 crea `integracion-main` desde `cierre-seguridad`, mergea `origin/main`
+(no-op de contenido, commit de merge real) y después `fix-xss` (sí hay conflictos reales
+de contenido ahí, a verificar con cuidado que no se pierda ninguna protección). No se
+toca `videollamadas-seguras` en ningún paso de este pedido.
