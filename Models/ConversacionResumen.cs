@@ -17,4 +17,5 @@ public class ConversacionResumen
     // Conversacion) - ver CAMBIOS_AGUS.md, "Mejora de chats y centrado".
     public int? IdProfesionalAsignado { get; set; }
     public string? NombreProfesionalAsignado { get; set; }
+    public List<int> IdsEtiquetas { get; set; } = new();   // se completa en el endpoint, no en el DAO (ver EtiquetaConversacionDAO)
 }
