@@ -1647,3 +1647,52 @@ un compañero: solo lectura, no se toca ni se borra.
 (no-op de contenido, commit de merge real) y después `fix-xss` (sí hay conflictos reales
 de contenido ahí, a verificar con cuidado que no se pierda ninguna protección). No se
 toca `videollamadas-seguras` en ningún paso de este pedido.
+
+### Paso 1: rama de integración
+
+`integracion-main` creada desde `cierre-seguridad`. `git merge origin/main`: "Already up
+to date" — tal como anticipó el Paso 0, no había nada que reconciliar.
+
+**`fix-xss`:** toca 6 archivos, los 6 también tocados por la cadena (candidatos reales a
+conflicto, a diferencia de `videollamadas-seguras`). `git merge -X ours --no-edit
+origin/fix-xss`: resuelve en limpio, sin marcadores de conflicto; solo 2 de los 6 archivos
+quedan con una diferencia neta (`dashboard.js` del Configurador, 1 línea; `index.html`, 4
+líneas) — en los otros 4 la versión de la cadena ya coincidía o ya resolvía lo mismo, sin
+necesidad de que `-X ours` tuviera que elegir nada.
+
+**Verificación de que ninguna protección XSS se perdió** (archivo por archivo, confirmado
+leyendo el código actual, no solo el diff del merge):
+
+- **`onclick='abrirModal(JSON.stringify(row))'`** (el patrón que el propio pedido nombra
+  como riesgo de que vuelva): no existe más. La cadena lo reemplazó por `editarFila(id)`
+  — busca la fila por id en `datosActuales` en vez de pasar el JSON entero por el
+  atributo — con un comentario propio en el código: *"antes iba el JSON entero en el
+  onclick, que se rompía con un apóstrofo en los datos"*. Mismo diagnóstico que hizo
+  `fix-xss`, resuelto de raíz en vez de escapado. Mismo patrón en `verHistoria()` del
+  profesional: ya no recibe el nombre por el `onclick`, lo pide a la API.
+- **El motor genérico de tablas admin** (`valorCelda`/`celda`/`celdaLarga`/
+  `chipEstadoCuenta`, usado por Especialidades/Roles/EstadosTurno/Turnos/Agendas/
+  Evoluciones/etc.) escapa **todo** de forma centralizada con `YS.esc()` — más nuevo que
+  el parche línea por línea de `fix-xss` sobre la implementación vieja de esa misma
+  tabla, y más robusto (una columna nueva queda escapada gratis, sin necesitar un parche
+  cada vez).
+- **Barrido completo** de los ~20 campos que `fix-xss` tocó (nombre, apellido, dni, mail,
+  teléfono, domicilio, especialidad, motivo, estado, detalle, acción, entidad, username,
+  passwordTemporal, mensaje, titulo, diagnóstico, observaciones, tipoCierre,
+  notasEvolucion) en los 3 archivos `.js` grandes: ninguna interpolación sin escapar.
+  Los pocos casos que el barrido marcó para revisar a mano (`"Hola, ${u.nombre}"` en los
+  tres encabezados, la pregunta de los modales de confirmar/dar de baja) resultaron
+  seguros por construcción: `shell.js.encabezado()` usa `textContent`, no `innerHTML`, y
+  `YS.confirmar()` arma el mensaje con `YS.el("p", { text: ... })` (mismo `textContent`
+  por debajo) — ninguno de los dos interpreta HTML, así que la falta de `YS.esc()` ahí no
+  es una regresión, es redundante.
+- **Los parches de `fix-xss` que seguían siendo el mecanismo real** sobrevivieron intactos
+  al merge: la contraseña temporal de login/recuperación en `index.html`
+  (`YS.esc(data.passwordTemporal)`), el dropdown de pacientes de `sesion_video.html` (ya
+  usa `new Option(...)`, construcción DOM segura en vez de HTML armado a mano) y el toast
+  de `app.js` del registro público (ahora delega en el `YS.toast` compartido de
+  `shared/ui.js`, que también usa `text:`/`textContent`).
+- **`git diff --stat`** del merge: solo los 2 archivos ya mencionados, 5 líneas en total.
+  Sin ningún `\r` suelto (confirmado con un `grep` dedicado sobre el diff completo).
+
+No se tocó `videollamadas-seguras` en este paso, como estaba previsto.
