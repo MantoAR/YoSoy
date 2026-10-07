@@ -108,10 +108,13 @@ public class AsignacionService
         if (d.IdProfesionalSugerido is null)
             throw new InvalidOperationException("No hay profesional sugerido para confirmar; corregí o reasigná manualmente.");
 
+        var casoAntes = _repo.ObtenerCaso(d.IdCaso);   // antes de ActualizarCaso: para saber a quién sacar de PacienteProfesional
+
         _repo.ResolverCasoDerivacion(idCasoDerivacion, "Confirmada", d.IdGrupo, d.IdProfesionalSugerido);
         _repo.ActualizarCaso(d.IdCaso, "Asignado", d.IdGrupo, d.IdProfesionalSugerido);
         _repo.InsertarHistorial(d.IdCaso, d.IdProfesionalSugerido, d.Motivo ?? "Manual", idUsuario);
-        SincronizarPacienteProfesional(d.IdCaso, d.IdProfesionalSugerido.Value);
+        if (casoAntes is not null)
+            _repo.SincronizarPacienteProfesional(casoAntes.IdPaciente, casoAntes.IdProfesionalAsignado, d.IdProfesionalSugerido.Value);
     }
 
     /// <summary>Confirma cambiando el grupo y/o el profesional que había sugerido la cascada.</summary>
@@ -121,13 +124,15 @@ public class AsignacionService
             ?? throw new InvalidOperationException("No existe esa derivación.");
         int grupo = nuevoGrupo ?? d.IdGrupo;
         int? profesional = nuevoProfesional ?? d.IdProfesionalSugerido;
+        var casoAntes = _repo.ObtenerCaso(d.IdCaso);   // antes de ActualizarCaso: para saber a quién sacar de PacienteProfesional
 
         _repo.ResolverCasoDerivacion(idCasoDerivacion, "Corregida", grupo, profesional);
         _repo.ActualizarCaso(d.IdCaso, profesional is null ? "Derivado" : "Asignado", grupo, profesional);
         if (profesional is not null)
         {
             _repo.InsertarHistorial(d.IdCaso, profesional, "Manual", idUsuario);
-            SincronizarPacienteProfesional(d.IdCaso, profesional.Value);
+            if (casoAntes is not null)
+                _repo.SincronizarPacienteProfesional(casoAntes.IdPaciente, casoAntes.IdProfesionalAsignado, profesional.Value);
         }
     }
 
@@ -173,13 +178,8 @@ public class AsignacionService
         string nuevoEstado = caso.Estado is "Nuevo" or "Derivado" ? "Asignado" : caso.Estado;
         _repo.ActualizarCaso(idCaso, nuevoEstado, grupo, idProfesional);
         _repo.InsertarHistorial(idCaso, idProfesional, "Manual", idUsuario);
-        _repo.SincronizarPacienteProfesional(caso.IdPaciente, idProfesional);
-    }
-
-    // Confirmar/Corregir solo tienen el caso por id; buscan el paciente para el vínculo.
-    private void SincronizarPacienteProfesional(int idCaso, int idProfesional)
-    {
-        var caso = _repo.ObtenerCaso(idCaso);
-        if (caso is not null) _repo.SincronizarPacienteProfesional(caso.IdPaciente, idProfesional);
+        // caso.IdProfesionalAsignado todavía es el valor de ANTES de ActualizarCaso (se leyó
+        // al principio del método) - es justo lo que hace falta para sacarlo de PacienteProfesional.
+        _repo.SincronizarPacienteProfesional(caso.IdPaciente, caso.IdProfesionalAsignado, idProfesional);
     }
 }

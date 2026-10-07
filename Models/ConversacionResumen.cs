@@ -13,8 +13,8 @@ public class ConversacionResumen
     public int? IdUltimoMensaje { get; set; }
     public string? OrigenUltimoMensaje { get; set; }      // 'Paciente', 'Bot', 'Humano', 'Sistema'
     public int NoLeidos { get; set; }                     // mensajes del paciente que el equipo no vio
-    // Derivado del Caso abierto del paciente (no hay columna de asignación propia en
-    // Conversacion) - ver CAMBIOS_AGUS.md, "Mejora de chats y centrado".
+    // Conversacion.IdProfesionalAsignado (quién atiende este hilo - Tomar/Asignar/Devolver),
+    // no el profesional tratante del paciente. Ver CAMBIOS_AGUS.md, "Pertenencia de conversaciones".
     public int? IdProfesionalAsignado { get; set; }
     public string? NombreProfesionalAsignado { get; set; }
     public List<int> IdsEtiquetas { get; set; } = new();   // se completa en el endpoint, no en el DAO (ver EtiquetaConversacionDAO)

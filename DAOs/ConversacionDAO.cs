@@ -10,13 +10,15 @@ public interface IConversacionDAO
     void Guardar(Conversacion c);
     List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null);
     void MarcarLeida(int idConversacion, int hastaIdMensaje);
+    void AsignarProfesional(int idConversacion, int? idProfesional);
+    bool TomarSiNoTieneDueno(int idConversacion, int idProfesional);
 }
 
 public class ConversacionDAO : IConversacionDAO
 {
     private const string SELECT_BASE = @"
         SELECT IdConversacion, Telefono, IdPaciente, Canal, PasoActual, DatosContexto,
-               Estado, FechaUltimaActividad, FechaCreacion
+               Estado, FechaUltimaActividad, FechaCreacion, IdProfesionalAsignado
         FROM Conversacion";
 
     public Conversacion? ObtenerPorId(int id)
@@ -82,9 +84,8 @@ public class ConversacionDAO : IConversacionDAO
     // desdeIdMensaje: solo las conversaciones con mensajes posteriores a ese id (el polling
     // de la bandeja pide solo lo que cambió). NoLeidos cuenta los mensajes del paciente
     // posteriores a la marca de lectura del equipo (migrations/add_lectura_conversacion.sql).
-    // IdProfesionalAsignado sale del Caso abierto del paciente (no hay columna propia en
-    // Conversacion): lo usan el filtro "Mías" y el panel de contexto, no es una asignación
-    // nueva - ver AsignacionService/CasoDAO.ObtenerAbiertoPorPaciente.
+    // El filtrado por pertenencia NO va acá: esto devuelve todo, VisibilidadConversacion lo
+    // filtra después (así una sola consulta sirve para cualquier identidad que la llame).
     public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null)
     {
         var lista = new List<ConversacionResumen>();
@@ -98,16 +99,13 @@ public class ConversacionDAO : IConversacionDAO
                    (SELECT COUNT(*) FROM MensajeChat nl
                     WHERE nl.IdConversacion = c.IdConversacion AND nl.Direccion = 'Entrante'
                       AND nl.IdMensaje > ISNULL(c.IdUltimoMensajeLeido, 0)) AS NoLeidos,
-                   caso.IdProfesionalAsignado,
+                   c.IdProfesionalAsignado,
                    LTRIM(RTRIM(prof.Nombre + ' ' + ISNULL(prof.Apellido, ''))) AS NombreProfesionalAsignado
             FROM Conversacion c
             LEFT JOIN Paciente p ON p.IdPaciente = c.IdPaciente
             OUTER APPLY (SELECT TOP 1 m.IdMensaje, m.Texto, m.FechaHora, m.Origen FROM MensajeChat m
                          WHERE m.IdConversacion = c.IdConversacion ORDER BY m.IdMensaje DESC) um
-            OUTER APPLY (SELECT TOP 1 ca.IdProfesionalAsignado FROM Caso ca
-                         WHERE ca.IdPaciente = c.IdPaciente AND ca.Estado <> 'Cerrado'
-                         ORDER BY ca.FechaCreacion DESC) caso
-            LEFT JOIN Profesional prof ON prof.IdProfesional = caso.IdProfesionalAsignado
+            LEFT JOIN Profesional prof ON prof.IdProfesional = c.IdProfesionalAsignado
             WHERE (@Estado IS NULL OR c.Estado = @Estado)
               AND (@Desde IS NULL OR EXISTS (SELECT 1 FROM MensajeChat d
                                              WHERE d.IdConversacion = c.IdConversacion AND d.IdMensaje > @Desde))
@@ -157,16 +155,45 @@ public class ConversacionDAO : IConversacionDAO
         cmd.ExecuteNonQuery();
     }
 
+    // Asignar (Configurador, a cualquiera) o devolver (null = sin asignar). Sin condición:
+    // es una decisión deliberada que pisa lo que hubiera antes, a diferencia de Tomar.
+    public void AsignarProfesional(int idConversacion, int? idProfesional)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand("UPDATE Conversacion SET IdProfesionalAsignado = @IdProf WHERE IdConversacion = @Id", con);
+        cmd.Parameters.AddWithValue("@IdProf", (object?)idProfesional ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Id", idConversacion);
+        cmd.ExecuteNonQuery();
+    }
+
+    // Atómico a propósito (Paso 3): si dos profesionales la toman a la vez, el UPDATE con
+    // WHERE IdProfesionalAsignado IS NULL solo afecta una fila para uno de los dos - el otro
+    // ve 0 filas afectadas y el endpoint responde 409, sin una transacción explícita ni un
+    // SELECT-luego-UPDATE que pueda perder la carrera.
+    public bool TomarSiNoTieneDueno(int idConversacion, int idProfesional)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE Conversacion SET IdProfesionalAsignado = @IdProf
+            WHERE IdConversacion = @Id AND IdProfesionalAsignado IS NULL", con);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Id", idConversacion);
+        return cmd.ExecuteNonQuery() == 1;
+    }
+
     private Conversacion Mapear(SqlDataReader r) => new Conversacion
     {
-        IdConversacion       = (int)r["IdConversacion"],
-        Telefono             = (string)r["Telefono"],
-        IdPaciente           = r["IdPaciente"]    == DBNull.Value ? null : (int)r["IdPaciente"],
-        Canal                = (string)r["Canal"],
-        PasoActual           = (string)r["PasoActual"],
-        DatosContexto        = r["DatosContexto"] == DBNull.Value ? null : (string)r["DatosContexto"],
-        Estado               = (string)r["Estado"],
-        FechaUltimaActividad = (DateTime)r["FechaUltimaActividad"],
-        FechaCreacion        = (DateTime)r["FechaCreacion"]
+        IdConversacion         = (int)r["IdConversacion"],
+        Telefono               = (string)r["Telefono"],
+        IdPaciente             = r["IdPaciente"]    == DBNull.Value ? null : (int)r["IdPaciente"],
+        Canal                  = (string)r["Canal"],
+        PasoActual             = (string)r["PasoActual"],
+        DatosContexto          = r["DatosContexto"] == DBNull.Value ? null : (string)r["DatosContexto"],
+        Estado                 = (string)r["Estado"],
+        FechaUltimaActividad   = (DateTime)r["FechaUltimaActividad"],
+        FechaCreacion          = (DateTime)r["FechaCreacion"],
+        IdProfesionalAsignado  = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"]
     };
 }

@@ -160,12 +160,25 @@ public class FakeConversaciones : IConversacionDAO
     public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null) => new();
     public void MarcarLeida(int idConversacion, int hastaIdMensaje) { }
 
+    public void AsignarProfesional(int idConversacion, int? idProfesional)
+    {
+        if (Todas.TryGetValue(idConversacion, out var c)) c.IdProfesionalAsignado = idProfesional;
+    }
+
+    public bool TomarSiNoTieneDueno(int idConversacion, int idProfesional)
+    {
+        if (!Todas.TryGetValue(idConversacion, out var c) || c.IdProfesionalAsignado is not null) return false;
+        c.IdProfesionalAsignado = idProfesional;
+        return true;
+    }
+
     // Copias para que el test vea solo lo que el bot efectivamente guardó.
     private static Conversacion Copia(Conversacion c) => new()
     {
         IdConversacion = c.IdConversacion, Telefono = c.Telefono, IdPaciente = c.IdPaciente, Canal = c.Canal,
         PasoActual = c.PasoActual, DatosContexto = c.DatosContexto, Estado = c.Estado,
-        FechaUltimaActividad = c.FechaUltimaActividad, FechaCreacion = c.FechaCreacion
+        FechaUltimaActividad = c.FechaUltimaActividad, FechaCreacion = c.FechaCreacion,
+        IdProfesionalAsignado = c.IdProfesionalAsignado
     };
 }
 
@@ -223,6 +236,7 @@ public class FakeAsignacionRepositorio : IAsignacionRepositorio
     public List<CasoDerivacion> Derivaciones = new();
     public List<HistorialAsignacion> Historial = new();
     public List<(int IdPaciente, int IdProfesional)> VinculosPacienteProfesional = new();
+    public List<(int IdPaciente, int IdProfesional)> DesvinculosPacienteProfesional = new();
 
     public void AgregarMiembro(int idGrupo, int idProfesional)
     {
@@ -239,7 +253,20 @@ public class FakeAsignacionRepositorio : IAsignacionRepositorio
                 Historial.Where(h => h.IdProfesional == idProf).Select(h => (DateTime?)h.FechaHora).Max()))
             .ToList();
 
-    public Caso? ObtenerCaso(int idCaso) => Casos.FirstOrDefault(c => c.IdCaso == idCaso);
+    // Copia, no la referencia de la lista: ActualizarCaso muta el Caso "vivo" en Casos, y
+    // AsignacionService ahora lee ObtenerCaso() ANTES de esa mutación para saber quién tenía
+    // el caso antes del cambio — con la referencia compartida, ese "antes" quedaría pisado
+    // por la misma mutación (no pasaría con CasoDAO real, que siempre lee de la base).
+    public Caso? ObtenerCaso(int idCaso)
+    {
+        var c = Casos.FirstOrDefault(x => x.IdCaso == idCaso);
+        if (c is null) return null;
+        return new Caso
+        {
+            IdCaso = c.IdCaso, IdPaciente = c.IdPaciente, Estado = c.Estado, IdGrupoActual = c.IdGrupoActual,
+            IdProfesionalAsignado = c.IdProfesionalAsignado, Origen = c.Origen, FechaCreacion = c.FechaCreacion, IdInforme = c.IdInforme
+        };
+    }
 
     public void ActualizarCaso(int idCaso, string estado, int? idGrupo, int? idProfesional)
     {
@@ -272,6 +299,10 @@ public class FakeAsignacionRepositorio : IAsignacionRepositorio
             Motivo = motivo, IdRealizadoPor = idRealizadoPor, FechaHora = DateTime.Now
         });
 
-    public void SincronizarPacienteProfesional(int idPaciente, int idProfesional) =>
-        VinculosPacienteProfesional.Add((idPaciente, idProfesional));
+    public void SincronizarPacienteProfesional(int idPaciente, int? idProfesionalAnterior, int idProfesionalNuevo)
+    {
+        if (idProfesionalAnterior is int anterior && anterior != idProfesionalNuevo)
+            DesvinculosPacienteProfesional.Add((idPaciente, anterior));
+        VinculosPacienteProfesional.Add((idPaciente, idProfesionalNuevo));
+    }
 }

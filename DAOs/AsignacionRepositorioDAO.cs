@@ -15,10 +15,16 @@ public interface IAsignacionRepositorio
     void InsertarHistorial(int idCaso, int? idProfesional, string motivo, int? idRealizadoPor);
 
     // PacienteProfesional sigue siendo la tabla operativa ("quién atiende a quién ahora"
-    // que ya usan turnos y agenda) — esto solo agrega el vínculo, nunca saca al profesional
-    // anterior: un paciente puede tener más de uno (N:M), y sacar al que ya no corresponde
-    // a este caso en particular sigue siendo una decisión de "Solicitudes de cambio".
-    void SincronizarPacienteProfesional(int idPaciente, int idProfesional);
+    // que ya usan turnos y agenda). idProfesionalAnterior (el que tenía el caso antes de
+    // este cambio, null si no tenía) se saca del vínculo si estaba — un paciente puede
+    // seguir teniendo más de un profesional (N:M, por ejemplo otra especialidad), esto solo
+    // quita al que esta reasignación reemplaza, no toca los demás.
+    // Historial: hasta "Mejora de chats y centrado" (pertenencia de conversaciones) este
+    // camino (Casos) solo agregaba, nunca sacaba — una simplificación a propósito para el
+    // alcance original de Casos ("sacar a alguien es decisión de Solicitudes de cambio").
+    // La pertenencia de conversaciones necesita que la reasignación mueva la visibilidad de
+    // verdad, así que se extendió para cubrir también este camino.
+    void SincronizarPacienteProfesional(int idPaciente, int? idProfesionalAnterior, int idProfesionalNuevo);
 }
 
 public class AsignacionRepositorioDAO : IAsignacionRepositorio
@@ -81,6 +87,10 @@ public class AsignacionRepositorioDAO : IAsignacionRepositorio
             IdRealizadoPor = idRealizadoPor
         });
 
-    public void SincronizarPacienteProfesional(int idPaciente, int idProfesional) =>
-        new PacienteProfesionalDAO().Asignar(idPaciente, idProfesional);
+    public void SincronizarPacienteProfesional(int idPaciente, int? idProfesionalAnterior, int idProfesionalNuevo)
+    {
+        var dao = new PacienteProfesionalDAO();
+        if (idProfesionalAnterior is int anterior && anterior != idProfesionalNuevo) dao.Desasignar(idPaciente, anterior);
+        dao.Asignar(idPaciente, idProfesionalNuevo);
+    }
 }
