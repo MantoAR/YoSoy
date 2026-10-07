@@ -217,7 +217,9 @@
         const ul = $("#chatsConversaciones");
         const lista = visibles();
         // No se redibuja si nada cambió: evita parpadeos y no pierde el foco con el polling
-        const firma = JSON.stringify([est.filtro, est.busqueda, est.actual, lista]);
+        // est.etiquetasCatalogo entra en la firma: cambia qué chip se ve por fila sin que
+        // cambien los datos de "lista" (llega después, por separado - ver iniciar()).
+        const firma = JSON.stringify([est.filtro, est.soloMias, est.busqueda, est.actual, lista, est.etiquetasCatalogo]);
         if (firma === est.firmaLista) return;
         est.firmaLista = firma;
         const foco = document.activeElement?.closest?.(".chats-conv")?.dataset.id;
@@ -256,7 +258,12 @@
                         <span class="chats-conv-previa">${YS.esc(previa)}</span>
                         ${c.noLeidos ? `<span class="ui-contador${c.estado === "Urgente" ? " ui-contador--peligro" : ""}">${c.noLeidos > 99 ? "99+" : c.noLeidos}</span>` : ""}
                     </span>
-                    <span class="chats-conv-fila chats-conv-fila--chip"><span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>${c.nombrePaciente ? `<span class="chats-conv-tel">${YS.esc(formatearTelefono(c.telefono))}</span>` : ""}</span>
+                    <span class="chats-conv-fila chats-conv-fila--chip">
+                        <span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>
+                        ${(c.idsEtiquetas || []).map(ide => est.etiquetasCatalogo?.find(et => et.idEtiqueta === ide))
+                            .filter(Boolean).map(et => `<span class="ui-chip ui-chip--${et.tono}">${YS.esc(et.nombre)}</span>`).join("")}
+                        ${c.nombrePaciente ? `<span class="chats-conv-tel">${YS.esc(formatearTelefono(c.telefono))}</span>` : ""}
+                    </span>
                 </span>
             </button></li>`;
         }).join("");
@@ -389,9 +396,11 @@
             <span class="ui-espacio"></span>
             ${c.estado === "Urgente" || c.estado === "DerivadaHumano"
                 ? `<button class="ui-btn ui-btn--sm ${c.estado === "Urgente" ? "ui-btn--danger" : ""}" type="button" id="chatsBtnResolver">${c.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>` : ""}
+            ${c.estado === "Cerrada" ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnReabrir">Reabrir</button>` : ""}
             <button class="ui-btn-icono${est.contexto ? " activo" : ""}" type="button" id="chatsBtnContexto" aria-pressed="${est.contexto}" aria-label="Información del lead" title="Información del lead">${YS.icono("panel-der")}</button>`;
         cab.querySelector(".chats-volver").addEventListener("click", () => { raiz.classList.remove("con-conversacion"); });
         cab.querySelector("#chatsBtnResolver")?.addEventListener("click", cerrarDerivacion);
+        cab.querySelector("#chatsBtnReabrir")?.addEventListener("click", reabrirConversacion);
         cab.querySelector("#chatsBtnContexto").addEventListener("click", () => mostrarContexto(!est.contexto));
         $("#chatsBannerUrgente")?.classList.toggle("oculto", c.estado !== "Urgente");
         actualizarComposer(c);
@@ -672,12 +681,10 @@
         if (p && t && !t.value) { t.value = p.texto; ajustarAlto(); t.focus(); }
     }
 
-    // ── Respuestas rápidas (plantillas.json) ────────────────────
+    // ── Respuestas rápidas (antes plantillas.json; ahora con ABM propio) ────
     async function cargarPlantillas() {
-        try {
-            const r = await fetch(YS.rutas.chats + "plantillas.json", { cache: "no-cache" });
-            if (r.ok) est.plantillas = (await r.json()).plantillas || [];
-        } catch { est.plantillas = []; }
+        try { est.plantillas = await YS.api(`${BASE}/respuestas-rapidas`); }
+        catch { est.plantillas = []; }
     }
 
     function abrirPlantillas(filtro = "") {
@@ -692,11 +699,81 @@
                     <span class="chats-plantilla-titulo">${YS.esc(p.titulo)}</span>
                     <span class="chats-plantilla-texto">${YS.esc(p.texto)}</span>
                 </button>`).join("")
-            : `<div class="chats-plantillas-vacio">${est.plantillas.length ? "Ninguna respuesta coincide." : "No hay respuestas rápidas cargadas (plantillas.json)."}</div>`;
+            : `<div class="chats-plantillas-vacio">${est.plantillas.length ? "Ninguna respuesta coincide." : "Todavía no hay respuestas rápidas."}</div>`;
+        lista.insertAdjacentHTML("beforeend", `<button type="button" class="chats-plantillas-administrar">${YS.icono("lapiz")} Administrar respuestas rápidas</button>`);
         lista.classList.remove("oculto");
         $("#chatsBtnPlantillas").setAttribute("aria-expanded", "true");
         lista.querySelectorAll(".chats-plantilla").forEach(b => b.addEventListener("mousedown", e => { e.preventDefault(); usarPlantilla(parseInt(b.dataset.i)); }));
+        lista.querySelector(".chats-plantillas-administrar").addEventListener("mousedown", e => { e.preventDefault(); cerrarPlantillas(); abrirAdministrarPlantillas(); });
         $("#chatsTexto").focus();
+    }
+
+    // Globales (dueño null) solo las toca el Configurador; las de dueño son siempre propias
+    // (la API ya filtra a "mías + globales" - ver RespuestaRapidaDAO.ObtenerParaUso).
+    function abrirAdministrarPlantillas() {
+        const esConfigurador = YS.shell.rol === "configurador";
+        const puedeEditar = p => p.idProfesional === null ? esConfigurador : true;
+        const dibujar = () => `
+            <div class="chats-admin-plantillas-lista">
+                ${est.plantillas.length ? est.plantillas.map(p => `
+                    <div class="chats-admin-plantilla">
+                        <div class="chats-admin-plantilla-datos">
+                            <div class="chats-plantilla-titulo">${YS.esc(p.titulo)} ${p.idProfesional === null ? '<span class="ui-chip ui-chip--neutral">Global</span>' : ""}</div>
+                            <div class="chats-plantilla-texto">${YS.esc(p.texto)}</div>
+                        </div>
+                        ${puedeEditar(p) ? `<div class="chats-admin-plantilla-acciones">
+                            <button type="button" class="ui-btn-icono" data-editar="${p.idRespuestaRapida}" aria-label="Editar">${YS.icono("lapiz")}</button>
+                            <button type="button" class="ui-btn-icono" data-borrar="${p.idRespuestaRapida}" aria-label="Borrar">${YS.icono("papelera")}</button>
+                        </div>` : ""}
+                    </div>`).join("") : `<p class="chats-dato-vacio">Todavía no hay respuestas rápidas.</p>`}
+            </div>
+            <div class="chats-admin-plantilla-nueva">
+                <div class="ui-campo"><label for="plantillaNuevaTitulo">Título</label><input class="ui-input" id="plantillaNuevaTitulo" maxlength="60" placeholder="Por ejemplo: Saludo"></div>
+                <div class="ui-campo"><label for="plantillaNuevaTexto">Texto</label><textarea class="ui-textarea" id="plantillaNuevaTexto" rows="2" maxlength="2000"></textarea></div>
+                <button class="ui-btn ui-btn--sm ui-btn--primary" type="button" id="chatsPlantillaAgregar">${esConfigurador ? "Agregar (global)" : "Agregar (propia)"}</button>
+            </div>`;
+        const m = YS.modal({ titulo: "Respuestas rápidas", tamano: "grande", enfocarCampo: false, cuerpo: dibujar(),
+            acciones: [{ texto: "Cerrar", tipo: "primary", foco: true, alClick: c => c.cerrar() }] });
+        const reDibujar = async () => { await cargarPlantillas(); m.cuerpo.innerHTML = dibujar(); };
+        m.cuerpo.addEventListener("click", async e => {
+            const btnE = e.target.closest("[data-editar]"), btnB = e.target.closest("[data-borrar]"), btnA = e.target.closest("#chatsPlantillaAgregar");
+            if (btnE) editarPlantilla(parseInt(btnE.dataset.editar), reDibujar);
+            else if (btnB) await borrarPlantilla(parseInt(btnB.dataset.borrar), reDibujar);
+            else if (btnA) {
+                const titulo = m.cuerpo.querySelector("#plantillaNuevaTitulo").value.trim();
+                const texto = m.cuerpo.querySelector("#plantillaNuevaTexto").value.trim();
+                if (!titulo || !texto) { YS.toast("Completá título y texto.", "error"); return; }
+                try { await YS.api(`${BASE}/respuestas-rapidas`, { method: "POST", json: { titulo, texto } }); await reDibujar(); }
+                catch (err) { YS.toast(err.message, "error"); }
+            }
+        });
+    }
+
+    function editarPlantilla(id, alGuardar) {
+        const p = est.plantillas.find(x => x.idRespuestaRapida === id);
+        if (!p) return;
+        YS.modal({
+            titulo: "Editar respuesta rápida",
+            cuerpo: `
+                <div class="ui-campo"><label for="plantillaEditarTitulo">Título</label><input class="ui-input" id="plantillaEditarTitulo" maxlength="60" value="${YS.esc(p.titulo)}"></div>
+                <div class="ui-campo"><label for="plantillaEditarTexto">Texto</label><textarea class="ui-textarea" id="plantillaEditarTexto" rows="3" maxlength="2000">${YS.esc(p.texto)}</textarea></div>`,
+            acciones: [
+                { texto: "Cancelar", tipo: "ghost", alClick: c => c.cerrar() },
+                { texto: "Guardar", tipo: "primary", foco: true, alClick: async c => {
+                    const titulo = c.cuerpo.querySelector("#plantillaEditarTitulo").value.trim();
+                    const texto = c.cuerpo.querySelector("#plantillaEditarTexto").value.trim();
+                    if (!titulo || !texto) { YS.toast("Completá título y texto.", "error"); return; }
+                    try { await YS.api(`${BASE}/respuestas-rapidas/${id}`, { method: "PUT", json: { titulo, texto } }); c.cerrar(); await alGuardar(); }
+                    catch (e) { YS.toast(e.message, "error"); }
+                } }
+            ]
+        });
+    }
+
+    async function borrarPlantilla(id, alGuardar) {
+        if (!await YS.confirmar({ titulo: "Borrar respuesta rápida", mensaje: "Deja de estar disponible en el composer.", textoConfirmar: "Borrar", peligro: true })) return;
+        try { await YS.api(`${BASE}/respuestas-rapidas/${id}`, { method: "DELETE" }); await alGuardar(); }
+        catch (e) { YS.toast(e.message, "error"); }
     }
 
     function cerrarPlantillas() {
@@ -740,6 +817,24 @@
         } catch (e) { YS.toast(e.message, "error"); }
     }
 
+    // La reabre como "escalada a persona" (no vuelve al bot): alguien del equipo decidió
+    // seguir atendiéndola.
+    async function reabrirConversacion() {
+        const c = est.convs.get(est.actual);
+        if (!c) return;
+        if (!await YS.confirmar({
+            titulo: "Reabrir conversación",
+            mensaje: "Vuelve a quedar escalada a una persona del equipo.",
+            textoConfirmar: "Reabrir"
+        })) return;
+        try {
+            await YS.api(`${BASE}/conversaciones/${c.idConversacion}/reabrir`, { method: "PUT" });
+            YS.toast("Conversación reabierta.");
+            est.vueltasSinCambios = 0;
+            await pulso();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
     // ── Panel de contexto ───────────────────────────────────────
     function mostrarContexto(si) {
         est.contexto = si;
@@ -763,24 +858,32 @@
         const id = est.actual, gen = est.generacion;
         if (!id) return;
         dibujarContexto(YS.esqueleto.lista(3));
-        let info, consentimiento = null, caso = null;
+        if (!est.etiquetasCatalogo) { try { est.etiquetasCatalogo = await YS.api(`${BASE}/etiquetas`); } catch { est.etiquetasCatalogo = []; } }
+        let info, consentimiento = null, caso = null, notas = [];
         try { info = await YS.api(`${BASE}/conversaciones/${id}/paciente`); }
         catch (e) { if (gen === est.generacion) dibujarContexto(YS.errorCarga({ texto: e.message, reintentar: "YS.bandeja.recargarContexto()" })); return; }
         if (info.paciente) {
             try { consentimiento = await YS.api(`/pacientes/${info.paciente.idPaciente}/consentimiento-telemedicina`); } catch { }
             try { caso = await YS.api(`/pacientes/${info.paciente.idPaciente}/caso`); } catch { }   // 404 = todavía no tiene caso (Fase 2)
         }
+        try { notas = await YS.api(`${BASE}/conversaciones/${id}/notas`); } catch { }
         if (gen !== est.generacion) return;
         const p = info.paciente;
         const dato = (etiqueta, valor) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor${valor ? "" : " vacio"}">${YS.esc(valor || "Sin cargar")}</span></div>`;
         const datoHtml = (etiqueta, html) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor">${html}</span></div>`;
         const CANAL_TEXTO = { Simulado: "Chat simulado" };
         const e = ESTADO[info.estado] || { texto: info.estado, chip: "neutral" };
+        const idsEtiquetas = est.convs.get(id)?.idsEtiquetas || [];
+        const chipsEtiquetas = idsEtiquetas.map(ide => est.etiquetasCatalogo.find(et => et.idEtiqueta === ide)).filter(Boolean);
         let html = `
             <div class="chats-contexto-persona">
                 ${YS.avatar(p?.nombre, info.idConversacion, "lg")}
                 <div><div class="chats-contexto-nombre">${YS.esc(p?.nombre || "Paciente sin identificar")}</div>
                      <span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span></div>
+            </div>
+            <div class="chats-contexto-etiquetas">
+                ${chipsEtiquetas.map(et => `<span class="ui-chip ui-chip--${et.tono} chats-etiqueta">${YS.esc(et.nombre)}</span>`).join("")}
+                <button class="chats-etiqueta-agregar" type="button" id="chatsBtnEtiquetas" aria-label="Administrar etiquetas">${YS.icono("etiqueta")} ${chipsEtiquetas.length ? "" : "Etiquetar"}</button>
             </div>`;
         if (!p) {
             html += `<div class="chats-contexto-bloque">${dato("Teléfono", formatearTelefono(info.telefono))}</div>
@@ -830,9 +933,30 @@
                     <div class="chats-contexto-acciones">
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsVerFicha">${YS.icono("usuario")}Ver ficha</button>
+                        ${YS.shell.rol === "configurador" ? (caso
+                            ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnAsignar">${caso.idProfesionalAsignado ? "Reasignar" : "Asignar"}</button>`
+                            : `<button class="ui-btn ui-btn--sm" type="button" disabled title="Este paciente todavía no tiene un caso abierto">Asignar</button>`) : ""}
                     </div>
                 </div>`;
         }
+        html += `
+            <div class="chats-contexto-seccion chats-contexto-notas">
+                <div class="chats-contexto-seccion-titulo">Notas internas <span class="ui-muted">· no las ve el paciente</span></div>
+                <div class="chats-notas-lista">${notas.length ? notas.map(n => `
+                    <div class="chats-nota">
+                        <div class="chats-nota-cuerpo">${YS.esc(n.texto)}</div>
+                        <div class="chats-nota-meta">
+                            <span>${YS.esc(n.nombreUsuario || "Equipo")} · ${YS.esc(YS.fecha.corta(n.fechaCreacion))} ${YS.esc(YS.fecha.hora(n.fechaCreacion))}</span>
+                            ${YS.shell.rol === "configurador" || n.idUsuario === YS.sesion.idUsuario()
+                                ? `<button type="button" class="ui-btn-icono chats-nota-borrar" data-id="${n.idNota}" aria-label="Borrar nota">${YS.icono("papelera")}</button>` : ""}
+                        </div>
+                    </div>`).join("") : `<p class="chats-dato-vacio">Sin notas todavía.</p>`}</div>
+                <div class="chats-nota-nueva">
+                    <label class="sr-only" for="chatsNotaTexto">Nueva nota interna</label>
+                    <textarea class="ui-textarea" id="chatsNotaTexto" rows="2" maxlength="1000" placeholder="Agregar una nota interna…"></textarea>
+                    <button class="ui-btn ui-btn--sm ui-btn--primary" type="button" id="chatsNotaAgregar">Agregar</button>
+                </div>
+            </div>`;
         if (info.estado === "Urgente" || info.estado === "DerivadaHumano") {
             html += `<div class="chats-contexto-bloque chats-contexto-resolver">
                 <button class="ui-btn ${info.estado === "Urgente" ? "ui-btn--danger" : ""} ui-btn--bloque" type="button" id="chatsResolverContexto">${info.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>
@@ -849,6 +973,124 @@
         });
         $("#chatsVerTurnos")?.addEventListener("click", () => irAlPanel(`turnos?paciente=${p.idPaciente}`));
         $("#chatsVerFicha")?.addEventListener("click", () => irAlPanel(`usuarios?paciente=${p.idPaciente}`));
+        $("#chatsBtnAsignar")?.addEventListener("click", () => abrirAsignar(id, p?.idPaciente, caso));
+        $("#chatsBtnEtiquetas")?.addEventListener("click", () => abrirEtiquetas(id, idsEtiquetas));
+        $("#chatsNotaAgregar")?.addEventListener("click", () => agregarNota(id));
+        raiz.querySelectorAll(".chats-nota-borrar").forEach(b => b.addEventListener("click", () => borrarNota(id, parseInt(b.dataset.id))));
+    }
+
+    // ── Notas internas ──────────────────────────────────────────
+    async function agregarNota(idConversacion) {
+        const t = $("#chatsNotaTexto");
+        const texto = t.value.trim();
+        if (!texto) return;
+        try {
+            await YS.api(`${BASE}/conversaciones/${idConversacion}/notas`, { method: "POST", json: { texto } });
+            if (est.actual === idConversacion) cargarContexto();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    async function borrarNota(idConversacion, idNota) {
+        if (!await YS.confirmar({ titulo: "Borrar nota", mensaje: "Esta nota interna se borra para todo el equipo.", textoConfirmar: "Borrar", peligro: true })) return;
+        try {
+            await YS.api(`${BASE}/conversaciones/${idConversacion}/notas/${idNota}`, { method: "DELETE" });
+            if (est.actual === idConversacion) cargarContexto();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    // ── Etiquetas ───────────────────────────────────────────────
+    async function abrirEtiquetas(idConversacion, idsActuales) {
+        // Se vuelve a pedir acá (no alcanza con el caché de cargarContexto): es una acción
+        // deliberada de la persona, y el catálogo puede haber cambiado en lo que estuvo
+        // mirando la conversación.
+        try { est.etiquetasCatalogo = await YS.api(`${BASE}/etiquetas`); } catch (e) { YS.toast(e.message, "error"); return; }
+        const catalogo = est.etiquetasCatalogo;
+        if (!catalogo.length) {
+            YS.toast("Todavía no hay etiquetas en el catálogo. Las crea tu Configurador.", "info");
+            return;
+        }
+        const idsElegidos = new Set(idsActuales);
+        YS.modal({
+            titulo: "Etiquetas de la conversación", tamano: "chico",
+            cuerpo: `<div class="chats-etiquetas-picker">${catalogo.map(et => `
+                <label class="ui-check">
+                    <input type="checkbox" value="${et.idEtiqueta}"${idsElegidos.has(et.idEtiqueta) ? " checked" : ""}>
+                    <span class="ui-chip ui-chip--${et.tono}">${YS.esc(et.nombre)}</span>
+                </label>`).join("")}</div>`,
+            acciones: [
+                { texto: "Cerrar", tipo: "ghost", alClick: ctrl => ctrl.cerrar() },
+                { texto: "Guardar", tipo: "primary", foco: true, alClick: async ctrl => {
+                    const marcados = new Set([...ctrl.cuerpo.querySelectorAll("input[type=checkbox]:checked")].map(i => parseInt(i.value)));
+                    const agregar = [...marcados].filter(i => !idsElegidos.has(i));
+                    const quitar = [...idsElegidos].filter(i => !marcados.has(i));
+                    try {
+                        await Promise.all([
+                            ...agregar.map(i => YS.api(`${BASE}/conversaciones/${idConversacion}/etiquetas/${i}`, { method: "POST" })),
+                            ...quitar.map(i => YS.api(`${BASE}/conversaciones/${idConversacion}/etiquetas/${i}`, { method: "DELETE" }))
+                        ]);
+                        ctrl.cerrar();
+                        // El pulso incremental solo trae conversaciones con un MensajeChat
+                        // nuevo (ListarResumen) - poner o sacar una etiqueta no genera uno,
+                        // así que esperar al próximo pulso la dejaría desactualizada hasta
+                        // la vuelta completa (cada 60s). Se corrige el estado local, ya que
+                        // la propia acción confirma que el servidor quedó así.
+                        const conv = est.convs.get(idConversacion);
+                        if (conv) conv.idsEtiquetas = [...marcados];
+                        if (est.actual === idConversacion) cargarContexto();
+                        dibujarLista();
+                    } catch (e) { YS.toast(e.message, "error"); }
+                } }
+            ]
+        });
+    }
+
+    // ── Asignar / reasignar (solo Configurador) ──────────────────
+    const TEXTO_MOTIVO_ASIGNACION = {
+        CargaEquilibrada: "Carga equilibrada", PedidoDelPaciente: "Pedido del paciente", CambioDeEspecialidad: "Cambio de especialidad",
+        ProfesionalNoDisponible: "Profesional no disponible", Otro: "Otro"
+    };
+
+    async function abrirAsignar(idConversacion, idPaciente, caso) {
+        if (!caso || !idPaciente) return;
+        let profesionales, motivos;
+        try { [profesionales, motivos] = await Promise.all([YS.api("/profesionales"), YS.api("/casos/motivos-reasignacion")]); }
+        catch (e) { YS.toast(e.message, "error"); return; }
+        const activos = profesionales.filter(p => p.estado === "Activo");
+        YS.modal({
+            titulo: caso.idProfesionalAsignado ? "Reasignar conversación" : "Asignar conversación",
+            cuerpo: `
+                <div class="ui-form-grid">
+                    <div class="ui-campo"><label for="asignarProfesional">Profesional</label>
+                        <select class="ui-select" id="asignarProfesional">
+                            ${activos.map(p => `<option value="${p.idProfesional}"${p.idProfesional === caso.idProfesionalAsignado ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("")}
+                        </select>
+                    </div>
+                    <div class="ui-campo"><label for="asignarMotivo">Motivo</label>
+                        <select class="ui-select" id="asignarMotivo">
+                            <option value="">Elegir…</option>
+                            ${motivos.map(m => `<option value="${m}">${YS.esc(TEXTO_MOTIVO_ASIGNACION[m] || m)}</option>`).join("")}
+                        </select>
+                    </div>
+                    <div class="ui-campo ui-campo--ancho"><label for="asignarNota">Nota (opcional)</label>
+                        <input type="text" id="asignarNota" class="ui-input" maxlength="140" placeholder="No va a auditoría ni a logs">
+                    </div>
+                </div>`,
+            acciones: [
+                { texto: "Cancelar", tipo: "ghost", alClick: ctrl => ctrl.cerrar() },
+                { texto: caso.idProfesionalAsignado ? "Reasignar" : "Asignar", tipo: "primary", foco: true, alClick: async ctrl => {
+                    const idProfesional = parseInt(ctrl.cuerpo.querySelector("#asignarProfesional").value);
+                    const motivoCategoria = ctrl.cuerpo.querySelector("#asignarMotivo").value;
+                    if (!motivoCategoria) { YS.toast("Elegí un motivo.", "error"); return; }
+                    const nota = ctrl.cuerpo.querySelector("#asignarNota").value.trim() || null;
+                    try {
+                        await YS.api(`${BASE}/conversaciones/${idConversacion}/asignar`, { method: "PUT", json: { idProfesional, motivoCategoria, nota } });
+                        ctrl.cerrar();
+                        YS.toast("Conversación asignada.");
+                        cargarContexto();
+                    } catch (e) { YS.toast(e.message, "error"); }
+                } }
+            ]
+        });
     }
 
     // Accesos al panel del configurador: si ya estamos ahí, cambia de sección sin recargar.
@@ -1049,6 +1291,9 @@
             if (!document.hidden) { est.vueltasSinCambios = 0; programar(0); marcarLeidaSiCorresponde(); }
         });
         cargarPlantillas();
+        // El catálogo lo necesita dibujarLista() (chips por fila) desde el primer dibujo,
+        // no solo cargarContexto()/abrirEtiquetas() (que lo refrescan cuando hace falta).
+        YS.api(`${BASE}/etiquetas`).then(c => { est.etiquetasCatalogo = c; dibujarLista(); }).catch(() => { est.etiquetasCatalogo = []; });
         dibujarLista();
         pulso();
         instalarAvisosInternos();

@@ -246,6 +246,40 @@
     font-size: 16px; line-height: 1; cursor: not-allowed;
 }
 
+/* Etiquetas de la conversación (panel de contexto) */
+.chats-contexto-etiquetas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.chats-etiqueta-agregar {
+    display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px;
+    border: 1px dashed var(--border-strong); border-radius: var(--r-sm); background: none; color: var(--text-3);
+    font-size: var(--fs-xs); cursor: pointer;
+}
+.chats-etiqueta-agregar svg { width: 13px; height: 13px; }
+.chats-etiqueta-agregar:hover { border-color: var(--accent); color: var(--accent); }
+.chats-etiquetas-picker { display: flex; flex-direction: column; gap: 10px; }
+
+/* Notas internas */
+.chats-notas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+.chats-nota { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.chats-nota-cuerpo { font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word; }
+.chats-nota-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: var(--fs-xs); color: var(--text-4); }
+.chats-nota-meta .ui-btn-icono { width: 24px; height: 24px; }
+.chats-nota-nueva { display: flex; flex-direction: column; gap: 6px; }
+.chats-nota-nueva textarea { resize: vertical; }
+
+/* Administrar respuestas rápidas (modal) */
+.chats-plantillas-administrar {
+    display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 10px; margin-top: 2px;
+    border: none; border-top: 1px solid var(--border); border-radius: 0; background: none; color: var(--text-3);
+    font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.chats-plantillas-administrar:hover { color: var(--accent); }
+.chats-admin-plantillas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 14px; }
+.chats-admin-plantilla { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.chats-admin-plantilla-datos { flex: 1; min-width: 0; }
+.chats-admin-plantilla-datos .chats-plantilla-texto { white-space: normal; }
+.chats-admin-plantilla-acciones { display: flex; gap: 4px; flex-shrink: 0; }
+.chats-admin-plantilla-nueva { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+
 /* Ventana muy angosta: una columna a la vez (lista o conversación) */
 @media (max-width: 760px) {
     .chats-cuerpo, .chats.expandida .chats-cuerpo, .chats--pagina .chats-cuerpo { grid-template-columns: minmax(0, 1fr); }
