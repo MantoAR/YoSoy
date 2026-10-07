@@ -99,6 +99,10 @@
 
     <script src="shared/ui.js"></script>
     <script>
+        // Escape de HTML para datos que cargan los usuarios. En Cambios-Agus vive en shared/ui.js (YS.esc);
+        // en main no existe esa capa, asi que el parche de XSS define lo minimo que usa.
+        window.YS = window.YS || {};
+        YS.esc = YS.esc || (s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]));
         let rolActual = "paciente";
 
         // Volver a la reserva por link público (Fase 3a, Paso 3): si llegamos con un

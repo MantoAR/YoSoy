@@ -987,7 +987,7 @@ async function reportes() {
 
     const opts = profesionales
         .filter(function(p) { return p.estado === 'Activo'; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + p.nombre + '</option>'; })
+        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(p.nombre) + '</option>'; })
         .join('');
 
     if (YS.shell.actual !== "reportes") return;
