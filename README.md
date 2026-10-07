@@ -135,6 +135,8 @@ cd YoSoy
    | 9 | `add_grupos_casos_derivacion.sql` | Tablas `Grupo`, `ProfesionalGrupo`, `Caso`, `CasoDerivacion`, `ReglaDerivacion`, `HistorialAsignacion` (Grupos, Casos y derivación en cascada) | Sí |
    | 10 | `add_link_publico_profesional.sql` | `Profesional.Slug`, `LinkPublicoActivo` (link público de reserva) | Sí |
    | 11 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 9 | Sí |
+   | 12 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
+   | 13 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
 
    Los marcados "No" son del script base de la materia, de antes de esta rama: no tienen una verificación de "¿ya existe esta columna?" antes de agregarla, así que si se corren una segunda vez por error, fallan con un error de SQL Server (no corrompen nada, pero hay que saltarlos). Los demás sí la tienen y se pueden volver a correr sin problema.
 
@@ -176,6 +178,23 @@ dotnet user-secrets set "Jwt:Key" "una-clave-aleatoria-de-32-caracteres-o-mas"
 app **no arranca**: tira un error claro explicando este mismo paso al intentar resolver
 `JwtEmisorService` apenas levanta, antes de aceptar ningún pedido.
 
+### Configurar la contraseña de correo (opcional para desarrollar, obligatoria para mails reales)
+
+`appsettings.json` → `Email:Password` queda **vacío** a propósito: no se versiona ninguna
+contraseña real. Con el valor vacío (o cualquier valor que no autentique, como un espacio),
+`EmailService` intenta conectarse igual pero el envío falla y queda registrado como
+`Omitido` — así se puede desarrollar y correr la batería de pruebas sin mandar mails de
+verdad. Para que los recordatorios y avisos salgan por correo real, configurar, una vez
+por máquina:
+
+```bash
+dotnet user-secrets set "Email:Password" "la-contraseña-de-aplicación-real"
+```
+
+(o la variable de entorno `Email__Password`, si no es un entorno de desarrollo). La
+rotación de una contraseña que se haya expuesto alguna vez se hace en el proveedor de
+correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
+
 ### Qué cambia
 
 - Los 3 logins (`POST /login`) devuelven, además de lo que ya devolvían, un campo
@@ -194,23 +213,32 @@ app **no arranca**: tira un error claro explicando este mismo paso al intentar r
 
 ### Qué quedó protegido (y con qué alcance)
 
+> **Actualizado en `cierre-seguridad`** (ver `CAMBIOS_AGUS.md`, sección "Cierre de
+> seguridad"): esta tabla listaba varios huecos reales como "pendiente"; esta vuelta los
+> cierra. `Auth:PermitirEncabezadoLegacy` queda en **`false`** (ver más abajo) y
+> `GuardiaEndpointsTests` (reflexión sobre `EndpointDataSource`, no una lista a mano)
+> falla si aparece un endpoint nuevo sin decidir.
+
 | Grupo | Alcance |
 |---|---|
-| Mensajería (`/mensajeria/*`) | Rol Profesional o Configurador. Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook). |
-| Consentimiento (firmar) | Rol Paciente **y** que el id de la URL sea el del propio token. |
+| Mensajería (`/mensajeria/*`) | Rol Profesional o Configurador, con pertenencia de conversación (quién ve qué chat — ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook), cerradas aparte por `ChatSimuladoHabilitado`/`SoloLocal`. |
+| Consentimiento (firmar y leer estado) | Rol Paciente **y** que el id de la URL sea el del propio token (o el equipo, para leer). |
 | Administración (usuarios, auditoría, catálogos al escribir, solicitudes, "Solicitudes de cambio"/`Derivacion`) | Solo Configurador. |
-| Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; se migró a leer la identidad del token en vez de confiar en el header a ciegas (antes, sin ninguna identidad resuelta, caía en "administrador" por default — un hueco real que quedó cerrado). |
-| Turnos | Un paciente solo ve/cancela los propios; un profesional solo ve/cancela los propios (antes, cualquier profesional podía cancelar el turno de cualquier otro, sin chequeo); cualquier profesional o Configurador puede ver los turnos de cualquier paciente (es parte de su atención). `/profesionales/{id}/agenda` queda abierto a propósito: cualquier paciente lo necesita para ver horarios de **cualquier** profesional al pedir turno. |
-| Historia clínica, evoluciones, eventos de crisis, sesiones clínicas | Rol Profesional o Configurador (ningún paciente los llama). **Alcance más amplio que Casos:** no se llegó a filtrar "solo el profesional asociado a ese paciente", cualquier profesional autenticado puede ver la de cualquier paciente — queda pendiente. |
-| Login, registro de paciente, registro de profesional, recuperación de contraseña, `/reservar/{slug}` y su disponibilidad pública, archivos estáticos | Sin token, a propósito. |
-
-**Quedó sin proteger (modo legacy, sin restricción adicional — no es peor que antes, solo no mejoró):** `/agendas` (alta/baja/edición de franjas de horario), la coincidencia entre quién pide un turno y el `idPaciente`/`idProfesional` del cuerpo en `/turnos/solicitar` y `/turnos/profesional-solicitar`, y todo `/informes-admision*` (no se alcanzó a trazar con precisión qué rol llama cada paso).
+| Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; ahora todo el grupo exige sesión a nivel de ruta (antes, varios — `/grupos`, `/reglasderivacion`, `/pacientes/{id}/caso` — no tenían ningún chequeo, ni de sesión ni de rol). |
+| Turnos | La identidad sale siempre del token, nunca de un id en el cuerpo o la URL: un paciente solo pide/ve/cancela/confirma los propios; un profesional solo administra los propios. El `POST /turnos` crudo (sin reglas de negocio, sin uso real) queda apagado (410). `/profesionales/{id}/agenda` sigue abierto a propósito: cualquier paciente necesita ver el horario de **cualquier** profesional al pedir turno. |
+| Agendas (franjas de horario) | El profesional solo administra las propias; el Configurador, cualquiera. |
+| Historia clínica, evoluciones, eventos de crisis, sesiones clínicas, interacciones con la IA | Solo el profesional **asociado a ese paciente** (mismo criterio que Casos y que los chats: equipo tratante vigente, `PacienteProfesionalDAO`) o el Configurador — ya no "cualquier profesional autenticado". Queda auditado (solo ids, nunca contenido) quién abre qué paciente y cuándo. |
+| Reportes de atenciones (CB-04) | Corregido: usaba `X-Usuario-Id` sin firmar, al margen del JWT. Ahora el alcance (propio/total) sale de `IdentidadActualService`, igual que el resto de la app. |
+| Catálogos de referencia (Especialidad, Rol, EstadoTurno, TipoConsentimiento, ObraSocial) | Lectura abierta (`/especialidades` la necesita además el registro público de profesional); escritura, solo Configurador. |
+| Pacientes/Profesionales (ficha, "Mi perfil") | Lectura y edición exigen sesión; el paciente solo la propia, el profesional solo la propia (antes, sin ningún chequeo, cualquiera editaba la ficha de cualquiera). El volcado completo (todos los pacientes/profesionales) queda Configurador-only. |
+| Login, registro de paciente, registro de profesional, recuperación de contraseña, `/reservar/{slug}` y su disponibilidad/reserva pública, `/capacidades`, archivos estáticos | Sin token, a propósito — lista completa y el por qué de cada uno en `GuardiaEndpointsTests.Publicos`. |
 
 ### Pendiente
 
-- El filtro "solo el profesional asociado a este paciente" en historia clínica (hoy es "cualquier profesional", no "cualquiera sin identidad" — mejoró, pero no llega al nivel de `Casos`).
-- `signaling-server` (Node, WebRTC) **no autentica nada** — cualquiera que tenga o adivine un código de sala puede conectarse. No se tocó en esta rama.
+- `signaling-server` (Node, WebRTC) **no autentica nada** — cualquiera que tenga o adivine un código de sala puede conectarse. Fuera de alcance de esta rama (lo trabaja `videollamadas-seguras`); solo queda anotado.
 - Reconciliar con el JWT de `videollamadas-seguras` (`Services/JwtService.cs` ahí): son dos implementaciones distintas (claims, nombre de la clave de configuración, formato de token) hechas sin coordinarse — ver "Parte 2: JWT, Paso J0" en `CAMBIOS_AGUS.md` para el detalle.
+- Cierre de sesión por inactividad: decisión de equipo pendiente, no se tocó.
+- CSP (Content-Security-Policy): no se activa todavía — hay demasiado JS/CSS inline en `PANTALLAS/` y rompería pantallas. Ver `CAMBIOS_AGUS.md` para el detalle de por qué queda como mejora futura.
 
 ---
 
