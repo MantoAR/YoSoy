@@ -1729,3 +1729,32 @@ No se tocó `videollamadas-seguras` en este paso, como estaba previsto.
   después. `p14`/`p16` limpian el resto de lo propio solas. El toggle del link público del
   profesional real 1 queda en el mismo estado en que ya había quedado (activo) — no se
   volvió a tocar.
+
+### Paso 3.1: auditoría de secretos — frenada y retomada
+
+`git log -p origin/main..integracion-main` contra los patrones pedidos (tokens `eyJ`,
+`Jwt:Key`/`Jwt__Key`, cadenas de conexión con contraseña, `Email:Password` no vacío),
+solo cantidades:
+
+| Patrón | Cantidad |
+|---|---|
+| Tokens `eyJ...` sueltos | 0 |
+| Cadena de conexión con `Password=` | 0 |
+| Referencias al **nombre** de la clave `Jwt:Key`/`Jwt__Key`/sección `"Jwt"` (documentación, nunca el valor — `Jwt:Key` no se versiona en ningún commit de la cadena) | 23 |
+| `"Password": "<valor no vacío>"` en `appsettings.json` | **1** |
+
+**Se frenó acá, como pide la regla, y se avisó antes de seguir.** El único hallazgo real:
+la contraseña de correo que Paso 8 del cierre de seguridad vació (commit `160a716`) —
+pero **ya está expuesta hoy en la punta real de `origin/main`**, de antes de que arrancara
+esta cadena (confirmado con `git show origin/main:appsettings.json`). No es algo que esta
+integración introduzca: el commit `160a716` corrige el valor **hacia adelante**, pero no
+puede borrarlo de la historia de `main` sin reescribir historia ya publicada — que las
+reglas de este mismo pedido prohíben.
+
+**Decisión (confirmada explícitamente):** seguir con el resto del Paso 3 igual. El merge
+no empeora una exposición que ya es pública hoy; corrige el valor desde ahí en más. Queda
+anotado como riesgo abierto para el Paso 5 (frenar antes del push) y para quien revise el
+PR: la contraseña de correo expuesta en `origin/main` necesita rotarse en el proveedor
+(Gmail) — eso lo hace el equipo, no un commit — y, si se quiere además sacarla de la
+historia de `main`, es una decisión de equipo aparte (reescribir historia publicada), no
+algo que este trabajo vaya a hacer.
