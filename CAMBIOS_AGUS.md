@@ -1696,3 +1696,36 @@ leyendo el código actual, no solo el diff del merge):
   Sin ningún `\r` suelto (confirmado con un `grep` dedicado sobre el diff completo).
 
 No se tocó `videollamadas-seguras` en este paso, como estaba previsto.
+
+### Paso 2: verificación completa
+
+- **Build:** `dotnet build --no-incremental` sobre `integracion-main`, 0 errores (solo las
+  advertencias de nulabilidad preexistentes, las mismas de siempre).
+- **Batería:** `dotnet test` 160/160 — el mismo número que tenía `cierre-seguridad`:
+  `fix-xss` no toca ningún archivo de backend, así que no había ningún test nuevo que
+  sumar ni ninguno que se pudiera romper por este merge.
+- **Guardia automática:** sigue en 0 — `GuardiaEndpointsTests` es parte de esos 160.
+- **`Auth:PermitirEncabezadoLegacy`:** confirmado en `false` en el `appsettings.json` de
+  `integracion-main`.
+- **`appsettings*.json` sin secretos:** un solo archivo real en todo el repo (los de
+  `bin/`/`obj/` son artefactos de build, ignorados) — mismo contenido que se dejó en
+  `cierre-seguridad` (`Email:Password` vacío, sin sección `Jwt`).
+- **Playwright, con la app real levantada**, tres corridas sobre `integracion-main`:
+  - `p14_pertenencia.py` (de la vuelta de chats, dos profesionales reales en sesiones
+    separadas): **21/21** — aislamiento de bandeja, Tomar/Devolver, notificaciones,
+    reasignación por Configurador, pantalla de etiquetas, todo intacto.
+  - `p16_cierre_seguridad.py` (de la vuelta anterior): **16/16** — Configurador por
+    Casos/Derivaciones/Agendas/Auditoría/Grupos/Reglas, Profesional por horarios/casos/
+    historia clínica (asociado y ajeno), Paciente por turnos/consentimiento, página
+    pública sin sesión.
+  - `p17_merge_fixxss.py` (nuevo, para este paso): **5/5** — los dos únicos lugares que
+    `fix-xss` toca y que ningún otro script visitaba, login (`index.html`) y registro
+    público de paciente, cargan sin errores de consola después del merge.
+  - **Total: 42/42.** Log del servidor revisado durante las tres corridas: **cero avisos
+    de "modo legacy"**.
+- **Datos:** las 3 filas de auditoría de historia clínica que generó
+  `p16_cierre_seguridad.py` (ya documentadas como un efecto esperado de ese script en el
+  cierre de seguridad) se borraron al terminar — confirmado con una consulta antes y
+  después. `p14`/`p16` limpian el resto de lo propio solas. El toggle del link público del
+  profesional real 1 queda en el mismo estado en que ya había quedado (activo) — no se
+  volvió a tocar.
