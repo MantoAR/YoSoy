@@ -42,7 +42,7 @@
     const est = {
         modo: "cajon", abierto: false, expandido: false, contexto: false,
         convs: new Map(), maxId: 0, cargada: false, ultimaCompleta: 0,
-        filtro: "todas", soloMias: false, busqueda: "", firmaLista: "",
+        filtro: "todas", soloMias: false, busqueda: "", filtroEtiqueta: null, firmaLista: "",
         actual: null, generacion: 0, mensajes: [], primerId: null, ultimoId: 0, hayMas: false,
         cargandoArriba: false, nuevosAbajo: 0, pendientes: [], idTmp: 0, leidaHasta: 0,
         timer: null, pulsando: false, vueltasSinCambios: 0, sinConexion: false,
@@ -73,6 +73,9 @@
                             <input class="ui-input" id="chatsBuscar" type="search" placeholder="Buscar por nombre o teléfono" autocomplete="off">
                         </label>
                         <div class="ui-filtros chats-filtros" id="chatsFiltros" role="group" aria-label="Filtrar conversaciones"></div>
+                        <select class="ui-select chats-filtro-etiqueta" id="chatsFiltroEtiqueta" aria-label="Filtrar por etiqueta">
+                            <option value="">Todas las etiquetas</option>
+                        </select>
                     </div>
                     <ul class="chats-conversaciones" id="chatsConversaciones" aria-label="Conversaciones"></ul>
                 </section>
@@ -95,6 +98,10 @@
             if (e.target.closest("[data-mias]")) alternarMias();
         });
         $("#chatsBuscar").addEventListener("input", YS.debounce(() => { est.busqueda = $("#chatsBuscar").value.trim(); dibujarLista(); }, 120));
+        $("#chatsFiltroEtiqueta").addEventListener("change", e => {
+            est.filtroEtiqueta = e.target.value ? parseInt(e.target.value) : null;
+            dibujarLista();
+        });
         $("#chatsBuscar").addEventListener("keydown", e => {
             if (e.key === "ArrowDown") { e.preventDefault(); raiz.querySelector(".chats-conv")?.focus(); }
         });
@@ -201,6 +208,7 @@
         return [...est.convs.values()]
             .filter(c => filtro.pasa(c))
             .filter(c => !est.soloMias || c.idProfesionalAsignado === YS.sesion.idProfesional())
+            .filter(c => !est.filtroEtiqueta || (c.idsEtiquetas || []).includes(est.filtroEtiqueta))
             .filter(c => !q || YS.normalizar(c.nombrePaciente).includes(q) || (digitos.length >= 3 && c.telefono.includes(digitos)))
             .sort((a, b) => (a.estado === "Urgente" ? 0 : 1) - (b.estado === "Urgente" ? 0 : 1)
                 || new Date(b.fechaUltimoMensaje || b.fechaUltimaActividad) - new Date(a.fechaUltimoMensaje || a.fechaUltimaActividad));
@@ -213,13 +221,25 @@
         dibujarLista();
     }
 
+    // Paso 5: filtro por etiqueta en la bandeja, sobre lo ya visible para esta identidad
+    // (est.convs, que llega filtrado por pertenencia - mismo criterio que "Mías"/búsqueda,
+    // client-side sobre esa misma lista en vez de un viaje al servidor).
+    function dibujarFiltroEtiquetas() {
+        const sel = $("#chatsFiltroEtiqueta");
+        if (!sel) return;
+        const activas = est.etiquetasCatalogo || [];
+        if (est.filtroEtiqueta && !activas.some(et => et.idEtiqueta === est.filtroEtiqueta)) est.filtroEtiqueta = null;
+        sel.innerHTML = `<option value="">Todas las etiquetas</option>` +
+            activas.map(et => `<option value="${et.idEtiqueta}"${et.idEtiqueta === est.filtroEtiqueta ? " selected" : ""}>${YS.esc(et.nombre)}</option>`).join("");
+    }
+
     function dibujarLista() {
         const ul = $("#chatsConversaciones");
         const lista = visibles();
         // No se redibuja si nada cambió: evita parpadeos y no pierde el foco con el polling
         // est.etiquetasCatalogo entra en la firma: cambia qué chip se ve por fila sin que
         // cambien los datos de "lista" (llega después, por separado - ver iniciar()).
-        const firma = JSON.stringify([est.filtro, est.soloMias, est.busqueda, est.actual, lista, est.etiquetasCatalogo]);
+        const firma = JSON.stringify([est.filtro, est.soloMias, est.filtroEtiqueta, est.busqueda, est.actual, lista, est.etiquetasCatalogo]);
         if (firma === est.firmaLista) return;
         est.firmaLista = firma;
         const foco = document.activeElement?.closest?.(".chats-conv")?.dataset.id;
@@ -336,6 +356,21 @@
         $("#chatsHilo").innerHTML = `<div class="chats-hilo-vacio">${YS.vacio({ icono: "chat", titulo: "Elegí una conversación", texto: "Las urgentes aparecen arriba de todo. Atajos: / para buscar, Alt+↓ y Alt+↑ para cambiar de conversación, ? para ver todos." })}</div>`;
     }
 
+    // La pertenencia la decide el servidor en cada pedido (Paso 2): esto puede pasar en
+    // cualquier momento mientras la conversación está abierta (otra persona la tomó, el
+    // Configurador la reasignó). En vez de un error genérico, se saca de la vista como si
+    // nunca hubiera estado - para esta identidad, deja de existir.
+    function yaNoVisible(id) {
+        est.convs.delete(id);
+        dibujarLista();
+        if (est.actual !== id) return;
+        est.actual = null; est.hiloCargado = false; est.mensajes = [];
+        raiz.classList.remove("con-conversacion");
+        dibujarHiloVacio();
+        dibujarContexto();
+        YS.toast("Ya no podés ver esta conversación: puede que otra persona la haya tomado o te la hayan reasignado.", "info");
+    }
+
     function dibujarHilo() {
         const c = est.convs.get(est.actual);
         $("#chatsHilo").innerHTML = `
@@ -382,7 +417,15 @@
         if (!cab || !c) return;
         const e = ESTADO[c.estado] || { texto: c.estado, chip: "neutral", desc: "" };
         const nombre = c.nombrePaciente || "Paciente sin identificar";
-        const firma = JSON.stringify([c.estado, nombre, c.telefono, est.contexto]);
+        const escalada = c.estado === "Urgente" || c.estado === "DerivadaHumano";
+        const esConfigurador = YS.shell.rol === "configurador";
+        const yo = YS.shell.rol === "profesional" ? YS.sesion.idProfesional() : null;
+        // Pertenencia (Paso 3): Tomar es para cualquier profesional cuando está sin asignar;
+        // Devolver, para quien la tiene (o el Configurador) - el Configurador reasigna directo
+        // desde el panel de información, no "toma".
+        const puedeTomar = escalada && yo != null && !c.idProfesionalAsignado;
+        const puedeDevolver = escalada && c.idProfesionalAsignado != null && (esConfigurador || c.idProfesionalAsignado === yo);
+        const firma = JSON.stringify([c.estado, nombre, c.telefono, c.idProfesionalAsignado, est.contexto]);
         if (cab.dataset.firma === firma) return;
         cab.dataset.firma = firma;
         cab.innerHTML = `
@@ -394,11 +437,15 @@
             </div>
             <span class="ui-chip ui-chip--${e.chip}" title="${YS.esc(e.desc)}">${YS.esc(e.texto)}</span>
             <span class="ui-espacio"></span>
-            ${c.estado === "Urgente" || c.estado === "DerivadaHumano"
+            ${puedeTomar ? `<button class="ui-btn ui-btn--sm ui-btn--primary" type="button" id="chatsBtnTomar">Tomar</button>` : ""}
+            ${puedeDevolver ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnDevolver">Devolver</button>` : ""}
+            ${escalada
                 ? `<button class="ui-btn ui-btn--sm ${c.estado === "Urgente" ? "ui-btn--danger" : ""}" type="button" id="chatsBtnResolver">${c.estado === "Urgente" ? "Marcar como resuelta" : "Cerrar escalamiento"}</button>` : ""}
             ${c.estado === "Cerrada" ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnReabrir">Reabrir</button>` : ""}
             <button class="ui-btn-icono${est.contexto ? " activo" : ""}" type="button" id="chatsBtnContexto" aria-pressed="${est.contexto}" aria-label="Información del lead" title="Información del lead">${YS.icono("panel-der")}</button>`;
         cab.querySelector(".chats-volver").addEventListener("click", () => { raiz.classList.remove("con-conversacion"); });
+        cab.querySelector("#chatsBtnTomar")?.addEventListener("click", tomarConversacion);
+        cab.querySelector("#chatsBtnDevolver")?.addEventListener("click", devolverConversacion);
         cab.querySelector("#chatsBtnResolver")?.addEventListener("click", cerrarDerivacion);
         cab.querySelector("#chatsBtnReabrir")?.addEventListener("click", reabrirConversacion);
         cab.querySelector("#chatsBtnContexto").addEventListener("click", () => mostrarContexto(!est.contexto));
@@ -431,6 +478,7 @@
             marcarLeidaSiCorresponde();
         } catch (e) {
             if (gen !== est.generacion) return;
+            if (e.status === 404) { yaNoVisible(id); return; }
             $("#chatsMensajes").innerHTML = YS.errorCarga({ texto: e.message, reintentar: "YS.bandeja.recargarHilo()" });
         }
     }
@@ -798,6 +846,55 @@
         t.setSelectionRange(t.value.length, t.value.length);
     }
 
+    // ── Pertenencia: Tomar / Devolver (Paso 3) ───────────────────
+    // Sin confirmación a propósito: tomar una escalación sin asignar tiene que ser rápido,
+    // y es fácil de revertir con Devolver. Si alguien más se la llevó un instante antes, el
+    // servidor responde 409 ("ya la tomó otra persona") y el refresco posterior la saca de
+    // la vista (yaNoVisible, vía el próximo pulso/cargarContexto).
+    async function tomarConversacion() {
+        const c = est.convs.get(est.actual);
+        if (!c) return;
+        try { await YS.api(`${BASE}/conversaciones/${c.idConversacion}/tomar`, { method: "PUT" }); YS.toast("Conversación tomada."); }
+        catch (e) { YS.toast(e.message, "error"); }
+        est.vueltasSinCambios = 0;
+        await pulso();
+        cargarContexto();
+    }
+
+    async function devolverConversacion() {
+        const c = est.convs.get(est.actual);
+        if (!c) return;
+        let motivos;
+        try { motivos = await YS.api("/casos/motivos-reasignacion"); }
+        catch (e) { YS.toast(e.message, "error"); return; }
+        YS.modal({
+            titulo: "Devolver conversación",
+            cuerpo: `
+                <p>Vuelve a quedar sin asignar: cualquier profesional va a poder tomarla.</p>
+                <div class="ui-campo"><label for="devolverMotivo">Motivo</label>
+                    <select class="ui-select" id="devolverMotivo">
+                        <option value="">Elegir…</option>
+                        ${motivos.map(m => `<option value="${m}">${YS.esc(TEXTO_MOTIVO_ASIGNACION[m] || m)}</option>`).join("")}
+                    </select>
+                </div>`,
+            acciones: [
+                { texto: "Cancelar", tipo: "ghost", alClick: ctrl => ctrl.cerrar() },
+                { texto: "Devolver", tipo: "primary", foco: true, alClick: async ctrl => {
+                    const motivoCategoria = ctrl.cuerpo.querySelector("#devolverMotivo").value;
+                    if (!motivoCategoria) { YS.toast("Elegí un motivo.", "error"); return; }
+                    try {
+                        await YS.api(`${BASE}/conversaciones/${c.idConversacion}/devolver`, { method: "PUT", json: { motivoCategoria } });
+                        ctrl.cerrar();
+                        YS.toast("Conversación devuelta a sin asignar.");
+                        est.vueltasSinCambios = 0;
+                        await pulso();
+                        cargarContexto();
+                    } catch (e) { YS.toast(e.message, "error"); }
+                } }
+            ]
+        });
+    }
+
     // ── Cerrar escalamiento ─────────────────────────────────────
     async function cerrarDerivacion() {
         const c = est.convs.get(est.actual);
@@ -861,7 +958,12 @@
         if (!est.etiquetasCatalogo) { try { est.etiquetasCatalogo = await YS.api(`${BASE}/etiquetas`); } catch { est.etiquetasCatalogo = []; } }
         let info, consentimiento = null, caso = null, notas = [];
         try { info = await YS.api(`${BASE}/conversaciones/${id}/paciente`); }
-        catch (e) { if (gen === est.generacion) dibujarContexto(YS.errorCarga({ texto: e.message, reintentar: "YS.bandeja.recargarContexto()" })); return; }
+        catch (e) {
+            if (gen !== est.generacion) return;
+            if (e.status === 404) { yaNoVisible(id); return; }
+            dibujarContexto(YS.errorCarga({ texto: e.message, reintentar: "YS.bandeja.recargarContexto()" }));
+            return;
+        }
         if (info.paciente) {
             try { consentimiento = await YS.api(`/pacientes/${info.paciente.idPaciente}/consentimiento-telemedicina`); } catch { }
             try { caso = await YS.api(`/pacientes/${info.paciente.idPaciente}/caso`); } catch { }   // 404 = todavía no tiene caso (Fase 2)
@@ -875,6 +977,10 @@
         const e = ESTADO[info.estado] || { texto: info.estado, chip: "neutral" };
         const idsEtiquetas = est.convs.get(id)?.idsEtiquetas || [];
         const chipsEtiquetas = idsEtiquetas.map(ide => est.etiquetasCatalogo.find(et => et.idEtiqueta === ide)).filter(Boolean);
+        // Quién atiende ESTE hilo (Conversacion.IdProfesionalAsignado) - distinto de "Profesional
+        // asignado" más abajo, que es el equipo tratante del paciente (PacienteProfesional).
+        const escalada = info.estado === "Urgente" || info.estado === "DerivadaHumano";
+        const atendidaPor = info.idProfesionalAsignado ? (info.nombreProfesionalAsignado || "—") : "Sin asignar";
         let html = `
             <div class="chats-contexto-persona">
                 ${YS.avatar(p?.nombre, info.idConversacion, "lg")}
@@ -886,7 +992,9 @@
                 <button class="chats-etiqueta-agregar" type="button" id="chatsBtnEtiquetas" aria-label="Administrar etiquetas">${YS.icono("etiqueta")} ${chipsEtiquetas.length ? "" : "Etiquetar"}</button>
             </div>`;
         if (!p) {
-            html += `<div class="chats-contexto-bloque">${dato("Teléfono", formatearTelefono(info.telefono))}</div>
+            html += `<div class="chats-contexto-bloque">
+                ${dato("Teléfono", formatearTelefono(info.telefono))}
+                ${escalada ? dato("Atendida por", atendidaPor) : ""}</div>
                 <p class="chats-contexto-nota">El asistente todavía no pudo identificar a este paciente: el teléfono no coincide con ningún paciente y no pasó su DNI.</p>`;
         } else {
             const t = info.proximoTurno;
@@ -920,6 +1028,7 @@
                         ${dato("DNI", p.dni)}
                         ${dato("Teléfono", p.telefono ? formatearTelefono(p.telefono) : formatearTelefono(info.telefono))}
                         ${dato("Profesional asignado", nombresProfesionales || "Sin asignar")}
+                        ${escalada ? dato("Atendida por", atendidaPor) : ""}
                         ${dato("ID de la conversación", String(info.idConversacion))}
                         ${dato("Creado", info.fechaCreacion ? `${YS.fecha.corta(info.fechaCreacion)} ${YS.fecha.hora(info.fechaCreacion)}` : "")}
                         ${dato("Origen", CANAL_TEXTO[info.canal] || info.canal || "")}
@@ -933,9 +1042,9 @@
                     <div class="chats-contexto-acciones">
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsVerFicha">${YS.icono("usuario")}Ver ficha</button>
-                        ${YS.shell.rol === "configurador" ? (caso
-                            ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnAsignar">${caso.idProfesionalAsignado ? "Reasignar" : "Asignar"}</button>`
-                            : `<button class="ui-btn ui-btn--sm" type="button" disabled title="Este paciente todavía no tiene un caso abierto">Asignar</button>`) : ""}
+                        ${YS.shell.rol === "configurador" ? (escalada
+                            ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnAsignar">${info.idProfesionalAsignado ? "Reasignar" : "Asignar"}</button>`
+                            : `<button class="ui-btn ui-btn--sm" type="button" disabled title="Solo se puede asignar una conversación derivada a una persona o urgente">Asignar</button>`) : ""}
                     </div>
                 </div>`;
         }
@@ -973,7 +1082,7 @@
         });
         $("#chatsVerTurnos")?.addEventListener("click", () => irAlPanel(`turnos?paciente=${p.idPaciente}`));
         $("#chatsVerFicha")?.addEventListener("click", () => irAlPanel(`usuarios?paciente=${p.idPaciente}`));
-        $("#chatsBtnAsignar")?.addEventListener("click", () => abrirAsignar(id, p?.idPaciente, caso));
+        $("#chatsBtnAsignar")?.addEventListener("click", () => abrirAsignar(id, info.idProfesionalAsignado));
         $("#chatsBtnEtiquetas")?.addEventListener("click", () => abrirEtiquetas(id, idsEtiquetas));
         $("#chatsNotaAgregar")?.addEventListener("click", () => agregarNota(id));
         raiz.querySelectorAll(".chats-nota-borrar").forEach(b => b.addEventListener("click", () => borrarNota(id, parseInt(b.dataset.id))));
@@ -1050,19 +1159,20 @@
         ProfesionalNoDisponible: "Profesional no disponible", Otro: "Otro"
     };
 
-    async function abrirAsignar(idConversacion, idPaciente, caso) {
-        if (!caso || !idPaciente) return;
+    // idProfesionalAsignado acá es el de la CONVERSACIÓN (info.idProfesionalAsignado), no el
+    // del Caso: ya no hace falta un caso abierto para asignar quién atiende el chat.
+    async function abrirAsignar(idConversacion, idProfesionalAsignado) {
         let profesionales, motivos;
         try { [profesionales, motivos] = await Promise.all([YS.api("/profesionales"), YS.api("/casos/motivos-reasignacion")]); }
         catch (e) { YS.toast(e.message, "error"); return; }
         const activos = profesionales.filter(p => p.estado === "Activo");
         YS.modal({
-            titulo: caso.idProfesionalAsignado ? "Reasignar conversación" : "Asignar conversación",
+            titulo: idProfesionalAsignado ? "Reasignar conversación" : "Asignar conversación",
             cuerpo: `
                 <div class="ui-form-grid">
                     <div class="ui-campo"><label for="asignarProfesional">Profesional</label>
                         <select class="ui-select" id="asignarProfesional">
-                            ${activos.map(p => `<option value="${p.idProfesional}"${p.idProfesional === caso.idProfesionalAsignado ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("")}
+                            ${activos.map(p => `<option value="${p.idProfesional}"${p.idProfesional === idProfesionalAsignado ? " selected" : ""}>${YS.esc(YS.nombreCompleto(p))}${p.especialidad ? " — " + YS.esc(p.especialidad) : ""}</option>`).join("")}
                         </select>
                     </div>
                     <div class="ui-campo"><label for="asignarMotivo">Motivo</label>
@@ -1071,21 +1181,19 @@
                             ${motivos.map(m => `<option value="${m}">${YS.esc(TEXTO_MOTIVO_ASIGNACION[m] || m)}</option>`).join("")}
                         </select>
                     </div>
-                    <div class="ui-campo ui-campo--ancho"><label for="asignarNota">Nota (opcional)</label>
-                        <input type="text" id="asignarNota" class="ui-input" maxlength="140" placeholder="No va a auditoría ni a logs">
-                    </div>
                 </div>`,
             acciones: [
                 { texto: "Cancelar", tipo: "ghost", alClick: ctrl => ctrl.cerrar() },
-                { texto: caso.idProfesionalAsignado ? "Reasignar" : "Asignar", tipo: "primary", foco: true, alClick: async ctrl => {
+                { texto: idProfesionalAsignado ? "Reasignar" : "Asignar", tipo: "primary", foco: true, alClick: async ctrl => {
                     const idProfesional = parseInt(ctrl.cuerpo.querySelector("#asignarProfesional").value);
                     const motivoCategoria = ctrl.cuerpo.querySelector("#asignarMotivo").value;
                     if (!motivoCategoria) { YS.toast("Elegí un motivo.", "error"); return; }
-                    const nota = ctrl.cuerpo.querySelector("#asignarNota").value.trim() || null;
                     try {
-                        await YS.api(`${BASE}/conversaciones/${idConversacion}/asignar`, { method: "PUT", json: { idProfesional, motivoCategoria, nota } });
+                        await YS.api(`${BASE}/conversaciones/${idConversacion}/asignar`, { method: "PUT", json: { idProfesional, motivoCategoria } });
                         ctrl.cerrar();
                         YS.toast("Conversación asignada.");
+                        est.vueltasSinCambios = 0;
+                        await pulso();
                         cargarContexto();
                     } catch (e) { YS.toast(e.message, "error"); }
                 } }
@@ -1293,7 +1401,7 @@
         cargarPlantillas();
         // El catálogo lo necesita dibujarLista() (chips por fila) desde el primer dibujo,
         // no solo cargarContexto()/abrirEtiquetas() (que lo refrescan cuando hace falta).
-        YS.api(`${BASE}/etiquetas`).then(c => { est.etiquetasCatalogo = c; dibujarLista(); }).catch(() => { est.etiquetasCatalogo = []; });
+        YS.api(`${BASE}/etiquetas`).then(c => { est.etiquetasCatalogo = c; dibujarFiltroEtiquetas(); dibujarLista(); }).catch(() => { est.etiquetasCatalogo = []; });
         dibujarLista();
         pulso();
         instalarAvisosInternos();

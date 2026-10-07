@@ -119,7 +119,7 @@ let filaEnEdicion = null;
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
 const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
-    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "coberturas", "interaccionesia"];
+    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "etiquetas", "coberturas", "interaccionesia"];
 
 // La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
 // paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
@@ -176,6 +176,7 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "casosderivaciones")  return await renderCasosDerivaciones(contenido);
         if (tab === "grupos")             return await renderGrupos(contenido);
         if (tab === "reglasderivacion")   return await renderReglasDerivacion(contenido);
+        if (tab === "etiquetas")          return await renderEtiquetas(contenido);
 
         if (tab === "turnos") return await renderTurnos(contenido, params);
         const datos = await YS.fetch(`/${tab}`).then(r => r.json());
@@ -1659,6 +1660,77 @@ async function cambiarActivaRegla(id, activa) {
         const res = await YS.fetch(`/reglasderivacion/${id}/${activa ? "activar" : "desactivar"}`, { method: "PUT" });
         if (res.ok || res.status === 204) { toast(`Regla ${activa ? "activada" : "desactivada"}.`); mostrarTab("reglasderivacion"); }
         else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+// -- ETIQUETAS DE CONVERSACIONES (chats) -----------------------
+// Paso 5 (cierre de "Mejora de chats y centrado"): catalogo chico, Configurador unico que
+// lo administra - crear, renombrar, desactivar. No usa el motor generico de renderTabla
+// (campos/columnas/idCampo/guardar/eliminar): la API vive bajo /mensajeria, no en la raiz
+// como el resto de esas tablas, y el patron de YS.tabla + funciones propias (igual que
+// Grupos/Reglas de derivacion mas arriba) es mas simple que agregarle una excepcion de ruta
+// al motor compartido.
+const TONOS_ETIQUETA = ["marca", "warn", "danger", "neutral", "ok"];
+const TEXTO_TONO_ETIQUETA = { marca: "Marca", warn: "Advertencia", danger: "Riesgo", neutral: "Neutro", ok: "Resuelto" };
+
+async function renderEtiquetas(c) {
+    const etiquetas = await YS.api("/mensajeria/etiquetas");
+    if (YS.shell.actual !== "etiquetas") return;
+    window._etiquetasConversacion = etiquetas;
+    YS.shell.encabezado({ subtitulo: `${etiquetas.length} etiqueta${etiquetas.length === 1 ? "" : "s"}` });
+    YS.shell.acciones([
+        { texto: "Nueva etiqueta", icono: "mas", alClick: () => abrirModalEtiqueta() },
+        { texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("etiquetas") }
+    ]);
+
+    YS.tabla(c, {
+        filas: etiquetas, unidad: ["etiqueta", "etiquetas"], placeholder: "Buscar por nombre",
+        buscar: e => e.nombre,
+        vacio: { icono: "etiqueta", titulo: "Todavía no hay etiquetas", texto: "Las etiquetas ayudan a clasificar conversaciones del equipo (por ejemplo, Riesgo o Seguimiento).", accion: { texto: "Nueva etiqueta", onclick: "abrirModalEtiqueta()" } },
+        columnas: [
+            { titulo: "Nombre", html: e => `<span class="principal">${celda(e.nombre)}</span>`, orden: e => YS.normalizar(e.nombre) },
+            { titulo: "Tono", html: e => `<span class="ui-chip ui-chip--${e.tono}">${YS.esc(TEXTO_TONO_ETIQUETA[e.tono] || e.tono)}</span>`, orden: e => e.tono },
+            { titulo: "", clase: "acciones", html: e => `
+                <button class="ui-btn ui-btn--sm ui-btn--ghost ui-btn--icono" title="Editar" aria-label="Editar etiqueta" onclick="abrirModalEtiqueta(${e.idEtiqueta})">${YS.icono("lapiz")}</button>
+                <button class="ui-btn ui-btn--sm ui-btn--ghost ui-btn--icono btn-icono-peligro" title="Desactivar" aria-label="Desactivar etiqueta" onclick="desactivarEtiqueta(${e.idEtiqueta})">${YS.icono("papelera")}</button>` }
+        ]
+    });
+}
+
+function abrirModalEtiqueta(id) {
+    const e = id ? window._etiquetasConversacion.find(x => x.idEtiqueta === id) : null;
+    abrirModalCaso(e ? "Editar etiqueta" : "Nueva etiqueta", e ? "Guardar" : "Crear", `
+        <div class="ui-form-grid">
+            <div class="ui-campo ui-campo--ancho"><label for="campoEtiquetaNombre">Nombre</label>
+                <input type="text" id="campoEtiquetaNombre" class="ui-input" maxlength="40" value="${YS.esc(e?.nombre || "")}"></div>
+            <div class="ui-campo ui-campo--ancho"><label for="campoEtiquetaTono">Tono</label>
+                <select id="campoEtiquetaTono" class="ui-select">
+                    ${TONOS_ETIQUETA.map(t => `<option value="${t}"${(e?.tono || "neutral") === t ? " selected" : ""}>${YS.esc(TEXTO_TONO_ETIQUETA[t])}</option>`).join("")}
+                </select></div>
+        </div>`, () => guardarEtiqueta(id));
+}
+
+async function guardarEtiqueta(id) {
+    const input = document.getElementById("campoEtiquetaNombre");
+    const nombre = input.value.trim();
+    if (!nombre) { YS.form.marcar(input, "El nombre es obligatorio."); input.focus(); return; }
+    const tono = document.getElementById("campoEtiquetaTono").value;
+    try {
+        const res = await YS.fetch(id ? `/mensajeria/etiquetas/${id}` : "/mensajeria/etiquetas", {
+            method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nombre, tono })
+        });
+        if (res.ok || res.status === 201) { cerrarModalCaso(); toast(id ? "Etiqueta guardada." : "Etiqueta creada."); mostrarTab("etiquetas"); }
+        else toast(await YS.leerMensaje(res, "No se pudo guardar."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+async function desactivarEtiqueta(id) {
+    if (!await confirmar("Ya no va a poder asignarse a conversaciones nuevas (las que ya la tengan la conservan). ¿Desactivar esta etiqueta?", { titulo: "Desactivar etiqueta", textoConfirmar: "Desactivar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/mensajeria/etiquetas/${id}`, { method: "DELETE" });
+        if (res.ok || res.status === 204) { toast("Etiqueta desactivada."); mostrarTab("etiquetas"); }
+        else toast(await YS.leerMensaje(res, "No se pudo desactivar."), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
 }
 

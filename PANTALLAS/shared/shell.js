@@ -96,7 +96,8 @@
             // id "casosderivaciones", no "derivaciones": ese id ya es Usuarios > Solicitudes
             // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
             { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" },
-            { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
+            { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" },
+            { id: "etiquetas", texto: "Etiquetas de chats", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" }
         ]
     };
     const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador" };

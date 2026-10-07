@@ -63,6 +63,9 @@
 /* "Mías" (solo Profesional): no es parte del grupo de estado de al lado, se puede combinar
    con cualquiera - un margen y una línea lo separan en vez de dejarlo pegado a "Cerradas". */
 .ui-filtro--separado { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+/* Filtro por etiqueta (Paso 5): fila propia bajo los filtros de estado, compacto en vez del
+   ui-select de ancho completo por defecto. */
+.chats-filtro-etiqueta { width: auto; height: 26px; max-width: 220px; font-size: var(--fs-xs); padding: 0 26px 0 8px; }
 .chats-conversaciones { flex: 1; list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
 .chats-conv {
     display: flex; align-items: flex-start; gap: 10px; width: 100%;
