@@ -285,15 +285,6 @@ hr { border: none; height: 1px; background: var(--border); margin: 14px 0; }
 }
 /* Mismo ancho máximo y margen interno que .ui-contenido: el título queda alineado con el contenido */
 .ui-encabezado-interior { max-width: var(--contenido-max); margin: 0 auto; padding: 0 24px; }
-.ui-migas {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-    font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 3px;
-    list-style: none; padding: 0;
-}
-.ui-migas li { display: flex; align-items: center; gap: 6px; }
-.ui-migas li + li::before { content: "/"; color: var(--text-4); }
-.ui-migas a { color: var(--text-3); }
-.ui-migas a:hover { color: var(--accent-strong); }
 .ui-encabezado-fila { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 32px; }
 .ui-encabezado-textos { min-width: 0; }
 .ui-encabezado-titulo { font-size: var(--fs-2xl); font-weight: 600; margin: 0; letter-spacing: -.01em; }

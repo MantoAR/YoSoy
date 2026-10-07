@@ -272,13 +272,11 @@
         const enc = YS.el("div", { class: "ui-encabezado" });
         enc.innerHTML = `
             <div class="ui-encabezado-interior">
-                <ol class="ui-migas" aria-label="Estás en"></ol>
                 <div class="ui-encabezado-fila">
                     <div class="ui-encabezado-textos"><h1 class="ui-encabezado-titulo"></h1><p class="ui-encabezado-sub oculto"></p></div>
                     <div class="ui-encabezado-acciones"></div>
                 </div>
             </div>`;
-        els.migas = enc.querySelector(".ui-migas");
         els.titulo = enc.querySelector(".ui-encabezado-titulo");
         els.sub = enc.querySelector(".ui-encabezado-sub");
         els.acciones = enc.querySelector(".ui-encabezado-acciones");
@@ -297,11 +295,7 @@
         menu.items.forEach(g => g._btn?.classList.toggle("activo", !!g.items.find(s => s.id === id)));
 
         const titulo = op.titulo || item?.titulo || item?.texto || "";
-        const migas = [];
-        if (id !== "inicio") migas.push({ texto: menu.etiqueta, href: enlace(buscar("inicio")) });
-        if (item?.grupo) migas.push({ texto: item.grupo.texto });
-        if (id !== "inicio") migas.push({ texto: item?.texto || titulo });
-        encabezado({ titulo, subtitulo: op.subtitulo || "", migas });
+        encabezado({ titulo, subtitulo: op.subtitulo || "" });
         acciones([]);
 
         if (cfg.navegar && leerHash().id !== id) {
@@ -312,7 +306,10 @@
         primeraMarca = false;
     }
 
-    function encabezado({ titulo, subtitulo, migas } = {}) {
+    // Sin migas de pan a propósito: la navegación se entiende por el menú superior (su ítem
+    // activo queda resaltado en marcar(), con un mecanismo aparte de este). Lo único que
+    // queda acá es el título de la pantalla y, si la pantalla lo pidió, un subtítulo corto.
+    function encabezado({ titulo, subtitulo } = {}) {
         if (titulo != null) {
             els.titulo.textContent = titulo;
             tituloBase.texto = titulo ? `${titulo} · YoSoy` : "YoSoy";
@@ -321,13 +318,6 @@
         if (subtitulo != null) {
             els.sub.textContent = subtitulo;
             els.sub.classList.toggle("oculto", !subtitulo);
-        }
-        if (migas) {
-            els.migas.innerHTML = migas.map((m, i) => {
-                const ultimo = i === migas.length - 1;
-                return `<li>${m.href && !ultimo ? `<a href="${YS.esc(m.href)}">${YS.esc(m.texto)}</a>` : `<span${ultimo ? ' aria-current="page"' : ""}>${YS.esc(m.texto)}</span>`}</li>`;
-            }).join("");
-            els.migas.classList.toggle("oculto", !migas.length);
         }
     }
 
@@ -536,7 +526,7 @@
                 document.body.prepend(YS.el("header", { class: "ui-topbar" },
                     YS.el("a", { class: "ui-marca", href: YS.rutas.login, html: `<img src="${LOGO}" alt=""><span class="ui-marca-nombre">Yo<b>Soy</b></span>` }),
                     YS.el("a", { class: "ui-btn ui-btn--primary ui-btn--sm", href: YS.rutas.login, text: "Ingresar" })), els.encabezado);
-                encabezado({ titulo: cfg.titulo || "", subtitulo: cfg.subtitulo || "", migas: [] });
+                encabezado({ titulo: cfg.titulo || "", subtitulo: cfg.subtitulo || "" });
                 resolverUsuario({ nombre: null });
                 return false;
             }
