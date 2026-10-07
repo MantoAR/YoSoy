@@ -72,17 +72,19 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Headers de la superficie pública (Fase 3a, Paso 3): hoy la app corre local, pero esta
-// es la primera ruta pensada para quedar expuesta — si en el futuro se despliega detrás
-// de un proxy, estos headers ya están. El resto de la app (mensajería incluida) sigue
-// siendo solo local.
+// Cierre de seguridad, Paso 7: antes estos headers solo salían en /public y /reservar
+// (pensados para la superficie pública, Fase 3a). Pasan a ser globales — toda la app es
+// candidata a quedar detrás de un proxy algún día, no solo esas dos rutas.
+// X-Frame-Options: SAMEORIGIN, no DENY: la sala de video sigue embebida en un <iframe>
+// (Pantalla_Profesional/js/nuevo_dashboard.js, sesion_video.html) desde el mismo origen —
+// DENY la rompería. CSP queda afuera a propósito (ver abajo): hay mucho JS/CSS inline en
+// PANTALLAS/ y una política restrictiva rompería pantallas; se deja anotado como mejora
+// futura en CAMBIOS_AGUS.md.
 app.Use(async (ctx, next) =>
 {
-    if (ctx.Request.Path.StartsWithSegments("/public") || ctx.Request.Path.StartsWithSegments("/reservar"))
-    {
-        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-        ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
-    }
+    ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    ctx.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    ctx.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
     await next();
 });
 

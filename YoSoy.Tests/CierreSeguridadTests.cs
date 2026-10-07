@@ -174,4 +174,13 @@ public class CierreSeguridadTests : IAsyncLifetime
     public async Task Reportes_atenciones_profesional_no_puede_pedir_el_alcance_de_otro() =>
         Assert.Equal(HttpStatusCode.Forbidden,
             (await _asociado.GetAsync($"/reportes/atenciones?idProfesional={IdProfesionalAjeno}")).StatusCode);
+
+    [Fact]
+    public async Task Headers_de_seguridad_salen_en_cualquier_respuesta_no_solo_en_lo_publico()
+    {
+        var respuesta = await _sinToken.GetAsync("/capacidades");
+        Assert.Equal("nosniff", respuesta.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("strict-origin-when-cross-origin", respuesta.Headers.GetValues("Referrer-Policy").Single());
+        Assert.Equal("SAMEORIGIN", respuesta.Headers.GetValues("X-Frame-Options").Single());
+    }
 }
