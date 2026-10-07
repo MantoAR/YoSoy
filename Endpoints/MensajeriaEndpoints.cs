@@ -220,12 +220,19 @@ public static class MensajeriaEndpoints
             if (esAdmin) return Results.Json(new { mensaje = "El administrador asigna desde /asignar; tomar es para un profesional." }, statusCode: 400);
             if (idPropio is null) return Results.Json(new { mensaje = "No se pudo identificar al profesional." }, statusCode: 403);
             var c = conversaciones.ObtenerPorId(id);
-            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
-            if (c.Estado is not (EstadoConversacion.DerivadaHumano or EstadoConversacion.Urgente))
-                return Results.Json(new { mensaje = "Solo se puede tomar una conversación derivada a una persona o urgente." }, statusCode: 400);
+            // A propósito NO pasa por VisibilidadConversacion.Puede acá: esa función respondería
+            // 404 para "ya asignada a otro profesional" (para no revelar que existe en un GET
+            // pasivo), pero Tomar es la acción de DISPUTAR una escalación recién vista como sin
+            // asignar - si alguien ya la tiene, lo correcto es el 409 "ya la tomó otra persona"
+            // que pide el Paso 3, no un 404 que haga pensar que desapareció. Si directamente no
+            // existe o no es una escalación (nunca se ofrece Tomar para eso), sigue siendo 404.
+            if (c is null || c.Estado is not (EstadoConversacion.DerivadaHumano or EstadoConversacion.Urgente))
+                return Results.NotFound();
             if (c.IdProfesionalAsignado == idPropio) return Results.NoContent();   // ya la tenía: idempotente
-            if (!conversaciones.TomarSiNoTieneDueno(id, idPropio.Value))
+            if (c.IdProfesionalAsignado is not null)
                 return Results.Json(new { mensaje = "Ya la tomó otra persona." }, statusCode: 409);
+            if (!conversaciones.TomarSiNoTieneDueno(id, idPropio.Value))
+                return Results.Json(new { mensaje = "Ya la tomó otra persona." }, statusCode: 409);   // perdió la carrera atómica
             AuditarConIds(ctx, "Toma de conversación de chat sin asignar", id, c.IdPaciente);
             return Results.NoContent();
         });
