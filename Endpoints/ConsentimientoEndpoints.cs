@@ -10,8 +10,15 @@ public static class ConsentimientoEndpoints
 {
     public static IEndpointRouteBuilder MapConsentimiento(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/pacientes/{id}/consentimiento-telemedicina", (int id, IOptionsMonitor<ConsentimientoOptions> opciones) =>
+        // Cierre de seguridad, Paso 4: antes sin ningún chequeo (revela si un paciente
+        // firmó o no el consentimiento de telemedicina). Mismo criterio que el resto de
+        // lo paciente-propio: el dueño, o el equipo (Profesional/Configurador).
+        app.MapGet("/pacientes/{id}/consentimiento-telemedicina", (int id, IOptionsMonitor<ConsentimientoOptions> opciones, HttpContext ctx, IdentidadActualService identidad) =>
         {
+            var yo = identidad.Resolver(ctx)!;
+            if (yo is { EsPaciente: true } && yo.IdPaciente != id)
+                return Results.Json(new { mensaje = "Solo podés ver tu propio consentimiento." }, statusCode: 403);
+
             var op = opciones.CurrentValue;
             if (new PacienteDAO().ObtenerPorId(id) is null) return Results.NotFound();
             var c = new ConsentimientoDAO().ObtenerVigente(id, op.TipoRequerido);
@@ -23,7 +30,7 @@ public static class ConsentimientoEndpoints
                 tipo           = op.TipoRequerido,
                 versionTexto   = op.VersionTexto
             });
-        });
+        }).RequireAuthorization();
 
         // La firma exige { "acepto": true } explícito y la versión del texto que vio el
         // paciente: si el texto cambió mientras tenía la página abierta, tiene que volver a leerlo.

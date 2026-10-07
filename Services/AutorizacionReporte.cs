@@ -1,11 +1,12 @@
 // PUNTO DE CONTROL DE ACCESO — CB-04
-// ADVERTENCIA: hoy la identidad es AUTODECLARADA. X-Usuario-Id no está firmado ni
-// verificado, y puede falsificarse desde la consola del navegador o con curl.
-// Esto NO constituye autenticación y NO satisface la Ley 25.326 ni el secreto
-// profesional. Cierra el acceso accidental y deja rastro de auditoría.
-// TODO(JWT): al mergear videollamadas-seguras, reemplazar la lectura de X-Usuario-Id
-// por el claim del token firmado (JwtService.Validar). Es el ÚNICO cambio necesario
-// en este archivo: el resto de la lógica de autorización ya es correcta.
+// Cierre de seguridad, Paso 4: antes leía X-Usuario-Id directo del header, sin firmar ni
+// verificar, completamente al margen del pipeline de autenticación — ni este archivo ni
+// los dos endpoints que lo llaman (/reportes/atenciones[.html]) tenían
+// .RequireAuthorization(), así que cualquiera, sin ninguna sesión, podía mandar cualquier
+// X-Usuario-Id (o ninguno: caía en idUsuario=0, "sin vínculo", tratado como Configurador
+// con acceso total). Ahora lee IdentidadActualService, igual que el resto de la app desde
+// la Fase JWT, y ambos endpoints exigen autenticación. El resto de la lógica de
+// autorización (alcance propio para un profesional, total para el Configurador) no cambia.
 public static class AutorizacionReporte
 {
     /// <summary>
@@ -21,33 +22,34 @@ public static class AutorizacionReporte
     public static (bool autorizado, int? idProfesionalPermitido, string motivoRechazo)
         ResolverAlcance(HttpContext ctx, int? idProfesionalSolicitado)
     {
-        // ── ÚNICA LÍNEA A REEMPLAZAR CUANDO ENTRE EL JWT ────────────────────
-        // Pasaría a ser el claim "idUsuario" del token firmado, en vez de un
-        // header que el navegador escribe solo.
-        var idUsuario = int.TryParse(ctx.Request.Headers["X-Usuario-Id"], out var x) ? x : 0;
-        // ───────────────────────────────────────────────────────────────────
+        var identidad = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+        if (identidad is null) return (false, null, "No se pudo identificar al usuario.");
+        var idUsuario = identidad.IdUsuario;
 
-        var vinculo = new UsuarioProfesionalDAO().ObtenerPorUsuario(idUsuario);
-
-        if (vinculo != null)
+        if (identidad.EsPaciente)
         {
-            // El usuario está vinculado a un profesional: su alcance es él y nadie más.
-            if (idProfesionalSolicitado.HasValue &&
-                idProfesionalSolicitado.Value != vinculo.IdProfesional)
+            Auditar(idUsuario, "Reporte HTML denegado", null, "Un paciente no tiene acceso a este reporte.");
+            return (false, null, "No tenés acceso a este reporte.");
+        }
+
+        if (identidad.EsProfesional)
+        {
+            // El profesional del token es su propio alcance y nadie más.
+            if (idProfesionalSolicitado.HasValue && idProfesionalSolicitado.Value != identidad.IdProfesional)
             {
-                Auditar(idUsuario, "Reporte HTML denegado", vinculo.IdProfesional,
-                    $"Pidió idProfesional={idProfesionalSolicitado.Value} siendo idProfesional={vinculo.IdProfesional}");
+                Auditar(idUsuario, "Reporte HTML denegado", identidad.IdProfesional,
+                    $"Pidió idProfesional={idProfesionalSolicitado.Value} siendo idProfesional={identidad.IdProfesional}");
                 return (false, null, "No podés acceder al reporte de otro profesional.");
             }
 
-            Auditar(idUsuario, "Descarga Reporte HTML", vinculo.IdProfesional,
-                $"Alcance propio (idProfesional={vinculo.IdProfesional})");
+            Auditar(idUsuario, "Descarga Reporte HTML", identidad.IdProfesional,
+                $"Alcance propio (idProfesional={identidad.IdProfesional})");
 
-            // El id efectivo sale del vínculo en base, no del query string.
-            return (true, vinculo.IdProfesional, "");
+            // El id efectivo sale del claim del token, no del query string.
+            return (true, identidad.IdProfesional, "");
         }
 
-        // Sin vínculo a ningún profesional: se lo trata como configurador.
+        // Configurador: alcance total, o filtrado si pidió un profesional puntual.
         Auditar(idUsuario, "Descarga Reporte HTML", idProfesionalSolicitado,
             idProfesionalSolicitado.HasValue
                 ? $"Alcance configurador, filtrado por idProfesional={idProfesionalSolicitado.Value}"

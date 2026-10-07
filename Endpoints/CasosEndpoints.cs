@@ -5,16 +5,27 @@ public static class CasosEndpoints
 {
     public static IEndpointRouteBuilder MapCasos(this IEndpointRouteBuilder app)
     {
-        // ── Grupos (solo administrador) ──────────────────────────
-        app.MapGet("/grupos", () => new GrupoDAO().ObtenerTodos());
+        // Cierre de seguridad, Paso 4: ninguno de estos endpoints exigía sesión a nivel de
+        // ruta — varios ya devolvían 403 igual gracias al "if (!esAdmin)" interno (porque
+        // AutorizacionCasos.Resolver devuelve (false, null) para un pedido anónimo), pero
+        // varios otros (/grupos, /reglasderivacion, /grupos/{id}/miembros,
+        // /casos/motivos-reasignacion, /pacientes/{id}/caso) no tenían ningún chequeo y
+        // quedaban abiertos a cualquiera. MapGroup("") agrupa sin tocar las rutas (ningún
+        // prefijo nuevo) y les exige sesión a todos por igual; la pertenencia específica de
+        // cada uno (solo administrador, solo el propio profesional) sigue decidida adentro,
+        // sin cambios.
+        var g = app.MapGroup("").RequireAuthorization();
 
-        app.MapGet("/grupos/{id}", (int id) =>
+        // ── Grupos (solo administrador) ──────────────────────────
+        g.MapGet("/grupos", () => new GrupoDAO().ObtenerTodos());
+
+        g.MapGet("/grupos/{id}", (int id) =>
         {
-            var g = new GrupoDAO().ObtenerPorId(id);
-            return g is null ? Results.NotFound() : Results.Ok(g);
+            var gr = new GrupoDAO().ObtenerPorId(id);
+            return gr is null ? Results.NotFound() : Results.Ok(gr);
         });
 
-        app.MapPost("/grupos", (CrearGrupoRequest req, HttpContext ctx) =>
+        g.MapPost("/grupos", (CrearGrupoRequest req, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede crear grupos." }, statusCode: 403);
@@ -24,20 +35,20 @@ public static class CasosEndpoints
             return Results.Created($"/grupos/{id}", new { idGrupo = id });
         });
 
-        app.MapPut("/grupos/{id}", (int id, CrearGrupoRequest req, HttpContext ctx) =>
+        g.MapPut("/grupos/{id}", (int id, CrearGrupoRequest req, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede editar grupos." }, statusCode: 403);
             var dao = new GrupoDAO();
-            var g = dao.ObtenerPorId(id);
-            if (g is null) return Results.NotFound();
-            g.Nombre = req.Nombre.Trim();
-            g.Descripcion = req.Descripcion;
-            dao.Modificar(g);
-            return Results.Ok(g);
+            var gr = dao.ObtenerPorId(id);
+            if (gr is null) return Results.NotFound();
+            gr.Nombre = req.Nombre.Trim();
+            gr.Descripcion = req.Descripcion;
+            dao.Modificar(gr);
+            return Results.Ok(gr);
         });
 
-        app.MapPut("/grupos/{id}/desactivar", (int id, HttpContext ctx) =>
+        g.MapPut("/grupos/{id}/desactivar", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar grupos." }, statusCode: 403);
@@ -45,7 +56,7 @@ public static class CasosEndpoints
             return Results.NoContent();
         });
 
-        app.MapPut("/grupos/{id}/activar", (int id, HttpContext ctx) =>
+        g.MapPut("/grupos/{id}/activar", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede activar grupos." }, statusCode: 403);
@@ -53,9 +64,9 @@ public static class CasosEndpoints
             return Results.NoContent();
         });
 
-        app.MapGet("/grupos/{id}/miembros", (int id) => new GrupoDAO().ObtenerMiembros(id));
+        g.MapGet("/grupos/{id}/miembros", (int id) => new GrupoDAO().ObtenerMiembros(id));
 
-        app.MapPost("/grupos/{id}/miembros", (int id, MiembroGrupoRequest req, HttpContext ctx) =>
+        g.MapPost("/grupos/{id}/miembros", (int id, MiembroGrupoRequest req, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede gestionar los miembros de un grupo." }, statusCode: 403);
@@ -63,7 +74,7 @@ public static class CasosEndpoints
             return Results.NoContent();
         });
 
-        app.MapDelete("/grupos/{id}/miembros/{idProfesional}", (int id, int idProfesional, HttpContext ctx) =>
+        g.MapDelete("/grupos/{id}/miembros/{idProfesional}", (int id, int idProfesional, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede gestionar los miembros de un grupo." }, statusCode: 403);
@@ -72,9 +83,9 @@ public static class CasosEndpoints
         });
 
         // ── Reglas de derivación (solo administrador) ────────────
-        app.MapGet("/reglasderivacion", () => new ReglaDerivacionDAO().ObtenerTodas());
+        g.MapGet("/reglasderivacion", () => new ReglaDerivacionDAO().ObtenerTodas());
 
-        app.MapPost("/reglasderivacion", (CrearReglaRequest req, HttpContext ctx) =>
+        g.MapPost("/reglasderivacion", (CrearReglaRequest req, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede crear reglas de derivación." }, statusCode: 403);
@@ -88,7 +99,7 @@ public static class CasosEndpoints
 
         // Edición completa (incluye Activa): la usa el modal genérico de la tabla de
         // configuración (Pantalla_Configurador/js/dashboard.js), igual que /especialidades/{id}.
-        app.MapPut("/reglasderivacion/{id}", (int id, ReglaDerivacion req, HttpContext ctx) =>
+        g.MapPut("/reglasderivacion/{id}", (int id, ReglaDerivacion req, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede editar reglas de derivación." }, statusCode: 403);
@@ -99,7 +110,7 @@ public static class CasosEndpoints
 
         // Soft-delete (Activa = false): la misma tabla genérica llama a DELETE, igual que
         // /especialidades/{id} (EspecialidadDAO.Baja). No borra la fila.
-        app.MapDelete("/reglasderivacion/{id}", (int id, HttpContext ctx) =>
+        g.MapDelete("/reglasderivacion/{id}", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar reglas." }, statusCode: 403);
@@ -107,7 +118,7 @@ public static class CasosEndpoints
             return Results.NoContent();
         });
 
-        app.MapPut("/reglasderivacion/{id}/desactivar", (int id, HttpContext ctx) =>
+        g.MapPut("/reglasderivacion/{id}/desactivar", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar reglas." }, statusCode: 403);
@@ -115,7 +126,7 @@ public static class CasosEndpoints
             return Results.NoContent();
         });
 
-        app.MapPut("/reglasderivacion/{id}/activar", (int id, HttpContext ctx) =>
+        g.MapPut("/reglasderivacion/{id}/activar", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede activar reglas." }, statusCode: 403);
@@ -126,7 +137,7 @@ public static class CasosEndpoints
         // ── Casos ─────────────────────────────────────────────────
         // Administrador: ve todos, con los filtros que pida. Profesional: solo los
         // suyos, sin importar qué filtro de profesional haya pedido (regla 6).
-        app.MapGet("/casos", (string? estado, int? grupo, int? profesional, bool? sinAsignar, HttpContext ctx) =>
+        g.MapGet("/casos", (string? estado, int? grupo, int? profesional, bool? sinAsignar, HttpContext ctx) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin && idPropio is null)
@@ -135,7 +146,7 @@ public static class CasosEndpoints
             return Results.Ok(new CasoDAO().ObtenerConFiltros(estado, grupo, idProfesionalEfectivo, sinAsignar ?? false));
         });
 
-        app.MapGet("/casos/{id}", (int id, HttpContext ctx) =>
+        g.MapGet("/casos/{id}", (int id, HttpContext ctx) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var c = new CasoDAO().ObtenerDetalle(id);
@@ -145,7 +156,7 @@ public static class CasosEndpoints
             return Results.Ok(c);
         });
 
-        app.MapGet("/casos/{id}/derivaciones", (int id, HttpContext ctx) =>
+        g.MapGet("/casos/{id}/derivaciones", (int id, HttpContext ctx) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var caso = new CasoDAO().ObtenerPorId(id);
@@ -155,7 +166,7 @@ public static class CasosEndpoints
             return Results.Ok(new CasoDerivacionDAO().ObtenerPorCaso(id));
         });
 
-        app.MapGet("/casos/{id}/historial", (int id, HttpContext ctx) =>
+        g.MapGet("/casos/{id}/historial", (int id, HttpContext ctx) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             var caso = new CasoDAO().ObtenerPorId(id);
@@ -165,7 +176,7 @@ public static class CasosEndpoints
             return Results.Ok(new HistorialAsignacionDAO().ObtenerPorCaso(id));
         });
 
-        app.MapPut("/casos/{id}/reasignar", (int id, ReasignarCasoRequest req, HttpContext ctx, AsignacionService asignacion) =>
+        g.MapPut("/casos/{id}/reasignar", (int id, ReasignarCasoRequest req, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede reasignar un caso." }, statusCode: 403);
@@ -187,20 +198,21 @@ public static class CasosEndpoints
 
         // Las categorías cerradas del motivo de reasignación, para armar el <select> sin
         // repetir la lista en el frontend.
-        app.MapGet("/casos/motivos-reasignacion", () => MotivoReasignacion.Categorias);
+        g.MapGet("/casos/motivos-reasignacion", () => MotivoReasignacion.Categorias);
 
         // El caso (si existe) de un paciente: lo usa el panel "Información del lead" de
-        // CRM > Chats, de solo lectura.
-        app.MapGet("/pacientes/{id}/caso", (int id) =>
+        // CRM > Chats (Profesional/Configurador), de solo lectura. Antes sin ningún
+        // chequeo (ni siquiera de rol); ahora mismo criterio que ese panel.
+        g.MapGet("/pacientes/{id}/caso", (int id) =>
         {
             var casoDao = new CasoDAO();
             var caso = casoDao.ObtenerAbiertoPorPaciente(id);
             if (caso is null) return Results.NotFound();
             return Results.Ok(casoDao.ObtenerDetalle(caso.IdCaso));
-        });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
         // ── Mis casos (profesional) ───────────────────────────────
-        app.MapGet("/profesionales/{id}/casos", (int id, HttpContext ctx) =>
+        g.MapGet("/profesionales/{id}/casos", (int id, HttpContext ctx) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin && id != idPropio)
@@ -209,14 +221,14 @@ public static class CasosEndpoints
         });
 
         // ── Derivaciones de casos (solo administrador) ────────────
-        app.MapGet("/casosderivaciones/pendientes", (HttpContext ctx) =>
+        g.MapGet("/casosderivaciones/pendientes", (HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador ve la cola de derivaciones." }, statusCode: 403);
             return Results.Ok(new CasoDerivacionDAO().ObtenerPendientes());
         });
 
-        app.MapPut("/casosderivaciones/{id}/confirmar", (int id, HttpContext ctx, AsignacionService asignacion) =>
+        g.MapPut("/casosderivaciones/{id}/confirmar", (int id, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede confirmar una derivación." }, statusCode: 403);
@@ -225,7 +237,7 @@ public static class CasosEndpoints
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
 
-        app.MapPut("/casosderivaciones/{id}/corregir", (int id, CorregirDerivacionRequest req, HttpContext ctx, AsignacionService asignacion) =>
+        g.MapPut("/casosderivaciones/{id}/corregir", (int id, CorregirDerivacionRequest req, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede corregir una derivación." }, statusCode: 403);
@@ -234,7 +246,7 @@ public static class CasosEndpoints
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
 
-        app.MapPut("/casosderivaciones/{id}/rechazar", (int id, HttpContext ctx, AsignacionService asignacion) =>
+        g.MapPut("/casosderivaciones/{id}/rechazar", (int id, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede rechazar una derivación." }, statusCode: 403);
