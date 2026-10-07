@@ -42,7 +42,7 @@
     const est = {
         modo: "cajon", abierto: false, expandido: false, contexto: false,
         convs: new Map(), maxId: 0, cargada: false, ultimaCompleta: 0,
-        filtro: "todas", busqueda: "", firmaLista: "",
+        filtro: "todas", soloMias: false, busqueda: "", firmaLista: "",
         actual: null, generacion: 0, mensajes: [], primerId: null, ultimoId: 0, hayMas: false,
         cargandoArriba: false, nuevosAbajo: 0, pendientes: [], idTmp: 0, leidaHasta: 0,
         timer: null, pulsando: false, vueltasSinCambios: 0, sinConexion: false,
@@ -79,11 +79,20 @@
                 <section class="chats-hilo" id="chatsHilo" aria-label="Conversación"></section>
                 <aside class="chats-contexto" id="chatsContexto" aria-label="Información del lead"></aside>
             </div>`;
+        // "Mías" es aparte de FILTROS: se puede combinar con cualquier estado (no es
+        // mutuamente excluyente), y solo tiene sentido para Profesional - Configurador no
+        // tiene cartera propia de pacientes. Por default arranca prendido para Profesional
+        // (ve su cartera al abrir, no la bandeja entera) y no existe para Configurador.
+        est.soloMias = YS.shell?.rol === "profesional";
         $("#chatsFiltros").innerHTML = FILTROS.map(f =>
-            `<button class="ui-filtro${f.id === est.filtro ? " activo" : ""}" type="button" data-filtro="${f.id}" aria-pressed="${f.id === est.filtro}"${f.titulo ? ` title="${YS.esc(f.titulo)}"` : ""}>${YS.esc(f.texto)}${f.contar ? '<span class="ui-contador ui-contador--suave oculto"></span>' : ""}</button>`).join("");
+            `<button class="ui-filtro${f.id === est.filtro ? " activo" : ""}" type="button" data-filtro="${f.id}" aria-pressed="${f.id === est.filtro}"${f.titulo ? ` title="${YS.esc(f.titulo)}"` : ""}>${YS.esc(f.texto)}${f.contar ? '<span class="ui-contador ui-contador--suave oculto"></span>' : ""}</button>`).join("") +
+            (YS.shell?.rol === "profesional"
+                ? `<button class="ui-filtro ui-filtro--separado${est.soloMias ? " activo" : ""}" type="button" data-mias aria-pressed="${est.soloMias}" title="Solo conversaciones de tus pacientes">Mías</button>`
+                : "");
         $("#chatsFiltros").addEventListener("click", e => {
             const b = e.target.closest("[data-filtro]");
             if (b) elegirFiltro(b.dataset.filtro);
+            if (e.target.closest("[data-mias]")) alternarMias();
         });
         $("#chatsBuscar").addEventListener("input", YS.debounce(() => { est.busqueda = $("#chatsBuscar").value.trim(); dibujarLista(); }, 120));
         $("#chatsBuscar").addEventListener("keydown", e => {
@@ -191,10 +200,18 @@
         const filtro = FILTROS.find(f => f.id === est.filtro);
         return [...est.convs.values()]
             .filter(c => filtro.pasa(c))
+            .filter(c => !est.soloMias || c.idProfesionalAsignado === YS.sesion.idProfesional())
             .filter(c => !q || YS.normalizar(c.nombrePaciente).includes(q) || (digitos.length >= 3 && c.telefono.includes(digitos)))
             .sort((a, b) => (a.estado === "Urgente" ? 0 : 1) - (b.estado === "Urgente" ? 0 : 1)
                 || new Date(b.fechaUltimoMensaje || b.fechaUltimaActividad) - new Date(a.fechaUltimoMensaje || a.fechaUltimaActividad));
     };
+
+    function alternarMias() {
+        est.soloMias = !est.soloMias;
+        raiz.querySelector("[data-mias]")?.classList.toggle("activo", est.soloMias);
+        raiz.querySelector("[data-mias]")?.setAttribute("aria-pressed", est.soloMias);
+        dibujarLista();
+    }
 
     function dibujarLista() {
         const ul = $("#chatsConversaciones");
@@ -212,7 +229,13 @@
                 ? YS.vacio({ icono: "buscar", titulo: "Sin resultados", texto: "Ninguna conversación coincide con la búsqueda.", accion: { texto: "Limpiar búsqueda", onclick: "YS.bandeja.limpiarBusqueda()" } })
                 : !hayAlguna
                     ? YS.vacio({ icono: "chat", titulo: "Todavía no hay conversaciones", texto: "Cuando un paciente escriba por WhatsApp (o desde el simulador) vas a verlo acá." })
-                    : YS.vacio({ icono: "bandeja", titulo: "Nada por acá", texto: textoFiltroVacio(), accion: { texto: "Ver todas", onclick: "YS.bandeja.filtrar('todas')" } });
+                    : YS.vacio({
+                        icono: "bandeja", titulo: "Nada por acá",
+                        texto: textoFiltroVacio() + (est.soloMias ? " Estás viendo solo tus pacientes." : ""),
+                        accion: est.soloMias
+                            ? { texto: "Ver de todos", onclick: "YS.bandeja.quitarMias()" }
+                            : { texto: "Ver todas", onclick: "YS.bandeja.filtrar('todas')" }
+                    });
             ul.innerHTML = `<li class="chats-lista-vacia">${vacio}</li>`;
             return;
         }
@@ -1085,6 +1108,7 @@
     YS.bandeja = {
         iniciar, abrir, cerrar, expandir,
         filtrar: elegirFiltro,
+        quitarMias() { if (est.soloMias) alternarMias(); },
         limpiarBusqueda() { $("#chatsBuscar").value = ""; est.busqueda = ""; dibujarLista(); $("#chatsBuscar").focus(); },
         recargarHilo() { if (est.actual) { const id = est.actual; est.actual = null; seleccionar(id); } },
         recargarContexto: () => cargarContexto(),

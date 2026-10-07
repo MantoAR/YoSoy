@@ -82,6 +82,9 @@ public class ConversacionDAO : IConversacionDAO
     // desdeIdMensaje: solo las conversaciones con mensajes posteriores a ese id (el polling
     // de la bandeja pide solo lo que cambió). NoLeidos cuenta los mensajes del paciente
     // posteriores a la marca de lectura del equipo (migrations/add_lectura_conversacion.sql).
+    // IdProfesionalAsignado sale del Caso abierto del paciente (no hay columna propia en
+    // Conversacion): lo usan el filtro "Mías" y el panel de contexto, no es una asignación
+    // nueva - ver AsignacionService/CasoDAO.ObtenerAbiertoPorPaciente.
     public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null)
     {
         var lista = new List<ConversacionResumen>();
@@ -94,11 +97,17 @@ public class ConversacionDAO : IConversacionDAO
                    um.FechaHora AS FechaUltimoMensaje, um.Origen AS OrigenUltimoMensaje,
                    (SELECT COUNT(*) FROM MensajeChat nl
                     WHERE nl.IdConversacion = c.IdConversacion AND nl.Direccion = 'Entrante'
-                      AND nl.IdMensaje > ISNULL(c.IdUltimoMensajeLeido, 0)) AS NoLeidos
+                      AND nl.IdMensaje > ISNULL(c.IdUltimoMensajeLeido, 0)) AS NoLeidos,
+                   caso.IdProfesionalAsignado,
+                   LTRIM(RTRIM(prof.Nombre + ' ' + ISNULL(prof.Apellido, ''))) AS NombreProfesionalAsignado
             FROM Conversacion c
             LEFT JOIN Paciente p ON p.IdPaciente = c.IdPaciente
             OUTER APPLY (SELECT TOP 1 m.IdMensaje, m.Texto, m.FechaHora, m.Origen FROM MensajeChat m
                          WHERE m.IdConversacion = c.IdConversacion ORDER BY m.IdMensaje DESC) um
+            OUTER APPLY (SELECT TOP 1 ca.IdProfesionalAsignado FROM Caso ca
+                         WHERE ca.IdPaciente = c.IdPaciente AND ca.Estado <> 'Cerrado'
+                         ORDER BY ca.FechaCreacion DESC) caso
+            LEFT JOIN Profesional prof ON prof.IdProfesional = caso.IdProfesionalAsignado
             WHERE (@Estado IS NULL OR c.Estado = @Estado)
               AND (@Desde IS NULL OR EXISTS (SELECT 1 FROM MensajeChat d
                                              WHERE d.IdConversacion = c.IdConversacion AND d.IdMensaje > @Desde))
@@ -122,7 +131,9 @@ public class ConversacionDAO : IConversacionDAO
                 FechaUltimoMensaje   = r["FechaUltimoMensaje"] == DBNull.Value ? null : (DateTime)r["FechaUltimoMensaje"],
                 IdUltimoMensaje      = r["IdUltimoMensaje"] == DBNull.Value ? null : (int)r["IdUltimoMensaje"],
                 OrigenUltimoMensaje  = r["OrigenUltimoMensaje"] == DBNull.Value ? null : (string)r["OrigenUltimoMensaje"],
-                NoLeidos             = (int)r["NoLeidos"]
+                NoLeidos             = (int)r["NoLeidos"],
+                IdProfesionalAsignado      = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"],
+                NombreProfesionalAsignado  = r["NombreProfesionalAsignado"] == DBNull.Value ? null : (string)r["NombreProfesionalAsignado"]
             });
         return lista;
     }

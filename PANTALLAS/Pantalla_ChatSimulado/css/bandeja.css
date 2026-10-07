@@ -60,6 +60,9 @@
 .chats-buscador { width: 100%; }
 .chats-filtros { gap: 4px; }
 .chats-filtros .ui-filtro { height: 26px; padding: 0 8px; }
+/* "Mías" (solo Profesional): no es parte del grupo de estado de al lado, se puede combinar
+   con cualquiera - un margen y una línea lo separan en vez de dejarlo pegado a "Cerradas". */
+.ui-filtro--separado { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
 .chats-conversaciones { flex: 1; list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
 .chats-conv {
     display: flex; align-items: flex-start; gap: 10px; width: 100%;
