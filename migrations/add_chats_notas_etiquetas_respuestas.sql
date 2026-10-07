@@ -60,3 +60,20 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_RespuestaRapida_Profesional')
     CREATE INDEX IX_RespuestaRapida_Profesional ON RespuestaRapida(IdProfesional);
 GO
+
+-- Mismas 6 que traía plantillas.json, como globales (IdProfesional NULL), para que la
+-- migración a la base no borre de hecho una funcionalidad que ya andaba. Guard por "no hay
+-- ninguna global todavía" (no por título: si alguien las borra todas a propósito y corre la
+-- migración nuevamente, es razonable que vuelvan - es contenido de arranque, no un dato del
+-- negocio). No se toca plantillas.json; queda como referencia histórica del contenido.
+IF NOT EXISTS (SELECT 1 FROM RespuestaRapida WHERE IdProfesional IS NULL)
+BEGIN
+    INSERT INTO RespuestaRapida (Titulo, Texto, IdProfesional) VALUES
+        (N'Saludo', N'Hola, te escribe el equipo de YoSoy. ¿En qué te podemos ayudar?', NULL),
+        (N'Ya lo estamos viendo', N'Gracias por escribirnos. Ya estamos viendo tu consulta y en un rato te respondemos.', NULL),
+        (N'Pedir el DNI', N'Para buscar tus datos, ¿nos pasás tu DNI?', NULL),
+        (N'Volver al asistente', N'Si querés pedir, ver o cancelar un turno, escribí "menu" y el asistente te guía paso a paso.', NULL),
+        (N'Consentimiento pendiente', N'Para confirmar tus turnos necesitamos que firmes el consentimiento informado desde tu panel de YoSoy, en la sección Consentimiento.', NULL),
+        (N'Despedida', N'Gracias por comunicarte con YoSoy. Si necesitás algo más, escribinos cuando quieras.', NULL);
+END
+GO
