@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
@@ -19,10 +20,16 @@ public static class ReflexionEndpoints
         foreach (var endpoint in fuentes.SelectMany(f => f.Endpoints).OfType<RouteEndpoint>())
         {
             var metodos = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? new List<string> { "*" };
-            var autorizaciones = endpoint.Metadata.OfType<IAuthorizeData>().ToList();
-            var roles = string.Join(",", autorizaciones.Select(a => a.Roles).Where(r => !string.IsNullOrWhiteSpace(r)).Distinct());
+            var requiereAuth = endpoint.Metadata.OfType<IAuthorizeData>().Any();
+            // El rol de .RequireAuthorization(p => p.RequireRole(...)) no queda en
+            // IAuthorizeData.Roles (ese overload no lo usa) sino en la AuthorizationPolicy
+            // ya armada que el framework adjunta aparte — confirmado inspeccionando los
+            // metadatos reales de un endpoint conocido.
+            var politica = endpoint.Metadata.GetMetadata<AuthorizationPolicy>();
+            var roles = politica?.Requirements.OfType<RolesAuthorizationRequirement>()
+                .SelectMany(r => r.AllowedRoles).Distinct().ToList() ?? new List<string>();
             foreach (var metodo in metodos)
-                resultado.Add(new InfoEndpoint(metodo, endpoint.RoutePattern.RawText ?? "", autorizaciones.Count > 0, roles.Length > 0 ? roles : null));
+                resultado.Add(new InfoEndpoint(metodo, endpoint.RoutePattern.RawText ?? "", requiereAuth, roles.Count > 0 ? string.Join(",", roles) : null));
         }
         return resultado.OrderBy(e => e.Ruta, StringComparer.Ordinal).ThenBy(e => e.Metodo, StringComparer.Ordinal).ToList();
     }
