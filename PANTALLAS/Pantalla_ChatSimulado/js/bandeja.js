@@ -849,15 +849,20 @@
     // ── Pertenencia: Tomar / Devolver (Paso 3) ───────────────────
     // Sin confirmación a propósito: tomar una escalación sin asignar tiene que ser rápido,
     // y es fácil de revertir con Devolver. Si alguien más se la llevó un instante antes, el
-    // servidor responde 409 ("ya la tomó otra persona") y el refresco posterior la saca de
-    // la vista (yaNoVisible, vía el próximo pulso/cargarContexto).
+    // servidor responde 409 ("ya la tomó otra persona") y cargarContexto() (que sigue
+    // llamándose siempre, haya salido bien o no) la saca de la vista si ya no es visible
+    // (yaNoVisible). No espera a pulso(): una vuelta incremental no trae de vuelta un cambio
+    // de asignación sin mensaje nuevo (ver pulso), así que el propio idProfesionalAsignado se
+    // corrige en el acto - es un dato que esta misma respuesta ya confirmó.
     async function tomarConversacion() {
         const c = est.convs.get(est.actual);
         if (!c) return;
-        try { await YS.api(`${BASE}/conversaciones/${c.idConversacion}/tomar`, { method: "PUT" }); YS.toast("Conversación tomada."); }
-        catch (e) { YS.toast(e.message, "error"); }
-        est.vueltasSinCambios = 0;
-        await pulso();
+        try {
+            await YS.api(`${BASE}/conversaciones/${c.idConversacion}/tomar`, { method: "PUT" });
+            YS.toast("Conversación tomada.");
+            c.idProfesionalAsignado = YS.sesion.idProfesional();
+            dibujarCabeceraHilo(); dibujarLista();
+        } catch (e) { YS.toast(e.message, "error"); }
         cargarContexto();
     }
 
@@ -886,8 +891,8 @@
                         await YS.api(`${BASE}/conversaciones/${c.idConversacion}/devolver`, { method: "PUT", json: { motivoCategoria } });
                         ctrl.cerrar();
                         YS.toast("Conversación devuelta a sin asignar.");
-                        est.vueltasSinCambios = 0;
-                        await pulso();
+                        c.idProfesionalAsignado = null;
+                        dibujarCabeceraHilo(); dibujarLista();
                         cargarContexto();
                     } catch (e) { YS.toast(e.message, "error"); }
                 } }
@@ -1192,8 +1197,8 @@
                         await YS.api(`${BASE}/conversaciones/${idConversacion}/asignar`, { method: "PUT", json: { idProfesional, motivoCategoria } });
                         ctrl.cerrar();
                         YS.toast("Conversación asignada.");
-                        est.vueltasSinCambios = 0;
-                        await pulso();
+                        const c = est.convs.get(idConversacion);
+                        if (c) { c.idProfesionalAsignado = idProfesional; dibujarCabeceraHilo(); dibujarLista(); }
                         cargarContexto();
                     } catch (e) { YS.toast(e.message, "error"); }
                 } }
@@ -1320,13 +1325,22 @@
         if (t != null) est.timer = setTimeout(pulso, t);
     }
 
-    async function pulso() {
+    // forzarCompleta: para YS.bandeja.actualizar() (refresco manual/pruebas) - una vuelta
+    // incremental no alcanza para notar que una conversación dejó de ser visible (pertenencia:
+    // Tomar/Devolver/reasignación de OTRA sesión no agregan un mensaje nuevo, así que
+    // ?desdeMensaje nunca la traería de vuelta ni la sacaría de est.convs). "Actualizar" pide
+    // la verdad ahora, no la aproximación de la próxima vuelta incremental.
+    async function pulso(forzarCompleta = false) {
         if (est.pulsando) return;
         est.pulsando = true;
         clearTimeout(est.timer);
         try {
-            // Cada minuto una vuelta completa (marcas de lectura de otros usuarios); el resto, solo lo nuevo.
-            const completa = !est.cargada || Date.now() - est.ultimaCompleta > 60000;
+            // Una vuelta completa cada 20 s (antes 60: con pertenencia de conversaciones de por
+            // medio, no es solo "marcas de lectura de otros usuarios" - es la ventana máxima en
+            // la que alguien puede seguir viendo, por un rato, una conversación que ya no es
+            // suya porque otra sesión la tomó o la reasignó; ver CAMBIOS_AGUS.md); el resto, solo
+            // lo nuevo.
+            const completa = forzarCompleta || !est.cargada || Date.now() - est.ultimaCompleta > 20000;
             const lista = await YS.api(`${BASE}/conversaciones${completa ? "" : `?desdeMensaje=${est.maxId}`}`);
             est.sinConexion = false;
             const cambios = aplicarResumen(lista, completa);
@@ -1466,7 +1480,7 @@
         recargarHilo() { if (est.actual) { const id = est.actual; est.actual = null; seleccionar(id); } },
         recargarContexto: () => cargarContexto(),
         /** Pide las novedades ya, sin esperar la próxima vuelta del polling. */
-        actualizar() { est.vueltasSinCambios = 0; return pulso(); },
+        actualizar() { est.vueltasSinCambios = 0; return pulso(true); },
         get resumen() { return [...est.convs.values()]; }
     };
 })();
