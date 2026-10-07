@@ -76,7 +76,11 @@
 
     /* Medidas de layout */
     --topbar-h: 56px;
-    --contenido-max: none;   /* ancho completo en las pantallas principales; .ui-pagina-angosta lo acota */
+    /* Mejora de chats y centrado: antes "none" (ancho completo) a propósito en las
+       pantallas principales; este pedido lo revierte: por default un ancho cómodo de
+       lectura, con .ui-pagina-angosta acotándolo más (lectura) y .ui-pagina-ancha
+       volviendo a "none" donde sigue haciendo falta (sala de video). */
+    --contenido-max: 1240px;
 
     /* Barra lateral oscura (pantallas que todavía no pasaron al menú superior) */
     --sidebar:        #17161F;
@@ -299,6 +303,7 @@ hr { border: none; height: 1px; background: var(--border); margin: 14px 0; }
 /* Contenido de la página */
 .ui-pagina { flex: 1; min-width: 0; }
 body.ui-pagina-angosta { --contenido-max: 900px; }   /* páginas de lectura (consentimiento) */
+body.ui-pagina-ancha { --contenido-max: none; }      /* vuelve a ancho completo (sala de video) */
 .ui-contenido { padding: 20px 24px 40px; width: 100%; max-width: var(--contenido-max); margin: 0 auto; }
 .ui-titulo-seccion { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 14px; }
 .ui-subtitulo { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin: 0; }
