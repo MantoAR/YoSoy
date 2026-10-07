@@ -192,9 +192,10 @@ public class PertenenciaConversacionTests : IAsyncLifetime
         {
             var tareaA = _a.PutAsync($"/mensajeria/conversaciones/{id}/tomar", null);
             var tareaB = _b.PutAsync($"/mensajeria/conversaciones/{id}/tomar", null);
-            await Task.WhenAll(tareaA, tareaB);
+            var respuestaA = await tareaA;
+            var respuestaB = await tareaB;
 
-            var codigos = new[] { tareaA.Result.StatusCode, tareaB.Result.StatusCode };
+            var codigos = new[] { respuestaA.StatusCode, respuestaB.StatusCode };
             Assert.Contains(HttpStatusCode.NoContent, codigos);
             Assert.Contains(HttpStatusCode.Conflict, codigos);
 
@@ -205,7 +206,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
             var dueno = (int)(await cmd.ExecuteScalarAsync())!;
             Assert.True(dueno == IdProfesionalA || dueno == IdProfesionalB);
             // El que ganó es, justamente, el que recibió 204.
-            var ganadorEsA = tareaA.Result.StatusCode == HttpStatusCode.NoContent;
+            var ganadorEsA = respuestaA.StatusCode == HttpStatusCode.NoContent;
             Assert.Equal(ganadorEsA ? IdProfesionalA : IdProfesionalB, dueno);
         }
         finally { await BorrarConversacion(id); }
