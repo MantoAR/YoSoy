@@ -584,19 +584,12 @@ public static class MensajeriaEndpoints
     // devolver - ver CAMBIOS_AGUS.md): a diferencia de Auditar, nunca recibe texto libre ni
     // el nombre del paciente, solo ids. "Regla inamovible" del pedido: ni el contenido de
     // los mensajes ni nada más allá de ids y la acción van a logs o auditoría.
+    // Cierre de seguridad, Paso 6: el mecanismo en sí se extrajo a Services/AuditoriaIds.cs
+    // (compartido con la auditoría de acceso a datos clínicos) — esto queda como alias
+    // para no tocar los 4 call sites existentes.
     private static void AuditarConIds(HttpContext http, string accion, int idConversacion, int? idPaciente)
     {
-        var idUsuario = http.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(http)?.IdUsuario;
-        if (idUsuario is null) return;
-        try
-        {
-            var detalle = $"Conversación #{idConversacion}" + (idPaciente is int idPac ? $", paciente #{idPac}" : "");
-            new LogAuditoriaDAO().Insertar(new LogAuditoria
-            {
-                IdUsuario = idUsuario.Value, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion, Detalle = detalle
-            });
-        }
-        catch (Exception) { /* la auditoría no debe impedir responder */ }
+        AuditoriaIds.Registrar(http, accion, "Conversacion", idConversacion, idPaciente);
     }
 }
 

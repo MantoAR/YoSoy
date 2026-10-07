@@ -898,6 +898,9 @@ soloClinico(app.MapGet("/historiasclinicas/{id}", (int id, HttpContext ctx) =>
 soloClinico(app.MapGet("/pacientes/{id}/historiaclinica", (int id, HttpContext ctx) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
+    // Auditoría de acceso a datos clínicos (Paso 6): una vez por apertura de la ficha
+    // (esta ruta no la llama ningún polling, solo el "abrir la ficha clínica" real).
+    AuditoriaIds.Registrar(ctx, "Apertura de historia clínica", "HistoriaClinica", id);
     var h = new HistoriaClinicaDAO().ObtenerPorPaciente(id);
     return h is null ? Results.NotFound() : Results.Ok(h);
 }));
@@ -927,6 +930,7 @@ soloClinico(app.MapGet("/historiasclinicas/{id}/evoluciones", (int id, HttpConte
 {
     var idPaciente = new HistoriaClinicaDAO().ObtenerPorId(id)?.IdPaciente;
     if (idPaciente is null || !AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de evoluciones clínicas", "Evolucion", idPaciente.Value);
     return Results.Ok(new EvolucionDAO().ObtenerPorHistoria(id));
 }));
 
@@ -1082,6 +1086,7 @@ soloClinico(app.MapGet("/eventoscrisis/{id}", (int id, HttpContext ctx) =>
 soloClinico(app.MapGet("/pacientes/{id}/eventoscrisis", (int id, HttpContext ctx) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de eventos de crisis", "EventoCrisis", id);
     return Results.Ok(new EventoCrisisDAO().ObtenerPorPaciente(id));
 }));
 
@@ -1321,6 +1326,7 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx)
 soloClinico(app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id, HttpContext ctx) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de sesiones clínicas", "SesionClinica", id);
     return Results.Ok(new SesionClinicaDAO().ObtenerPorPaciente(id));
 }));
 
