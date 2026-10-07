@@ -34,6 +34,17 @@ public class ChatsGestionTests : IAsyncLifetime
         entrante.EnsureSuccessStatusCode();
         var conv = await _sinToken.GetFromJsonAsync<JsonElement>($"/mensajeria/simulado/conversacion?telefono={_telefono}");
         _idConversacion = conv.GetProperty("idConversacion").GetInt32();
+
+        // Escalada y sin asignar: visible para cualquier profesional + Configurador (ver
+        // VisibilidadConversacion). Recién creada por el bot queda "Activa" sin paciente
+        // identificado - ahí solo entraría el Configurador, y esta clase prueba permisos
+        // de notas/asignación entre profesionales, no la pertenencia en sí (eso lo cubre
+        // PertenenciaConversacionTests).
+        using var con = Conexion.ObtenerConexion();
+        await con.OpenAsync();
+        using var cmd = new SqlCommand("UPDATE Conversacion SET Estado = 'DerivadaHumano' WHERE IdConversacion = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", _idConversacion);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task DisposeAsync()
@@ -66,7 +77,7 @@ public class ChatsGestionTests : IAsyncLifetime
     public async Task Asignar_sin_ser_administrador_responde_403()
     {
         var r = await _profesional.PutAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/asignar",
-            new { idProfesional = 1, motivoCategoria = "Otro", nota = (string?)null });
+            new { idProfesional = 1, motivoCategoria = "Otro" });
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
 
@@ -74,7 +85,7 @@ public class ChatsGestionTests : IAsyncLifetime
     public async Task Asignar_sin_token_responde_401()
     {
         var r = await _sinToken.PutAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/asignar",
-            new { idProfesional = 1, motivoCategoria = "Otro", nota = (string?)null });
+            new { idProfesional = 1, motivoCategoria = "Otro" });
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
     }
 

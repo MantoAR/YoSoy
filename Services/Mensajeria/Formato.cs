@@ -10,4 +10,10 @@ public static class Formato
 
     public static string PrimerNombre(string? nombreCompleto) =>
         (nombreCompleto ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+    // Mismo criterio que el LTRIM(RTRIM(Nombre + ' ' + ISNULL(Apellido, ''))) armado en SQL
+    // (ver ConversacionDAO.ListarResumen) - para cuando el nombre se resuelve en C# en vez
+    // de en la consulta (un solo profesional, no una lista).
+    public static string NombreCompleto(string nombre, string? apellido) =>
+        $"{nombre} {apellido}".Trim();
 }

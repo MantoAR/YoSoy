@@ -14,32 +14,21 @@
 public static class VisibilidadConversacion
 {
     public static bool Puede(HttpContext ctx, Conversacion c) =>
-        Puede(Resolver(ctx), c.Estado, c.IdProfesionalAsignado, c.IdPaciente);
+        Puede(AutorizacionCasos.Resolver(ctx), c.Estado, c.IdProfesionalAsignado, c.IdPaciente);
 
     public static bool Puede(HttpContext ctx, ConversacionResumen c) =>
-        Puede(Resolver(ctx), c.Estado, c.IdProfesionalAsignado, c.IdPaciente);
+        Puede(AutorizacionCasos.Resolver(ctx), c.Estado, c.IdProfesionalAsignado, c.IdPaciente);
 
     // Pensado para /conversaciones y el buscador (que filtra client-side sobre esa misma
     // lista): una sola pasada, un solo HashSet de "mis pacientes", no N consultas.
     public static List<ConversacionResumen> Filtrar(HttpContext ctx, List<ConversacionResumen> lista)
     {
-        var (esAdmin, idProfesional) = Resolver(ctx);
+        var (esAdmin, idProfesional) = AutorizacionCasos.Resolver(ctx);
         if (esAdmin) return lista;
         if (idProfesional is not int yo) return new List<ConversacionResumen>();
 
         var misPacientes = new PacienteProfesionalDAO().ObtenerIdPacientesDeProfesional(yo).ToHashSet();
         return lista.Where(c => PuedeConMisPacientes(c.Estado, c.IdProfesionalAsignado, c.IdPaciente, yo, misPacientes)).ToList();
-    }
-
-    private static (bool EsAdministrador, int? IdProfesional) Resolver(HttpContext ctx)
-    {
-        var identidad = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
-        return identidad switch
-        {
-            { EsConfigurador: true } => (true, null),
-            { EsProfesional: true } => (false, identidad.IdProfesional),
-            _ => (false, null)
-        };
     }
 
     private static bool Puede((bool EsAdministrador, int? IdProfesional) yo, string estado, int? idProfesionalAsignado, int? idPaciente)
