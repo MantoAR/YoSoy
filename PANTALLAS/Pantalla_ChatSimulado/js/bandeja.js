@@ -293,7 +293,10 @@
         raiz.classList.add("con-conversacion");
         dibujarHilo();
         dibujarLista();
-        if (est.expandido || est.modo === "pagina") mostrarContexto(est.contexto || est.expandido || est.modo === "pagina");
+        // Mantiene la preferencia ya elegida (est.contexto, con su propio default inicial en
+        // iniciar()/expandir()) en vez de forzarla a visible en cada selección — antes, cerrar
+        // el panel y elegir otra conversación lo volvía a abrir solo, sin que lo pidieran.
+        if (est.expandido || est.modo === "pagina") mostrarContexto(est.contexto);
         cargarContexto();
         await cargarHilo();
         $("#chatsTexto")?.focus();
@@ -896,10 +899,18 @@
         });
     }
 
+    // Hay modales viejos (Usuarios/Solicitudes en dashboard.js) que reusan la clase
+    // .ui-modal-fondo por el estilo pero, a diferencia de YS.modal (que se hace remove() al
+    // cerrar), solo la tapan con display:none y la dejan en el DOM — querySelector sola los
+    // encuentra igual que a uno realmente abierto y los atajos de Chats quedaban apagados
+    // para el resto de la sesión en cuanto se abría cualquiera de esos, aunque ya estuviera
+    // cerrado. Hay que mirar si alguno de los que hay está de verdad visible, no solo si existe.
+    const hayModalAbierto = () => [...document.querySelectorAll(".ui-modal-fondo")].some(f => getComputedStyle(f).display !== "none");
+
     // Se escucha en captura: si hay un modal o un menú abierto, Esc es para ellos y no cierra los chats.
     function teclasGlobales(e) {
         const visible = estaVisible();
-        if (!raiz || !visible || document.querySelector(".ui-modal-fondo")) return;
+        if (!raiz || !visible || hayModalAbierto()) return;
         const escribiendo = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
         if (e.key === "Escape") {
             if (!$("#chatsPlantillas")?.classList.contains("oculto")) { e.preventDefault(); cerrarPlantillas(); return; }
