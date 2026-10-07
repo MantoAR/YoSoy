@@ -1535,30 +1535,42 @@ verificación.
   prueba cuando hace falta y los borra en su `DisposeAsync` (confirmado con consultas a la
   base después de cada corrida: 0 filas colgando). No se tocó ningún dato real existente
   más allá de referenciar por id a los profesionales/pacientes reales 1, 2 y 3 que ya
-  usaba `PertenenciaConversacionTests` de la vuelta anterior.
-- **Recorrido manual pendiente:** el recorrido con Playwright por los tres roles
-  (`docs/DEMO.md` completo, con dos profesionales en Chats) y la matriz de pruebas por rol
-  con curl/token real para los grupos no cubiertos por `CierreSeguridadTests` quedan
-  anotados en "Qué no llegó a esta vuelta" si no se completan antes de este commit —
-  revisar esa sección antes de dar el cierre por terminado.
+  usaba `PertenenciaConversacionTests` de la vuelta anterior. Única excepción, a
+  propósito: el recorrido con Playwright activó `LinkPublicoActivo` del profesional real 1
+  (Santiago Manto) para probar la página pública — el mismo paso que `docs/DEMO.md` ya
+  describe como parte normal del guion en vivo ("activar el link es un paso del guion en
+  vivo"), no un dato sensible ni algo que dañe nada; quedó activado, no se revirtió a un
+  estado anterior que no se pudo confirmar con certeza.
+- **Playwright, con la app real levantada** (`docs/pruebas-ui-cambios-agus/
+  p16_cierre_seguridad.py`, no versionado, 16/16): Configurador por Inicio, Casos,
+  Derivaciones, Agendas, Auditoría, Grupos y Reglas de derivación (los grupos que este
+  cierre le agregó `RequireAuthorization` al nivel de grupo); Profesional (asociado al
+  paciente 1) por Horarios y Mis casos, y `verHistoria(1)` abre el modal con datos reales
+  sin ningún error de consola; el mismo modal para el Profesional **no asociado** no
+  muestra ningún dato clínico real (ni "Transcripcion" ni "Diagnostico" en el texto) y
+  tampoco rompe la pantalla, a pesar de los 404 de pertenencia de fondo (ya atrapados por
+  el propio código con `.catch()`); Paciente por Mis turnos y Consentimiento; la página
+  pública de reserva (activada por API, leída **sin ningún token**) sigue cargando igual
+  que antes de este cierre. **Log del servidor revisado línea por línea durante todo el
+  recorrido: cero avisos de "modo legacy"** (esperable: con el flag en `false`,
+  `LegacyHeaderAuthHandler` nunca llega a loguear esa advertencia — ver Paso 0).
+- Las 6 filas de auditoría que generó ese mismo recorrido (dos corridas de
+  `verHistoria(1)`, tres lecturas auditadas cada una) se borraron al terminar — confirmado
+  con una consulta a `LogAuditoria` antes y después.
 
 ### Qué no llegó a esta vuelta
 
-- El recorrido visual completo con Playwright de `docs/DEMO.md` (los tres roles, con dos
-  profesionales reales en Chats) no se repitió en esta vuelta: la lógica de pertenencia de
-  chats no cambió (solo se le agregó autenticación a grupos que no la tenían en
-  endpoints que ningún flujo del demo ejercita — Casos/Grupos internos del Configurador,
-  no pantallas de Profesional/Paciente), y el resto de los cambios (historia clínica,
-  turnos, agendas) se verificó con `CierreSeguridadTests` contra la base real en vez de
-  con el navegador. Si algo de la interfaz dependía silenciosamente de un endpoint que
-  pasó de "abierto" a "exige sesión" sin que ninguna pantalla real lo note (por ejemplo,
-  un `fetch` suelto sin `YS.fetch`, que no manda el token), un recorrido visual lo
-  encontraría y esta verificación con tests no.
 - `signaling-server` (Node) sigue sin autenticar nada — fuera de alcance explícito de esta
   rama (lo trabaja `videollamadas-seguras`), solo queda anotado en el README.
 - CSP queda como mejora futura (ver Paso 7) — no se activó ni en modo reporte.
 - El cierre de sesión por inactividad (bug 13) sigue pendiente de una decisión de equipo,
   sin tocar.
+- La reserva pública de punta a punta (elegir horario → login real → confirmar) no se
+  completó con una contraseña real (no se conoce ninguna, igual que ya aclaraba
+  `docs/DEMO.md` de la vuelta anterior) — se verificó que la página pública sigue
+  cargando sin sesión y sin errores, pero no el tramo final que exige loguearse de
+  verdad. No es un hueco de esta vuelta: ya era así antes, y ningún cambio de este cierre
+  tocó esa parte del flujo.
 
 ---
 
