@@ -155,7 +155,7 @@ app.MapGet("/especialidades/{id}", (int id) =>
 app.MapPost("/especialidades", (Especialidad e) =>
 {
     e.Estado = "Activo";
-    new EspecialidadDAO().Insertar(e);
+    e.IdEspecialidad = new EspecialidadDAO().Insertar(e);
     return Results.Created($"/especialidades", e);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -186,7 +186,7 @@ app.MapGet("/roles/{id}", (int id) =>
 app.MapPost("/roles", (Rol r) =>
 {
     r.Estado = "Activo";
-    new RolDAO().Insertar(r);
+    r.IdRol = new RolDAO().Insertar(r);
     return Results.Created($"/roles", r);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -219,7 +219,7 @@ app.MapGet("/estadosturnos/{id}", (int id) =>
 app.MapPost("/estadosturnos", (EstadoTurno et) =>
 {
     et.Estado = "Activo";
-    new EstadoTurnoDAO().Insertar(et);
+    et.IdEstadoTurno = new EstadoTurnoDAO().Insertar(et);
     return Results.Created($"/estadosturnos", et);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -250,7 +250,7 @@ app.MapGet("/tiposconsentimiento/{id}", (int id) =>
 app.MapPost("/tiposconsentimiento", (TipoConsentimiento tc) =>
 {
     tc.Estado = "Activo";
-    new TipoConsentimientoDAO().Insertar(tc);
+    tc.IdTipoConsentimiento = new TipoConsentimientoDAO().Insertar(tc);
     return Results.Created($"/tiposconsentimiento", tc);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -280,7 +280,7 @@ app.MapGet("/obrassociales/{id}", (int id) =>
 
 app.MapPost("/obrassociales", (ObraSocial o) =>
 {
-    new ObraSocialDAO().Insertar(o);
+    o.IdObraSocial = new ObraSocialDAO().Insertar(o);
     return Results.Created("/obrassociales", o);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 

@@ -3,15 +3,15 @@ using System.Collections.Generic;
 
 public class RolDAO
 {
-    public void Insertar(Rol r)
+    public int Insertar(Rol r)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Rol (Nombre, Estado) VALUES (@Nombre, @Estado)", con);
+            "INSERT INTO Rol (Nombre, Estado) VALUES (@Nombre, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Nombre", r.Nombre);
         cmd.Parameters.AddWithValue("@Estado", r.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Rol r)
