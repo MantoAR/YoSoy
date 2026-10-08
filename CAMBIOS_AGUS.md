@@ -1758,3 +1758,63 @@ PR: la contraseña de correo expuesta en `origin/main` necesita rotarse en el pr
 (Gmail) — eso lo hace el equipo, no un commit — y, si se quiere además sacarla de la
 historia de `main`, es una decisión de equipo aparte (reescribir historia publicada), no
 algo que este trabajo vaya a hacer.
+
+### Paso 3.2 y 3.3: migraciones — revisión y prueba contra una base nueva
+
+La tabla del README ya estaba completa y en orden correcto para las 13 migraciones que
+existían (confirmado comparando contra `migrations/*.sql` 1 a 1, nada sin listar, nada
+listado de más). La prueba real contra una base nueva encontró, sin embargo, algo que la
+sola lectura del README no podía mostrar:
+
+**Hallazgo real: `InformeAdmision`, `Notificacion` y `SesionClinica` no tenían ninguna
+migración.** Existen en la base de desarrollo real y el código las usa extensamente
+(todo el flujo de admisión, la campanita de notificaciones del paciente, las sesiones
+clínicas con transcripción) — se crearon a mano en algún momento, antes de que estuviera
+el hábito de versionar cada cambio de esquema, y nadie lo había notado porque la base de
+desarrollo de cualquiera que ya viene trabajando en esto ya las tiene. Apareció recién al
+construir una base **nueva y vacía** y aplicar la cadena completa: `add_grupos_casos_
+derivacion.sql` (antes #9) falla de entrada porque `Caso.IdInforme` referencia
+`InformeAdmision`, que no existiría.
+
+**Se corrigió, no solo se anotó:** `migrations/add_tablas_sin_migracion_previa.sql`
+(nueva), con el esquema real de las tres tablas tomado tal cual de la base de desarrollo
+(columnas, tipos, nullability, default y foreign keys vía `INFORMATION_SCHEMA`/
+`sys.foreign_keys` — no es un diseño nuevo, es capturar lo que ya existe). Va como el
+nuevo paso 9 (antes de `add_grupos_casos_derivacion.sql`, que la necesita); el resto se
+renumeró 10 a 14. README actualizado con la tabla completa de 14 pasos.
+
+**Prueba contra una base nueva** (`YoSoy_integracion_test`, creada y borrada en esta
+misma verificación — la base de desarrollo real nunca se tocó):
+1. Esquema base: el script de la rama `DataBase` ("Script de la Base de Datos") tiene
+   una ruta de archivo `.mdf`/`.ldf` fija a la máquina de quien lo generó originalmente
+   — falla en cualquier otra. Se adaptó **solo para esta prueba** (un `CREATE DATABASE`
+   simple, sin rutas, dejando que SQL Server use las suyas) — el archivo de la rama
+   `DataBase` no se tocó, es de otra rama y fuera de alcance.
+2. "Datos de Prueba" (misma rama `DataBase`): aplicado — 3 usuarios (admin/smanto/
+   paciente1), 1 profesional, 1 paciente, agenda, turno. No lo pide el README como paso
+   obligatorio (solo pide el script de esquema + las migraciones) — se aplicó igual para
+   poder probar con algo de datos reales en vez de una base completamente vacía.
+3. Las 14 migraciones, **una por una, en el orden del README**: todas corrieron limpias
+   la segunda vez que se probaron con cuidado. La primera pasada, con las 13 originales
+   corridas en un lazo de bash sin pausas entre una y la siguiente, varias quedaron
+   silenciosamente sin aplicar sin que ningún mensaje de error lo avisara — un problema
+   del propio método de prueba (ráfaga de conexiones sqlcmd), no de las migraciones: cada
+   una, corrida sola, aplicó bien. Queda anotado por si alguna vez alguien automatiza esto
+   de la misma forma.
+4. `Conexion.cs` apuntado a la base temporal (edición directa del archivo, sin pasar por
+   git — tiene `skip-worktree` puesto porque ya esconde la cadena de conexión real de
+   esta máquina; se leyó el contenido real antes de tocarlo y se restauró exactamente
+   igual al terminar, confirmado con una relectura).
+5. `dotnet build`: 0 errores. `dotnet test`: **158/160** — los 2 que fallan son
+   `PertenenciaConversacionTests` que esperan un **segundo profesional real** (`Usuario 4`/
+   `Profesional 2`, "lgimenez" en la base de desarrollo real) que "Datos de Prueba" no
+   crea (esa base mínima solo trae a Santiago Manto) — un hueco de datos de prueba, no un
+   problema de esquema ni de migraciones; confirmado leyendo el error exacto (violación
+   de foreign key contra `Profesional`, no un error de columna/tabla faltante).
+6. `Conexion.cs` restaurado a su contenido real exacto (confirmado con una relectura);
+   `dotnet build`/`dotnet test` contra la base real de nuevo: 0 errores, 160/160.
+   `YoSoy_integracion_test` borrada (`DROP DATABASE`, confirmado que ya no aparece en
+   `sys.databases`). La base de desarrollo real (`yosoy`) solo se consultó para ver la
+   **definición** de las tres tablas sin migración (`INFORMATION_SCHEMA`/`sys.foreign_keys`
+   — metadata de esquema, de solo lectura, necesaria para escribir la migración nueva
+   fiel a lo que ya existe) — nunca se leyó ni se tocó ninguna fila de datos real.

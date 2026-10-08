@@ -132,11 +132,12 @@ cd YoSoy
    | 6 | `add_consentimiento_telemedicina.sql` | `Consentimiento.FechaFirma` pasa a `DATETIME`; crea el `TipoConsentimiento` de telemedicina (RN-02) | Sí |
    | 7 | `add_lectura_conversacion.sql` | `Conversacion.IdUltimoMensajeLeido` (contador de no leídos de la bandeja) — requiere el 5 | Sí |
    | 8 | `alter_logauditoria_idusuario_nullable.sql` | `LogAuditoria.IdUsuario` admite `NULL` (acciones sin sesión, como un registro público) | Sí |
-   | 9 | `add_grupos_casos_derivacion.sql` | Tablas `Grupo`, `ProfesionalGrupo`, `Caso`, `CasoDerivacion`, `ReglaDerivacion`, `HistorialAsignacion` (Grupos, Casos y derivación en cascada) | Sí |
-   | 10 | `add_link_publico_profesional.sql` | `Profesional.Slug`, `LinkPublicoActivo` (link público de reserva) | Sí |
-   | 11 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 9 | Sí |
-   | 12 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
-   | 13 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
+   | 9 | `add_tablas_sin_migracion_previa.sql` | Tablas `InformeAdmision`, `Notificacion`, `SesionClinica` — existían en la base real y el código las usa desde hace rato, pero nunca tuvieron una migración (se crearon a mano en algún momento). Encontrado al probar la cadena completa contra una base nueva (integración a la rama principal) | Sí |
+   | 10 | `add_grupos_casos_derivacion.sql` | Tablas `Grupo`, `ProfesionalGrupo`, `Caso`, `CasoDerivacion`, `ReglaDerivacion`, `HistorialAsignacion` (Grupos, Casos y derivación en cascada) — requiere el 9 (`Caso.IdInforme` referencia `InformeAdmision`) | Sí |
+   | 11 | `add_link_publico_profesional.sql` | `Profesional.Slug`, `LinkPublicoActivo` (link público de reserva) | Sí |
+   | 12 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 10 | Sí |
+   | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
+   | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
 
    Los marcados "No" son del script base de la materia, de antes de esta rama: no tienen una verificación de "¿ya existe esta columna?" antes de agregarla, así que si se corren una segunda vez por error, fallan con un error de SQL Server (no corrompen nada, pero hay que saltarlos). Los demás sí la tienen y se pueden volver a correr sin problema.
 
