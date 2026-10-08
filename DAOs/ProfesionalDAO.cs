@@ -9,12 +9,16 @@ public class ProfesionalDAO
     private const string SELECT_COLUMNAS =
         "IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, Slug, LinkPublicoActivo";
 
-    public void Insertar(Profesional p)
+    // Devuelve el IdProfesional real recién generado (antes no lo recuperaba: la fila se
+    // creaba bien, pero quien llamaba a Insertar se quedaba con el 0 por defecto de
+    // Profesional.IdProfesional si intentaba devolverlo en una respuesta — ver
+    // docs/QA_INFORME.md, QA-04). Mismo patrón que InformeAdmisionDAO.Insertar.
+    public int Insertar(Profesional p)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Profesional (Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud) VALUES (@Nombre, @Apellido, @SegundoNombre, @SegundoApellido, @Dni, @Sexo, @FechaNacimiento, @Matricula, @IdEspecialidad, @Provincia, @OrigenContacto, @Estado, @Mail, @Telefono, @FechaSolicitud)", con);
+            "INSERT INTO Profesional (Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud) VALUES (@Nombre, @Apellido, @SegundoNombre, @SegundoApellido, @Dni, @Sexo, @FechaNacimiento, @Matricula, @IdEspecialidad, @Provincia, @OrigenContacto, @Estado, @Mail, @Telefono, @FechaSolicitud); SELECT SCOPE_IDENTITY();", con);
         cmd.Parameters.AddWithValue("@Nombre",          p.Nombre);
         cmd.Parameters.AddWithValue("@Apellido",        (object?)p.Apellido        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@SegundoNombre",   (object?)p.SegundoNombre   ?? DBNull.Value);
@@ -30,7 +34,7 @@ public class ProfesionalDAO
         cmd.Parameters.AddWithValue("@Mail",            (object?)p.Mail            ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Telefono",        (object?)p.Telefono        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@FechaSolicitud",  (object?)p.FechaSolicitud  ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
     public void Modificar(Profesional p)
