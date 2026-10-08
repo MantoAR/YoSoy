@@ -125,9 +125,9 @@ cd YoSoy
    | # | Script | Qué agrega | ¿Se puede correr dos veces? |
    |---|---|---|---|
    | 1 | `add_columnas_faltantes.sql` | Columnas que el código ya usa y el script base de `DataBase` no crea: `Agenda.IntervaloMinutos`, `Turno.ConfirmadoPaciente`, `Turno.CodigoSala`, `PacienteProfesional.EstadoAsignacion` | Sí |
-   | 2 | `add_creadopor_turno.sql` | `Turno.CreadoPor` | **No** — sin `IF`, una segunda corrida tira error de columna duplicada |
-   | 3 | `add_token_profesional.sql` | `Profesional.Token` | **No** |
-   | 4 | `add_token_recuperacion.sql` | `RecuperacionPassword.Token`, `TokenExpiracion` | **No** |
+   | 2 | `add_creadopor_turno.sql` | `Turno.CreadoPor` | Sí |
+   | 3 | `add_token_profesional.sql` | `Profesional.Token` | Sí |
+   | 4 | `add_token_recuperacion.sql` | `RecuperacionPassword.Token`, `TokenExpiracion` | Sí |
    | 5 | `add_mensajeria.sql` | Tablas `Conversacion`, `MensajeChat`, `Recordatorio`, `PreguntaFrecuente`, `NotificacionInterna` (chatbot, ver [Mensajería](#mensajería-chatbot-de-reservas-y-recordatorios)) | Sí |
    | 6 | `add_consentimiento_telemedicina.sql` | `Consentimiento.FechaFirma` pasa a `DATETIME`; crea el `TipoConsentimiento` de telemedicina (RN-02) | Sí |
    | 7 | `add_lectura_conversacion.sql` | `Conversacion.IdUltimoMensajeLeido` (contador de no leídos de la bandeja) — requiere el 5 | Sí |
@@ -139,7 +139,7 @@ cd YoSoy
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
 
-   Los marcados "No" son del script base de la materia, de antes de esta rama: no tienen una verificación de "¿ya existe esta columna?" antes de agregarla, así que si se corren una segunda vez por error, fallan con un error de SQL Server (no corrompen nada, pero hay que saltarlos). Los demás sí la tienen y se pueden volver a correr sin problema.
+   Las 14 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
@@ -157,7 +157,13 @@ private static string cadena = "Server=TU_SERVIDOR;Database=yosoy;Trusted_Connec
 dotnet run
 ```
 
-5. Abrir `mockup.html` en el navegador para usar la interfaz
+5. Abrir `http://localhost:5000/pantallas/index.html` en el navegador — es el login real,
+   de los tres roles (ver [Autenticación con JWT](#autenticación-con-jwt-rama-cambios-agus-jwt)
+   más abajo: hace falta configurar `Jwt:Key` antes de este paso, o la app no arranca).
+   `mockup.html`, en la raíz del proyecto, es un ABM de antes de que existiera el login
+   por roles — quedó como referencia histórica, pero ya no reeleja cómo se usa la app hoy
+   (no manda ningún token, así que la mayoría de los endpoints protegidos le van a dar
+   401/403).
 
 ---
 
