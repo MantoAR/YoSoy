@@ -3,35 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy – Panel Profesional</title>
+    <title>YoSoy · Panel profesional</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../shared/tema.css">
     <link rel="stylesheet" href="css/nuevo_dashboard.css">
 </head>
 <body>
+    <!-- La barra superior, el menú y el encabezado de página los arma shared/shell.js.
+         Cada sección (activarTab) se dibuja dentro de #contenido. -->
+    <main class="ui-pagina">
+        <div class="ui-contenido contenido" id="contenido"></div>
+    </main>
 
-<nav class="navbar">
-    <div class="navbar-brand">
-        <img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="Logo" style="width:32px">
-        YoSoy <span class="badge-panel">Profesional</span>
-    </div>
-    <button class="btn-cerrar" onclick="cerrarSesion()">Cerrar sesión</button>
-</nav>
+    <div id="toast-container" aria-live="polite"></div>
 
-<div class="tabs-bar">
-    <button class="tab-btn" id="tab-inicio"    onclick="activarTab('inicio')">Inicio</button>
-    <button class="tab-btn" id="tab-agenda"    onclick="activarTab('agenda')">Mi Agenda</button>
-    <button class="tab-btn" id="tab-pacientes" onclick="activarTab('pacientes')">Mis Pacientes</button>
-    <button class="tab-btn" id="tab-sesion"    onclick="activarTab('sesion')">Sesión</button>
-    <button class="tab-btn" id="tab-perfil"    onclick="activarTab('perfil')">Mi Perfil</button>
-    <button class="tab-btn" id="tab-reportes" onclick="activarTab('reportes')">Reportes</button>
-</div>
-
-<div class="contenido" id="contenido">
-    <div class="spinner">Cargando...</div>
-</div>
-
-<div id="toast-container"></div>
-
-<script src="../js/sesion.js"></script>
-<script src="js/nuevo_dashboard.js"></script>
+    <script src="../shared/ui.js"></script>
+    <script src="../shared/shell.js"></script>
+    <script src="../js/sesion.js"></script>
+    <script src="js/nuevo_dashboard.js"></script>
 </body>
 </html>

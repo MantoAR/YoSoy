@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
 // Endpoints del módulo de mensajería: chat simulado (modo paciente y modo
@@ -12,9 +13,23 @@ public static class MensajeriaEndpoints
 {
     public static IEndpointRouteBuilder MapMensajeria(this IEndpointRouteBuilder app)
     {
-        var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada();
+        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador — exige
+        // sesión de Profesional o Configurador. Las mitigaciones que ya tenía (flag
+        // ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
+        // RequiereMensajeriaHabilitada) siguen intactas, esto es una capa más encima.
+        var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada()
+            .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
-        // ── Chat simulado: lado paciente ────────────────────────
+        // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
+        // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
+        // con el módulo apagado, o un pedido remoto con SoloLocal, dice false y nada más.
+        // Sin auth a propósito: lo consulta cualquier pantalla, antes de saber quién sos.
+        app.MapGet("/capacidades", (HttpContext http) => Results.Ok(new { mensajeria = MensajeriaDisponible(http) }));
+
+        // ── Chat simulado: lado paciente ─────────────────────────
+        // Excepción al RequireAuthorization del grupo: estos dos simulan un mensaje
+        // ENTRANTE de un paciente (el equivalente a un webhook de WhatsApp real) — no
+        // hay, ni tiene sentido que haya, una sesión de profesional del otro lado.
         g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, BotReservasService bot, IMessageChannel canal) =>
         {
             try
@@ -26,22 +41,36 @@ public static class MensajeriaEndpoints
             {
                 return Results.BadRequest(new { mensaje = ex.Message });
             }
-        });
+        }).AllowAnonymous();
 
         g.MapGet("/simulado/conversacion", (string telefono, IConversacionDAO conversaciones, IMessageChannel canal) =>
         {
             var c = conversaciones.ObtenerPorTelefono(Telefono.Normalizar(telefono), canal.Nombre);
             return c is null ? Results.NotFound() : Results.Ok(new { c.IdConversacion, c.Estado });
-        });
+        }).AllowAnonymous();
 
         // ── Modo administrador ──────────────────────────────────
-        g.MapGet("/conversaciones", (string? estado, IConversacionDAO conversaciones) =>
-            conversaciones.ListarResumen(string.IsNullOrWhiteSpace(estado) ? null : estado));
+        // desdeMensaje: solo las conversaciones con mensajes posteriores a ese IdMensaje
+        // (la bandeja pide así lo nuevo en cada vuelta del polling).
+        // idEtiqueta: filtro de la bandeja (Paso 5) - se aplica DESPUÉS de la pertenencia,
+        // así solo filtra dentro de lo que esa identidad ya puede ver.
+        // Pertenencia (Paso 1/2, ver VisibilidadConversacion y CAMBIOS_AGUS.md): el buscador de
+        // la bandeja filtra client-side sobre esta misma lista, así que queda cubierto gratis.
+        g.MapGet("/conversaciones", (string? estado, int? desdeMensaje, int? idEtiqueta, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var lista = VisibilidadConversacion.Filtrar(ctx, conversaciones.ListarResumen(string.IsNullOrWhiteSpace(estado) ? null : estado, desdeMensaje));
+            var etiquetas = new EtiquetaConversacionDAO().ObtenerTodasLasAsignaciones();
+            foreach (var c in lista)
+                if (etiquetas.TryGetValue(c.IdConversacion, out var ids)) c.IdsEtiquetas = ids;
+            if (idEtiqueta is int tag) lista = lista.Where(c => c.IdsEtiquetas.Contains(tag)).ToList();
+            return lista;
+        });
 
-        g.MapGet("/conversaciones/{id}", (int id, IConversacionDAO conversaciones) =>
+        // 404 (no 403) cuando no hay pertenencia: no confirma que la conversación existe.
+        g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
         {
             var c = conversaciones.ObtenerPorId(id);
-            return c is null
+            return c is null || !VisibilidadConversacion.Puede(ctx, c)
                 ? Results.NotFound()
                 : Results.Ok(new { c.IdConversacion, c.Telefono, c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
         });
@@ -49,20 +78,28 @@ public static class MensajeriaEndpoints
         // Panel derecho del modo administrador. Solo los datos que necesita la vista
         // (sin domicilio ni fecha de nacimiento). Profesionales y próximo turno salen
         // de las mismas consultas que usa el bot ("pedir turno" y "ver mis turnos").
-        g.MapGet("/conversaciones/{id}/paciente", (int id, IConversacionDAO conversaciones,
+        // Es el único punto de /mensajeria que se llama solo al abrir o refrescar el panel de
+        // una conversación puntual (nunca desde el polling de la lista) - por eso es donde
+        // se registra la auditoría de apertura (Paso 4): una vez por cada vez que alguien
+        // efectivamente mira estos datos, nunca por el polling de /conversaciones.
+        g.MapGet("/conversaciones/{id}/paciente", (int id, HttpContext http, IConversacionDAO conversaciones,
             IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var c = conversaciones.ObtenerPorId(id);
-            if (c is null) return Results.NotFound();
+            if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
+            AuditarConIds(http, "Apertura de conversación de chat", id, c.IdPaciente);
+            var asignado = c.IdProfesionalAsignado is int idProf ? new ProfesionalDAO().ObtenerPorId(idProf) : null;
+            var nombreAsignado = asignado is null ? null : Formato.NombreCompleto(asignado.Nombre, asignado.Apellido);
             var p = c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac) : null;
             if (p is null)
-                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, paciente = (object?)null,
-                                        profesionales = Array.Empty<object>(), proximoTurno = (object?)null });
+                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion, paciente = (object?)null,
+                                        profesionales = Array.Empty<object>(), proximoTurno = (object?)null,
+                                        c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado });
 
             var proximo = datos.TurnosProximos(p.IdPaciente, reloj.GetLocalNow().DateTime).FirstOrDefault();
             return Results.Ok(new
             {
-                c.IdConversacion, c.Telefono, c.Estado,
+                c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion,
                 paciente      = new { p.IdPaciente, p.Nombre, p.Dni, p.Telefono },
                 profesionales = datos.ProfesionalesDelPaciente(p.IdPaciente)
                                      .Select(pr => new { pr.IdProfesional, pr.Nombre, pr.Especialidad }),
@@ -70,35 +107,54 @@ public static class MensajeriaEndpoints
                 {
                     proximo.IdTurno, proximo.Momento, proximo.NombreProfesional,
                     Modalidad = proximo.Modalidad ?? "Virtual", proximo.Estado
-                }
+                },
+                c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado
             });
         });
 
         // desde = último IdMensaje que ya tiene la pantalla (polling incremental).
-        g.MapGet("/conversaciones/{id}/mensajes", (int id, int? desde, IMensajeChatDAO mensajes) =>
-            mensajes.ObtenerPorConversacion(id, desde ?? 0));
+        // antes / limite = historial hacia arriba: los 'limite' mensajes anteriores a 'antes'
+        // (sin 'antes', los últimos). Sin ninguno de los dos: la conversación entera, como antes.
+        g.MapGet("/conversaciones/{id}/mensajes", (int id, int? desde, int? antes, int? limite, HttpContext ctx,
+            IConversacionDAO conversaciones, IMensajeChatDAO mensajes) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            return Results.Ok(desde is null && (antes is not null || limite is not null)
+                ? mensajes.ObtenerAnteriores(id, antes, Math.Clamp(limite ?? 50, 1, 200))
+                : mensajes.ObtenerPorConversacion(id, desde ?? 0));
+        });
+
+        // El equipo vio la conversación hasta el mensaje 'hasta' (contador de no leídos).
+        g.MapPut("/conversaciones/{id}/leida", (int id, MarcarLeidaRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            conversaciones.MarcarLeida(id, req.Hasta);
+            return Results.NoContent();
+        });
 
         g.MapPost("/conversaciones/{id}/responder", async (int id, RespuestaHumanaRequest req, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var texto = (req.Texto ?? "").Trim();
             if (texto.Length == 0) return Results.BadRequest(new { mensaje = "El mensaje está vacío." });
             var c = conversaciones.ObtenerPorId(id);
-            if (c is null) return Results.NotFound();
+            if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
 
             var m = await mensajes.EnviarAsync(c, texto, "Humano");
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
-            Auditar(http, "Respuesta manual en chat", id);
+            Auditar(http, "Respuesta manual en chat", id, c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac)?.Nombre : null);
             return Results.Ok(m);
         });
 
         // Cierra la derivación (o la urgencia): el bot vuelve a atender desde el menú.
         g.MapPut("/conversaciones/{id}/cerrar", async (int id, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var c = conversaciones.ObtenerPorId(id);
-            if (c is null) return Results.NotFound();
+            if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
             c.Estado               = EstadoConversacion.Cerrada;
             c.PasoActual           = c.IdPaciente is null ? PasoBot.Inicio : PasoBot.Menu;
             c.DatosContexto        = null;
@@ -107,16 +163,274 @@ public static class MensajeriaEndpoints
             await mensajes.EnviarAsync(c,
                 "El equipo de YoSoy cerró esta conversación. Si necesitás algo más, escribí \"menu\" y el asistente te va a ayudar.",
                 "Sistema");
-            Auditar(http, "Cierre de conversación de chat", id);
+            Auditar(http, "Cierre de conversación de chat", id, c.IdPaciente is int idPac2 ? datos.ObtenerPaciente(idPac2)?.Nombre : null);
             return Results.Ok(new { c.IdConversacion, c.Estado });
         });
 
-        g.MapGet("/notificaciones-internas", (string? destinatario, bool? soloNoLeidas) =>
-            new NotificacionInternaDAO().Listar(string.IsNullOrWhiteSpace(destinatario) ? null : destinatario, soloNoLeidas ?? false));
-
-        g.MapPut("/notificaciones-internas/{id}/leida", (int id) =>
+        // Reabre una conversación cerrada: vuelve a "DerivadaHumano" (no al bot - alguien del
+        // equipo la reabrió a propósito, que termine de resolverla una persona).
+        g.MapPut("/conversaciones/{id}/reabrir", async (int id, HttpContext http,
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
         {
-            new NotificacionInternaDAO().MarcarLeida(id);
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
+            if (c.Estado != EstadoConversacion.Cerrada)
+                return Results.Json(new { mensaje = "Esa conversación no está cerrada." }, statusCode: 400);
+            c.Estado               = EstadoConversacion.DerivadaHumano;
+            c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
+            conversaciones.Guardar(c);
+            await mensajes.EnviarAsync(c, "El equipo de YoSoy reabrió esta conversación.", "Sistema");
+            Auditar(http, "Reapertura de conversación de chat", id, c.IdPaciente is int idPacR ? datos.ObtenerPaciente(idPacR)?.Nombre : null);
+            return Results.Ok(new { c.IdConversacion, c.Estado });
+        });
+
+        // ── Pertenencia de conversaciones: Asignar / Tomar / Devolver ───────────
+        // Conversacion.IdProfesionalAsignado es propia - quien atiende este hilo, no el Caso
+        // ni PacienteProfesional (ver CAMBIOS_AGUS.md, "Pertenencia de conversaciones"). Las
+        // tres acciones solo tienen efecto sobre la visibilidad en conversaciones escaladas
+        // (DerivadaHumano/Urgente): es el único estado en el que VisibilidadConversacion mira
+        // esta columna; asignarla en Activa/Cerrada no cambiaría nada para nadie, así que ni
+        // se ofrece.
+
+        // Asignación directa (administrador): pisa lo que hubiera, a cualquier profesional.
+        // Mismas categorías de motivo que /casos/{id}/reasignar, pero sin tocar Caso: ya no
+        // hace falta un caso abierto para asignar quién atiende el chat.
+        g.MapPut("/conversaciones/{id}/asignar", (int id, AsignarConversacionRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede asignar una conversación." }, statusCode: 403);
+            if (!MotivoReasignacion.Categorias.Contains(req.MotivoCategoria))
+                return Results.Json(new { mensaje = $"Motivo no reconocido: \"{req.MotivoCategoria}\". Tiene que ser uno de: {string.Join(", ", MotivoReasignacion.Categorias)}." }, statusCode: 400);
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null) return Results.NotFound();
+            if (c.Estado is not (EstadoConversacion.DerivadaHumano or EstadoConversacion.Urgente))
+                return Results.Json(new { mensaje = "Solo se puede asignar una conversación derivada a una persona o urgente." }, statusCode: 400);
+            conversaciones.AsignarProfesional(id, req.IdProfesional);
+            AuditarConIds(ctx, "Asignación manual de conversación de chat", id, c.IdPaciente);
+            return Results.NoContent();
+        });
+
+        // Tomar (Paso 3): cualquier profesional puede tomar una escalación sin asignar.
+        // Atómico vía ConversacionDAO.TomarSiNoTieneDueno (UPDATE ... WHERE
+        // IdProfesionalAsignado IS NULL): si dos profesionales la toman a la vez, el que
+        // pierde la carrera recibe 409, nunca dos dueños a la vez.
+        g.MapPut("/conversaciones/{id}/tomar", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
+            if (esAdmin) return Results.Json(new { mensaje = "El administrador asigna desde /asignar; tomar es para un profesional." }, statusCode: 400);
+            if (idPropio is null) return Results.Json(new { mensaje = "No se pudo identificar al profesional." }, statusCode: 403);
+            var c = conversaciones.ObtenerPorId(id);
+            // A propósito NO pasa por VisibilidadConversacion.Puede acá: esa función respondería
+            // 404 para "ya asignada a otro profesional" (para no revelar que existe en un GET
+            // pasivo), pero Tomar es la acción de DISPUTAR una escalación recién vista como sin
+            // asignar - si alguien ya la tiene, lo correcto es el 409 "ya la tomó otra persona"
+            // que pide el Paso 3, no un 404 que haga pensar que desapareció. Si directamente no
+            // existe o no es una escalación (nunca se ofrece Tomar para eso), sigue siendo 404.
+            if (c is null || c.Estado is not (EstadoConversacion.DerivadaHumano or EstadoConversacion.Urgente))
+                return Results.NotFound();
+            if (c.IdProfesionalAsignado == idPropio) return Results.NoContent();   // ya la tenía: idempotente
+            if (c.IdProfesionalAsignado is not null)
+                return Results.Json(new { mensaje = "Ya la tomó otra persona." }, statusCode: 409);
+            if (!conversaciones.TomarSiNoTieneDueno(id, idPropio.Value))
+                return Results.Json(new { mensaje = "Ya la tomó otra persona." }, statusCode: 409);   // perdió la carrera atómica
+            AuditarConIds(ctx, "Toma de conversación de chat sin asignar", id, c.IdPaciente);
+            return Results.NoContent();
+        });
+
+        // Devolver (Paso 3): quien la tiene asignada (o el administrador) la vuelve a "sin
+        // asignar" - por ejemplo, si ya no puede atenderla. Motivo de la misma lista cerrada.
+        g.MapPut("/conversaciones/{id}/devolver", (int id, DevolverConversacionRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            if (!esAdmin && (idPropio is null || c.IdProfesionalAsignado != idPropio))
+                return Results.Json(new { mensaje = "Solo quien la tiene asignada (o el administrador) puede devolverla." }, statusCode: 403);
+            if (c.IdProfesionalAsignado is null)
+                return Results.Json(new { mensaje = "Esta conversación ya está sin asignar." }, statusCode: 400);
+            if (!MotivoReasignacion.Categorias.Contains(req.MotivoCategoria))
+                return Results.Json(new { mensaje = $"Motivo no reconocido: \"{req.MotivoCategoria}\". Tiene que ser uno de: {string.Join(", ", MotivoReasignacion.Categorias)}." }, statusCode: 400);
+            conversaciones.AsignarProfesional(id, null);
+            AuditarConIds(ctx, "Devolución de conversación de chat a sin asignar", id, c.IdPaciente);
+            return Results.NoContent();
+        });
+
+        // ── Notas internas ──────────────────────────────────────
+        // Privadas del equipo: nunca al paciente, nunca a auditoría (ni acá ni en Auditar).
+        g.MapGet("/conversaciones/{id}/notas", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            return c is null || !VisibilidadConversacion.Puede(ctx, c)
+                ? Results.NotFound()
+                : Results.Ok(new NotaInternaConversacionDAO().ListarPorConversacion(id));
+        });
+
+        g.MapPost("/conversaciones/{id}/notas", (int id, NotaInternaRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var texto = (req.Texto ?? "").Trim();
+            if (texto.Length == 0) return Results.BadRequest(new { mensaje = "La nota está vacía." });
+            if (texto.Length > 1000) return Results.BadRequest(new { mensaje = "La nota no puede superar los 1000 caracteres." });
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+            var idNota = new NotaInternaConversacionDAO().Insertar(id, texto, idUsuario);
+            return Results.Created($"/mensajeria/conversaciones/{id}/notas/{idNota}", new { idNota });
+        });
+
+        // Solo quien la escribió (o el administrador) puede borrarla.
+        g.MapDelete("/conversaciones/{id}/notas/{idNota}", (int id, int idNota, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var conv = conversaciones.ObtenerPorId(id);
+            if (conv is null || !VisibilidadConversacion.Puede(ctx, conv)) return Results.NotFound();
+            var dao = new NotaInternaConversacionDAO();
+            var info = dao.ObtenerAutor(idNota);
+            if (info is null || info.Value.IdConversacion != id) return Results.NotFound();
+            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+            int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+            if (!esAdmin && info.Value.IdAutor != idUsuario)
+                return Results.Json(new { mensaje = "Solo quien escribió la nota (o el administrador) puede borrarla." }, statusCode: 403);
+            dao.Borrar(idNota);
+            return Results.NoContent();
+        });
+
+        // ── Etiquetas: catálogo (Paso 5 - ABM solo Configurador; antes tan abierto como
+        // preguntas-frecuentes, pero el catálogo de etiquetas de chats con información de
+        // salud mental no debería poder tocarlo cualquier Profesional). La lectura sigue
+        // abierta: cualquiera que vea una conversación necesita poder mostrar sus chips.
+        g.MapGet("/etiquetas", () => new EtiquetaConversacionDAO().ObtenerActivas());
+
+        g.MapPost("/etiquetas", (EtiquetaConversacion e, HttpContext ctx) =>
+        {
+            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            var error = ValidarEtiqueta(e);
+            if (error != null) return Results.BadRequest(new { mensaje = error });
+            try { e.IdEtiqueta = new EtiquetaConversacionDAO().Insertar(e); return Results.Created($"/mensajeria/etiquetas/{e.IdEtiqueta}", e); }
+            catch (SqlException ex) when (ex.Number is 2601 or 2627) { return Results.Json(new { mensaje = "Ya existe una etiqueta con ese nombre." }, statusCode: 409); }
+        });
+
+        g.MapPut("/etiquetas/{id}", (int id, EtiquetaConversacion e, HttpContext ctx) =>
+        {
+            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            var error = ValidarEtiqueta(e);
+            if (error != null) return Results.BadRequest(new { mensaje = error });
+            var dao = new EtiquetaConversacionDAO();
+            if (dao.ObtenerPorId(id) is null) return Results.NotFound();
+            e.IdEtiqueta = id;
+            try { dao.Modificar(e); return Results.Ok(e); }
+            catch (SqlException ex) when (ex.Number is 2601 or 2627) { return Results.Json(new { mensaje = "Ya existe una etiqueta con ese nombre." }, statusCode: 409); }
+        });
+
+        // Baja lógica: no se borran las ya puestas en conversaciones, solo deja de ofrecerse.
+        g.MapDelete("/etiquetas/{id}", (int id, HttpContext ctx) =>
+        {
+            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            var dao = new EtiquetaConversacionDAO();
+            if (dao.ObtenerPorId(id) is null) return Results.NotFound();
+            dao.Desactivar(id);
+            return Results.NoContent();
+        });
+
+        // ── Etiquetas: asignación a una conversación (pertenencia de la conversación,
+        // no del catálogo - cualquiera que la vea puede taggearla) ────────────
+        g.MapPost("/conversaciones/{id}/etiquetas/{idEtiqueta}", (int id, int idEtiqueta, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            if (new EtiquetaConversacionDAO().ObtenerPorId(idEtiqueta) is null) return Results.NotFound();
+            new EtiquetaConversacionDAO().Agregar(id, idEtiqueta);
+            return Results.NoContent();
+        });
+
+        g.MapDelete("/conversaciones/{id}/etiquetas/{idEtiqueta}", (int id, int idEtiqueta, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var c = conversaciones.ObtenerPorId(id);
+            if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            new EtiquetaConversacionDAO().Quitar(id, idEtiqueta);
+            return Results.NoContent();
+        });
+
+        // ── Respuestas rápidas: null = global (del Configurador), con dueño = de ese
+        // profesional. Reemplaza plantillas.json como fuente del composer. ──
+        g.MapGet("/respuestas-rapidas", (HttpContext ctx) =>
+        {
+            var identidad = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+            return Results.Ok(new RespuestaRapidaDAO().ObtenerParaUso(identidad?.IdProfesional));
+        });
+
+        g.MapPost("/respuestas-rapidas", (RespuestaRapida p, HttpContext ctx) =>
+        {
+            var error = ValidarRespuesta(p);
+            if (error != null) return Results.BadRequest(new { mensaje = error });
+            var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
+            if (!esAdmin && idPropio is null)
+                return Results.Json(new { mensaje = "No se pudo identificar al profesional." }, statusCode: 403);
+            p.IdProfesional = esAdmin ? null : idPropio;   // Configurador: siempre global; Profesional: siempre propia
+            p.IdRespuestaRapida = new RespuestaRapidaDAO().Insertar(p);
+            return Results.Created($"/mensajeria/respuestas-rapidas/{p.IdRespuestaRapida}", p);
+        });
+
+        g.MapPut("/respuestas-rapidas/{id}", (int id, RespuestaRapida p, HttpContext ctx) =>
+        {
+            var error = ValidarRespuesta(p);
+            if (error != null) return Results.BadRequest(new { mensaje = error });
+            var dao = new RespuestaRapidaDAO();
+            var existente = dao.ObtenerPorId(id);
+            if (existente is null) return Results.NotFound();
+            var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
+            if (!PuedeEditarRespuesta(existente, esAdmin, idPropio))
+                return Results.Json(new { mensaje = "No podés editar esta respuesta rápida." }, statusCode: 403);
+            p.IdRespuestaRapida = id;
+            p.IdProfesional = existente.IdProfesional;   // el dueño no cambia al editar
+            dao.Modificar(p);
+            return Results.Ok(p);
+        });
+
+        g.MapDelete("/respuestas-rapidas/{id}", (int id, HttpContext ctx) =>
+        {
+            var dao = new RespuestaRapidaDAO();
+            var existente = dao.ObtenerPorId(id);
+            if (existente is null) return Results.NotFound();
+            var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
+            if (!PuedeEditarRespuesta(existente, esAdmin, idPropio))
+                return Results.Json(new { mensaje = "No podés borrar esta respuesta rápida." }, statusCode: 403);
+            dao.Baja(id);
+            return Results.NoContent();
+        });
+
+        // El cliente pide siempre destinatario=Administrador (lo comparten todos los
+        // profesionales y el Configurador, campana de bandeja.js) - el filtro por pertenencia
+        // tiene que hacerse acá, nunca confiando en lo que mande el cliente. Una conversación
+        // puede haber quedado asignada a otra persona DESPUÉS de crearse el aviso (por
+        // ejemplo, "un paciente pidió hablar con alguien" seguido de un Tomar de otro
+        // profesional); por eso se revisa la pertenencia ACTUAL de la conversación referida,
+        // no un dato grabado en el momento del aviso. Los avisos sin conversación (turnos)
+        // ya vienen con su propio IdProfesional y no necesitan este filtro.
+        g.MapGet("/notificaciones-internas", (string? destinatario, bool? soloNoLeidas, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var lista = new NotificacionInternaDAO().Listar(string.IsNullOrWhiteSpace(destinatario) ? null : destinatario, soloNoLeidas ?? false);
+            var cache = new Dictionary<int, Conversacion?>();
+            return lista.Where(n =>
+            {
+                if (n.IdConversacion is not int idConv) return true;
+                if (!cache.TryGetValue(idConv, out var c)) cache[idConv] = c = conversaciones.ObtenerPorId(idConv);
+                return c is not null && VisibilidadConversacion.Puede(ctx, c);
+            }).ToList();
+        });
+
+        g.MapPut("/notificaciones-internas/{id}/leida", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var dao = new NotificacionInternaDAO();
+            var n = dao.ObtenerPorId(id);
+            if (n is null) return Results.NotFound();
+            if (n.IdConversacion is int idConv)
+            {
+                var c = conversaciones.ObtenerPorId(idConv);
+                if (c is null || !VisibilidadConversacion.Puede(ctx, c)) return Results.NotFound();
+            }
+            dao.MarcarLeida(id);
             return Results.NoContent();
         });
 
@@ -174,12 +488,15 @@ public static class MensajeriaEndpoints
     // que en producción pasa a ser el webhook del canal real con su propia firma.
     public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
         grupo.AddEndpointFilter(async (ctx, next) =>
-        {
-            var op = ctx.HttpContext.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
-            if (!op.ChatSimuladoHabilitado) return Results.NotFound();
-            if (op.SoloLocal && !EsLocal(ctx.HttpContext)) return Results.NotFound();
-            return await next(ctx);
-        });
+            MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
+
+    // El mismo criterio para el filtro del grupo y para /capacidades.
+    public static bool MensajeriaDisponible(HttpContext http) =>
+        Disponible(http.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue, http);
+
+    // Separado del contenedor de servicios para poder probarlo (AccesoMensajeriaTests).
+    public static bool Disponible(MensajeriaOptions op, HttpContext http) =>
+        op.ChatSimuladoHabilitado && (!op.SoloLocal || EsLocal(http));
 
     // Un proxy o túnel que corre en la misma máquina (Caddy en videollamadas-seguras,
     // cloudflared) se conecta desde 127.0.0.1, así que la IP sola no alcanza: si el
@@ -221,20 +538,67 @@ public static class MensajeriaEndpoints
         return null;
     }
 
-    // Mismo patrón que el resto del backend: X-Usuario-Id (autodeclarado, ver TODO(JWT)).
-    private static void Auditar(HttpContext http, string accion, int idConversacion)
+    private static readonly string[] TONOS_ETIQUETA = { "marca", "warn", "danger", "neutral", "ok" };
+
+    private static string? ValidarEtiqueta(EtiquetaConversacion e)
     {
-        if (!int.TryParse(http.Request.Headers["X-Usuario-Id"], out var idUsuario) || idUsuario <= 0) return;
+        if (string.IsNullOrWhiteSpace(e.Nombre)) return "El nombre es obligatorio.";
+        if (e.Nombre.Length > 40) return "El nombre no puede superar los 40 caracteres.";
+        if (!TONOS_ETIQUETA.Contains(e.Tono)) return $"Tono no reconocido. Tiene que ser uno de: {string.Join(", ", TONOS_ETIQUETA)}.";
+        return null;
+    }
+
+    private static string? ValidarRespuesta(RespuestaRapida p)
+    {
+        if (string.IsNullOrWhiteSpace(p.Titulo) || string.IsNullOrWhiteSpace(p.Texto))
+            return "El título y el texto son obligatorios.";
+        if (p.Titulo.Length > 60)   return "El título no puede superar los 60 caracteres.";
+        if (p.Texto.Length > 2000)  return "El texto no puede superar los 2000 caracteres.";
+        return null;
+    }
+
+    // Dueño null = global, solo el administrador la toca; con dueño, solo ese profesional.
+    private static bool PuedeEditarRespuesta(RespuestaRapida r, bool esAdmin, int? idPropio) =>
+        r.IdProfesional is null ? esAdmin : r.IdProfesional == idPropio;
+
+    // Identidad resuelta por IdentidadActualService (JWT o, en modo legacy, X-Usuario-Id)
+    // — este endpoint ya exige rol Profesional o Configurador, así que siempre hay alguien.
+    // detalle: para que la auditoría diga algo útil (qué conversación, de qué paciente) en vez
+    // de quedar vacía; nombrePaciente es opcional porque no siempre hay un paciente identificado.
+    private static void Auditar(HttpContext http, string accion, int idConversacion, string? nombrePaciente = null)
+    {
+        var idUsuario = http.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(http)?.IdUsuario;
+        if (idUsuario is null) return;
         try
         {
+            var detalle = $"Conversación #{idConversacion}" + (string.IsNullOrWhiteSpace(nombrePaciente) ? "" : $" ({nombrePaciente})");
             new LogAuditoriaDAO().Insertar(new LogAuditoria
             {
-                IdUsuario = idUsuario, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion
+                IdUsuario = idUsuario.Value, Accion = accion, Entidad = "Conversacion", IdEntidad = idConversacion, Detalle = detalle
             });
         }
         catch (Exception) { /* la auditoría no debe impedir responder al paciente */ }
+    }
+
+    // Variante estricta para Pertenencia de conversaciones (apertura, asignar, tomar,
+    // devolver - ver CAMBIOS_AGUS.md): a diferencia de Auditar, nunca recibe texto libre ni
+    // el nombre del paciente, solo ids. "Regla inamovible" del pedido: ni el contenido de
+    // los mensajes ni nada más allá de ids y la acción van a logs o auditoría.
+    // Cierre de seguridad, Paso 6: el mecanismo en sí se extrajo a Services/AuditoriaIds.cs
+    // (compartido con la auditoría de acceso a datos clínicos) — esto queda como alias
+    // para no tocar los 4 call sites existentes.
+    private static void AuditarConIds(HttpContext http, string accion, int idConversacion, int? idPaciente)
+    {
+        AuditoriaIds.Registrar(http, accion, "Conversacion", idConversacion, idPaciente);
     }
 }
 
 public record MensajeEntranteRequest(string? Telefono, string? Texto);
 public record RespuestaHumanaRequest(string? Texto);
+public record MarcarLeidaRequest(int Hasta);
+// Nota: a diferencia de /casos/{id}/reasignar, esta acción no tiene un campo de nota libre
+// - no hay un CasoDerivacion (ni nada análogo) donde guardarla sin inventar una tabla nueva
+// que nadie pidió para este alcance.
+public record AsignarConversacionRequest(int IdProfesional, string MotivoCategoria);
+public record DevolverConversacionRequest(string MotivoCategoria);
+public record NotaInternaRequest(string? Texto);

@@ -173,4 +173,60 @@ public class TurnoReglasServiceTests
     [InlineData("SÁBADO", DayOfWeek.Saturday)]
     public void Dia_de_agenda_se_interpreta_con_o_sin_tilde(string dia, DayOfWeek esperado) =>
         Assert.Equal(esperado, TurnoReglasService.DiaDeLaSemana(dia));
+
+    // ── Fase 3a, Paso 1: HorariosLibresDelProfesional, SolicitarUrgente ──────
+
+    [Fact]
+    public void HorariosLibresDelProfesional_no_pide_RN07_ni_paciente()
+    {
+        // El paciente 1 ya tiene un turno el viernes 25 con el profesional 10: a HorariosLibres
+        // (con paciente) ese día lo salta por RN-07; a la variante sin paciente no le importa.
+        _e.Db.AgregarTurno(1, 10, Dia(25, 11), BaseEnMemoria.Pendiente);
+        var conPaciente = _e.Reglas.HorariosLibres(1, 10, 14, 50);
+        var sinPaciente = _e.Reglas.HorariosLibresDelProfesional(10, 14, 50);
+
+        Assert.DoesNotContain(conPaciente, h => h.Date == Dia(25, 0).Date);
+        Assert.Contains(sinPaciente, h => h.Date == Dia(25, 0).Date);
+    }
+
+    [Fact]
+    public void HorariosLibresDelProfesional_profesional_sin_horarios_cargados_da_vacio()
+    {
+        var horarios = _e.Reglas.HorariosLibresDelProfesional(999, 14, 50);
+        Assert.Empty(horarios);
+    }
+
+    [Fact]
+    public void HorariosLibres_profesional_sin_horarios_cargados_da_vacio()
+    {
+        var horarios = _e.Reglas.HorariosLibres(1, 999, 14, 50);
+        Assert.Empty(horarios);
+    }
+
+    [Fact]
+    public void SolicitarUrgente_no_pide_RN01_ni_RN05_crea_pendiente_ahora_mismo()
+    {
+        // "Ahora mismo" (jueves 09:00, el reloj fijo del escenario) violaría RN-01 (no está
+        // en el futuro) y RN-05 (0 h de anticipación) si pasara por Solicitar/ValidarSolicitud.
+        var r = _e.Reglas.SolicitarUrgente(1, 10, Escenario.Jueves0900, "Cita urgente");
+        Assert.True(r.Regla.Ok);
+        Assert.Equal("Pendiente", _e.Db.EstadoDe(r.IdTurno!.Value));
+    }
+
+    [Fact]
+    public void SolicitarUrgente_igual_evita_duplicar_un_turno_activo_del_mismo_dia()
+    {
+        _e.Db.AgregarTurno(1, 10, Escenario.Jueves0900.AddMinutes(30), BaseEnMemoria.Pendiente);
+        var r = _e.Reglas.SolicitarUrgente(1, 10, Escenario.Jueves0900, "Otra urgencia");
+        Assert.False(r.Regla.Ok);
+        Assert.Equal("RN-07", r.Regla.Codigo);
+    }
+
+    [Fact]
+    public void Solicitar_con_creadoPor_profesional_no_cambia_la_validacion()
+    {
+        var r = _e.Reglas.Solicitar(1, 10, Dia(28, 10), "propuesta", creadoPor: "profesional");
+        Assert.True(r.Regla.Ok);
+        Assert.Equal("Pendiente", _e.Db.EstadoDe(r.IdTurno!.Value));
+    }
 }

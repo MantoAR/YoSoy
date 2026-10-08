@@ -6,3 +6,9 @@ obj/
 *.suo
 To.Do.txt
 preview/
+
+# Cambios-Agus: capturas y pruebas de interfaz locales (no se versionan)
+docs/capturas-cambios-agus/
+docs/pruebas-ui-cambios-agus/
+.app-stdout.log
+.app-stderr.log

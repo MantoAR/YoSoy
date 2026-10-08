@@ -7,12 +7,18 @@ const $ = id => document.getElementById(id);
 let versionTexto = null;
 
 function mostrar(id) {
-    ["sinSesion", "yaFirmado", "paraFirmar"].forEach(s => $(s).classList.toggle("oculto", s !== id));
+    ["cargando", "sinConexion", "sinSesion", "yaFirmado", "paraFirmar"].forEach(s => $(s).classList.toggle("oculto", s !== id));
 }
 
 function error(msg) {
     $("error").textContent = msg;
     $("error").classList.toggle("oculto", !msg);
+}
+
+// "sin-validar" es el placeholder de Consentimiento:VersionTexto (appsettings.json) hasta que
+// se cargue el texto legal definitivo: no es una versión real, así que no se la muestra.
+function versionEsReal(v) {
+    return !!v && v !== "sin-validar";
 }
 
 function fechaHora(valor) {
@@ -23,18 +29,24 @@ function fechaHora(valor) {
 }
 
 function mostrarFirmado(fechaFirma, version) {
-    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (version ? ` (versión del texto: ${version}).` : ".");
+    $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
+    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (versionEsReal(version) ? ` (versión del texto: ${version}).` : ".");
     mostrar("yaFirmado");
 }
 
 async function cargar() {
     if (!idPaciente) { mostrar("sinSesion"); return; }
+    mostrar("cargando");
+    error("");
     try {
         const [rPac, rEstado] = await Promise.all([
-            fetch(`${API}/pacientes/${idPaciente}`),
-            fetch(`${API}/pacientes/${idPaciente}/consentimiento-telemedicina`)
+            YS.fetch(`/pacientes/${idPaciente}`),
+            YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina`)
         ]);
-        if (!rPac.ok || !rEstado.ok) { mostrar("sinSesion"); return; }
+        // 401/404: la sesión no corresponde a un paciente; otro error: el servidor falló
+        const sinSesion = r => r.status === 401 || r.status === 404;
+        if (sinSesion(rPac) || sinSesion(rEstado)) { mostrar("sinSesion"); return; }
+        if (!rPac.ok || !rEstado.ok) { mostrar("sinConexion"); return; }
         const p = await rPac.json();
         const estado = await rEstado.json();
         $("paciente").textContent = `Paciente: ${p.nombre} · DNI ${p.dni}`;
@@ -42,9 +54,10 @@ async function cargar() {
         if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada); return; }
         versionTexto = estado.versionTexto;
         $("versionTexto").textContent = versionTexto;
+        $("lineaVersion").classList.toggle("oculto", !versionEsReal(versionTexto));
         mostrar("paraFirmar");
     } catch {
-        error("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.");
+        mostrar("sinConexion");
     }
 }
 
@@ -53,7 +66,7 @@ async function firmar() {
     const btn = $("btnFirmar");
     btn.disabled = true;
     try {
-        const r = await fetch(`${API}/pacientes/${idPaciente}/consentimiento-telemedicina`, {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ acepto: true, version: versionTexto })
@@ -71,4 +84,5 @@ async function firmar() {
 }
 
 $("btnFirmar").addEventListener("click", firmar);
+$("btnReintentar").addEventListener("click", cargar);
 cargar();

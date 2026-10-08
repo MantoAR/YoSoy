@@ -8,6 +8,7 @@
 - [Base de datos](#base-de-datos)
 - [API REST](#api-rest)
 - [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
+- [Autenticación con JWT (rama Cambios-Agus-jwt)](#autenticación-con-jwt-rama-cambios-agus-jwt)
 - [Mensajería: chatbot de reservas y recordatorios](#mensajería-chatbot-de-reservas-y-recordatorios)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Como usar git desde CMD](#como-usar-git-desde-cmd)
@@ -119,7 +120,32 @@ git clone https://github.com/MantoAR/YoSoy.git
 cd YoSoy
 ```
 
-2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio, y después los scripts de `migrations/` (`add_columnas_faltantes.sql` agrega columnas que el código usa y el script base no crea)
+2. Restaurar la base de datos ejecutando el script de la rama `DataBase` en SQL Server Management Studio, y después **todos** los scripts de `migrations/`, en este orden (cada uno depende de que el anterior ya esté aplicado):
+
+   | # | Script | Qué agrega | ¿Se puede correr dos veces? |
+   |---|---|---|---|
+   | 1 | `add_columnas_faltantes.sql` | Columnas que el código ya usa y el script base de `DataBase` no crea: `Agenda.IntervaloMinutos`, `Turno.ConfirmadoPaciente`, `Turno.CodigoSala`, `PacienteProfesional.EstadoAsignacion` | Sí |
+   | 2 | `add_creadopor_turno.sql` | `Turno.CreadoPor` | Sí |
+   | 3 | `add_token_profesional.sql` | `Profesional.Token` | Sí |
+   | 4 | `add_token_recuperacion.sql` | `RecuperacionPassword.Token`, `TokenExpiracion` | Sí |
+   | 5 | `add_mensajeria.sql` | Tablas `Conversacion`, `MensajeChat`, `Recordatorio`, `PreguntaFrecuente`, `NotificacionInterna` (chatbot, ver [Mensajería](#mensajería-chatbot-de-reservas-y-recordatorios)) | Sí |
+   | 6 | `add_consentimiento_telemedicina.sql` | `Consentimiento.FechaFirma` pasa a `DATETIME`; crea el `TipoConsentimiento` de telemedicina (RN-02) | Sí |
+   | 7 | `add_lectura_conversacion.sql` | `Conversacion.IdUltimoMensajeLeido` (contador de no leídos de la bandeja) — requiere el 5 | Sí |
+   | 8 | `alter_logauditoria_idusuario_nullable.sql` | `LogAuditoria.IdUsuario` admite `NULL` (acciones sin sesión, como un registro público) | Sí |
+   | 9 | `add_tablas_sin_migracion_previa.sql` | Tablas `InformeAdmision`, `Notificacion`, `SesionClinica` — existían en la base real y el código las usa desde hace rato, pero nunca tuvieron una migración (se crearon a mano en algún momento). Encontrado al probar la cadena completa contra una base nueva (integración a la rama principal) | Sí |
+   | 10 | `add_grupos_casos_derivacion.sql` | Tablas `Grupo`, `ProfesionalGrupo`, `Caso`, `CasoDerivacion`, `ReglaDerivacion`, `HistorialAsignacion` (Grupos, Casos y derivación en cascada) — requiere el 9 (`Caso.IdInforme` referencia `InformeAdmision`) | Sí |
+   | 11 | `add_link_publico_profesional.sql` | `Profesional.Slug`, `LinkPublicoActivo` (link público de reserva) | Sí |
+   | 12 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 10 | Sí |
+   | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
+   | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
+
+   Las 14 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+
+   Para cada uno:
+   ```bash
+   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\<archivo>.sql
+   ```
+   (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -131,7 +157,95 @@ private static string cadena = "Server=TU_SERVIDOR;Database=yosoy;Trusted_Connec
 dotnet run
 ```
 
-5. Abrir `mockup.html` en el navegador para usar la interfaz
+5. Abrir `http://localhost:5000/pantallas/index.html` en el navegador — es el login real,
+   de los tres roles (ver [Autenticación con JWT](#autenticación-con-jwt-rama-cambios-agus-jwt)
+   más abajo: hace falta configurar `Jwt:Key` antes de este paso, o la app no arranca).
+   `mockup.html`, en la raíz del proyecto, es un ABM de antes de que existiera el login
+   por roles — quedó como referencia histórica, pero ya no refleja cómo se usa la app hoy
+   (no manda ningún token, así que la mayoría de los endpoints protegidos le van a dar
+   401/403).
+
+---
+
+## Autenticación con JWT (rama `Cambios-Agus-jwt`)
+
+> **Estado:** hecho sobre `Cambios-Agus-jwt`, no sobre `main`. Reemplaza la identidad
+> autodeclarada por `X-Usuario-Id` (que sigue existiendo como modo de transición, ver
+> abajo) por un JWT real que emite `POST /login`.
+
+### Configurar la clave de firma (obligatorio para arrancar)
+
+La clave **no está en ningún archivo versionado**. Hace falta configurarla una vez por máquina:
+
+```bash
+dotnet user-secrets set "Jwt:Key" "una-clave-aleatoria-de-32-caracteres-o-mas"
+```
+
+(o la variable de entorno `Jwt__Key`, si no es un entorno de desarrollo). Sin esto, la
+app **no arranca**: tira un error claro explicando este mismo paso al intentar resolver
+`JwtEmisorService` apenas levanta, antes de aceptar ningún pedido.
+
+### Configurar la contraseña de correo (opcional para desarrollar, obligatoria para mails reales)
+
+`appsettings.json` → `Email:Password` queda **vacío** a propósito: no se versiona ninguna
+contraseña real. Con el valor vacío (o cualquier valor que no autentique, como un espacio),
+`EmailService` intenta conectarse igual pero el envío falla y queda registrado como
+`Omitido` — así se puede desarrollar y correr la batería de pruebas sin mandar mails de
+verdad. Para que los recordatorios y avisos salgan por correo real, configurar, una vez
+por máquina:
+
+```bash
+dotnet user-secrets set "Email:Password" "la-contraseña-de-aplicación-real"
+```
+
+(o la variable de entorno `Email__Password`, si no es un entorno de desarrollo). La
+rotación de una contraseña que se haya expuesto alguna vez se hace en el proveedor de
+correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
+
+### Qué cambia
+
+- Los 3 logins (`POST /login`) devuelven, además de lo que ya devolvían, un campo
+  `"token"` (expira a las 8 horas, sin refresh token). El frontend lo guarda en
+  `localStorage` y `YS.fetch` lo manda como `Authorization: Bearer <token>` en todos los
+  llamados.
+- `Services/IdentidadActualService.cs` es la única manera de resolver "quién es" en el
+  backend (reemplaza a `AutorizacionCasos`/`AutorizacionReporte` y a cada
+  `X-Usuario-Id` suelto que se leía directo del header).
+- **Modo de transición:** `Auth:PermitirEncabezadoLegacy` (`appsettings.json`). En
+  `false` (el valor por defecto, una vez migrado y verificado lo de abajo): sin un JWT
+  válido, cualquier pedido a un endpoint protegido da 401, aunque mande
+  `X-Usuario-Id`. En `true`: si no hay JWT, se acepta igual el `X-Usuario-Id` de
+  siempre (con un `warning` en el log indicando qué ruta todavía no migró) — es el
+  interruptor de emergencia si algo del frontend quedó sin actualizar.
+
+### Qué quedó protegido (y con qué alcance)
+
+> **Actualizado en `cierre-seguridad`** (ver `CAMBIOS_AGUS.md`, sección "Cierre de
+> seguridad"): esta tabla listaba varios huecos reales como "pendiente"; esta vuelta los
+> cierra. `Auth:PermitirEncabezadoLegacy` queda en **`false`** (ver más abajo) y
+> `GuardiaEndpointsTests` (reflexión sobre `EndpointDataSource`, no una lista a mano)
+> falla si aparece un endpoint nuevo sin decidir.
+
+| Grupo | Alcance |
+|---|---|
+| Mensajería (`/mensajeria/*`) | Rol Profesional o Configurador, con pertenencia de conversación (quién ve qué chat — ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook), cerradas aparte por `ChatSimuladoHabilitado`/`SoloLocal`. |
+| Consentimiento (firmar y leer estado) | Rol Paciente **y** que el id de la URL sea el del propio token (o el equipo, para leer). |
+| Administración (usuarios, auditoría, catálogos al escribir, solicitudes, "Solicitudes de cambio"/`Derivacion`) | Solo Configurador. |
+| Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; ahora todo el grupo exige sesión a nivel de ruta (antes, varios — `/grupos`, `/reglasderivacion`, `/pacientes/{id}/caso` — no tenían ningún chequeo, ni de sesión ni de rol). |
+| Turnos | La identidad sale siempre del token, nunca de un id en el cuerpo o la URL: un paciente solo pide/ve/cancela/confirma los propios; un profesional solo administra los propios. El `POST /turnos` crudo (sin reglas de negocio, sin uso real) queda apagado (410). `/profesionales/{id}/agenda` sigue abierto a propósito: cualquier paciente necesita ver el horario de **cualquier** profesional al pedir turno. |
+| Agendas (franjas de horario) | El profesional solo administra las propias; el Configurador, cualquiera. |
+| Historia clínica, evoluciones, eventos de crisis, sesiones clínicas, interacciones con la IA | Solo el profesional **asociado a ese paciente** (mismo criterio que Casos y que los chats: equipo tratante vigente, `PacienteProfesionalDAO`) o el Configurador — ya no "cualquier profesional autenticado". Queda auditado (solo ids, nunca contenido) quién abre qué paciente y cuándo. |
+| Reportes de atenciones (CB-04) | Corregido: usaba `X-Usuario-Id` sin firmar, al margen del JWT. Ahora el alcance (propio/total) sale de `IdentidadActualService`, igual que el resto de la app. |
+| Catálogos de referencia (Especialidad, Rol, EstadoTurno, TipoConsentimiento, ObraSocial) | Lectura abierta (`/especialidades` la necesita además el registro público de profesional); escritura, solo Configurador. |
+| Pacientes/Profesionales (ficha, "Mi perfil") | Lectura y edición exigen sesión; el paciente solo la propia, el profesional solo la propia (antes, sin ningún chequeo, cualquiera editaba la ficha de cualquiera). El volcado completo (todos los pacientes/profesionales) queda Configurador-only. |
+| Login, registro de paciente, registro de profesional, recuperación de contraseña, `/reservar/{slug}` y su disponibilidad/reserva pública, `/capacidades`, archivos estáticos | Sin token, a propósito — lista completa y el por qué de cada uno en `GuardiaEndpointsTests.Publicos`. |
+
+### Pendiente
+
+- `signaling-server` (Node, WebRTC) **no autentica nada** — cualquiera que tenga o adivine un código de sala puede conectarse. Fuera de alcance de esta rama (lo trabaja `videollamadas-seguras`); solo queda anotado.
+- Reconciliar con el JWT de `videollamadas-seguras` (`Services/JwtService.cs` ahí): son dos implementaciones distintas (claims, nombre de la clave de configuración, formato de token) hechas sin coordinarse — ver "Parte 2: JWT, Paso J0" en `CAMBIOS_AGUS.md` para el detalle.
+- Cierre de sesión por inactividad: decisión de equipo pendiente, no se tocó.
+- CSP (Content-Security-Policy): no se activa todavía — hay demasiado JS/CSS inline en `PANTALLAS/` y rompería pantallas. Ver `CAMBIOS_AGUS.md` para el detalle de por qué queda como mejora futura.
 
 ---
 
@@ -152,31 +266,47 @@ dotnet run
   - `1`: queda registrada la confirmación de asistencia.
   - `2`: si faltan más de 24 h se cancela; si faltan menos, **no** se cancela (RN-05) y se le avisa al profesional.
 - **Avisos por evento** (chat + campanita): solicitud recibida, turno propuesto por el profesional, turno confirmado y turno cancelado.
-- **Pantalla "YoSoy · Mensajería"** (`PANTALLAS/Pantalla_ChatSimulado/`), estilo WhatsApp Web, para que la secretaría o el profesional sigan las conversaciones del bot:
-  - Izquierda: buscador por nombre o teléfono y lista de conversaciones con estado en color (Urgente en rojo y siempre arriba, Derivada en naranja, Cerrada en gris).
-  - Centro: el hilo, con el paciente a la izquierda y el bot, el equipo y los avisos automáticos a la derecha, cada uno con su ícono. Respuesta manual (deshabilitada si la conversación está cerrada).
-  - Derecha: DNI, teléfono, profesionales y próximo turno del paciente, y el botón para cerrar la derivación o marcar la urgencia como resuelta.
-  - Header con contadores de urgentes y derivadas, la campanita de avisos internos y el modo "Probar como paciente" para chatear con un teléfono de prueba.
-  - Se actualiza por polling cada 2,5 s. Pensada para PC: las tres columnas quedan visibles desde 900 px de ancho.
+- **Bandeja de chats** para el configurador (la secretaría), estilo WhatsApp Web. Se abre con el botón **Chats** de la barra superior desde cualquier pantalla de su panel. Es un cajón que se superpone sin recargar; se puede expandir a pantalla completa y se cierra con Esc. Código en `PANTALLAS/Pantalla_ChatSimulado/js/bandeja.js`:
+  - **Lista:**
+    - buscador por nombre o teléfono;
+    - filtros Todas, No leídas, Derivadas (incluye urgentes), Del bot y Cerradas;
+    - avatar, último mensaje, hora relativa, contador de no leídos y estado (Urgente siempre arriba).
+  - **Hilo:**
+    - paciente a la izquierda; asistente, equipo y avisos automáticos a la derecha;
+    - separadores de día y mensajes seguidos agrupados;
+    - historial hacia arriba de a 50 mensajes;
+    - botón para ir al último mensaje con la cantidad de nuevos.
+  - **Respuesta:**
+    - Enter envía y Shift+Enter hace salto de línea;
+    - estado enviando / enviado / error con "Reintentar";
+    - respuestas rápidas editables en `PANTALLAS/Pantalla_ChatSimulado/plantillas.json`;
+    - deshabilitada si la conversación está cerrada.
+  - **Datos del paciente** (panel derecho, colapsable): DNI, teléfono, profesionales, próximo turno, estado del consentimiento, cerrar la derivación y accesos a sus turnos y a su ficha.
+  - **Avisos:**
+    - contador en el botón y `(n)` en el título de la pestaña;
+    - toast cuando llega un mensaje con la bandeja cerrada;
+    - sonido opcional, desactivado por defecto;
+    - los avisos internos (urgencias y derivaciones) en la campana de la barra.
+  - **Polling eficiente:**
+    - pide solo las conversaciones con mensajes nuevos (`?desdeMensaje=`);
+    - cada 3 s con la bandeja abierta, cada 20 s cerrada, más espaciado si no hay novedades;
+    - nada con la pestaña oculta.
+  - **Atajos:** `?` muestra la ayuda, `/` busca, Alt+↑/↓ cambia de conversación y Esc cierra.
+  - Solo aparece si la mensajería está disponible para ese pedido (`GET /capacidades`, mismo control que el 404 de `/mensajeria`).
+- **Pantalla de chats** (`PANTALLAS/Pantalla_ChatSimulado/index.html`): la misma bandeja en modo página y el **simulador del paciente**, para chatear con el asistente como si fuera un paciente con un teléfono de prueba.
 
 ### Cómo ponerlo en marcha
 
-1. Correr las migraciones en este orden (son idempotentes, se pueden correr más de una vez):
-   ```bash
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_columnas_faltantes.sql
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_mensajeria.sql
-   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\add_consentimiento_telemedicina.sql
-   ```
-   `-f 65001` hace falta para que los acentos de las preguntas frecuentes de ejemplo se guarden bien. También se pueden abrir y ejecutar en SQL Server Management Studio.
+1. Las migraciones que necesita puntualmente la mensajería son la 1, 5, 6 y 7 de la tabla en [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto) (son idempotentes, se pueden correr más de una vez) — pero para tener la base al día con esta rama hay que correr la lista completa de esa tabla, en orden, no solo estas 4.
 2. Revisar la sección `Mensajeria` de `appsettings.json`. **Antes de usarlo con pacientes reales** hay que completar y validar `LineasEmergencia` (hoy dicen `[COMPLETAR Y VALIDAR]`) y el texto legal del consentimiento (ver [RN-02](#rn-02-consentimiento-de-telemedicina)).
-3. `dotnet run` y abrir `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html`.
+3. `dotnet run`, ingresar como configurador y abrir **Chats** en la barra superior. El simulador del paciente está en `http://localhost:5000/pantallas/Pantalla_ChatSimulado/index.html#simulador`.
 
 ### Cómo probarlo
 
-- **Modo paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
-- **Modo administrador:** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos.
+- **Simulador del paciente:** ingresar el teléfono de un paciente de prueba (por ejemplo el de un paciente asignado a un profesional con agenda) y escribir `hola`. Con un número que no existe se ve el flujo de DNI.
+- **Bandeja (configurador):** ver las conversaciones, responder, cerrar derivaciones y leer los avisos internos en la campana.
 - **Recordatorios sin esperar:** `POST /mensajeria/recordatorios/ejecutar` corre una pasada del servicio.
-- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (89 pruebas del intérprete, las reglas de turnos, incluida RN-02 al confirmar, y la máquina de estados del bot, con dobles en memoria; no necesitan base de datos).
+- **Pruebas automáticas:** `dotnet test YoSoy.Tests` (96 pruebas del intérprete, las reglas de turnos, incluida RN-02 al confirmar, la máquina de estados del bot y el control de acceso de `/mensajeria`, con dobles en memoria; no necesitan base de datos).
 
 > ⚠️ **Mails reales:** si la sección `Email` de la configuración está completa, los recordatorios y el aviso al profesional **se envían de verdad**. Para probar sin mandar mails, levantar la app con la contraseña en blanco: en PowerShell `$env:Email__Password = " "; dotnet run`. En ese caso el envío queda registrado como `Omitido`.
 
@@ -206,10 +336,12 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 |---|---|---|
 | POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
 | GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
-| GET | `/mensajeria/conversaciones?estado=` | Listado con nombre del paciente, último mensaje y su hora; urgentes siempre arriba, el resto por última actividad. |
+| GET | `/capacidades` | `{ mensajeria }`: si la interfaz muestra el botón Chats. Mismo control que el filtro de `/mensajeria`: apagado o pedido remoto con `SoloLocal` da `false`. |
+| GET | `/mensajeria/conversaciones?estado=&desdeMensaje=` | Listado con nombre del paciente, último mensaje (id, texto, origen y hora) y `noLeidos`; urgentes siempre arriba, el resto por última actividad. Con `desdeMensaje` trae solo las conversaciones con mensajes posteriores (polling incremental). |
+| PUT | `/mensajeria/conversaciones/{id}/leida` | `{ hasta }`: el equipo vio la conversación hasta ese mensaje (contador de no leídos; requiere `add_lectura_conversacion.sql`). |
 | GET | `/mensajeria/conversaciones/{id}` | Estado de una conversación. |
 | GET | `/mensajeria/conversaciones/{id}/paciente` | Panel del administrador: nombre, DNI, teléfono, profesionales y próximo turno del paciente (`paciente: null` si el bot no lo identificó). |
-| GET | `/mensajeria/conversaciones/{id}/mensajes?desde=` | Historial; `desde` = último id recibido (polling). |
+| GET | `/mensajeria/conversaciones/{id}/mensajes?desde=&antes=&limite=` | Historial; `desde` = último id recibido (polling). Con `antes`/`limite`, los mensajes anteriores a ese id de a páginas (sin `antes`, los últimos). |
 | POST | `/mensajeria/conversaciones/{id}/responder` | `{ texto }`: respuesta de una persona del equipo. |
 | PUT | `/mensajeria/conversaciones/{id}/cerrar` | Cierra la derivación o urgencia; el bot vuelve a atender. |
 | GET / PUT | `/mensajeria/notificaciones-internas`, `.../{id}/leida` | Avisos para el administrador y los profesionales. |
@@ -270,10 +402,11 @@ Configuración (`appsettings.json` → `Consentimiento`):
 - Reglas RN-01, RN-05 y RN-07 en los endpoints web: pendientes.
 - **Consentimiento:** el texto legal es un placeholder (`[COMPLETAR CON TEXTO LEGAL VALIDADO]`) hasta que el equipo lo valide. La firma usa el `idPaciente` del navegador: sin autenticación real cualquiera podría firmar por otro paciente, y eso no tiene validez como consentimiento informado (`TODO(JWT)` en `Endpoints/ConsentimientoEndpoints.cs`). El "Acuerdo de Atención al Paciente" del registro sigue sin guardar ninguna fila, y no hay pantalla para revocar un consentimiento.
 - **Versión del consentimiento:** cada firma guarda `Consentimiento:VersionTexto`, pero la vigencia (`ConsentimientoDAO.ObtenerVigente`, que usan RN-02 y la página de firma) **no compara versiones**: acepta cualquier fila del tipo requerido que no esté `Inactivo`. Por eso, el día que se cargue el texto legal validado y se cambie `VersionTexto`, los consentimientos firmados contra el placeholder (`sin-validar`) van a seguir contando como vigentes hasta que se agregue esa comparación.
-- Las notificaciones internas se ven solo en el modo administrador del chat simulado; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
+- Las notificaciones internas se ven solo en la campana del configurador; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).
 - `DELETE /turnos/{id}` y el `POST /turnos` genérico no disparan avisos.
 - La reprogramación y el modal de turno de la web arman horarios de 60 minutos fijos en lugar de usar `IntervaloMinutos`.
-- Actualización por polling; sin WebSockets.
+- Actualización por polling (incremental y adaptativo); sin WebSockets. No hay indicador de "escribiendo…": el canal no informa cuándo el paciente está escribiendo.
+- La marca de leído es compartida por todo el equipo (como una bandeja de WhatsApp Business): si alguien abre la conversación, deja de figurar como no leída para todos.
 - Zona horaria: los turnos se guardan sin zona y se comparan con la hora local del servidor, que se asume en Argentina (UTC-3).
 - Recordatorios de pago: fuera de alcance (no existe una entidad de pagos). El tipo `PagoPendiente` quedó reservado en `Recordatorio`.
 

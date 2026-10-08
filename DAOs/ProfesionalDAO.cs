@@ -1,8 +1,14 @@
 using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 public class ProfesionalDAO
 {
+    private const string SELECT_COLUMNAS =
+        "IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, Slug, LinkPublicoActivo";
+
     public void Insertar(Profesional p)
     {
         using var con = Conexion.ObtenerConexion();
@@ -68,7 +74,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional", con);
+            $"SELECT {SELECT_COLUMNAS} FROM Profesional", con);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
             lista.Add(Mapear(reader));
@@ -80,7 +86,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional WHERE IdProfesional = @Id", con);
+            $"SELECT {SELECT_COLUMNAS} FROM Profesional WHERE IdProfesional = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
@@ -92,7 +98,7 @@ public class ProfesionalDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud FROM Profesional WHERE IdEspecialidad = @IdEsp", con);
+            $"SELECT {SELECT_COLUMNAS} FROM Profesional WHERE IdEspecialidad = @IdEsp", con);
         cmd.Parameters.AddWithValue("@IdEsp", idEspecialidad);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
@@ -117,6 +123,80 @@ public class ProfesionalDAO
         Estado          = r["Estado"]          == DBNull.Value ? null : (string)r["Estado"],
         Mail            = r["Mail"]            == DBNull.Value ? null : (string)r["Mail"],
         Telefono        = r["Telefono"]        == DBNull.Value ? null : (string)r["Telefono"],
-        FechaSolicitud  = r["FechaSolicitud"]  == DBNull.Value ? null : (DateTime?)r["FechaSolicitud"]
+        FechaSolicitud  = r["FechaSolicitud"]  == DBNull.Value ? null : (DateTime?)r["FechaSolicitud"],
+        Slug              = r["Slug"]              == DBNull.Value ? null : (string)r["Slug"],
+        LinkPublicoActivo = (bool)r["LinkPublicoActivo"]
     };
+
+    /// <summary>
+    /// Prende o apaga el link público de reserva. Si se prende y todavía no tiene slug, genera
+    /// uno (nombre normalizado + sufijo aleatorio, no adivinable en secuencia) y lo guarda junto
+    /// con el flag; si ya tenía uno, lo conserva — apagar y prender de nuevo no cambia el link.
+    /// Columna aparte del UPDATE genérico de Modificar() a propósito (ver Models/Profesional.cs).
+    /// </summary>
+    public Profesional ActivarLinkPublico(int id, bool activo)
+    {
+        var p = ObtenerPorId(id) ?? throw new InvalidOperationException($"No existe el profesional {id}.");
+        if (activo && string.IsNullOrEmpty(p.Slug))
+            p.Slug = GenerarSlugUnico(p.Nombre, p.Apellido);
+        p.LinkPublicoActivo = activo;
+
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE Profesional SET Slug = @Slug, LinkPublicoActivo = @Activo WHERE IdProfesional = @Id", con);
+        cmd.Parameters.AddWithValue("@Slug", (object?)p.Slug ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Activo", p.LinkPublicoActivo);
+        cmd.Parameters.AddWithValue("@Id", id);
+        cmd.ExecuteNonQuery();
+        return p;
+    }
+
+    /// <summary>
+    /// Para la página pública: null tanto si el slug no existe como si existe pero el link está
+    /// apagado o el profesional no está Activo — a propósito, la respuesta pública tiene que ser
+    /// idéntica en los dos casos (no revelar qué profesionales existen).
+    /// </summary>
+    public Profesional? ObtenerPorSlugActivo(string slug)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            $"SELECT {SELECT_COLUMNAS} FROM Profesional WHERE Slug = @Slug AND LinkPublicoActivo = 1 AND Estado = 'Activo'", con);
+        cmd.Parameters.AddWithValue("@Slug", slug);
+        using var reader = cmd.ExecuteReader();
+        return reader.Read() ? Mapear(reader) : null;
+    }
+
+    private string GenerarSlugUnico(string nombre, string? apellido)
+    {
+        var baseTexto = QuitarAcentos($"{nombre}-{apellido}".Trim('-')).ToLowerInvariant();
+        baseTexto = new string(baseTexto.Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray());
+        while (baseTexto.Contains("--")) baseTexto = baseTexto.Replace("--", "-");
+        baseTexto = baseTexto.Trim('-');
+        if (baseTexto.Length > 40) baseTexto = baseTexto[..40].TrimEnd('-');
+        if (string.IsNullOrEmpty(baseTexto)) baseTexto = "profesional";
+
+        for (var intento = 0; intento < 10; intento++)
+        {
+            var sufijo = Convert.ToHexString(RandomNumberGenerator.GetBytes(4)).ToLowerInvariant();
+            var candidato = $"{baseTexto}-{sufijo}";
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            var cmd = new SqlCommand("SELECT COUNT(*) FROM Profesional WHERE Slug = @Slug", con);
+            cmd.Parameters.AddWithValue("@Slug", candidato);
+            if ((int)cmd.ExecuteScalar() == 0) return candidato;
+        }
+        throw new InvalidOperationException("No se pudo generar un slug único.");
+    }
+
+    private static string QuitarAcentos(string texto)
+    {
+        var normalizado = texto.Normalize(System.Text.NormalizationForm.FormD);
+        var sb = new StringBuilder();
+        foreach (var c in normalizado)
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+        return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
 }

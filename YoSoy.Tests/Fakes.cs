@@ -157,14 +157,28 @@ public class FakeConversaciones : IConversacionDAO
     }
 
     public void Guardar(Conversacion c) => Todas[c.IdConversacion] = Copia(c);
-    public List<ConversacionResumen> ListarResumen(string? estado) => new();
+    public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null) => new();
+    public void MarcarLeida(int idConversacion, int hastaIdMensaje) { }
+
+    public void AsignarProfesional(int idConversacion, int? idProfesional)
+    {
+        if (Todas.TryGetValue(idConversacion, out var c)) c.IdProfesionalAsignado = idProfesional;
+    }
+
+    public bool TomarSiNoTieneDueno(int idConversacion, int idProfesional)
+    {
+        if (!Todas.TryGetValue(idConversacion, out var c) || c.IdProfesionalAsignado is not null) return false;
+        c.IdProfesionalAsignado = idProfesional;
+        return true;
+    }
 
     // Copias para que el test vea solo lo que el bot efectivamente guardó.
     private static Conversacion Copia(Conversacion c) => new()
     {
         IdConversacion = c.IdConversacion, Telefono = c.Telefono, IdPaciente = c.IdPaciente, Canal = c.Canal,
         PasoActual = c.PasoActual, DatosContexto = c.DatosContexto, Estado = c.Estado,
-        FechaUltimaActividad = c.FechaUltimaActividad, FechaCreacion = c.FechaCreacion
+        FechaUltimaActividad = c.FechaUltimaActividad, FechaCreacion = c.FechaCreacion,
+        IdProfesionalAsignado = c.IdProfesionalAsignado
     };
 }
 
@@ -209,4 +223,86 @@ public class FakeFaq : IPreguntaFrecuenteDAO
     private readonly BaseEnMemoria _db;
     public FakeFaq(BaseEnMemoria db) => _db = db;
     public List<PreguntaFrecuente> ObtenerActivas() => _db.Faq.Where(p => p.Activa).OrderBy(p => p.Orden).ToList();
+}
+
+// Doble en memoria de AsignacionService (Fase 2), independiente de BaseEnMemoria: el
+// dominio de Caso/Grupo no comparte nada con Turno/Mensajería.
+public class FakeAsignacionRepositorio : IAsignacionRepositorio
+{
+    public HashSet<int> ProfesionalesInactivos = new();
+    public HashSet<int> ConAgendaDisponible = new();
+    public Dictionary<int, List<int>> MiembrosPorGrupo = new();   // IdGrupo -> [IdProfesional]
+    public List<Caso> Casos = new();
+    public List<CasoDerivacion> Derivaciones = new();
+    public List<HistorialAsignacion> Historial = new();
+    public List<(int IdPaciente, int IdProfesional)> VinculosPacienteProfesional = new();
+    public List<(int IdPaciente, int IdProfesional)> DesvinculosPacienteProfesional = new();
+
+    public void AgregarMiembro(int idGrupo, int idProfesional)
+    {
+        if (!MiembrosPorGrupo.TryGetValue(idGrupo, out var lista)) MiembrosPorGrupo[idGrupo] = lista = new();
+        lista.Add(idProfesional);
+    }
+
+    public List<CandidatoAsignacion> ObtenerCandidatos(int idGrupo) =>
+        MiembrosPorGrupo.GetValueOrDefault(idGrupo, new())
+            .Select(idProf => new CandidatoAsignacion(
+                idProf,
+                !ProfesionalesInactivos.Contains(idProf) && ConAgendaDisponible.Contains(idProf),
+                Casos.Count(c => c.IdProfesionalAsignado == idProf && c.Estado is "Asignado" or "En atención"),
+                Historial.Where(h => h.IdProfesional == idProf).Select(h => (DateTime?)h.FechaHora).Max()))
+            .ToList();
+
+    // Copia, no la referencia de la lista: ActualizarCaso muta el Caso "vivo" en Casos, y
+    // AsignacionService ahora lee ObtenerCaso() ANTES de esa mutación para saber quién tenía
+    // el caso antes del cambio — con la referencia compartida, ese "antes" quedaría pisado
+    // por la misma mutación (no pasaría con CasoDAO real, que siempre lee de la base).
+    public Caso? ObtenerCaso(int idCaso)
+    {
+        var c = Casos.FirstOrDefault(x => x.IdCaso == idCaso);
+        if (c is null) return null;
+        return new Caso
+        {
+            IdCaso = c.IdCaso, IdPaciente = c.IdPaciente, Estado = c.Estado, IdGrupoActual = c.IdGrupoActual,
+            IdProfesionalAsignado = c.IdProfesionalAsignado, Origen = c.Origen, FechaCreacion = c.FechaCreacion, IdInforme = c.IdInforme
+        };
+    }
+
+    public void ActualizarCaso(int idCaso, string estado, int? idGrupo, int? idProfesional)
+    {
+        var c = Casos.Single(x => x.IdCaso == idCaso);
+        c.Estado = estado; c.IdGrupoActual = idGrupo; c.IdProfesionalAsignado = idProfesional;
+    }
+
+    public int InsertarCasoDerivacion(CasoDerivacion d)
+    {
+        d.IdCasoDerivacion = Derivaciones.Count + 1;
+        Derivaciones.Add(d);
+        return d.IdCasoDerivacion;
+    }
+
+    public CasoDerivacion? ObtenerCasoDerivacion(int id) => Derivaciones.FirstOrDefault(d => d.IdCasoDerivacion == id);
+
+    public void ResolverCasoDerivacion(int id, string estado, int? idGrupo, int? idProfesionalAsignado)
+    {
+        var d = Derivaciones.Single(x => x.IdCasoDerivacion == id);
+        d.Estado = estado;
+        if (idGrupo is not null) d.IdGrupo = idGrupo.Value;
+        d.IdProfesionalAsignado = idProfesionalAsignado;
+        d.FechaResolucion = DateTime.Now;
+    }
+
+    public void InsertarHistorial(int idCaso, int? idProfesional, string motivo, int? idRealizadoPor) =>
+        Historial.Add(new HistorialAsignacion
+        {
+            IdHistorial = Historial.Count + 1, IdCaso = idCaso, IdProfesional = idProfesional,
+            Motivo = motivo, IdRealizadoPor = idRealizadoPor, FechaHora = DateTime.Now
+        });
+
+    public void SincronizarPacienteProfesional(int idPaciente, int? idProfesionalAnterior, int idProfesionalNuevo)
+    {
+        if (idProfesionalAnterior is int anterior && anterior != idProfesionalNuevo)
+            DesvinculosPacienteProfesional.Add((idPaciente, anterior));
+        VinculosPacienteProfesional.Add((idPaciente, idProfesionalNuevo));
+    }
 }

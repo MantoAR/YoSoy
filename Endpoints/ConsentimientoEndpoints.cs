@@ -3,18 +3,22 @@ using Microsoft.Extensions.Options;
 // Consentimiento informado de telemedicina (RN-02): estado y firma desde la página
 // PANTALLAS/Pantalla_Paciente/consentimiento.html. Se registran con app.MapConsentimiento().
 //
-// ADVERTENCIA: el idPaciente viene del navegador (localStorage), igual que en el resto
-// de la app. Sin autenticación real, cualquiera que conozca un id podría firmar en
-// nombre de otro paciente, y eso NO tiene validez como consentimiento informado.
-// TODO(JWT): al mergear videollamadas-seguras, tomar el idPaciente del token firmado
-// (no de la URL) y rechazar si no coincide, igual que el TODO de
-// Services/AutorizacionReporte.cs.
+// Firmar (POST) exige rol Paciente y que el id de la URL sea el mismo paciente del
+// token (ver IdentidadActualService) — así nadie firma en nombre de otro. Resuelto en
+// la rama Cambios-Agus-jwt; el TODO(JWT) que tenía este archivo ya no aplica.
 public static class ConsentimientoEndpoints
 {
     public static IEndpointRouteBuilder MapConsentimiento(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/pacientes/{id}/consentimiento-telemedicina", (int id, IOptionsMonitor<ConsentimientoOptions> opciones) =>
+        // Cierre de seguridad, Paso 4: antes sin ningún chequeo (revela si un paciente
+        // firmó o no el consentimiento de telemedicina). Mismo criterio que el resto de
+        // lo paciente-propio: el dueño, o el equipo (Profesional/Configurador).
+        app.MapGet("/pacientes/{id}/consentimiento-telemedicina", (int id, IOptionsMonitor<ConsentimientoOptions> opciones, HttpContext ctx, IdentidadActualService identidad) =>
         {
+            var yo = identidad.Resolver(ctx)!;
+            if (yo is { EsPaciente: true } && yo.IdPaciente != id)
+                return Results.Json(new { mensaje = "Solo podés ver tu propio consentimiento." }, statusCode: 403);
+
             var op = opciones.CurrentValue;
             if (new PacienteDAO().ObtenerPorId(id) is null) return Results.NotFound();
             var c = new ConsentimientoDAO().ObtenerVigente(id, op.TipoRequerido);
@@ -26,13 +30,17 @@ public static class ConsentimientoEndpoints
                 tipo           = op.TipoRequerido,
                 versionTexto   = op.VersionTexto
             });
-        });
+        }).RequireAuthorization();
 
         // La firma exige { "acepto": true } explícito y la versión del texto que vio el
         // paciente: si el texto cambió mientras tenía la página abierta, tiene que volver a leerlo.
         app.MapPost("/pacientes/{id}/consentimiento-telemedicina", (int id, FirmaConsentimientoRequest req,
-            IOptionsMonitor<ConsentimientoOptions> opciones, TimeProvider reloj) =>
+            IOptionsMonitor<ConsentimientoOptions> opciones, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
         {
+            var yo = identidad.Resolver(ctx);
+            if (yo is null || yo.IdPaciente != id)
+                return Results.Json(new { mensaje = "Solo el propio paciente puede firmar su consentimiento." }, statusCode: 403);
+
             var op = opciones.CurrentValue;
             if (req.Acepto != true)
                 return Results.BadRequest(new { mensaje = "Para firmar hay que aceptar el consentimiento de forma explícita." });
@@ -51,7 +59,7 @@ public static class ConsentimientoEndpoints
                 return Results.Json(new { mensaje = "El consentimiento ya estaba firmado.", fechaFirma = vigente?.FechaFirma }, statusCode: 409);
             return Results.Created($"/pacientes/{id}/consentimiento-telemedicina",
                 new { firmado = true, fechaFirma = vigente?.FechaFirma, versionFirmada = vigente?.Version });
-        });
+        }).RequireAuthorization(p => p.RequireRole(Roles.Paciente));
 
         return app;
     }

@@ -1,198 +1,117 @@
+// YoSoy · Registro de paciente: acuerdo de atención (consentimiento crear_cuenta.html)
+// y formulario de registro (registro.html). Usa shared/ui.js (YS) cuando está cargado.
+
 function toast(msg, tipo = "ok", duracion = 3500) {
+    if (window.YS) { YS.toast(msg, tipo, { duracion }); return; }
+    // Páginas que no cargan shared/ui.js (la copia sin uso consentimiento_crear_cuenta.html)
     let cont = document.getElementById("toast-container");
     if (!cont) {
         cont = document.createElement("div");
         cont.id = "toast-container";
         document.body.appendChild(cont);
     }
-    const iconos = { ok: "✔", error: "✖", warn: "⚠" };
     const t = document.createElement("div");
     t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? "ℹ"}</span><span>${msg}</span>`;
+    t.textContent = msg;
     cont.appendChild(t);
-    setTimeout(() => {
-        t.classList.add("saliendo");
-        t.addEventListener("animationend", () => t.remove());
-    }, duracion);
+    setTimeout(() => t.remove(), duracion);
 }
 
-function aceptar(){
-    window.location.href = "registro.html";
+// "return" (Fase 3a, Paso 3: volver a la reserva por link público tras loguearse o
+// registrarse) solo se reenvía tal cual acá — se valida una sola vez, en index.html,
+// que es la única página de esta cadena que carga shared/ui.js sin condición.
+function conRetorno(url) {
+    const retorno = new URLSearchParams(location.search).get("return");
+    return url + (retorno ? "?return=" + encodeURIComponent(retorno) : "");
 }
 
-/*document.getElementById("formRegistro")
-?.addEventListener("submit", function(e){
+function aceptar() {
+    window.location.href = conRetorno("registro.html");
+}
 
-    e.preventDefault();
+// registro.html: el botón de éxito ("Volver al ingreso") también tiene que llevar el
+// return, para que el paciente recién registrado pueda volver derecho a la reserva.
+const linkVolver = document.getElementById("linkVolverIngreso");
+if (linkVolver) linkVolver.href = conRetorno("../../index.html");
 
-    const fechaNacimiento =
-    document.getElementById("fechaNacimiento").value;
+function rechazar() {
+    toast("Para registrarte tenés que aceptar el acuerdo de atención.", "warn");
+    setTimeout(() => window.location.href = conRetorno("index.html"), 2000);
+}
 
-    const fecha = new Date(fechaNacimiento);
-
+function calcularEdad(fechaNacimiento) {
+    const fecha = new Date(fechaNacimiento + "T12:00:00");
     const hoy = new Date();
+    let edad = hoy.getFullYear() - fecha.getFullYear();
+    const mes = hoy.getMonth() - fecha.getMonth();
+    if (mes < 0 || (mes === 0 && hoy.getDate() < fecha.getDate())) edad--;
+    return edad;
+}
 
-    let edad =
-    hoy.getFullYear() - fecha.getFullYear();
-
-    const mes =
-    hoy.getMonth() - fecha.getMonth();
-
-    if(
-        mes < 0 ||
-        (mes === 0 && hoy.getDate() < fecha.getDate())
-    ){
-        edad--;
-    }
-
-    // =====================================
-    // MENOR DE EDAD
-    // =====================================
-
-    if(edad < 18){
-
-        const tutor =
-        document.getElementById("seccionTutor");
-
-        tutor.style.display = "block";
-
-        alert(
-            "Paciente menor de edad. Debe completar los datos del tutor responsable."
-        );
-
-        return;
-    }
-
-    // =====================================
-    // MAYOR DE EDAD
-    // =====================================
-
-    alert(
-        "Paciente registrado correctamente"
-    );
-
-}); */
-
-document.getElementById("formRegistro")
-?.addEventListener("submit", async function(e){
-
+document.getElementById("formRegistro")?.addEventListener("submit", async function (e) {
     e.preventDefault();
+    const error = document.getElementById("errorRegistro");
+    error.classList.add("oculto");
 
-    const fechaNacimiento =
-        document.getElementById("fechaNacimiento").value;
+    const valido = YS.form.validar([
+        { id: "nombre", requerido: "Ingresá tu nombre." },
+        { id: "apellido", requerido: "Ingresá tu apellido." },
+        { id: "dni", requerido: "Ingresá tu DNI.", patron: /^\d{7,9}$/, mensajePatron: "El DNI tiene que tener entre 7 y 9 números, sin puntos." },
+        { id: "sexo", requerido: "Elegí una opción." },
+        { id: "fechaNacimiento", requerido: "Ingresá tu fecha de nacimiento.",
+          validar: v => v && new Date(v + "T12:00:00") > new Date() ? "La fecha no puede ser posterior a hoy." : null },
+        { id: "email", requerido: "Ingresá tu email.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un email válido." },
+        { id: "domicilio", requerido: "Ingresá la calle." },
+        { id: "numero", requerido: "Ingresá el número." },
+        { id: "provincia", requerido: "Ingresá la provincia." }
+    ]);
+    if (!valido) return;
 
-    const fecha = new Date(fechaNacimiento);
+    const fechaNacimiento = document.getElementById("fechaNacimiento").value;
+    const edad = calcularEdad(fechaNacimiento);
 
-    const hoy = new Date();
-
-    let edad =
-        hoy.getFullYear() - fecha.getFullYear();
-
-    const mes =
-        hoy.getMonth() - fecha.getMonth();
-
-    if(
-        mes < 0 ||
-        (mes === 0 && hoy.getDate() < fecha.getDate())
-    ){
-        edad--;
-    }
-
-    // =====================================
-    // MENOR DE EDAD
-    // =====================================
-
-    if(edad < 18){
-
-        const tutor =
-            document.getElementById("seccionTutor");
-
-        tutor.style.display = "block";
-
+    // Menor de edad: se muestra la sección del tutor (como antes, el registro sigue igual).
+    if (edad < 18) {
+        document.getElementById("seccionTutor").classList.remove("oculto");
         toast("Paciente menor de edad. Debe completar los datos del tutor responsable.", "warn");
     }
 
+    const valor = id => document.getElementById(id).value;
     const paciente = {
-
-        nombre:
-            document.getElementById("nombre").value,
-
-        segundoNombre:
-            document.getElementById("segundoNombre").value,
-
-        apellido:
-            document.getElementById("apellido").value,
-
-        segundoApellido:
-            document.getElementById("segundoApellido").value,
-
-        dni:
-            document.getElementById("dni").value,
-
-        fechaNacimiento:
-            fechaNacimiento,
-
-        sexo:
-            document.getElementById("sexo").value,
-
-        mail:
-            document.getElementById("email").value,
-
+        nombre: valor("nombre"),
+        segundoNombre: valor("segundoNombre"),
+        apellido: valor("apellido"),
+        segundoApellido: valor("segundoApellido"),
+        dni: valor("dni"),
+        fechaNacimiento: fechaNacimiento,
+        sexo: valor("sexo"),
+        mail: valor("email"),
         mailValidado: false,
-
-        telefono:
-            document.getElementById("telefono").value,
-
-        domicilio:
-            document.getElementById("domicilio").value,
-
-        numero:
-            parseInt(
-                document.getElementById("numero").value
-            ),
-
-        provincia:
-            document.getElementById("provincia").value,
-
+        telefono: valor("telefono"),
+        domicilio: valor("domicilio"),
+        numero: parseInt(valor("numero")),
+        provincia: valor("provincia"),
         estado: "Activo",
-
         esMenorEdad: edad < 18,
-
-        fechaAlta:
-            new Date().toISOString()
+        fechaAlta: new Date().toISOString()
     };
 
+    const btn = document.getElementById("btnRegistrar");
+    btn.classList.add("cargando");
     try {
-
-        const respuesta = await fetch(
-            "http://localhost:5000/pacientes",
-            {
-                method: "POST",
-
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-
-                body: JSON.stringify(paciente)
-            }
-        );
-
-        if(respuesta.ok){
-            toast("Paciente registrado correctamente");
-        }else{
-            toast("Error al registrar paciente", "error");
+        const respuesta = await YS.fetch("/pacientes", { method: "POST", json: paciente, sinRedireccion: true });
+        if (respuesta.ok) {
+            document.getElementById("formRegistro").classList.add("oculto");
+            document.getElementById("registroListo").classList.remove("oculto");
+            window.scrollTo({ top: 0 });
+        } else {
+            error.textContent = await YS.leerMensaje(respuesta, "No se pudo registrar al paciente. Revisá los datos e intentá de nuevo.");
+            error.classList.remove("oculto");
         }
-
-    } catch(error){
-        console.error(error);
-        toast("No se pudo conectar con la API", "error");
+    } catch (err) {
+        error.textContent = err.message || "No se pudo conectar con el servidor.";
+        error.classList.remove("oculto");
+    } finally {
+        btn.classList.remove("cargando");
     }
-
 });
-
-function rechazar(){
-    toast("Debe aceptar el consentimiento para continuar", "warn");
-    setTimeout(() => window.location.href = "index.html", 2000);
-}
-

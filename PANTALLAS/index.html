@@ -3,286 +3,133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy - Telemedicina</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: Arial, Helvetica, sans-serif;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #f8f5ff, #ddd0f5, #c0a8ee);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .card-login {
-            background: white;
-            border-radius: 24px;
-            padding: 40px 36px;
-            width: 420px;
-            box-shadow: 0 12px 40px rgba(100, 80, 180, 0.18);
-            text-align: center;
-        }
-
-        .logo {
-            width: 110px;
-            margin-bottom: 12px;
-        }
-
-        .titulo {
-            font-size: 36px;
-            font-weight: bold;
-            color: #0d6efd;
-            margin-bottom: 2px;
-        }
-
-        .subtitulo {
-            font-size: 13px;
-            color: #9D6BCF;
-            font-weight: bold;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 28px;
-        }
-
-        /* TABS DE ROL */
-        .roles {
-            display: flex;
-            border: 2px solid #e0d4f5;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 24px;
-        }
-
-        .rol-btn {
-            flex: 1;
-            padding: 10px 6px;
-            border: none;
-            background: white;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: bold;
-            color: #999;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            transition: 0.2s;
-            border-right: 2px solid #e0d4f5;
-        }
-
-        .rol-btn:last-child { border-right: none; }
-
-        .rol-btn .icono { font-size: 22px; }
-
-        .rol-btn.activo {
-            background: linear-gradient(to bottom, #0d6efd, #6A5ACD);
-            color: white;
-        }
-
-        .rol-btn:not(.activo):hover {
-            background: #f0eaff;
-            color: #6A5ACD;
-        }
-
-        /* CAMPOS */
-        .campo {
-            text-align: left;
-            margin-bottom: 16px;
-            position: relative;
-        }
-
-        .campo label {
-            display: block;
-            font-size: 12px;
-            font-weight: bold;
-            color: #6A5ACD;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-
-        .input {
-            width: 100%;
-            height: 46px;
-            border: 2px solid #e0d4f5;
-            border-radius: 12px;
-            padding: 0 40px 0 14px;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.2s;
-            box-sizing: border-box;
-        }
-
-        .input:focus { border-color: #6A5ACD; }
-
-        .ojo {
-            position: absolute;
-            right: 13px;
-            bottom: 12px;
-            cursor: pointer;
-            font-size: 18px;
-            color: #aaa;
-            user-select: none;
-        }
-
-        .ojo:hover { color: #6A5ACD; }
-
-        /* BOTON */
-        .boton {
-            width: 100%;
-            height: 52px;
-            border: none;
-            border-radius: 12px;
-            background: linear-gradient(to right, #0d6efd, #6A5ACD);
-            color: white;
-            font-size: 17px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.3s;
-            margin-top: 6px;
-        }
-
-        .boton:hover {
-            opacity: 0.88;
-            transform: scale(1.02);
-        }
-
-        .link-registro {
-            display: block;
-            margin-top: 16px;
-            font-size: 13px;
-            color: #999;
-        }
-
-        .link-registro a {
-            color: #6A5ACD;
-            font-weight: bold;
-            text-decoration: none;
-        }
-
-        .link-registro a:hover { text-decoration: underline; }
-
-        .error-msg {
-            color: #e74c3c;
-            font-size: 13px;
-            margin-top: 10px;
-            display: none;
-        }
-    </style>
+    <title>YoSoy · Ingresar</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="shared/tema.css">
+    <link rel="stylesheet" href="shared/acceso.css">
 </head>
-<body>
+<body class="acceso">
 
-    <div class="card-login">
+    <main class="acceso-tarjeta" aria-labelledby="tituloIngreso">
+        <div class="acceso-marca">
+            <img src="Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="">
+            <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+            <span class="acceso-sub">Telemedicina en salud mental</span>
+        </div>
+        <h1 class="sr-only" id="tituloIngreso">Ingresar a YoSoy</h1>
 
-        <img src="Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="Logo YoSoy" class="logo">
-        <div class="titulo">YoSoy</div>
-        <div class="subtitulo">Telemedicina en Salud Mental</div>
-
-        <!-- TABS DE ROL -->
-        <div class="roles">
-            <button class="rol-btn activo" id="tab-paciente" onclick="seleccionarRol('paciente')">
-                <span class="icono">🧑</span>
+        <!-- Tipo de cuenta -->
+        <div class="ui-segmentado acceso-roles" role="group" aria-label="Tipo de cuenta">
+            <button type="button" class="rol-btn activo" id="tab-paciente" aria-pressed="true" onclick="seleccionarRol('paciente')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c.8-4 4-6.5 8-6.5s7.2 2.5 8 6.5"/></svg>
                 Paciente
             </button>
-            <button class="rol-btn" id="tab-profesional" onclick="seleccionarRol('profesional')">
-                <span class="icono">👨‍⚕️</span>
+            <button type="button" class="rol-btn" id="tab-profesional" aria-pressed="false" onclick="seleccionarRol('profesional')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a6 6 0 0 0 12 0V3M12 15v2a4 4 0 0 0 8 0v-3"/><circle cx="20" cy="12" r="2"/></svg>
                 Profesional
             </button>
-            <button class="rol-btn" id="tab-configurador" onclick="seleccionarRol('configurador')">
-                <span class="icono">⚙️</span>
+            <button type="button" class="rol-btn" id="tab-configurador" aria-pressed="false" onclick="seleccionarRol('configurador')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
                 Configurador
             </button>
         </div>
 
-        <!-- FORMULARIO -->
-        <form onsubmit="iniciarSesion(event)">
-
-            <div class="campo">
-                <label>Usuario</label>
-                <input type="text" id="usuario" class="input" placeholder="Ingrese su usuario" required>
+        <form class="acceso-form" id="formIngreso" onsubmit="iniciarSesion(event)" novalidate>
+            <div class="ui-campo">
+                <label for="usuario">Usuario</label>
+                <input type="text" id="usuario" class="ui-input" placeholder="Tu nombre de usuario" autocomplete="username" autofocus>
+            </div>
+            <div class="ui-campo">
+                <label for="contrasena">Contraseña</label>
+                <div class="campo-clave">
+                    <input type="password" id="contrasena" class="ui-input" placeholder="Tu contraseña" autocomplete="current-password">
+                    <button type="button" class="ver-clave" id="btnOjo" onclick="togglePassword()" aria-label="Mostrar contraseña" aria-pressed="false">
+                        <svg id="iconoOjoAbierto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg id="iconoOjoCerrado" class="oculto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                </div>
             </div>
 
-            <div class="campo">
-                <label>Contraseña</label>
-                <input type="password" id="contrasena" class="input" placeholder="Ingrese su contraseña" required>
-                <span class="ojo" id="btnOjo" onclick="togglePassword()">
-                    <svg id="iconoOjoAbierto" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-                    </svg>
-                    <svg id="iconoOjoCerrado" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
-                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>
-                    </svg>
-                </span>
-            </div>
+            <div class="ui-alerta ui-alerta--danger oculto" id="errorMsg" role="alert">Usuario o contraseña incorrectos.</div>
 
-            <div class="error-msg" id="errorMsg">Usuario o contraseña incorrectos.</div>
-
-            <button type="submit" class="boton">Ingresar</button>
-
+            <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg ui-btn--bloque" id="btnIngresar">Ingresar</button>
         </form>
 
-        <span class="link-registro" id="linkRegistro">
-            ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html">Registrate</a>
-        </span>
-        <span class="link-registro" id="linkRegistroProfesional" style="display:none">
-            ¿Sos profesional? <a href="Pantalla_Usuario/Usuario/registro_profesional.html">Registrate acá</a>
-        </span>
+        <p class="acceso-pie" id="linkRegistro">
+            ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html" id="linkRegistroHref">Registrate</a>
+        </p>
+        <p class="acceso-pie oculto" id="linkRegistroProfesional">
+            ¿Sos profesional? <a href="Pantalla_Usuario/Usuario/registro_profesional.html">Pedí tu cuenta acá</a>
+        </p>
 
-        <!-- RECUPERACIÓN DE CONTRASEÑA (solo paciente/profesional) -->
-        <div id="seccionRecuperacion" style="margin-top:14px">
-            <span class="link-registro">
-                <a href="#" onclick="toggleRecuperacion(event)">¿Olvidé mi contraseña?</a>
-                &nbsp;·&nbsp;
-                <a href="#" onclick="toggleConsultarSolicitud(event)">Consultar solicitud</a>
-            </span>
-
-            <div id="formRecuperacion" style="display:none;margin-top:12px">
-                <div class="campo">
-                    <label>Usuario</label>
-                    <input type="text" id="userRecuperacion" class="input" placeholder="Tu nombre de usuario">
-                </div>
-                <button type="button" class="boton" style="height:42px;font-size:15px" onclick="enviarRecuperacion()">
-                    Enviar solicitud
-                </button>
-                <div id="msgRecuperacion" style="margin-top:8px;font-size:13px"></div>
+        <!-- Recuperación de contraseña (solo paciente y profesional) -->
+        <div id="seccionRecuperacion">
+            <div class="acceso-separador" role="presentation"></div>
+            <div class="acceso-links">
+                <button type="button" class="ui-btn ui-btn--ghost ui-btn--sm" onclick="toggleRecuperacion(event)" aria-controls="formRecuperacion">¿Olvidaste tu contraseña?</button>
+                <span aria-hidden="true">·</span>
+                <button type="button" class="ui-btn ui-btn--ghost ui-btn--sm" onclick="toggleConsultarSolicitud(event)" aria-controls="formConsultarSolicitud">Consultar una solicitud</button>
             </div>
 
-            <div id="formConsultarSolicitud" style="display:none;margin-top:12px">
-                <div class="campo">
-                    <label>Usuario</label>
-                    <input type="text" id="userConsulta" class="input" placeholder="Tu nombre de usuario">
+            <form id="formRecuperacion" class="acceso-desplegable oculto" onsubmit="event.preventDefault(); enviarRecuperacion()" novalidate>
+                <div class="acceso-desplegable-fila">
+                    <div class="ui-campo">
+                        <label for="userRecuperacion">Usuario</label>
+                        <input type="text" id="userRecuperacion" class="ui-input" placeholder="Tu nombre de usuario" autocomplete="username">
+                    </div>
+                    <button type="submit" class="ui-btn ui-btn--primary">Pedir contraseña nueva</button>
                 </div>
-                <button type="button" class="boton" style="height:42px;font-size:15px" onclick="consultarSolicitud()">
-                    Consultar
-                </button>
-                <div id="msgConsulta" style="margin-top:8px;font-size:13px"></div>
-            </div>
+                <div id="msgRecuperacion" class="ui-alerta mt-12 oculto" role="status"></div>
+            </form>
+
+            <form id="formConsultarSolicitud" class="acceso-desplegable oculto" onsubmit="event.preventDefault(); consultarSolicitud()" novalidate>
+                <div class="acceso-desplegable-fila">
+                    <div class="ui-campo">
+                        <label for="userConsulta">Usuario</label>
+                        <input type="text" id="userConsulta" class="ui-input" placeholder="Tu nombre de usuario" autocomplete="username">
+                    </div>
+                    <button type="submit" class="ui-btn ui-btn--primary">Consultar</button>
+                </div>
+                <div id="msgConsulta" class="ui-alerta mt-12 oculto" role="status"></div>
+            </form>
         </div>
+    </main>
 
-    </div>
-
+    <script src="shared/ui.js"></script>
     <script>
+        // Escape de HTML para datos que cargan los usuarios. En Cambios-Agus vive en shared/ui.js (YS.esc);
+        // en main no existe esa capa, asi que el parche de XSS define lo minimo que usa.
+        window.YS = window.YS || {};
+        YS.esc = YS.esc || (s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]));
         let rolActual = "paciente";
+
+        // Volver a la reserva por link público (Fase 3a, Paso 3): si llegamos con un
+        // "?return=" válido, lo llevamos colgando al link de registro para no perderlo
+        // en ese salto — y lo usa iniciarSesion() si el login es el que termina el viaje.
+        const retornoPendiente = YS.rutaRetornoValida(new URLSearchParams(location.search).get("return"));
+        if (retornoPendiente) {
+            const a = document.getElementById("linkRegistroHref");
+            a.href = a.href + "?return=" + encodeURIComponent(retornoPendiente);
+        }
 
         function seleccionarRol(rol) {
             rolActual = rol;
-            document.querySelectorAll(".rol-btn").forEach(b => b.classList.remove("activo"));
-            document.getElementById(`tab-${rol}`).classList.add("activo");
-            document.getElementById("errorMsg").style.display = "none";
-
-            document.getElementById("linkRegistro").style.display =
-                rol === "paciente" ? "block" : "none";
-            document.getElementById("linkRegistroProfesional").style.display =
-                rol === "profesional" ? "block" : "none";
+            document.querySelectorAll(".rol-btn").forEach(b => {
+                const si = b.id === `tab-${rol}`;
+                b.classList.toggle("activo", si);
+                b.setAttribute("aria-pressed", si);
+            });
+            document.getElementById("errorMsg").classList.add("oculto");
+            document.getElementById("linkRegistro").classList.toggle("oculto", rol !== "paciente");
+            document.getElementById("linkRegistroProfesional").classList.toggle("oculto", rol !== "profesional");
 
             const esUserFinal = rol === "paciente" || rol === "profesional";
-            document.getElementById("seccionRecuperacion").style.display = esUserFinal ? "block" : "none";
+            document.getElementById("seccionRecuperacion").classList.toggle("oculto", !esUserFinal);
             if (!esUserFinal) {
-                document.getElementById("formRecuperacion").style.display = "none";
-                document.getElementById("formConsultarSolicitud").style.display = "none";
+                document.getElementById("formRecuperacion").classList.add("oculto");
+                document.getElementById("formConsultarSolicitud").classList.add("oculto");
             }
         }
 
@@ -290,139 +137,128 @@
             const input = document.getElementById("contrasena");
             const mostrar = input.type === "password";
             input.type = mostrar ? "text" : "password";
-            document.getElementById("iconoOjoAbierto").style.display = mostrar ? "none" : "";
-            document.getElementById("iconoOjoCerrado").style.display = mostrar ? "" : "none";
+            document.getElementById("iconoOjoAbierto").classList.toggle("oculto", mostrar);
+            document.getElementById("iconoOjoCerrado").classList.toggle("oculto", !mostrar);
+            const btn = document.getElementById("btnOjo");
+            btn.setAttribute("aria-pressed", mostrar);
+            btn.setAttribute("aria-label", mostrar ? "Ocultar contraseña" : "Mostrar contraseña");
+        }
+
+        function mostrarError(texto) {
+            const e = document.getElementById("errorMsg");
+            e.textContent = texto;
+            e.classList.remove("oculto");
         }
 
         async function iniciarSesion(e) {
             e.preventDefault();
+            document.getElementById("errorMsg").classList.add("oculto");
+            if (!YS.form.validar([
+                { id: "usuario", requerido: "Ingresá tu usuario." },
+                { id: "contrasena", requerido: "Ingresá tu contraseña." }
+            ])) return;
             const usuario = document.getElementById("usuario").value;
             const contrasena = document.getElementById("contrasena").value;
-            const errorMsg = document.getElementById("errorMsg");
-            errorMsg.style.display = "none";
+            const btn = document.getElementById("btnIngresar");
+            btn.classList.add("cargando");
 
             try {
-                const res = await fetch("http://localhost:5000/login", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ username: usuario, password: contrasena })
-                });
+                // sinRedireccion: en el ingreso un 401 es "usuario o contraseña incorrectos", no "sesión vencida"
+                const res = await YS.fetch("/login", { method: "POST", json: { username: usuario, password: contrasena }, sinRedireccion: true });
 
                 if (res.status === 423) {
-                    const data = await res.json().catch(() => ({}));
-                    errorMsg.textContent = data.mensaje ?? "Cuenta bloqueada temporalmente. Intentá en 15 minutos.";
-                    errorMsg.style.display = "block";
+                    mostrarError(await YS.leerMensaje(res, "Cuenta bloqueada temporalmente. Intentá en 15 minutos."));
                     return;
                 }
-
                 if (!res.ok) {
-                    errorMsg.textContent = "Usuario o contraseña incorrectos.";
-                    errorMsg.style.display = "block";
+                    mostrarError("Usuario o contraseña incorrectos.");
                     return;
                 }
 
                 const data = await res.json();
-
                 if (data.rol !== rolActual) {
-                    errorMsg.textContent = "Rol incorrecto para este usuario.";
-                    errorMsg.style.display = "block";
+                    mostrarError("Rol incorrecto para este usuario.");
                     return;
                 }
 
                 localStorage.setItem("idUsuario", data.idUsuario);
                 localStorage.setItem("rol", data.rol);
+                if (data.token) localStorage.setItem("token", data.token);
 
                 if (data.rol === "paciente") {
                     localStorage.setItem("idPaciente", data.idPaciente);
-                    window.location.href = "Pantalla_Paciente/dashboard.html";
+                    window.location.href = retornoPendiente || "Pantalla_Paciente/dashboard.html";
                 } else if (data.rol === "profesional") {
                     localStorage.setItem("idProfesional", data.idProfesional);
                     window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
                 } else {
                     window.location.href = "Pantalla_Configurador/dashboard.html";
                 }
-
             } catch {
-                errorMsg.textContent = "No se pudo conectar con el servidor.";
-                errorMsg.style.display = "block";
+                mostrarError("No se pudo conectar con el servidor.");
+            } finally {
+                btn.classList.remove("cargando");
             }
+        }
+
+        function alternarDesplegable(mostrar, ocultar, msg) {
+            const f = document.getElementById(mostrar);
+            const abrir = f.classList.contains("oculto");
+            f.classList.toggle("oculto", !abrir);
+            document.getElementById(ocultar).classList.add("oculto");
+            document.getElementById(msg).classList.add("oculto");
+            if (abrir) f.querySelector("input").focus();
         }
 
         function toggleRecuperacion(e) {
             e.preventDefault();
-            const f = document.getElementById("formRecuperacion");
-            const visible = f.style.display !== "none";
-            f.style.display = visible ? "none" : "block";
-            document.getElementById("formConsultarSolicitud").style.display = "none";
-            document.getElementById("msgRecuperacion").textContent = "";
+            alternarDesplegable("formRecuperacion", "formConsultarSolicitud", "msgRecuperacion");
         }
 
         function toggleConsultarSolicitud(e) {
             e.preventDefault();
-            const f = document.getElementById("formConsultarSolicitud");
-            const visible = f.style.display !== "none";
-            f.style.display = visible ? "none" : "block";
-            document.getElementById("formRecuperacion").style.display = "none";
-            document.getElementById("msgConsulta").textContent = "";
+            alternarDesplegable("formConsultarSolicitud", "formRecuperacion", "msgConsulta");
+        }
+
+        // Mensaje dentro del desplegable: tipo ok | danger | info
+        function mensaje(id, tipo, texto, html = false) {
+            const m = document.getElementById(id);
+            m.className = `ui-alerta ui-alerta--${tipo} mt-12`;
+            if (html) m.innerHTML = texto; else m.textContent = texto;
         }
 
         async function enviarRecuperacion() {
+            if (!YS.form.validar([{ id: "userRecuperacion", requerido: "Ingresá tu usuario." }])) return;
             const username = document.getElementById("userRecuperacion").value.trim();
-            const msg = document.getElementById("msgRecuperacion");
-            if (!username) { msg.textContent = "Ingresá tu usuario."; msg.style.color = "#e74c3c"; return; }
             try {
-                const res = await fetch("http://localhost:5000/recuperacion-password", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ username })
-                });
-                if (res.ok) {
-                    msg.style.color = "#27ae60";
-                    msg.textContent = "Solicitud enviada. El administrador la revisará.";
-                } else if (res.status === 409) {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "Ya tenés una solicitud pendiente.";
-                } else if (res.status === 404) {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "Usuario no encontrado.";
-                } else {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "Error al enviar la solicitud.";
-                }
+                const res = await YS.fetch("/recuperacion-password", { method: "POST", json: { username }, sinRedireccion: true });
+                if (res.ok) mensaje("msgRecuperacion", "ok", "Solicitud enviada. El administrador la va a revisar.");
+                else if (res.status === 409) mensaje("msgRecuperacion", "danger", "Ya tenés una solicitud pendiente.");
+                else if (res.status === 404) mensaje("msgRecuperacion", "danger", "Usuario no encontrado.");
+                else mensaje("msgRecuperacion", "danger", await YS.leerMensaje(res, "Error al enviar la solicitud."));
             } catch {
-                msg.style.color = "#e74c3c";
-                msg.textContent = "No se pudo conectar con el servidor.";
+                mensaje("msgRecuperacion", "danger", "No se pudo conectar con el servidor.");
             }
         }
 
         async function consultarSolicitud() {
+            if (!YS.form.validar([{ id: "userConsulta", requerido: "Ingresá tu usuario." }])) return;
             const username = document.getElementById("userConsulta").value.trim();
-            const msg = document.getElementById("msgConsulta");
-            if (!username) { msg.textContent = "Ingresá tu usuario."; msg.style.color = "#e74c3c"; return; }
             try {
-                const res = await fetch(`http://localhost:5000/recuperacion-password/estado/${encodeURIComponent(username)}`);
-                if (res.status === 404) {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "No hay solicitudes para este usuario.";
-                    return;
-                }
+                const res = await YS.fetch(`/recuperacion-password/estado/${encodeURIComponent(username)}`, { sinRedireccion: true });
+                if (res.status === 404) { mensaje("msgConsulta", "danger", "No hay solicitudes para este usuario."); return; }
                 const data = await res.json();
                 if (data.estado === "Pendiente") {
-                    msg.style.color = "#888";
-                    msg.textContent = "Tu solicitud está siendo revisada por el administrador.";
+                    mensaje("msgConsulta", "info", "Tu solicitud está siendo revisada por el administrador.");
                 } else if (data.estado === "Aceptada") {
-                    msg.style.color = "#27ae60";
-                    msg.innerHTML = `Tu nueva contraseña temporal es: <strong>${data.passwordTemporal}</strong>. Ingresá con ella y cambiala cuanto antes.`;
+                    mensaje("msgConsulta", "ok", `Tu nueva contraseña temporal es: <strong>${YS.esc(data.passwordTemporal)}</strong>. Ingresá con ella y cambiala cuanto antes.`, true);
                 } else if (data.estado === "Rechazada") {
-                    msg.style.color = "#e74c3c";
-                    msg.textContent = "Tu solicitud fue rechazada. Contactá al administrador.";
+                    mensaje("msgConsulta", "danger", "Tu solicitud fue rechazada. Contactá al administrador.");
                 }
             } catch {
-                msg.style.color = "#e74c3c";
-                msg.textContent = "No se pudo conectar con el servidor.";
+                mensaje("msgConsulta", "danger", "No se pudo conectar con el servidor.");
             }
         }
     </script>
-
 </body>
 </html>
