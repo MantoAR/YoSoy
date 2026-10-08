@@ -3,12 +3,12 @@ using System.Collections.Generic;
 
 public class PacienteDAO
 {
-    public void Insertar(Paciente p)
+    public int Insertar(Paciente p)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Paciente (Nombre, Dni, FechaNacimiento, Domicilio, Telefono, Mail, Estado) VALUES (@Nombre, @Dni, @FechaNacimiento, @Domicilio, @Telefono, @Mail, @Estado)", con);
+            "INSERT INTO Paciente (Nombre, Dni, FechaNacimiento, Domicilio, Telefono, Mail, Estado) VALUES (@Nombre, @Dni, @FechaNacimiento, @Domicilio, @Telefono, @Mail, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Nombre",          p.Nombre);
         cmd.Parameters.AddWithValue("@Dni",             p.Dni);
         cmd.Parameters.AddWithValue("@FechaNacimiento", (object)p.FechaNacimiento ?? DBNull.Value);
@@ -16,7 +16,7 @@ public class PacienteDAO
         cmd.Parameters.AddWithValue("@Telefono",        (object)p.Telefono        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Mail",            (object)p.Mail            ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Estado",          p.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Paciente p)

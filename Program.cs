@@ -306,7 +306,7 @@ app.MapGet("/tutores/{id}", (int id) =>
 
 app.MapPost("/tutores", (Tutor t) =>
 {
-    new TutorDAO().Insertar(t);
+    t.IdTutor = new TutorDAO().Insertar(t);
     return Results.Created("/tutores", t);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
@@ -336,7 +336,7 @@ app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
     u.PasswordHash = Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
-    new UsuarioDAO().Insertar(u);
+    u.IdUsuario = new UsuarioDAO().Insertar(u);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", Detalle = u.Username });
     return Results.Created("/usuarios", new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
@@ -380,7 +380,7 @@ app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService i
 app.MapPost("/pacientes", (Paciente p) =>
 {
     p.Estado = "Activo";
-    new PacienteDAO().Insertar(p);
+    p.IdPaciente = new PacienteDAO().Insertar(p);
     return Results.Created("/pacientes", p);
 });
 

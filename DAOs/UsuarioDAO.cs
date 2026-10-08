@@ -4,17 +4,17 @@ using System.Collections.Generic;
 // El DAO recibe PasswordHash ya generado. El hashing se hace antes de llamar a Insertar/Modificar.
 public class UsuarioDAO
 {
-    public void Insertar(Usuario u)
+    public int Insertar(Usuario u)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Usuario (Username, PasswordHash, Estado, Mail) VALUES (@Username, @PasswordHash, @Estado, @Mail)", con);
+            "INSERT INTO Usuario (Username, PasswordHash, Estado, Mail) VALUES (@Username, @PasswordHash, @Estado, @Mail); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Username",     u.Username);
         cmd.Parameters.AddWithValue("@PasswordHash", u.PasswordHash);
         cmd.Parameters.AddWithValue("@Estado",       u.Estado);
         cmd.Parameters.AddWithValue("@Mail",         (object)u.Mail ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Usuario u)
