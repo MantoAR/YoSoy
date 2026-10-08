@@ -1859,3 +1859,15 @@ el README, como si fuera alguien que nunca vio este código:
    histórica.
 6. Limpieza: `YoSoy_integracion_test` borrada otra vez (confirmado); la carpeta del clon,
    borrada por completo. Nada de esto tocó el repo real ni la base de desarrollo real.
+
+### Paso 4: PR y etiqueta, sin publicar nada
+
+`docs/PR_INTEGRACION.md` (descripción del PR único hacia la principal — qué incluye,
+configuración obligatoria, qué queda pendiente a propósito, cómo probarlo, y que el
+merge en GitHub tiene que ser "Create a merge commit") y `docs/LIMPIEZA_RAMAS.md` (lista
+exacta de ramas a borrar después del merge, remotas y locales, con `videollamadas-
+segu­ras` explícitamente afuera, y la nota de que tres de las ramas/refs que el pedido
+original menciona para el Paso 7 no existen hoy en este repo — ver Paso 0).
+
+Etiqueta anotada **local** `entrega-tesis-v1` sobre `integracion-main` — confirmado con
+`git ls-remote --tags origin` que no está en el remoto.
