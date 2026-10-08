@@ -161,7 +161,7 @@ dotnet run
    de los tres roles (ver [Autenticación con JWT](#autenticación-con-jwt-rama-cambios-agus-jwt)
    más abajo: hace falta configurar `Jwt:Key` antes de este paso, o la app no arranca).
    `mockup.html`, en la raíz del proyecto, es un ABM de antes de que existiera el login
-   por roles — quedó como referencia histórica, pero ya no reeleja cómo se usa la app hoy
+   por roles — quedó como referencia histórica, pero ya no refleja cómo se usa la app hoy
    (no manda ningún token, así que la mayoría de los endpoints protegidos le van a dar
    401/403).
 
