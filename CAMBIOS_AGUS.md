@@ -1818,3 +1818,44 @@ misma verificación — la base de desarrollo real nunca se tocó):
    **definición** de las tres tablas sin migración (`INFORMATION_SCHEMA`/`sys.foreign_keys`
    — metadata de esquema, de solo lectura, necesaria para escribir la migración nueva
    fiel a lo que ya existe) — nunca se leyó ni se tocó ninguna fila de datos real.
+
+### Paso 3.4: simular un clon limpio
+
+`git clone --no-hardlinks` (un clon local normal rompía: el origen y el temporal están
+en discos distintos, y el hardlink de objetos de Git no cruza discos) de
+`integracion-main` a una carpeta temporal fuera del repo. Desde ahí, **solo** lo que dice
+el README, como si fuera alguien que nunca vio este código:
+
+1. Restaurar el esquema base + migraciones: mismo proceso que el Paso 3.3, reutilizando
+   la base temporal — esta vez usando literalmente los archivos de `migrations/` **del
+   clon**, para probar lo que de verdad se va a publicar, no la copia de trabajo.
+2. **Segundo hallazgo real:** `add_creadopor_turno.sql`, `add_token_profesional.sql` y
+   `add_token_recuperacion.sql` (los tres marcados "No" en la tabla del README) fallaban
+   con "columna duplicada" — pero no por correrlos dos veces: **en el primer intento**,
+   sobre una base recién restaurada desde cero con el script actual de la rama
+   `DataBase`. Se confirmó aislado: el script base, solo, ya deja `Turno.CreadoPor`
+   creado (se exportó en algún momento de una base de desarrollo que ya tenía esa
+   columna) — la migración que "la agrega" ya no tiene nada que agregar, y al no tener
+   guarda, explota en vez de no hacer nada. **Corregido de raíz:** los tres pasan a tener
+   el mismo `IF COL_LENGTH(...) IS NULL` que ya usa el resto — no es un parche para
+   esquivar el síntoma, es alinearlos con el criterio que ya sigue toda la carpeta.
+   Re-probado completo (14 migraciones, una por una, desde cero): limpio.
+3. `Conexion.cs` del clon — ahí **no** tiene el `skip-worktree` de esta máquina (es una
+   propiedad del índice de *este* repo, no algo que viaje con un clone): muestra el valor
+   realmente commiteado (`Server=DESKTOP-Q065FTM\SQLEXPRESS`, de la máquina de quien lo
+   escribió originalmente) — confirma que el Paso 3 del README (configurar la cadena a
+   mano) es necesario de verdad, no un paso de más.
+4. `dotnet build` desde el clon: 0 errores. `dotnet test`: **158/160**, los mismos 2 de
+   siempre (el profesional de prueba que falta en "Datos de Prueba") — nada nuevo. El
+   `Jwt:Key` se resolvió sin configurar nada a mano: como el clon comparte máquina y
+   `UserSecretsId` (va en el `.csproj`, que se clona igual) con el repo real, hereda el
+   mismo `secrets.json` de Windows — en la máquina de un compañero de verdad, sí haría
+   falta el `dotnet user-secrets set` que ya documenta el README.
+5. **Tercer hallazgo, menor:** el paso 5 de "Cómo ejecutar el proyecto" decía "Abrir
+   `mockup.html`" — confirmado que es un ABM de antes de que existiera el login por
+   roles (no manda ningún token; con la app de hoy, la mayoría de sus pedidos a la API
+   darían 401/403). Corregido para apuntar a `pantallas/index.html`, el login real que
+   usa toda esta rama, con una nota de que `mockup.html` queda solo como referencia
+   histórica.
+6. Limpieza: `YoSoy_integracion_test` borrada otra vez (confirmado); la carpeta del clon,
+   borrada por completo. Nada de esto tocó el repo real ni la base de desarrollo real.
