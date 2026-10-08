@@ -15,4 +15,5 @@ public class TurnoDetalle
     public string? TelefonoProfesional { get; set; }
     public bool ConfirmadoPaciente { get; set; }
     public string? CodigoSala { get; set; }
+    public string? CreadoPor { get; set; }   // 'paciente' / 'profesional' (NULL en turnos anteriores a la columna)
 }

@@ -53,6 +53,31 @@ public class EmailService
         smtp.Disconnect(true);
     }
 
+    // Aviso genérico de texto (recordatorios y avisos de turnos del módulo de mensajería).
+    // El texto se escapa: puede incluir datos cargados por usuarios.
+    public void EnviarAviso(string destinatario, string asunto, string texto)
+    {
+        var html = System.Net.WebUtility.HtmlEncode(texto).Replace("\n", "<br>");
+
+        var mensaje = new MimeMessage();
+        mensaje.From.Add(MailboxAddress.Parse(_from));
+        mensaje.To.Add(MailboxAddress.Parse(destinatario));
+        mensaje.Subject = asunto;
+
+        var builder = new BodyBuilder
+        {
+            TextBody = texto,
+            HtmlBody = $@"<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">{html}</div>"
+        };
+        mensaje.Body = builder.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        smtp.Connect(_host, _port, SecureSocketOptions.StartTls);
+        smtp.Authenticate(_from, _pass);
+        smtp.Send(mensaje);
+        smtp.Disconnect(true);
+    }
+
     public void EnviarResetPassword(string destinatario, string token)
     {
         var link = $"{_appUrl}/pantallas/reset-password.html?token={token}";

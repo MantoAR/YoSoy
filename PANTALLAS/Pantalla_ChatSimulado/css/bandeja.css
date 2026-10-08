@@ -1,0 +1,292 @@
+/* YoSoy · Bandeja de chats (cajón desde la barra superior y modo página).
+   Colores, tipografía y componentes base: ../../shared/tema.css */
+
+.chats { display: flex; flex-direction: column; min-height: 0; background: var(--surface); color: var(--text); }
+
+/* Cajón: se superpone a la pantalla desde la derecha, debajo de la barra superior
+   (por debajo de los menús de la barra, los modales y los toasts) */
+.chats--cajon {
+    position: fixed; top: var(--topbar-h); right: 0; bottom: 0; z-index: 45;
+    width: min(780px, calc(100vw - 24px));
+    border-left: 1px solid var(--border); box-shadow: -12px 0 32px rgba(24, 24, 40, .12);
+    transform: translateX(104%); visibility: hidden;
+    transition: transform .2s ease, width .2s ease, visibility 0s linear .2s;
+}
+.chats--cajon.abierto { transform: none; visibility: visible; transition: transform .2s ease, width .2s ease, visibility 0s; }
+.chats--cajon.expandida { width: 100vw; border-left: none; box-shadow: none; }
+
+/* Página: modo "pagina" de iniciar(), dentro de opciones.contenedor. El espacio libre arriba
+   (encabezado y, según el contenedor, el padding de .ui-contenido) varía según quién la use;
+   --chats-pagina-arriba lo ajusta sin tocar esta regla (ver Pantalla_Configurador/css/dashboard.css). */
+.chats--pagina {
+    height: calc(100vh - var(--topbar-h) - var(--chats-pagina-arriba, 140px)); min-height: 520px;
+    border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; box-shadow: var(--shadow-sm);
+}
+.chats--pagina .solo-cajon { display: none; }
+
+.chats-cabecera {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0;
+    height: 52px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--border);
+}
+.chats-titulo { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fs-xl); font-weight: 600; }
+.chats-cabecera-acciones { display: flex; align-items: center; gap: 2px; }
+.chats-conexion { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; font-size: var(--fs-sm); font-weight: 500; color: var(--warn); }
+.chats-conexion svg { width: 15px; height: 15px; }
+.chats .ui-btn-icono.activo, .chats .ui-btn-icono[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); }
+
+.chats-cuerpo { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 290px minmax(0, 1fr); }
+.chats.expandida .chats-cuerpo, .chats--pagina .chats-cuerpo { grid-template-columns: 330px minmax(0, 1fr); }
+/* Orden visual: lista · información del lead · chat. order en vez de reordenar el HTML, para que
+   cambiarlo sea tocar estos tres números (y los grid-template-columns, en el mismo orden). */
+.chats.expandida.con-contexto .chats-cuerpo, .chats--pagina.con-contexto .chats-cuerpo { grid-template-columns: 340px 330px minmax(0, 1fr); }
+.chats-lista { order: 1; }
+.chats-contexto { order: 2; }
+.chats-hilo { order: 3; }
+
+/* Pantallas de menos de 1500px: la columna del lead no entra cómoda al lado de las otras dos.
+   Arranca colapsada (ver bandeja.js, mostrarContexto en modo página) y el botón de la cabecera
+   del hilo la muestra como un panel superpuesto, igual que ya hace el cajón angosto. */
+@media (max-width: 1499px) {
+    .chats--pagina .chats-cuerpo, .chats--pagina.con-contexto .chats-cuerpo { grid-template-columns: 300px minmax(0, 1fr); }
+    .chats--pagina .chats-contexto {
+        position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: 320px;
+        border-left: 1px solid var(--border); border-right: none; box-shadow: -8px 0 24px rgba(24, 24, 40, .12);
+    }
+}
+
+/* ── Lista ─────────────────────────────────────────────────── */
+.chats-lista { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--border); background: var(--surface); }
+.chats-lista-herramientas { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); }
+.chats-buscador { width: 100%; }
+.chats-filtros { gap: 4px; }
+.chats-filtros .ui-filtro { height: 26px; padding: 0 8px; }
+/* "Mías" (solo Profesional): no es parte del grupo de estado de al lado, se puede combinar
+   con cualquiera - un margen y una línea lo separan en vez de dejarlo pegado a "Cerradas". */
+.ui-filtro--separado { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+/* Filtro por etiqueta (Paso 5): fila propia bajo los filtros de estado, compacto en vez del
+   ui-select de ancho completo por defecto. */
+.chats-filtro-etiqueta { width: auto; height: 26px; max-width: 220px; font-size: var(--fs-xs); padding: 0 26px 0 8px; }
+.chats-conversaciones { flex: 1; list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
+.chats-conv {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%;
+    padding: 9px 10px; border: none; border-radius: var(--r-md);
+    background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.chats-conv:hover { background: var(--surface-2); }
+.chats-conv.activa { background: var(--accent-soft); }
+.chats-conv.urgente { box-shadow: inset 3px 0 0 var(--danger-solid); }
+.chats-conv-avatar { position: relative; flex-shrink: 0; margin-top: 2px; }
+.chats-conv-avatar .ui-avatar { width: 34px; height: 34px; }
+/* Insignia chica del canal, esquina del avatar. Hoy solo hay un canal (chat simulado); cuando
+   haya más, cada uno puede tener su propio ícono acá sin tocar el resto de la tarjeta. */
+.chats-conv-canal {
+    position: absolute; right: -2px; bottom: -2px; width: 15px; height: 15px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: #fff; border: 2px solid var(--surface);
+}
+.chats-conv-canal svg { width: 9px; height: 9px; }
+.chats-conv-cuerpo { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.chats-conv-fila { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.chats-conv-fila--chip { margin-top: 3px; }
+.chats-conv-nombre { flex: 1; min-width: 0; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chats-conv-hora { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-4); }
+.chats-conv-previa { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chats-conv-tel { font-size: var(--fs-xs); color: var(--text-4); }
+.chats-conv.no-leida .chats-conv-nombre { font-weight: 600; }
+.chats-conv.no-leida .chats-conv-hora { color: var(--accent-strong); font-weight: 600; }
+.chats-conv.no-leida .chats-conv-previa { color: var(--text-2); }
+.chats-lista-vacia .ui-vacio-estado { padding: 28px 12px; }
+
+/* ── Hilo ──────────────────────────────────────────────────── */
+/* Fondo propio de YoSoy para el chat, ver shared/fondo-chat.svg: un mosaico de íconos lineales
+   a baja opacidad sobre un tono crema, al estilo (no al diseño) de las apps de mensajería. */
+.chats-hilo {
+    position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    background: #FBF8F3 url("../../shared/fondo-chat.svg") repeat;
+}
+.chats-hilo-vacio { flex: 1; display: grid; place-items: center; }
+.chats-hilo-cabecera {
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    min-height: 56px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.chats-hilo-titulos { min-width: 0; }
+.chats-hilo-nombre { font-size: var(--fs-lg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chats-hilo-sub { font-size: var(--fs-xs); color: var(--text-3); }
+.chats-volver { display: none; }
+.chats-banner { flex-shrink: 0; margin: 10px 12px 0; }
+.chats-mensajes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 12px 16px 10px; }
+.chats-cargar-mas {
+    align-self: center; display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 8px;
+    height: 28px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px;
+    background: var(--surface); color: var(--text-2); font-size: var(--fs-sm); cursor: pointer;
+}
+.chats-cargar-mas:hover { background: var(--surface-2); }
+.chats-inicio-conv { align-self: center; margin: 2px 0 8px; font-size: var(--fs-xs); color: var(--text-4); }
+
+/* Burbujas: paciente a la izquierda; asistente, equipo y avisos a la derecha */
+.bm-dia { align-self: center; margin: 14px 0 6px; }
+.bm-dia span {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    font-size: var(--fs-xs); font-weight: 500; color: var(--text-3);
+}
+.bm {
+    max-width: min(74%, 560px); margin-top: 10px; padding: 7px 10px 5px;
+    border-radius: 10px; font-size: var(--fs-md); line-height: 1.45; overflow-wrap: anywhere;
+    box-shadow: var(--shadow-sm);
+}
+.bm--seguido { margin-top: 2px; }
+.bm--izq { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-top-left-radius: 3px; }
+.bm--der { align-self: flex-end; border-top-right-radius: 3px; }
+.bm--izq.bm--seguido { border-top-left-radius: 10px; }
+.bm--der.bm--seguido { border-top-right-radius: 10px; }
+.bm--bot { background: var(--accent-soft); border: 1px solid var(--accent-border); }
+.bm--humano { background: var(--accent); border: 1px solid var(--accent); color: #fff; }
+.bm--humano a { color: #fff; text-decoration: underline; }
+.bm--sistema { background: var(--neutral-bg); border: 1px dashed var(--border-strong); color: var(--text-2); }
+.bm-autor { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent-strong); }
+.bm-autor svg { width: 13px; height: 13px; }
+.bm--humano .bm-autor { color: rgba(255, 255, 255, .85); }
+.bm--sistema .bm-autor { color: var(--text-3); }
+.bm-texto { white-space: pre-wrap; }
+.bm-meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: 2px; font-size: 10.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.bm--humano .bm-meta { color: rgba(255, 255, 255, .78); }
+.bm-estado { display: inline-flex; }
+.bm-estado svg { width: 12px; height: 12px; }
+.bm-meta--error { color: var(--danger); font-weight: 500; }
+.bm--pendiente { opacity: .75; }
+.bm--fallo { opacity: 1; background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger); }
+.bm--fallo .bm-meta { color: var(--danger); }
+.bm-accion { padding: 0; border: none; background: none; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+.chats-ir-abajo {
+    position: absolute; right: 18px; bottom: 100px; z-index: 2;
+    display: inline-flex; align-items: center; gap: 6px; height: 34px; min-width: 34px; padding: 0 9px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text-2);
+    box-shadow: var(--shadow-md); font-size: var(--fs-sm); font-weight: 500; cursor: pointer;
+}
+.chats-ir-abajo svg { width: 16px; height: 16px; }
+.chats-ir-abajo.con-nuevos { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Composer ──────────────────────────────────────────────── */
+.chats-composer {
+    position: relative; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0;
+    padding: 8px 12px 4px; background: var(--surface); border-top: 1px solid var(--border);
+}
+.chats-composer-canal { display: flex; align-items: center; gap: 6px; padding: 0 2px; font-size: var(--fs-xs); color: var(--text-4); }
+.chats-composer-canal label { flex-shrink: 0; white-space: nowrap; }
+.chats-composer-canal .ui-select { flex-shrink: 0; width: auto; height: 24px; padding: 0 22px 0 8px; font-size: var(--fs-xs); border-radius: var(--r-sm); }
+.chats-composer-fila { display: flex; align-items: flex-end; gap: 6px; }
+.chats-composer textarea {
+    flex: 1; min-height: 38px; max-height: 140px; resize: none;
+    padding: 9px 12px; font: inherit; font-size: var(--fs-md); line-height: 1.4; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); outline: none;
+}
+.chats-composer textarea:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.chats-composer textarea:disabled { opacity: .7; cursor: not-allowed; }
+.chats-composer .ui-btn-icono { width: 38px; height: 38px; }
+.chats-composer .ui-btn-icono:disabled { opacity: .45; cursor: not-allowed; }
+.chats-enviar { width: 42px; height: 38px; padding: 0; }
+.chats-enviar svg { width: 17px; height: 17px; }
+.chats-composer-ayuda { flex-shrink: 0; padding: 0 14px 8px; background: var(--surface); font-size: var(--fs-xs); color: var(--text-4); }
+.chats-composer-ayuda .ui-kbd { padding: 0 4px; font-size: 10px; }
+
+/* Respuestas rápidas */
+.chats-plantillas {
+    position: absolute; left: 12px; right: 12px; bottom: calc(100% + 6px); z-index: 3;
+    max-height: 280px; overflow-y: auto; padding: 4px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-lg);
+}
+.chats-plantillas-titulo { padding: 6px 10px 4px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--text-4); }
+.chats-plantilla {
+    display: flex; flex-direction: column; gap: 1px; width: 100%; padding: 7px 10px;
+    border: none; border-radius: var(--r-md); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.chats-plantilla:hover, .chats-plantilla.activa { background: var(--accent-soft); }
+.chats-plantilla-titulo { font-size: var(--fs-md); font-weight: 600; }
+.chats-plantilla-texto { font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chats-plantillas-vacio { padding: 12px; font-size: var(--fs-sm); color: var(--text-3); }
+
+/* ── Panel de contexto (información del lead) ──────────────── */
+/* Como columna del medio (página ancha) separa con el borde a su derecha, contra el hilo; como
+   superposición (cajón angosto o página angosta) lo lleva a la izquierda, como venía. */
+.chats-contexto { display: none; flex-direction: column; min-height: 0; background: var(--surface); }
+.chats.con-contexto .chats-contexto { display: flex; }
+.chats--pagina.con-contexto .chats-contexto { border-right: 1px solid var(--border); }
+/* En el cajón angosto se superpone al hilo */
+.chats--cajon:not(.expandida) .chats-contexto {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 4; width: 310px;
+    border-left: 1px solid var(--border); box-shadow: -8px 0 24px rgba(24, 24, 40, .12);
+}
+.chats-contexto-cabecera {
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    height: 56px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border); font-weight: 600;
+}
+/* "Configurar vista" queda para una fase posterior: se ve pero no hace nada. */
+.chats-contexto-configurar { margin-left: auto; font-size: var(--fs-sm); font-weight: 500; color: var(--text-4); cursor: default; user-select: none; }
+.chats-contexto-cuerpo { display: flex; flex-direction: column; gap: 18px; padding: 14px 16px 20px; overflow-y: auto; }
+.chats-contexto-persona { display: flex; align-items: center; gap: 12px; }
+.chats-contexto-nombre { margin-bottom: 4px; font-size: var(--fs-lg); font-weight: 600; }
+.chats-contexto-bloque { display: flex; flex-direction: column; gap: 10px; }
+.chats-contexto-seccion { display: flex; flex-direction: column; gap: 10px; }
+.chats-contexto-seccion-titulo { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-4); }
+.chats-contexto-titulo { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
+.chats-contexto-nota { margin: 0; font-size: var(--fs-sm); color: var(--text-3); }
+.chats-contexto-acciones { display: flex; flex-wrap: wrap; gap: 6px; }
+.chats-contexto-resolver { padding-top: 14px; border-top: 1px solid var(--border); }
+.chats-atajos td:first-child { white-space: nowrap; }
+.chats-dato-vacio { color: var(--text-4); }
+
+/* PARTICIPANTES: paciente y profesional(es), con iniciales. El "+" para sumar a alguien más
+   queda deshabilitado (fase posterior). */
+.chats-participantes { display: flex; flex-direction: column; gap: 8px; }
+.chats-participante { display: flex; align-items: center; gap: 10px; }
+.chats-participante-datos { display: flex; flex-direction: column; min-width: 0; }
+.chats-participante-datos span { font-size: var(--fs-md); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats-participante-datos small { font-size: var(--fs-sm); color: var(--text-3); }
+.chats-participante-agregar {
+    align-self: flex-start; width: 28px; height: 28px; border-radius: 50%;
+    border: 1px dashed var(--border-strong); background: none; color: var(--text-4);
+    font-size: 16px; line-height: 1; cursor: not-allowed;
+}
+
+/* Etiquetas de la conversación (panel de contexto) */
+.chats-contexto-etiquetas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
+.chats-etiqueta-agregar {
+    display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px;
+    border: 1px dashed var(--border-strong); border-radius: var(--r-sm); background: none; color: var(--text-3);
+    font-size: var(--fs-xs); cursor: pointer;
+}
+.chats-etiqueta-agregar svg { width: 13px; height: 13px; }
+.chats-etiqueta-agregar:hover { border-color: var(--accent); color: var(--accent); }
+.chats-etiquetas-picker { display: flex; flex-direction: column; gap: 10px; }
+
+/* Notas internas */
+.chats-notas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto; }
+.chats-nota { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.chats-nota-cuerpo { font-size: var(--fs-sm); white-space: pre-wrap; word-break: break-word; }
+.chats-nota-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: var(--fs-xs); color: var(--text-4); }
+.chats-nota-meta .ui-btn-icono { width: 24px; height: 24px; }
+.chats-nota-nueva { display: flex; flex-direction: column; gap: 6px; }
+.chats-nota-nueva textarea { resize: vertical; }
+
+/* Administrar respuestas rápidas (modal) */
+.chats-plantillas-administrar {
+    display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 10px; margin-top: 2px;
+    border: none; border-top: 1px solid var(--border); border-radius: 0; background: none; color: var(--text-3);
+    font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.chats-plantillas-administrar:hover { color: var(--accent); }
+.chats-admin-plantillas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 14px; }
+.chats-admin-plantilla { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.chats-admin-plantilla-datos { flex: 1; min-width: 0; }
+.chats-admin-plantilla-datos .chats-plantilla-texto { white-space: normal; }
+.chats-admin-plantilla-acciones { display: flex; gap: 4px; flex-shrink: 0; }
+.chats-admin-plantilla-nueva { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* Ventana muy angosta: una columna a la vez (lista o conversación) */
+@media (max-width: 760px) {
+    .chats-cuerpo, .chats.expandida .chats-cuerpo, .chats--pagina .chats-cuerpo { grid-template-columns: minmax(0, 1fr); }
+    .chats.con-conversacion .chats-lista { display: none; }
+    .chats:not(.con-conversacion) .chats-hilo { display: none; }
+    .chats-volver { display: inline-grid; }
+}

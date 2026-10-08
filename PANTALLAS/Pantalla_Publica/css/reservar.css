@@ -1,0 +1,26 @@
+/* Página pública de reserva por link (Fase 3a, Paso 3) — fuera del shell con sesión,
+   mismo sistema de diseño (shared/tema.css), ancho completo, sin Bootstrap. */
+
+body { background: var(--surface-2); }
+
+.reservar-pagina {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 32px 16px 64px;
+}
+
+.reservar-contenido { display: flex; flex-direction: column; gap: 16px; }
+
+.reservar-header {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 20px;
+}
+.reservar-header h1 { font-size: var(--fs-2xl); font-weight: 600; color: var(--text); margin: 0 0 4px; }
+
+.vista-previa-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.vista-previa-dia { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); padding: 10px; }
+.vista-previa-fecha { font-size: var(--fs-sm); font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.vista-previa-horas { display: flex; flex-wrap: wrap; gap: 6px; }

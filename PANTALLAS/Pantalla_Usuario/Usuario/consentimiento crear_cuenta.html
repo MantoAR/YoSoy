@@ -1,143 +1,66 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Acuerdo de Atención al Paciente - YoSoy</title>
-
-    <link rel="stylesheet" href="css/estilos.css">
+    <title>YoSoy · Acuerdo de atención al paciente</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../../shared/tema.css">
+    <link rel="stylesheet" href="../../shared/acceso.css">
 </head>
+<body class="acceso">
 
-<body>
+    <main class="acceso-tarjeta acceso-tarjeta--ancha" aria-labelledby="tituloAcuerdo">
+        <a class="acceso-marca" href="../../index.html" aria-label="YoSoy, volver al ingreso">
+            <img src="img/logo_SINFONDO.png" alt="">
+            <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+        </a>
+        <h1 class="acceso-titulo" id="tituloAcuerdo">Acuerdo de atención al paciente</h1>
+        <p class="acceso-bajada">Leelo antes de registrarte. Para continuar tenés que aceptarlo.</p>
 
-    <div class="contenedor-consentimiento">
-
-        <div class="card-consentimiento">
-
-            <img src="img/logo_SINFONDO.png"
-                 alt="Logo"
-                 class="logo-consentimiento">
-
-            <h1 class="titulo-consentimiento">
-                Acuerdo de Atención al Paciente
-            </h1>
-
-            <div class="texto-consentimiento">
-                
-                <h3>Bienvenido/a a YoSoy</h3>
-                
-                <p>
-                    Usted está por registrarse en nuestra plataforma digital
-                    de atención en salud mental, creada con el objetivo de brindar
-                    una atención personalizada, segura y adaptada a las necesidades
-                    de cada paciente.
-                </p>
-
-                <p> 
-                    Al registrarse, usted acepta que:
-                </p>
-
-                <ul>
-
-                    <li>
-                        Los datos personales e información brindada serán almacenados
-                        de manera segura y confidencial.
-                    </li>
-
-                    <li>
-                        Las consultas y sesiones se realizarán bajo modalidad virtual.
-                    </li>
-
-                    <li>
-                        El sistema analizará su perfil para recomendar
-                        profesionales especializados.
-                    </li>
-
-                    <li>
-                        Se evaluará la evolución del tratamiento y posibles cambios
-                        de especialista.
-                    </li>
-
-                    <li>
-                        Los turnos podrán seleccionarse según disponibilidad.
-                    </li>
-
-                    <li>
-                        El enlace de acceso será enviado a su correo electrónico.
-                    </li>
-
-                </ul>
-
-                <h3>Información Clínica</h3>
-
-                <p>
-                    Durante las consultas podrán registrarse:
-                </p>
-
-                <ul>
-
-                    <li>Expresiones faciales.</li>
-
-                    <li>Grabaciones de audio y/o video.</li>
-
-                    <li>
-                        Información conversada durante las sesiones.
-                    </li>
-
-                </ul>
-
-                <p>
-                    La información será utilizada exclusivamente
-                    con fines clínicos y almacenada en su
-                    Historia Clínica Digital (HC).
-                </p>
-
-                <p>
-                    El acceso estará restringido únicamente
-                    a usted y a los profesionales autorizados.
-                </p>
-
-                <p>
-                    En caso de no aceptar las condiciones,
-                    no podrá utilizar la plataforma.
-                </p>
-
-    </div>
-
-
-                <br><br>
-
-                Sus datos serán utilizados
-                únicamente con fines médicos,
-                administrativos y de telemedicina.
-
+        <div class="acceso-legal" tabindex="0" aria-label="Texto del acuerdo">
+            <h2>Bienvenido/a a YoSoy</h2>
+            <p>
+                Usted está por registrarse en nuestra plataforma digital de atención en salud mental,
+                creada con el objetivo de brindar una atención personalizada, segura y adaptada a las
+                necesidades de cada paciente.
             </p>
+            <p>Al registrarse, usted acepta que:</p>
+            <ul>
+                <li>Los datos personales e información brindada serán almacenados de manera segura y confidencial.</li>
+                <li>Las consultas y sesiones se realizarán bajo modalidad virtual.</li>
+                <li>El sistema analizará su perfil para recomendar profesionales especializados.</li>
+                <li>Se evaluará la evolución del tratamiento y posibles cambios de especialista.</li>
+                <li>Los turnos podrán seleccionarse según disponibilidad.</li>
+                <li>El enlace de acceso será enviado a su correo electrónico.</li>
+            </ul>
 
-            <div class="botones-consentimiento">
-
-                <button class="boton"
-                        onclick="aceptar()">
-
-                    ACEPTO
-
-                </button>
-
-                <button class="boton-no"
-                        onclick="rechazar()">
-
-                    NO ACEPTO
-
-                </button>
-
-            </div>
-
+            <h2>Información clínica</h2>
+            <p>Durante las consultas podrán registrarse:</p>
+            <ul>
+                <li>Expresiones faciales.</li>
+                <li>Grabaciones de audio y/o video.</li>
+                <li>Información conversada durante las sesiones.</li>
+            </ul>
+            <p>
+                La información será utilizada exclusivamente con fines clínicos y almacenada en su
+                Historia Clínica Digital (HC).
+            </p>
+            <p>El acceso estará restringido únicamente a usted y a los profesionales autorizados.</p>
+            <p>En caso de no aceptar las condiciones, no podrá utilizar la plataforma.</p>
+            <p>Sus datos serán utilizados únicamente con fines médicos, administrativos y de telemedicina.</p>
         </div>
 
-    </div>
+        <div class="acceso-acciones">
+            <button type="button" class="ui-btn ui-btn--lg" onclick="rechazar()">No acepto</button>
+            <button type="button" class="ui-btn ui-btn--primary ui-btn--lg" onclick="aceptar()">Acepto y quiero registrarme</button>
+        </div>
+        <p class="acceso-pie"><a href="../../index.html">Volver al ingreso</a></p>
+    </main>
 
-<script src="js/app.js"></script>
-
+    <script src="../../shared/ui.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>

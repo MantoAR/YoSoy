@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Consentimiento informado</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../shared/tema.css">
+    <link rel="stylesheet" href="css/consentimiento.css">
+</head>
+<body class="ui-pagina-angosta">
+    <!-- Barra superior y encabezado: shared/shell.js. Sin sesión (link recibido por mail o chat)
+         muestra solo la marca y el botón Ingresar, y la página explica qué hacer. -->
+    <main class="ui-pagina">
+        <div class="ui-contenido consentimiento">
+            <p id="paciente" class="consentimiento-paciente"></p>
+
+            <!-- Mientras se consulta el estado -->
+            <div id="cargando" role="status"><div class="ui-cargando"><span class="ui-spinner" aria-hidden="true"></span>Consultando tu consentimiento…</div></div>
+
+            <!-- El servidor no respondió -->
+            <section id="sinConexion" class="tarjeta oculto">
+                <p>No pudimos consultar tu consentimiento. Revisá la conexión y probá de nuevo.</p>
+                <button class="ui-btn" type="button" id="btnReintentar">Reintentar</button>
+            </section>
+
+            <!-- Sin sesión -->
+            <section id="sinSesion" class="tarjeta oculto">
+                <p>Para firmar el consentimiento tenés que ingresar con tu usuario.</p>
+                <a class="ui-btn ui-btn--primary" href="../index.html">Ingresar</a>
+                <p class="ayuda">Después de ingresar, abrí <strong>Consentimiento</strong> en el menú de tu panel.</p>
+            </section>
+
+            <!-- Ya firmado -->
+            <section id="yaFirmado" class="tarjeta firmado oculto" role="status">
+                <div class="firmado-icono" aria-hidden="true"></div>
+                <div>
+                    <h2>Ya firmaste este consentimiento</h2>
+                    <p id="detalleFirma"></p>
+                    <p class="ayuda">No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.</p>
+                </div>
+            </section>
+
+            <!-- Para firmar -->
+            <section id="paraFirmar" class="oculto">
+                <div class="texto-legal" tabindex="0" aria-label="Texto del consentimiento">
+                    <p class="placeholder-legal">[COMPLETAR CON TEXTO LEGAL VALIDADO]</p>
+                    <p class="nota-borrador">
+                        Este espacio muestra el texto del consentimiento informado para la atención
+                        psicológica por telemedicina. El texto definitivo tiene que ser redactado y
+                        validado por el equipo antes de usar la plataforma con pacientes reales.
+                    </p>
+                </div>
+                <p id="lineaVersion" class="version oculto">Versión del texto: <span id="versionTexto"></span></p>
+
+                <div class="acciones">
+                    <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leí el consentimiento y lo acepto</button>
+                    <a class="ui-btn ui-btn--lg" href="dashboard.html">Ahora no</a>
+                </div>
+                <p class="ayuda">Al aceptar se guarda la fecha y la hora de tu firma. Es necesario para que se confirmen tus turnos.</p>
+            </section>
+
+            <p id="error" class="ui-alerta ui-alerta--danger mt-16 oculto" role="alert"></p>
+        </div>
+    </main>
+
+    <script src="../shared/ui.js"></script>
+    <script src="../shared/shell.js"></script>
+    <script>
+        YS.shell.iniciar({ rol: "paciente", activo: "consentimiento", opcional: true,
+                           titulo: "Consentimiento informado", subtitulo: "Atención psicológica por telemedicina" });
+    </script>
+    <script src="js/consentimiento.js"></script>
+</body>
+</html>

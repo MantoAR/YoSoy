@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Chats</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../shared/tema.css">
+    <link rel="stylesheet" href="css/bandeja.css">
+    <link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+    <!-- Barra superior y encabezado: shared/shell.js (rol configurador).
+         La bandeja (js/bandeja.js) es la misma que se abre desde el botón Chats en cualquier
+         pantalla; acá se muestra en modo página, junto al simulador del lado del paciente.
+         ADVERTENCIA: todavía no hay autenticación real (ver RequiereMensajeriaHabilitada). -->
+    <main class="ui-pagina">
+        <div class="ui-contenido">
+            <div id="vistaBandeja" aria-label="Bandeja"></div>
+
+            <div id="noDisponible" class="oculto"></div>
+
+            <section id="vistaSimulador" class="simulador oculto" aria-label="Simulador del paciente">
+                <div class="simulador-ayuda">
+                    <div class="ui-card">
+                        <h2 class="ui-card-titulo">Simulador del paciente</h2>
+                        <p class="ui-muted mt-8">
+                            Escribí como si fueras un paciente que manda mensajes por WhatsApp. Los procesa el
+                            asistente real (menú, pedidos de turno, derivaciones y filtro de riesgo) y aparecen
+                            en la bandeja del equipo.
+                        </p>
+                        <ol class="simulador-pasos">
+                            <li>Ingresá un teléfono de prueba. Si coincide con el de un paciente, el asistente lo reconoce.</li>
+                            <li>Escribí <strong>hola</strong> o <strong>menu</strong> para empezar.</li>
+                            <li>Abrí <strong>Chats</strong> (arriba a la derecha) para ver la conversación como equipo.</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="simulador-telefono">
+                    <form id="formTelefono" class="simulador-numero" novalidate>
+                        <div class="ui-campo">
+                            <label for="inputTelefono">Teléfono del paciente</label>
+                            <input id="inputTelefono" class="ui-input" type="tel" placeholder="Ej.: 11 5555-0002" autocomplete="off">
+                        </div>
+                        <button class="ui-btn ui-btn--primary" type="submit">Usar este número</button>
+                    </form>
+
+                    <div class="simulador-chat">
+                        <header class="simulador-cabecera">
+                            <span class="simulador-logo" aria-hidden="true"><img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt=""></span>
+                            <div>
+                                <div class="simulador-nombre">YoSoy</div>
+                                <div class="simulador-estado" id="simEstado">Ingresá un teléfono para empezar</div>
+                            </div>
+                        </header>
+                        <div class="simulador-mensajes" id="simMensajes" role="log" aria-live="polite" aria-label="Mensajes"></div>
+                        <form class="simulador-composer" id="simComposer" autocomplete="off">
+                            <label class="sr-only" for="simTexto">Mensaje</label>
+                            <textarea id="simTexto" rows="1" maxlength="4000" placeholder="Escribí un mensaje" disabled></textarea>
+                            <button class="ui-btn ui-btn--primary" type="submit" id="simEnviar" aria-label="Enviar" disabled></button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="../shared/ui.js"></script>
+    <script src="../shared/shell.js"></script>
+    <script src="js/bandeja.js"></script>
+    <script src="js/chat.js"></script>
+</body>
+</html>

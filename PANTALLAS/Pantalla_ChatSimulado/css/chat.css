@@ -1,0 +1,46 @@
+/* YoSoy · Pantalla de chats: simulador del lado del paciente.
+   La bandeja usa css/bandeja.css; colores y componentes: ../../shared/tema.css */
+
+.simulador { display: grid; grid-template-columns: minmax(260px, 360px) minmax(360px, 460px); gap: 24px; align-items: start; justify-content: center; }
+.simulador-pasos { margin: 12px 0 0; padding-left: 1.2em; color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+
+.simulador-telefono { display: flex; flex-direction: column; gap: 12px; }
+.simulador-numero { display: flex; align-items: flex-end; gap: 8px; }
+.simulador-numero .ui-campo { flex: 1; }
+
+/* Vista "de teléfono": lo que vería el paciente en WhatsApp */
+.simulador-chat {
+    display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h) - 230px); min-height: 460px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-md);
+}
+.simulador-cabecera { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--accent); color: #fff; }
+.simulador-logo { width: 34px; height: 34px; border-radius: 50%; background: #fff; display: grid; place-items: center; overflow: hidden; }
+.simulador-logo img { width: 26px; height: 26px; object-fit: contain; }
+.simulador-nombre { font-weight: 600; }
+.simulador-estado { font-size: var(--fs-sm); color: rgba(255, 255, 255, .85); }
+.simulador-mensajes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 12px; background: #F4F2FB; }
+.simulador-vacio { margin: auto; max-width: 260px; text-align: center; color: var(--text-3); font-size: var(--fs-md); }
+
+.sm { max-width: 82%; margin-top: 8px; padding: 6px 10px 4px; border-radius: 10px; font-size: var(--fs-md); line-height: 1.45; overflow-wrap: anywhere; box-shadow: var(--shadow-sm); }
+.sm--seguido { margin-top: 2px; }
+.sm--propio { align-self: flex-end; background: var(--accent); color: #fff; border-top-right-radius: 3px; }
+.sm--propio a { color: #fff; }
+.sm--yosoy { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-top-left-radius: 3px; }
+.sm--sistema { background: var(--neutral-bg); border-style: dashed; }
+.sm-autor { margin-bottom: 2px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent-strong); }
+.sm-texto { white-space: pre-wrap; }
+.sm-meta { margin-top: 2px; text-align: right; font-size: 10.5px; color: var(--text-4); }
+.sm--propio .sm-meta { color: rgba(255, 255, 255, .78); }
+
+.simulador-composer { display: flex; align-items: flex-end; gap: 6px; padding: 10px; border-top: 1px solid var(--border); background: var(--surface); }
+.simulador-composer textarea {
+    flex: 1; min-height: 38px; max-height: 120px; resize: none; padding: 9px 12px;
+    font: inherit; font-size: var(--fs-md); line-height: 1.4; color: var(--text);
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-lg); outline: none;
+}
+.simulador-composer textarea:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.simulador-composer textarea:disabled { opacity: .7; }
+.simulador-composer .ui-btn { width: 42px; height: 38px; padding: 0; }
+.simulador-composer .ui-btn svg { width: 17px; height: 17px; }
+
+@media (max-width: 900px) { .simulador { grid-template-columns: minmax(0, 1fr); } }

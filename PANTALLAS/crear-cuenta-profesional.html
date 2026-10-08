@@ -3,210 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy - Crear cuenta profesional</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-            font-family: Arial, Helvetica, sans-serif;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #f8f5ff, #ddd0f5, #c0a8ee);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .card {
-            background: white;
-            border-radius: 24px;
-            padding: 40px 36px;
-            width: 420px;
-            box-shadow: 0 12px 40px rgba(100, 80, 180, 0.18);
-            text-align: center;
-        }
-
-        .titulo {
-            font-size: 36px;
-            font-weight: bold;
-            color: #0d6efd;
-            margin-bottom: 2px;
-        }
-
-        .subtitulo {
-            font-size: 13px;
-            color: #9D6BCF;
-            font-weight: bold;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 28px;
-        }
-
-        .campo {
-            text-align: left;
-            margin-bottom: 16px;
-            position: relative;
-        }
-
-        .campo label {
-            display: block;
-            font-size: 12px;
-            font-weight: bold;
-            color: #6A5ACD;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-
-        .input {
-            width: 100%;
-            height: 46px;
-            border: 2px solid #e0d4f5;
-            border-radius: 12px;
-            padding: 0 40px 0 14px;
-            font-size: 15px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-
-        .input:focus { border-color: #6A5ACD; }
-
-        .ojo {
-            position: absolute;
-            right: 13px;
-            bottom: 12px;
-            cursor: pointer;
-            font-size: 18px;
-            color: #aaa;
-            user-select: none;
-        }
-
-        .ojo:hover { color: #6A5ACD; }
-
-        .boton {
-            width: 100%;
-            height: 52px;
-            border: none;
-            border-radius: 12px;
-            background: linear-gradient(to right, #0d6efd, #6A5ACD);
-            color: white;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 8px;
-            transition: opacity 0.2s;
-        }
-
-        .boton:hover { opacity: 0.9; }
-
-        .mensaje {
-            margin-top: 14px;
-            font-size: 14px;
-        }
-
-        .link-volver {
-            display: block;
-            margin-top: 20px;
-            font-size: 13px;
-            color: #6A5ACD;
-            text-decoration: none;
-        }
-
-        .link-volver:hover { text-decoration: underline; }
-    </style>
+    <title>YoSoy · Crear cuenta profesional</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="/pantallas/shared/tema.css">
+    <link rel="stylesheet" href="/pantallas/shared/acceso.css">
 </head>
-<body>
-<div class="card">
-    <div class="titulo">YoSoy</div>
-    <div class="subtitulo">Crear cuenta profesional</div>
+<body class="acceso">
+<!-- Se llega desde el mail de aprobación (?token=...). El endpoint /profesionales/activar-cuenta
+     está en la rama videollamadas-seguras: hasta ese merge esta pantalla muestra el error del servidor. -->
+<main class="acceso-tarjeta" aria-labelledby="tituloCrear">
+    <a class="acceso-marca" href="/pantallas/index.html" aria-label="YoSoy, ir al ingreso">
+        <img src="/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="">
+        <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+    </a>
+    <h1 class="acceso-titulo" id="tituloCrear">Crear cuenta profesional</h1>
+    <p class="acceso-bajada">Elegí tu nombre de usuario y una contraseña para ingresar a YoSoy.</p>
 
-    <div id="formSection">
-        <div class="campo">
-            <label>Nombre de usuario</label>
-            <input type="text" id="username" class="input" placeholder="Elegí un nombre de usuario" autocomplete="off">
+    <form id="formSection" class="acceso-form" onsubmit="event.preventDefault(); crearCuenta()" novalidate>
+        <div class="ui-campo">
+            <label for="username">Nombre de usuario</label>
+            <input type="text" id="username" class="ui-input" placeholder="Elegí un nombre de usuario" autocomplete="username">
         </div>
-        <div class="campo">
-            <label>Contraseña</label>
-            <input type="password" id="pass1" class="input" placeholder="Elegí una contraseña">
-            <span class="ojo" onclick="togglePass('pass1')">&#128065;</span>
+        <div class="ui-campo">
+            <label for="pass1">Contraseña</label>
+            <div class="campo-clave">
+                <input type="password" id="pass1" class="ui-input" placeholder="Al menos 6 caracteres" autocomplete="new-password">
+                <button type="button" class="ver-clave" onclick="togglePass('pass1', this)" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            </div>
         </div>
-        <div class="campo">
-            <label>Confirmar contraseña</label>
-            <input type="password" id="pass2" class="input" placeholder="Repetí tu contraseña">
-            <span class="ojo" onclick="togglePass('pass2')">&#128065;</span>
+        <div class="ui-campo">
+            <label for="pass2">Confirmar contraseña</label>
+            <div class="campo-clave">
+                <input type="password" id="pass2" class="ui-input" placeholder="Repetí tu contraseña" autocomplete="new-password">
+                <button type="button" class="ver-clave" onclick="togglePass('pass2', this)" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            </div>
         </div>
-        <button class="boton" onclick="crearCuenta()">Crear cuenta</button>
-        <div id="mensaje" class="mensaje"></div>
-    </div>
+        <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg ui-btn--bloque" id="btnCrear">Crear cuenta</button>
+    </form>
+    <div id="mensaje" class="ui-alerta mt-12 oculto" role="status"></div>
 
-    <a href="/pantallas/index.html" class="link-volver">Volver al inicio de sesión</a>
-</div>
+    <p class="acceso-pie"><a href="/pantallas/index.html">Volver al inicio de sesión</a></p>
+</main>
 
+<script src="/pantallas/shared/ui.js"></script>
 <script>
-    function togglePass(id) {
+    function togglePass(id, boton) {
         const inp = document.getElementById(id);
-        inp.type = inp.type === 'password' ? 'text' : 'password';
+        const mostrar = inp.type === "password";
+        inp.type = mostrar ? "text" : "password";
+        boton.setAttribute("aria-pressed", mostrar);
+        boton.setAttribute("aria-label", mostrar ? "Ocultar contraseña" : "Mostrar contraseña");
     }
 
-    function obtenerToken() {
-        return new URLSearchParams(window.location.search).get('token');
+    function mostrar(tipo, texto) {
+        const m = document.getElementById("mensaje");
+        m.className = `ui-alerta ui-alerta--${tipo} mt-12`;
+        m.textContent = texto;
     }
 
     async function crearCuenta() {
-        const msg = document.getElementById('mensaje');
-        const username = document.getElementById('username').value.trim();
-        const pass1 = document.getElementById('pass1').value;
-        const pass2 = document.getElementById('pass2').value;
-        const token = obtenerToken();
+        const token = YS.param("token");
+        if (!token) { mostrar("danger", "Link inválido."); return; }
+        if (!YS.form.validar([
+            { id: "username", requerido: "Ingresá un nombre de usuario." },
+            { id: "pass1", requerido: "Ingresá una contraseña.", minimo: 6, mensajeMinimo: "La contraseña debe tener al menos 6 caracteres." },
+            { id: "pass2", requerido: "Repetí la contraseña.",
+              validar: v => v !== document.getElementById("pass1").value ? "Las contraseñas no coinciden." : null }
+        ])) return;
 
-        if (!token) {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'Link inválido.';
-            return;
-        }
-        if (!username) {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'Ingresá un nombre de usuario.';
-            return;
-        }
-        if (!pass1) {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'Ingresá una contraseña.';
-            return;
-        }
-        if (pass1 !== pass2) {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'Las contraseñas no coinciden.';
-            return;
-        }
-        if (pass1.length < 6) {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'La contraseña debe tener al menos 6 caracteres.';
-            return;
-        }
-
+        const username = document.getElementById("username").value.trim();
+        const btn = document.getElementById("btnCrear");
+        btn.classList.add("cargando");
         try {
-            const res = await fetch('http://localhost:5000/profesionales/activar-cuenta', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, username, password: pass1 })
+            const res = await YS.fetch("/profesionales/activar-cuenta", {
+                method: "POST", json: { token, username, password: document.getElementById("pass1").value }, sinRedireccion: true
             });
-            const data = await res.json();
-
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
-                msg.style.color = '#27ae60';
-                msg.textContent = data.mensaje;
-                document.getElementById('formSection').style.opacity = '0.4';
-                document.getElementById('formSection').style.pointerEvents = 'none';
+                mostrar("ok", data.mensaje || "Cuenta creada. Ya podés ingresar.");
+                document.getElementById("formSection").classList.add("oculto");
             } else if (res.status === 409) {
-                msg.style.color = '#e74c3c';
-                msg.textContent = data.mensaje ?? 'Ese nombre de usuario ya está en uso.';
+                mostrar("danger", data.mensaje ?? "Ese nombre de usuario ya está en uso.");
             } else {
-                msg.style.color = '#e74c3c';
-                msg.textContent = data.mensaje ?? 'Ocurrió un error.';
+                mostrar("danger", data.mensaje ?? YS.mensajeHttp(res.status));
             }
         } catch {
-            msg.style.color = '#e74c3c';
-            msg.textContent = 'No se pudo conectar con el servidor.';
+            mostrar("danger", "No se pudo conectar con el servidor.");
+        } finally {
+            btn.classList.remove("cargando");
         }
     }
 </script>

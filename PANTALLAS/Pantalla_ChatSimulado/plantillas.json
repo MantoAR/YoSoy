@@ -1,0 +1,11 @@
+{
+  "nota": "Respuestas rápidas de la bandeja de chats. Son textos administrativos, sin contenido clínico. Revisarlos con el equipo antes de usar la plataforma con pacientes reales. Se pueden editar acá sin tocar el código: cada plantilla tiene un título corto y el texto que se inserta en la respuesta (no se envía solo).",
+  "plantillas": [
+    { "titulo": "Saludo", "texto": "Hola, te escribe el equipo de YoSoy. ¿En qué te podemos ayudar?" },
+    { "titulo": "Ya lo estamos viendo", "texto": "Gracias por escribirnos. Ya estamos viendo tu consulta y en un rato te respondemos." },
+    { "titulo": "Pedir el DNI", "texto": "Para buscar tus datos, ¿nos pasás tu DNI?" },
+    { "titulo": "Volver al asistente", "texto": "Si querés pedir, ver o cancelar un turno, escribí \"menu\" y el asistente te guía paso a paso." },
+    { "titulo": "Consentimiento pendiente", "texto": "Para confirmar tus turnos necesitamos que firmes el consentimiento informado desde tu panel de YoSoy, en la sección Consentimiento." },
+    { "titulo": "Despedida", "texto": "Gracias por comunicarte con YoSoy. Si necesitás algo más, escribinos cuando quieras." }
+  ]
+}

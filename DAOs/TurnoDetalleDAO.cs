@@ -9,7 +9,7 @@ public class TurnoDetalleDAO
                e.Nombre AS Especialidad,
                t.IdEstadoTurno, et.Descripcion AS EstadoDescripcion,
                t.Fecha, t.Hora, t.Modalidad, t.Motivo,
-               ISNULL(t.ConfirmadoPaciente, 0) AS ConfirmadoPaciente, t.CodigoSala,
+               ISNULL(t.ConfirmadoPaciente, 0) AS ConfirmadoPaciente, t.CodigoSala, t.CreadoPor,
                p.Mail AS MailProfesional, p.Telefono AS TelefonoProfesional
         FROM Turno t
         JOIN Profesional p  ON t.IdProfesional  = p.IdProfesional
@@ -91,6 +91,7 @@ public class TurnoDetalleDAO
         MailProfesional    = r["MailProfesional"]   == DBNull.Value ? null : (string)r["MailProfesional"],
         TelefonoProfesional= r["TelefonoProfesional"]==DBNull.Value ? null : (string)r["TelefonoProfesional"],
         ConfirmadoPaciente = r["ConfirmadoPaciente"] != DBNull.Value && Convert.ToBoolean(r["ConfirmadoPaciente"]),
-        CodigoSala         = r["CodigoSala"]         == DBNull.Value ? null : (string)r["CodigoSala"]
+        CodigoSala         = r["CodigoSala"]         == DBNull.Value ? null : (string)r["CodigoSala"],
+        CreadoPor          = r["CreadoPor"]          == DBNull.Value ? null : (string)r["CreadoPor"]
     };
 }

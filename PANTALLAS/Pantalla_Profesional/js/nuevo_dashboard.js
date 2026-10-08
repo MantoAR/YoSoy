@@ -1,198 +1,172 @@
-const API = 'http://localhost:5000';
+const API = YS.API;   // mismo origen que la página (shared/ui.js)
 const idProfesional = parseInt(localStorage.getItem('idProfesional'));
 const idUsuario     = parseInt(localStorage.getItem('idUsuario'));
 
 if (!idProfesional) window.location.href = '/pantallas/index.html';
 
+// Cada sección del menú (shared/shell.js) se dibuja en #contenido.
 function activarTab(nombre) {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-    document.getElementById('tab-' + nombre).classList.add('activo');
-    const c = document.getElementById('contenido');
-    c.innerHTML = '<div class="spinner">Cargando...</div>';
-    const tabs = { inicio, agenda, pacientes, sesion, perfil }; if (nombre === 'reportes') { reportes(); } else { tabs[nombre](); }
+    const tabs = { inicio, agenda, horarios, pacientes, casos, sesion, reportes, perfil };
+    if (!tabs[nombre]) nombre = 'inicio';
+    YS.shell.marcar(nombre);
+    document.getElementById('contenido').innerHTML = YS.cargando();
+    tabs[nombre]();
 }
 
+// Avisos del sistema de diseño (shared/ui.js)
 function toast(msg, tipo = 'ok') {
-    let cont = document.getElementById('toast-container');
-    if (!cont) { cont = document.createElement('div'); cont.id = 'toast-container'; document.body.appendChild(cont); }
-    const iconos = { ok: '✔', error: '✖', warn: '⚠' };
-    const t = document.createElement('div');
-    t.className = `toast toast-${tipo}`;
-    t.innerHTML = `<span class="toast-icono">${iconos[tipo] ?? 'ℹ'}</span><span>${msg}</span>`;
-    cont.appendChild(t);
-    setTimeout(() => { t.classList.add('saliendo'); t.addEventListener('animationend', () => t.remove()); }, 3500);
+    YS.toast(msg, tipo);
+}
+
+// ── Inicio: tablero del día ─────────────────────────────────
+// Momento real del turno (fecha + hora) para ordenar y saber cuál es el próximo.
+function momentoTurno(t) {
+    const d = YS.fecha.parse(t.fecha);
+    const [h, m] = fmtHora(t.hora).split(':').map(Number);
+    return d ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), h || 0, m || 0) : new Date(0);
+}
+
+// Datos de los pacientes que falten en el caché compartido con la agenda (uno por id).
+async function cargarPacientes(ids) {
+    await Promise.all([...new Set(ids)].filter(id => !_pacientesCalMap[id]).map(async id => {
+        try { _pacientesCalMap[id] = await YS.api(`/pacientes/${id}`); } catch {}
+    }));
+}
+
+function nombrePaciente(id) {
+    const p = _pacientesCalMap[id];
+    return (p && YS.nombreCompleto(p)) || 'Paciente #' + id;
 }
 
 async function inicio() {
     const c = document.getElementById('contenido');
-    let prof = null;
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}`);
-        prof = await r.json();
-    } catch {}
-
-    // Turnos de hoy confirmados
-    let turnosHoy = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos-confirmados`);
-        const todos = await r.json();
-        const hoy = new Date().toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
-        turnosHoy = todos.filter(t => t.fecha === hoy);
-    } catch {}
-
-    // Próximo turno
-    let turnos = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
-        turnos = await r.json();
-    } catch {}
-
+    c.innerHTML = YS.esqueleto.bloques(4) + YS.esqueleto.lista(3);
+    const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
+    const [prof, confirmados, turnos, asignados] = await Promise.all([
+        pedir(`/profesionales/${idProfesional}`, null),
+        pedir(`/profesionales/${idProfesional}/turnos-confirmados`, []),
+        pedir(`/profesionales/${idProfesional}/turnos`, []),
+        pedir(`/profesionales/${idProfesional}/pacientes-detalle`, [])
+    ]);
     const ahora = new Date();
-    const proximos = turnos
-        .filter(t => new Date(t.fecha) >= ahora && t.idEstadoTurno !== 3)
-        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-    const proximo = proximos[0];
+    const deHoy      = turnos.filter(t => YS.fecha.esHoy(t.fecha) && t.idEstadoTurno !== 3);
+    const pendientes = turnos.filter(t => t.idEstadoTurno === 1);
+    const pedidos    = pendientes.filter(t => t.creadoPor !== 'profesional');
+    const proximo    = turnos.filter(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4 && momentoTurno(t) >= ahora)
+                             .sort((a, b) => momentoTurno(a) - momentoTurno(b))[0];
+    const nuevos     = asignados.filter(p => p.estadoAsignacion === 'Nueva').length;
+    const sesionesHoy = confirmados.filter(t => t.fecha === YS.fecha.corta(ahora));
+    await cargarPacientes([...deHoy, ...pendientes, ...(proximo ? [proximo] : [])].map(t => t.idPaciente));
 
-    let pacNombre = '—';
-    if (proximo) {
-        try {
-            const r = await fetch(`${API}/pacientes/${proximo.idPaciente}`);
-            const p = await r.json();
-            pacNombre = `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim();
-        } catch {}
-    }
+    if (YS.shell.actual !== 'inicio') return;   // el usuario ya cambió de sección
+    YS.shell.encabezado({ titulo: `Hola, ${prof?.nombre ?? 'Profesional'}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
+    YS.shell.acciones([{ texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
 
-    const fecha = proximo ? new Date(proximo.fecha) : null;
-    const hora  = proximo ? (proximo.hora?.substring(0, 5) ?? '—') : null;
-
-    // HTML de sesiones de hoy
-    const sesionesHoyHtml = turnosHoy.length ? `
-        <div class="titulo-seccion" style="margin-bottom:12px">📅 Sesiones de hoy</div>
-        <div class="turnos-lista">
-            ${turnosHoy.map(t => `
-            <div class="turno-item" style="align-items:flex-start;flex-direction:column;gap:10px;padding:16px">
-                <div style="display:flex;align-items:center;gap:12px;width:100%">
-                    <div class="turno-fecha-bloque">
-                        <div class="turno-fecha-dia" style="font-size:22px">${t.hora}</div>
-                        <div class="turno-fecha-mes">hs</div>
-                    </div>
-                    <div class="turno-info" style="flex:1">
-                        <div class="turno-paciente">${t.nombrePaciente}</div>
-                        ${t.motivo ? `<div class="turno-meta">${t.motivo}</div>` : ''}
-                    </div>
-                    ${t.codigoSala
-                        ? `<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-                            <span style="background:#d4edda;color:#0f5132;border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">✅ Sala lista</span>
-                            <code style="background:#f0f4ff;color:#185FA5;border-radius:6px;padding:4px 10px;font-size:13px;font-weight:700">${t.codigoSala}</code>
-                           </div>`
-                        : `<button onclick="generarSalaDesdeInicio(${t.idTurno})" 
-                               style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:8px 18px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13px">
-                               📹 Iniciar sesión
-                           </button>`
-                    }
-                </div>
-                ${t.codigoSala ? `
-                <div style="width:100%;display:flex;gap:8px;align-items:center;background:#f0f4ff;border-radius:8px;padding:10px 14px">
-                    <span style="font-size:12px;color:#666;flex:1">Compartí este código con el paciente:</span>
-                    <code style="font-size:15px;font-weight:700;color:#185FA5;letter-spacing:2px">${t.codigoSala}</code>
-                    <button onclick="copiarCodigo('${t.codigoSala}')" 
-                        style="background:white;border:1px solid #185FA5;color:#185FA5;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">
-                        📋 Copiar
-                    </button>
-                    <button onclick="activarTab('sesion')"
-                        style="background:#185FA5;color:white;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">
-                        Entrar a la sala →
-                    </button>
-                </div>` : ''}
-            </div>`).join('')}
-        </div>` : '';
-
+    const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
     c.innerHTML = `
-        <div class="titulo-seccion">Bienvenido, ${prof?.nombre ?? 'Profesional'}</div>
+        <div class="ui-stats">
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono('agenda')}Turnos de hoy</span>
+                <span class="ui-stat-valor">${deHoy.length}</span>
+                <span class="ui-stat-pie">${plural(deHoy.filter(t => t.idEstadoTurno === 2).length, 'confirmado', 'confirmados')} · ${plural(deHoy.filter(t => t.idEstadoTurno === 1).length, 'pendiente', 'pendientes')}</span>
+            </a>
+            <button class="ui-stat${pedidos.length ? ' ui-stat--warn' : ''}" type="button" onclick="document.getElementById('card-pendientes').scrollIntoView({ behavior: 'smooth' })">
+                <span class="ui-stat-etiqueta">${YS.icono('reloj')}Para confirmar</span>
+                <span class="ui-stat-valor">${pedidos.length}</span>
+                <span class="ui-stat-pie">Pedidos de pacientes${pendientes.length > pedidos.length ? ` · ${plural(pendientes.length - pedidos.length, 'propuesto', 'propuestos')} por vos` : ''}</span>
+            </button>
+            <a class="ui-stat${nuevos ? ' ui-stat--marca' : ''}" href="#pacientes">
+                <span class="ui-stat-etiqueta">${YS.icono('pacientes')}Pacientes</span>
+                <span class="ui-stat-valor">${asignados.length}</span>
+                <span class="ui-stat-pie">${nuevos ? plural(nuevos, 'asignación nueva', 'asignaciones nuevas') : 'Asignados a vos'}</span>
+            </a>
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono('video')}Próximo turno</span>
+                <span class="ui-stat-valor">${proximo ? fmtHora(proximo.hora) : '—'}</span>
+                <span class="ui-stat-pie">${proximo ? `${YS.esc(YS.capitalizar(YS.fecha.larga(proximo.fecha)))} · ${YS.esc(nombrePaciente(proximo.idPaciente))}` : 'No tenés turnos próximos'}</span>
+            </a>
+        </div>
 
-        ${sesionesHoyHtml ? `<div class="card" style="margin-bottom:16px;border-left:4px solid #185FA5">${sesionesHoyHtml}</div>` : ''}
+        ${sesionesHoy.length ? `<div class="card card--acento-info">${htmlSesionesHoy(sesionesHoy)}</div>` : ''}
 
-        <div class="card" style="margin-bottom:16px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <div class="titulo-seccion" style="margin-bottom:0">Próximo turno</div>
-                <button onclick="citaUrgente()" 
-                    style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
-                    ⚡ Cita urgente
-                </button>
+        <div class="inicio-columnas">
+            <div class="card">
+                <div class="titulo-seccion titulo-seccion--tarjeta">Pacientes de hoy</div>
+                <div id="pacientes-hoy-contenido">${renderPacientesHoy(turnos)}</div>
             </div>
-            ${proximo ? `
-            <div class="turno-proximo">
-                <div class="turno-dato">
-                    <span class="etiqueta">Fecha</span>
-                    <span class="valor">${fecha.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' })}</span>
-                </div>
-                <div class="turno-dato">
-                    <span class="etiqueta">Hora</span>
-                    <span class="valor">${hora}</span>
-                </div>
-                <div class="turno-dato">
-                    <span class="etiqueta">Paciente</span>
-                    <span class="valor">${pacNombre}</span>
-                </div>
-            </div>` : '<div class="sin-turnos">No tenés turnos próximos.</div>'}
+            <div class="card" id="card-pendientes">
+                <div class="titulo-seccion titulo-seccion--tarjeta">Turnos pendientes de confirmación</div>
+                <div id="pendientes-contenido">${renderTurnosPendientes(turnos)}</div>
+            </div>
         </div>
 
-        <div class="card" style="margin-bottom:16px;border-left:4px solid #28a745">
-            <div class="titulo-seccion" style="margin-bottom:16px;color:#0f5132">👥 Pacientes hoy</div>
-            <div id="pacientes-hoy-contenido"><div class="spinner">Cargando...</div></div>
-        </div>
-
-        <div class="card" id="card-pendientes">
-            <div class="titulo-seccion" style="margin-bottom:16px">Turnos pendientes de confirmación</div>
-            <div id="pendientes-contenido"><div class="spinner">Cargando...</div></div>
-        </div>
-
-        <!-- Panel cita urgente -->
-        <div id="panel-urgente" style="display:none">
-            <div class="card" style="margin-top:16px;border-left:4px solid #e53935">
-                <div class="titulo-seccion" style="margin-bottom:12px;color:#b71c1c">⚡ Cita urgente</div>
-                <p style="font-size:13px;color:#666;margin-bottom:14px">
+        <!-- Panel cita urgente (citaUrgente() lo muestra u oculta) -->
+        <div id="panel-urgente" class="oculto">
+            <div class="card card--acento-danger">
+                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--danger">Cita urgente</div>
+                <p class="texto-suave mb-12">
                     Seleccioná el paciente, generá la sala al instante y el código le llega por notificación.
                 </p>
-                <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-                    <div style="flex:1;min-width:200px">
-                        <label style="font-size:12px;font-weight:600;color:#6A5ACD;display:block;margin-bottom:4px">Paciente</label>
-                        <select id="urgente-paciente" 
-                            style="width:100%;padding:10px;border:2px solid #e0d4f5;border-radius:10px;font-size:14px">
-                            <option value="">Cargando...</option>
+                <div class="form-fila form-fila--abajo">
+                    <div class="ui-campo campo--ancho">
+                        <label for="urgente-paciente">Paciente</label>
+                        <select id="urgente-paciente" class="ui-select">
+                            <option value="">Cargando…</option>
                         </select>
                     </div>
-                    <button onclick="confirmarCitaUrgente()"
-                        style="background:linear-gradient(to right,#e53935,#b71c1c);color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:600;font-size:14px;height:44px">
-                        Generar sala y notificar
-                    </button>
-                    <button onclick="document.getElementById('panel-urgente').style.display='none'"
-                        style="background:#eee;color:#555;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-size:13px;height:44px">
-                        Cancelar
-                    </button>
+                    <button class="ui-btn btn-urgente" id="btnUrgente" onclick="confirmarCitaUrgente()">Generar sala y notificar</button>
+                    <button class="ui-btn" onclick="cerrarCitaUrgente()">Cancelar</button>
                 </div>
-                <div id="urgente-resultado" style="margin-top:12px"></div>
+                <div id="urgente-resultado" class="mt-12"></div>
             </div>
         </div>
     `;
 
-    // Cargar pendientes
-    document.getElementById('pendientes-contenido').innerHTML = await renderTurnosPendientes();
-    // Cargar pacientes de hoy
-    document.getElementById('pacientes-hoy-contenido').innerHTML = await renderPacientesHoy();
-
-
-    // Cargar pacientes para cita urgente
+    // Pacientes para la cita urgente
     try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/pacientes`);
-        const pacs = await r.json();
+        const pacs = await YS.api(`/profesionales/${idProfesional}/pacientes`);
         const sel = document.getElementById('urgente-paciente');
         if (sel) {
             sel.innerHTML = pacs.length
-                ? `<option value="">Seleccioná un paciente</option>` + pacs.map(p => `<option value="${p.idPaciente}">${p.nombre ?? ''} ${p.apellido ?? ''}</option>`).join('')
+                ? `<option value="">Seleccioná un paciente</option>` + pacs.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')
                 : `<option value="">Sin pacientes asignados</option>`;
         }
     } catch {}
+}
+
+// Sesiones de hoy ya confirmadas: generar la sala o compartir el código
+function htmlSesionesHoy(turnosHoy) {
+    return `
+        <div class="titulo-seccion titulo-seccion--tarjeta">Sesiones de hoy</div>
+        <div class="turnos-lista">
+            ${turnosHoy.map(t => `
+            <div class="turno-item sesion-hoy">
+                <div class="sesion-hoy-fila">
+                    <div class="turno-fecha-bloque turno-fecha-bloque--hora">
+                        <div class="turno-fecha-dia">${YS.esc(t.hora)}</div>
+                        <div class="turno-fecha-mes">hs</div>
+                    </div>
+                    <div class="turno-info">
+                        <div class="turno-paciente">${YS.esc(t.nombrePaciente)}</div>
+                        ${t.motivo ? `<div class="turno-meta">${YS.esc(t.motivo)}</div>` : ''}
+                    </div>
+                    ${t.codigoSala
+                        ? `<div class="sala-estado">
+                            <span class="ui-chip ui-chip--ok">Sala lista</span>
+                            <code class="codigo-sala">${YS.esc(t.codigoSala)}</code>
+                           </div>`
+                        : `<button class="ui-btn ui-btn--primary" onclick="generarSalaDesdeInicio(${t.idTurno})">Iniciar sesión</button>`
+                    }
+                </div>
+                ${t.codigoSala ? `
+                <div class="sala-codigo-fila">
+                    <span class="texto-suave">Compartí este código con el paciente:</span>
+                    <code class="codigo-sala codigo-sala--grande">${YS.esc(t.codigoSala)}</code>
+                    <button class="ui-btn ui-btn--sm" onclick="copiarCodigo('${YS.esc(t.codigoSala)}')">Copiar</button>
+                    <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="activarTab('sesion')">Entrar a la sala →</button>
+                </div>` : ''}
+            </div>`).join('')}
+        </div>`;
 }
 
 function copiarCodigo(codigo) {
@@ -201,7 +175,7 @@ function copiarCodigo(codigo) {
 
 async function generarSalaDesdeInicio(idTurno) {
     try {
-        const r = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+        const r = await YS.fetch(`/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
         if (r.ok) {
             const data = await r.json();
             toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
@@ -212,23 +186,31 @@ async function generarSalaDesdeInicio(idTurno) {
 
 function citaUrgente() {
     const panel = document.getElementById('panel-urgente');
-    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    panel.scrollIntoView({ behavior: 'smooth' });
+    const abrir = panel.classList.contains('oculto');
+    panel.classList.toggle('oculto', !abrir);
+    if (abrir) { panel.scrollIntoView({ behavior: 'smooth' }); document.getElementById('urgente-paciente').focus(); }
+}
+
+function cerrarCitaUrgente() {
+    document.getElementById('panel-urgente').classList.add('oculto');
 }
 
 async function confirmarCitaUrgente() {
     const idPac = parseInt(document.getElementById('urgente-paciente').value);
-    if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
+    if (!idPac) { YS.form.marcar('urgente-paciente', 'Elegí el paciente.'); document.getElementById('urgente-paciente').focus(); return; }
 
     const resultado = document.getElementById('urgente-resultado');
-    resultado.innerHTML = '<div class="spinner">Generando sala...</div>';
+    const boton = document.getElementById('btnUrgente');
+    resultado.innerHTML = YS.cargando('Generando la sala…');
+    boton.disabled = true;
 
     try {
         const ahora = new Date();
-        const fechaStr = ahora.toISOString().split('T')[0];
+        // Fecha y hora locales (toISOString da la fecha en UTC: después de las 21 era "mañana")
+        const fechaStr = YS.fecha.aISO(ahora);
         const horaStr = ahora.toTimeString().substring(0, 8);
 
-        const rTurno = await fetch(`${API}/turnos/profesional-solicitar`, {
+        const rTurno = await YS.fetch(`/turnos/profesional-solicitar`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -236,55 +218,46 @@ async function confirmarCitaUrgente() {
                 idProfesional: idProfesional,
                 fecha: fechaStr,
                 hora: horaStr,
-                motivo: 'Cita urgente'
+                motivo: 'Cita urgente',
+                esUrgente: true
             })
         });
 
-        if (!rTurno.ok) { toast('Error al crear el turno urgente.', 'error'); return; }
+        if (!rTurno.ok) { toast(await YS.leerMensaje(rTurno, 'No se pudo crear el turno urgente.'), 'error'); resultado.innerHTML = ''; return; }
 
-        const rTurnos = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        const rTurnos = await YS.fetch(`/profesionales/${idProfesional}/turnos`);
         const turnos = await rTurnos.json();
         const turnoUrgente = turnos
             .filter(t => t.idPaciente === idPac)
             .sort((a, b) => b.idTurno - a.idTurno)[0];
 
-        if (!turnoUrgente) { toast('Error al obtener el turno.', 'error'); return; }
+        if (!turnoUrgente) { toast('Se creó el turno, pero no se pudo recuperarlo para generar la sala.', 'error'); resultado.innerHTML = ''; return; }
 
-        await fetch(`${API}/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
-        const rSala = await fetch(`${API}/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
+        // Sin consentimiento (RN-02) el turno no se confirma, pero la sesión sigue: se avisa, como en irASala()
+        const rConf = await YS.fetch(`/turnos/${turnoUrgente.idTurno}/confirmar-paciente`, { method: 'PUT' });
+        const sinConsentimiento = rConf.status === 409;
+        const rSala = await YS.fetch(`/turnos/${turnoUrgente.idTurno}/generar-sala`, { method: 'PUT' });
+        if (!rSala.ok) { toast(await YS.leerMensaje(rSala, 'No se pudo generar la sala.'), 'error'); resultado.innerHTML = ''; return; }
         const data = await rSala.json();
 
         toast(`Sala generada: ${data.codigoSala}`);
 
         // Ir a sesión con el paciente preseleccionado
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-        document.getElementById('tab-sesion').classList.add('activo');
+        YS.shell.marcar('sesion');
         sesion(idPac);
+        if (sinConsentimiento) bannerSinConsentimiento();
 
-    } catch { toast('Error de conexión.', 'error'); resultado.innerHTML = ''; }
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); resultado.innerHTML = ''; }
+    finally { boton.disabled = false; }
 }
 
-async function renderTurnosPendientes() {
-    let turnos = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
-        turnos = await r.json();
-    } catch { return '<div class="sin-turnos">Error al cargar.</div>'; }
-
-    const pendientes = turnos.filter(t => t.idEstadoTurno === 1);
-    if (!pendientes.length) return '<div class="sin-turnos">Sin turnos pendientes.</div>';
-
-    const pacientes = {};
-    await Promise.all(pendientes.map(async t => {
-        try {
-            const r = await fetch(`${API}/pacientes/${t.idPaciente}`);
-            pacientes[t.idPaciente] = await r.json();
-        } catch {}
-    }));
+// Pendientes de confirmación: lo que pidió el paciente y lo que propuso el profesional
+function renderTurnosPendientes(turnos) {
+    const pendientes = turnos.filter(t => t.idEstadoTurno === 1).sort((a, b) => momentoTurno(a) - momentoTurno(b));
+    if (!pendientes.length) return YS.vacio({ icono: 'check', titulo: 'Nada para confirmar', texto: 'Cuando un paciente pida un turno lo vas a ver acá.' });
 
     return `<div class="turnos-lista">` + pendientes.map(t => {
-        const fecha = new Date(t.fecha);
-        const p = pacientes[t.idPaciente];
+        const fecha = YS.fecha.parse(t.fecha);
         return `
         <div class="turno-item">
             <div class="turno-fecha-bloque">
@@ -292,49 +265,25 @@ async function renderTurnosPendientes() {
                 <div class="turno-fecha-mes">${fecha.toLocaleString('es-AR', {month:'short'})}</div>
             </div>
             <div class="turno-info">
-                <div class="turno-paciente">${p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente}</div>
-                <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + t.motivo : ''}</div>
+                <div class="turno-paciente">${YS.esc(nombrePaciente(t.idPaciente))}</div>
+                <div class="turno-meta">${fmtHora(t.hora)}${t.motivo ? ' · ' + YS.esc(t.motivo) : ''}</div>
             </div>
-            <span class="badge-estado badge-pendiente">Pendiente</span>
-            <button class="btn-confirmar" onclick="confirmarTurno(${t.idTurno})">Confirmar</button>
+            ${t.creadoPor === 'profesional'
+                ? '<span class="badge-estado estado-propuesto" title="Lo propusiste vos: espera la confirmación del paciente">Propuesto</span>'
+                : '<span class="badge-estado badge-pendiente">Pendiente</span>'}
+            <button class="btn-confirmar" onclick="${t.creadoPor === 'profesional' ? 'confirmarPropuestaPropia' : 'confirmarTurno'}(${t.idTurno})">Confirmar</button>
         </div>`;
     }).join('') + `</div>`;
 }
 
-async function renderPacientesHoy() {
-    let turnos = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
-        turnos = await r.json();
-    } catch { return '<div class="sin-turnos">Error al cargar.</div>'; }
-    
-    const hoy = new Date();
-    const hoyStr = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
-    const turnosHoy = turnos.filter(t => {
-        if (!t.fecha) return false;
-        const fechaTurno = t.fecha.substring(0, 10);
-        return fechaTurno === hoyStr && t.idEstadoTurno !== 3;
+// Turnos de hoy (sin los cancelados), con acceso a la sala
+function renderPacientesHoy(turnos) {
+    const turnosHoy = turnos
+        .filter(t => YS.fecha.esHoy(t.fecha) && t.idEstadoTurno !== 3)
+        .sort((a, b) => fmtHora(a.hora).localeCompare(fmtHora(b.hora)));
+    if (!turnosHoy.length) return YS.vacio({ icono: 'agenda', titulo: 'No tenés pacientes para hoy', texto: 'Los turnos del día aparecen acá con el acceso a la sala.' });
 
-    }).sort((a, b) => (a.hora ?? '').localeCompare(b.hora ?? ''));
-
-    if (!turnosHoy.length) return '<div class="sin-turnos">No tenés pacientes programados para hoy.</div>';
-
-    // Enriquecer con nombre del paciente
-    const pacientes = {};
-    await Promise.all(turnosHoy.map(async t => {
-        try {
-            const r = await fetch(`${API}/pacientes/${t.idPaciente}`);
-            pacientes[t.idPaciente] = await r.json();
-        } catch {}
-    }));
-
-    const estadoBadge = {
-        1: 'background:#fff3cd;color:#856404',
-        2: 'background:#d1e7dd;color:#0f5132',
-        4: 'background:#e2e3e5;color:#41464b'
-    };
     const estadoLabel = { 1: 'Pendiente', 2: 'Confirmado', 4: 'Realizado' };
-
     return `
         <div class="tabla-wrapper">
             <table>
@@ -348,26 +297,16 @@ async function renderPacientesHoy() {
                     </tr>
                 </thead>
                 <tbody>
-                    ${turnosHoy.map(t => {
-                        const p = pacientes[t.idPaciente];
-                        const nombre = p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente;
-                        const hora = t.hora?.substring(0, 5) ?? '—';
-                        const estado = estadoLabel[t.idEstadoTurno] ?? '—';
-                        const badge = estadoBadge[t.idEstadoTurno] ?? 'background:#eee;color:#555';
-                        return `
+                    ${turnosHoy.map(t => `
                         <tr>
-                            <td><strong>${hora} hs</strong></td>
-                            <td>${nombre}</td>
-                            <td>${t.motivo ?? '—'}</td>
-                            <td><span style="${badge};border-radius:20px;padding:3px 12px;font-size:12px;font-weight:600">${estado}</span></td>
-                            <td>
-                                <button onclick="irASala(${t.idTurno}, ${t.idPaciente})"
-                                    style="background:linear-gradient(to right,#185FA5,#6A5ACD);color:white;border:none;padding:7px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
-                                    📹 Ir a sala
-                                </button>
+                            <td><strong>${fmtHora(t.hora)} hs</strong></td>
+                            <td>${YS.esc(nombrePaciente(t.idPaciente))}</td>
+                            <td>${YS.esc(t.motivo ?? '—')}</td>
+                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span></td>
+                            <td class="celda-acciones">
+                                <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>
                             </td>
-                        </tr>`;
-                    }).join('')}
+                        </tr>`).join('')}
                 </tbody>
             </table>
         </div>`;
@@ -378,14 +317,17 @@ async function irASala(idTurno, idPaciente) {
     //localStorage.setItem('sesion_idPaciente', idPaciente); //con esto le genera la sala directo al paciente
 
     // Si el turno no tiene sala, generarla primero
+    let sinConsentimiento = false;
     try {
-        const r = await fetch(`${API}/turnos/${idTurno}`);
+        const r = await YS.fetch(`/turnos/${idTurno}`);
         const turno = await r.json();
 
         if (!turno.codigoSala) {
-            // Confirmar y generar sala
-            await fetch(`${API}/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
-            const rSala = await fetch(`${API}/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
+            // Confirmar y generar sala. Sin consentimiento (RN-02) el turno no se confirma,
+            // pero la sesión no se bloquea: se avisa al profesional.
+            const rConf = await YS.fetch(`/turnos/${idTurno}/confirmar-paciente`, { method: 'PUT' });
+            sinConsentimiento = rConf.status === 409;
+            const rSala = await YS.fetch(`/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
             if (rSala.ok) {
                 const data = await rSala.json();
                 toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
@@ -396,17 +338,26 @@ async function irASala(idTurno, idPaciente) {
     } catch { toast('Error al generar la sala.', 'error'); }
 
 
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('activo'));
-    document.getElementById('tab-sesion').classList.add('activo');
+    YS.shell.marcar('sesion');
     sesion(idPaciente);
+    if (sinConsentimiento) bannerSinConsentimiento();
+}
+
+// Un turno que propuso el profesional lo confirma el paciente. Confirmarlo desde acá sigue siendo
+// posible (como antes), pero ahora se pregunta: el paciente todavía no respondió.
+async function confirmarPropuestaPropia(id) {
+    if (!await confirmar('Este turno lo propusiste vos y el paciente todavía no lo confirmó. ¿Confirmarlo igual?',
+                         { titulo: 'Confirmar sin respuesta del paciente', textoConfirmar: 'Confirmar igual', textoCancelar: 'Esperar al paciente' })) return;
+    await confirmarTurno(id);
 }
 
 async function confirmarTurno(id) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+        const turno = await (await YS.fetch(`/turnos/${id}`)).json();
         turno.idEstadoTurno = 2;
-        const r = await fetch(`${API}/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
+        const r = await YS.fetch(`/turnos/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(turno) });
         if (r.ok) { toast('Turno confirmado'); activarTab('inicio'); }
+        else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error al confirmar', 'error');
     } catch { toast('Error al confirmar', 'error'); }
 }
@@ -415,45 +366,88 @@ async function agenda() {
     const c = document.getElementById('contenido');
 
     let slots = [];
-    try { const r = await fetch(`${API}/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+    try { const r = await YS.fetch(`/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
 
-    const orden = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
-    slots.sort((a, b) => orden.indexOf(a.dia) - orden.indexOf(b.dia));
+    // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
+    // se ordena por el número de día, no por el texto.
+    slots.sort((a, b) => YS.dias.orden(a.dia) - YS.dias.orden(b.dia) || fmtHora(a.horaInicio).localeCompare(fmtHora(b.horaInicio)));
+    _agendaSlotsProf = slots;
+    if (YS.shell.actual !== 'agenda') return;
 
     c.innerHTML = `
-        <div class="titulo-seccion">Mi Agenda</div>
-
-        <div class="card" style="margin-bottom:20px">
-            <div class="cal-nav">
-                <button onclick="cambiarMesProfesional(-1)">&#8249;</button>
-                <span class="cal-mes" id="calTituloProfesional"></span>
-                <button onclick="cambiarMesProfesional(1)">&#8250;</button>
-            </div>
-            <div class="cal-grid" id="calGridProfesional"></div>
-        </div>
-        <div class="panel-turno-prof" id="panelTurnoProfesional" style="margin-bottom:20px"></div>
-
         <div class="card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <div class="titulo-seccion" style="margin-bottom:0">Mis horarios de trabajo</div>
-                <button class="btn-ver" onclick="abrirFormNuevoHorario()">+ Agregar día</button>
+            <div class="agenda-toolbar">
+                <div class="agenda-nav">
+                    <button class="btn-secundario" onclick="irAHoyProf()">Hoy</button>
+                    <button class="btn-secundario" onclick="navegarAgendaProf(-1)" aria-label="Anterior">&#8249;</button>
+                    <button class="btn-secundario" onclick="navegarAgendaProf(1)" aria-label="Siguiente">&#8250;</button>
+                    <span class="agenda-titulo cal-mes" id="calTituloProfesional"></span>
+                </div>
+                <div class="ui-segmentado" role="group" aria-label="Vista de la agenda">
+                    <button data-vista="dia"    onclick="cambiarVistaProf('dia')">Día</button>
+                    <button data-vista="semana" onclick="cambiarVistaProf('semana')">Semana</button>
+                    <button data-vista="mes"    onclick="cambiarVistaProf('mes')">Mes</button>
+                </div>
             </div>
+            <div class="ui-alerta ui-alerta--info agenda-aviso-reprog oculto" id="avisoReprogProf">
+                Reprogramando: elegí el nuevo día en el calendario del mes.
+            </div>
+            ${!slots.length ? YS.vacio({
+                icono: 'reloj', clase: 'agenda-sin-horarios',
+                titulo: 'Todavía no cargaste tus horarios de trabajo',
+                texto: 'Sin horarios, el calendario no sabe qué días y franjas ofrecerte turnos a tus pacientes.',
+                accion: { texto: 'Mis horarios de trabajo', onclick: "activarTab('horarios')" }
+            }) : ""}
+            <!-- Arranca en la vista elegida (por defecto Semana) para que no aparezca el mes un instante -->
+            <div id="vistaMesProf"${_vistaAgendaProf === 'mes' ? '' : ' class="oculto"'}><div class="cal-grid" id="calGridProfesional"></div></div>
+            <div id="vistaSemanaProf"${_vistaAgendaProf === 'mes' ? ' class="oculto"' : ''}></div>
+            <div class="agenda-leyenda">
+                <span class="ui-chip ui-chip--warn">Pendiente</span>
+                <span class="ui-chip ui-chip--marca">Propuesto por mí</span>
+                <span class="ui-chip ui-chip--ok">Confirmado</span>
+                <span class="ui-chip ui-chip--neutral">Cancelado</span>
+            </div>
+        </div>
+        <div class="panel-turno-prof" id="panelTurnoProfesional"></div>
+    `;
 
+    await renderCalendario();
+}
+
+// Mis horarios de trabajo (antes, la segunda tarjeta de la agenda)
+async function horarios() {
+    const c = document.getElementById('contenido');
+
+    let slots = [];
+    try { const r = await YS.fetch(`/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+
+    // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
+    // se ordena por el número de día, no por el texto.
+    slots.sort((a, b) => YS.dias.orden(a.dia) - YS.dias.orden(b.dia) || fmtHora(a.horaInicio).localeCompare(fmtHora(b.horaInicio)));
+    _agendaSlotsProf = slots;
+    if (YS.shell.actual !== 'horarios') return;
+
+    YS.shell.acciones([{ texto: 'Agregar horario', icono: 'mas', tipo: 'primary', alClick: abrirFormNuevoHorario }]);
+
+    c.innerHTML = `
+        <div class="card">
             <div id="slots-lista">
-                ${!slots.length ? '<div class="sin-turnos">No tenés horarios configurados.</div>' : `
+                ${!slots.length ? YS.vacio({ icono: 'reloj', titulo: 'Todavía no cargaste horarios', texto: 'Agregá los días y las franjas en que atendés para que se puedan pedir turnos.', accion: { texto: 'Agregar horario', onclick: 'abrirFormNuevoHorario()' } }) : `
                 <div class="tabla-wrapper">
                     <table>
                         <thead><tr><th>Día</th><th>Desde</th><th>Hasta</th><th>Intervalo</th><th>Turnos/día</th><th>Disponible</th><th></th></tr></thead>
                         <tbody>
                             ${slots.map(s => `
                             <tr id="slot-row-${s.idAgenda}">
-                                <td>${s.dia}</td>
+                                <td>${YS.esc(YS.dias.nombre(s.dia))}</td>
                                 <td>${fmtHora(s.horaInicio)}</td>
                                 <td>${fmtHora(s.horaFin)}</td>
-                                <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}" style="font-size:11px">${s.disponible ? 'Sí' : 'No'}</span></td>
-                                <td>
-                                    <button class="btn-ver" onclick="editarHorario(${s.idAgenda},'${s.dia}','${fmtHora(s.horaInicio)}','${fmtHora(s.horaFin)}',${s.disponible})">Editar</button>
-                                    <button class="btn-ver" style="margin-left:6px;background:linear-gradient(to right,#e53935,#b71c1c)" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
+                                <td>${s.intervaloMinutos ?? 30} min</td>
+                                <td>${calcularTurnos(s)}</td>
+                                <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}">${s.disponible ? 'Sí' : 'No'}</span></td>
+                                <td class="celda-acciones">
+                                    <button class="btn-ver" onclick="editarHorario(${s.idAgenda},'${s.dia}','${fmtHora(s.horaInicio)}','${fmtHora(s.horaFin)}',${s.disponible},${s.intervaloMinutos ?? 30})">Editar</button>
+                                    <button class="btn-peligro" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
                                 </td>
                             </tr>`).join('')}
                         </tbody>
@@ -461,63 +455,91 @@ async function agenda() {
                 </div>`}
             </div>
 
-            <div id="form-horario" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid #f0eaff;max-width:480px">
-                <div style="font-size:14px;font-weight:bold;color:#6A5ACD;margin-bottom:14px" id="form-horario-titulo">Agregar horario</div>
+            <div id="form-horario" class="form-horario oculto">
+                <div class="form-horario-titulo" id="form-horario-titulo">Agregar horario</div>
                 <input type="hidden" id="fh-id">
-                <div style="display:flex;gap:12px;flex-wrap:wrap">
-                    <div class="campo" style="flex:1;min-width:140px">
-                        <label>Día</label>
-                        <select id="fh-dia" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white">
+                <div class="form-fila">
+                    <div class="ui-campo">
+                        <label for="fh-dia">Día</label>
+                        <select id="fh-dia" class="ui-select">
                             <option>Lunes</option><option>Martes</option><option>Miércoles</option>
                             <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
                         </select>
                     </div>
-                    <div class="campo" style="flex:1;min-width:120px">
-                        <label>Hora inicio</label>
-                        <input type="time" id="fh-inicio" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;outline:none">
+                    <div class="ui-campo">
+                        <label for="fh-inicio">Hora inicio</label>
+                        <input type="time" id="fh-inicio" class="ui-input">
                     </div>
-                    <div class="campo" style="flex:1;min-width:120px">
-                        <label>Hora fin</label>
-                        <input type="time" id="fh-fin" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;outline:none">
+                    <div class="ui-campo">
+                        <label for="fh-fin">Hora fin</label>
+                        <input type="time" id="fh-fin" class="ui-input">
                     </div>
-                    <div class="campo" style="min-width:120px">
-                        <label>Disponible</label>
-                        <select id="fh-disponible" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white">
+                    <div class="ui-campo">
+                        <label for="fh-disponible">Disponible</label>
+                        <select id="fh-disponible" class="ui-select">
                             <option value="true">Sí</option>
                             <option value="false">No</option>
                         </select>
                     </div>
-
-                    <div class="campo" style="flex:1;min-width:140px">
-                        <label>Intervalo de atención</label>
-                        <select id="fh-intervalo" style="height:44px;padding:0 14px;border:2px solid #e0d4f5;border-radius:10px;font-size:15px;width:100%;background:white" onchange="actualizarPreviewNuevo()">
+                    <div class="ui-campo">
+                        <label for="fh-intervalo">Intervalo de atención</label>
+                        <select id="fh-intervalo" class="ui-select">
                             <option value="15">15 minutos</option>
                             <option value="20">20 minutos</option>
                             <option value="30" selected>30 minutos</option>
                             <option value="45">45 minutos</option>
                             <option value="60">60 minutos</option>
                             <option value="90">90 minutos</option>
-                        
                         </select>
                     </div>
-
-                <div id="fh-preview" style="font-size:13px;color:#6A5ACD;margin-top:8px"></div>
-                <div style="display:flex;gap:10px;margin-top:14px">
-                    <button class="btn-guardar-perfil" style="flex:1" onclick="guardarHorario()">Guardar</button>
-                    <button style="flex:1;height:48px;border:2px solid #e0d4f5;border-radius:10px;background:white;color:#555;font-size:15px;cursor:pointer" onclick="cerrarFormHorario()">Cancelar</button>
                 </div>
-                <div id="fh-msg" style="font-size:13px;margin-top:8px"></div>
+                <div id="fh-preview" class="form-preview" aria-live="polite"></div>
+                <div class="form-acciones">
+                    <button class="ui-btn ui-btn--primary" id="fh-guardar" onclick="guardarHorario()">Guardar</button>
+                    <button class="ui-btn" onclick="cerrarFormHorario()">Cancelar</button>
+                </div>
             </div>
         </div>
+        ${slots.length ? `<div class="card mt-16">
+            <h3>Así te ven los pacientes</h3>
+            <p class="texto-suave mb-12">Los próximos 14 días con los horarios que les quedan libres para pedir turno — el mismo cálculo que usa la reserva real.</p>
+            <div id="vista-previa-horarios">${YS.cargando()}</div>
+        </div>` : ''}
     `;
 
-    await renderCalendario();
+    ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
+    });
 
-    setTimeout(() => {
-        ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
-        });
-    }, 100);
+    if (slots.length) cargarVistaPreviaHorarios();
+}
+
+async function cargarVistaPreviaHorarios() {
+    const cont = document.getElementById('vista-previa-horarios');
+    if (!cont) return;
+    let libres = [];
+    try { libres = await YS.fetch(`/profesionales/${idProfesional}/horarios-libres?dias=14`).then(r => r.json()); }
+    catch { cont.innerHTML = YS.errorCarga({ texto: 'No se pudo calcular la vista previa.', reintentar: 'cargarVistaPreviaHorarios()' }); return; }
+    if (YS.shell.actual !== 'horarios' || !document.getElementById('vista-previa-horarios')) return;
+
+    if (!libres.length) {
+        cont.innerHTML = YS.vacio({ icono: 'reloj', texto: 'No queda ningún horario libre en los próximos 14 días.' });
+        return;
+    }
+
+    const porDia = new Map();
+    libres.forEach(iso => {
+        const d = new Date(iso);
+        const clave = YS.fecha.aISO(d);
+        if (!porDia.has(clave)) porDia.set(clave, { fecha: d, horas: [] });
+        porDia.get(clave).horas.push(YS.fecha.hora(d));
+    });
+
+    cont.innerHTML = `<div class="vista-previa-grilla">${[...porDia.values()].map(dia => `
+        <div class="vista-previa-dia">
+            <div class="vista-previa-fecha">${YS.esc(YS.fecha.separador(dia.fecha))}</div>
+            <div class="vista-previa-horas">${dia.horas.map(h => `<span class="ui-chip ui-chip--neutral">${YS.esc(h)}</span>`).join('')}</div>
+        </div>`).join('')}</div>`;
 }
 
 function abrirFormNuevoHorario() {
@@ -528,32 +550,37 @@ function abrirFormNuevoHorario() {
     document.getElementById('fh-intervalo').value = '30';
     document.getElementById('fh-disponible').value = 'true';
     document.getElementById('form-horario-titulo').textContent = 'Agregar horario';
-    document.getElementById('fh-msg').textContent = '';
     document.getElementById('fh-preview').textContent = '';
-    document.getElementById('form-horario').style.display = 'block';
-    document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
+    mostrarFormHorario();
 }
 
 function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
     document.getElementById('fh-id').value = id;
-    document.getElementById('fh-dia').value = dia;
+    // Las opciones del select son 'Lunes'…'Domingo'; si la base guardó 'miercoles', sin
+    // esto el select quedaba en la primera opción y al guardar el horario pasaba a lunes.
+    document.getElementById('fh-dia').value = YS.dias.nombre(dia);
     document.getElementById('fh-inicio').value = inicio;
     document.getElementById('fh-fin').value = fin;
     document.getElementById('fh-disponible').value = disponible ? 'true' : 'false';
     document.getElementById('fh-intervalo').value = intervalo;
     document.getElementById('form-horario-titulo').textContent = 'Editar horario';
-    document.getElementById('fh-msg').textContent = '';
-    document.getElementById('form-horario').style.display = 'block';
-    document.getElementById('form-horario').scrollIntoView({ behavior: 'smooth' });
+    mostrarFormHorario();
     actualizarPreviewNuevo();
 }
 
+function mostrarFormHorario() {
+    const form = document.getElementById('form-horario');
+    YS.form.limpiarTodo(form);
+    form.classList.remove('oculto');
+    form.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('fh-dia').focus();
+}
+
 function cerrarFormHorario() {
-    document.getElementById('form-horario').style.display = 'none';
+    document.getElementById('form-horario').classList.add('oculto');
 }
 
 async function guardarHorario() {
-    const msg      = document.getElementById('fh-msg');
     const id       = document.getElementById('fh-id').value;
     const dia      = document.getElementById('fh-dia').value;
     const inicio   = document.getElementById('fh-inicio').value;
@@ -561,8 +588,11 @@ async function guardarHorario() {
     const disp     = document.getElementById('fh-disponible').value === 'true';
     const intervalo = parseInt(document.getElementById('fh-intervalo')?.value ?? 30);
 
-    if (!inicio || !fin) { msg.style.color='#e74c3c'; msg.textContent='Completá hora inicio y fin.'; return; }
-    if (inicio >= fin)   { msg.style.color='#e74c3c'; msg.textContent='La hora inicio debe ser menor a la hora fin.'; return; }
+    const valido = YS.form.validar([
+        { id: 'fh-inicio', requerido: 'Elegí la hora de inicio.' },
+        { id: 'fh-fin', requerido: 'Elegí la hora de fin.', validar: v => inicio && v && v <= inicio ? 'Tiene que ser después de la hora de inicio.' : null }
+    ]);
+    if (!valido) return;
 
     const body = {
         idAgenda: id ? parseInt(id) : 0,
@@ -577,91 +607,24 @@ async function guardarHorario() {
     const url    = id ? `${API}/agendas/${id}` : `${API}/agendas`;
     const method = id ? 'PUT' : 'POST';
 
+    const boton = document.getElementById('fh-guardar');
+    boton.disabled = true;
     try {
-        const r = await fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-        if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('agenda'); }
-        else { msg.style.color='#e74c3c'; msg.textContent='Error al guardar.'; }
-    } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
+        const r = await YS.fetch(url, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (r.ok) { toast(id ? 'Horario actualizado' : 'Horario agregado'); activarTab('horarios'); }
+        else toast(await YS.leerMensaje(r, 'No se pudo guardar el horario.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+    finally { boton.disabled = false; }
 }
 
 async function eliminarHorario(id) {
-    const ok = await confirmar('¿Eliminar este horario?');
+    const ok = await confirmar('¿Eliminar este horario? Los turnos ya dados no cambian.', { titulo: 'Eliminar horario', textoConfirmar: 'Eliminar', peligro: true });
     if (!ok) return;
     try {
-        const r = await fetch(`${API}/agendas/${id}`, { method:'DELETE' });
-        if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('agenda'); }
-        else toast('Error al eliminar', 'error');
-    } catch { toast('Error de conexión', 'error'); }
-}
-
-async function responderTurno(id, aceptar) {
-    try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
-        turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
-        if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); activarTab('agenda'); }
-        else toast('Error al responder', 'error');
-    } catch { toast('Error de conexión', 'error'); }
-}
-
-async function crearTurnoProfesional() {
-    const msg = document.getElementById('nt-msg');
-    const idPac = document.getElementById('nt-paciente').value;
-    const fecha = document.getElementById('nt-fecha').value;
-    const hora  = document.getElementById('nt-hora').value;
-    const modalidad = document.getElementById('nt-modalidad').value;
-    const motivo    = document.getElementById('nt-motivo').value;
-
-    if (!idPac || !fecha || !hora) { msg.style.color='#e74c3c'; msg.textContent='Completá paciente, fecha y hora.'; return; }
-
-    try {
-        const r = await fetch(`${API}/turnos/profesional-solicitar`, {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ idPaciente:parseInt(idPac), idProfesional, fecha, hora:hora+':00', modalidad, motivo: motivo||null })
-        });
-        if (r.ok) { toast('Turno enviado al paciente'); activarTab('agenda'); }
-        else { msg.style.color='#e74c3c'; msg.textContent='Error al crear el turno.'; }
-    } catch { msg.style.color='#e74c3c'; msg.textContent='Error de conexión.'; }
-}
-
-async function renderTodosLosTurnos() {
-    let turnos = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
-        turnos = await r.json();
-    } catch { return '<div class="sin-turnos">Error al cargar.</div>'; }
-
-    const futuros = turnos
-        .filter(t => new Date(t.fecha) >= new Date() && t.idEstadoTurno !== 3)
-        .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
-    if (!futuros.length) return '<div class="sin-turnos">Sin turnos próximos.</div>';
-
-    const pacientes = {};
-    await Promise.all(futuros.map(async t => {
-        try { const r = await fetch(`${API}/pacientes/${t.idPaciente}`); pacientes[t.idPaciente] = await r.json(); } catch {}
-    }));
-
-    const estadoBadge = { 1:'badge-pendiente', 2:'badge-confirmado', 3:'badge-cancelado', 4:'badge-realizado' };
-    const estadoLabel = { 1:'Pendiente', 2:'Confirmado', 3:'Cancelado', 4:'Realizado' };
-
-    return `<div class="turnos-lista">` + futuros.map(t => {
-        const fecha = new Date(t.fecha);
-        const p = pacientes[t.idPaciente];
-        return `
-        <div class="turno-item">
-            <div class="turno-fecha-bloque">
-                <div class="turno-fecha-dia">${fecha.getDate()}</div>
-                <div class="turno-fecha-mes">${fecha.toLocaleString('es-AR', {month:'short'})}</div>
-            </div>
-            <div class="turno-info">
-                <div class="turno-paciente">${p ? `${p.nombre ?? ''} ${p.apellido ?? ''}`.trim() : 'Paciente #' + t.idPaciente}</div>
-                <div class="turno-meta">${t.hora?.substring(0,5) ?? ''}${t.motivo ? ' · ' + t.motivo : ''}</div>
-            </div>
-            <span class="badge-estado ${estadoBadge[t.idEstadoTurno] ?? ''}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
-        </div>`;
-    }).join('') + `</div>`;
+        const r = await YS.fetch(`/agendas/${id}`, { method:'DELETE' });
+        if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('horarios'); }
+        else toast(await YS.leerMensaje(r, 'No se pudo eliminar el horario.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
 }
 
 function fmtHora(h) {
@@ -669,149 +632,134 @@ function fmtHora(h) {
     return h.substring(0, 5);
 }
 
-async function pacientes() {
-    const c = document.getElementById('contenido');
-    let lista = [];
-    try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/pacientes`);
-        lista = await r.json();
-    } catch {}
+// ── HISTORIA CLÍNICA ────────────────────────────────────────
+// Modal del sistema (se cierra con Esc o con clic afuera) con tres pestañas.
+async function verHistoria(idPaciente) {
+    const cuerpo = YS.el('div', { class: 'hc', html: YS.cargando('Cargando la historia clínica…') });
+    const m = YS.modal({
+        titulo: 'Historia clínica', cuerpo, tamano: 'grande', clase: 'modal-historia',
+        acciones: [
+            { texto: 'Abrir sesión de video', alClick: c => { c.cerrar(); abrirSesionCon(idPaciente); } },
+            { texto: 'Cerrar', tipo: 'primary', foco: true, alClick: c => c.cerrar() }
+        ]
+    });
+    const [paciente, historia, sesiones] = await Promise.all([
+        YS.api(`/pacientes/${idPaciente}`).catch(() => null),
+        YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true }).catch(() => null),
+        YS.api(`/pacientes/${idPaciente}/sesiones-clinicas`).catch(() => [])
+    ]);
+    const evoluciones = historia?.idHistoria
+        ? await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`).catch(() => [])
+        : [];
+    if (m.cerrado) return;
+    if (paciente) m.elemento.querySelector('.ui-modal-titulo').textContent = `Historia clínica · ${YS.nombreCompleto(paciente)}`;
 
-    c.innerHTML = `
-        <div class="titulo-seccion">Mis Pacientes</div>
-        <div class="card">
-            ${!lista.length ? '<div class="sin-turnos">No tenés pacientes asignados.</div>' : `
-            <div class="tabla-wrapper">
-                <table>
-                    <thead><tr>
-                        <th>Nombre</th>
-                        <th>DNI</th>
-                        <th>Mail</th>
-                        <th>Teléfono</th>
-                        <th></th>
-                    </tr></thead>
-                    <tbody>
-                        ${lista.map(p => `
-                        <tr>
-                            <td>${[p.nombre, p.apellido].filter(Boolean).join(' ')}</td>
-                            <td>${p.dni ?? '—'}</td>
-                            <td>${p.mail ?? '—'}</td>
-                            <td>${p.telefono ?? '—'}</td>
-                            <td>
-                                <button class="btn-ver" onclick="verHistoria(${p.idPaciente}, '${escHtml([p.nombre, p.apellido].filter(Boolean).join(' '))}')">Historia</button>
-                                <button class="btn-sesion" onclick="activarTab('sesion')">Sesión</button>
-                            </td>
-                        </tr>`).join('')}
-                    </tbody>
-                </table>
-            </div>`}
+    const pestanas = [
+        { id: 'datos', texto: 'Datos del paciente', html: renderDatosPaciente(paciente) },
+        { id: 'evoluciones', texto: 'Evoluciones', n: evoluciones.length, html: renderEvoluciones(evoluciones) },
+        { id: 'sesiones', texto: 'Sesiones clínicas', n: sesiones.length, html: renderSesionesClinicas(sesiones) }
+    ];
+    cuerpo.innerHTML = `
+        <div class="ui-tabs" role="tablist" aria-label="Historia clínica">
+            ${pestanas.map((p, i) => `<button type="button" class="ui-tab${i ? '' : ' activo'}" role="tab" id="hc-tab-${p.id}"
+                aria-controls="hc-panel-${p.id}" aria-selected="${!i}" data-tab="${p.id}">${p.texto}${p.n != null
+                ? ` <span class="ui-contador ui-contador--suave">${p.n}</span>` : ''}</button>`).join('')}
         </div>
-
-        <div class="modal-overlay" id="modalHistoria">
-            <div class="modal-box">
-                <div class="modal-header">
-                    <span class="modal-titulo" id="modalTitulo">Historia Clínica</span>
-                    <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
-                </div>
-                <div class="modal-body" id="modalBody"></div>
-            </div>
-        </div>
-    `;
-}
-
-function escHtml(s) { return s.replace(/'/g, "\\'"); }
-
-function cerrarModal() {
-    document.getElementById('modalHistoria')?.classList.remove('visible');
-}
-
-async function verHistoria(idPaciente, nombrePaciente) {
-    document.getElementById('modalTitulo').textContent = `Historia Clínica — ${nombrePaciente}`;
-    document.getElementById('modalBody').innerHTML = '<div class="spinner">Cargando...</div>';
-    document.getElementById('modalHistoria').classList.add('visible');
-
-        let paciente = null, historia = null, evoluciones = [], sesiones = [];
-    try { paciente = await (await fetch(`${API}/pacientes/${idPaciente}`)).json(); } catch {}
-    try { historia = await (await fetch(`${API}/pacientes/${idPaciente}/historiaclinica`)).json(); } catch {}
-    if (historia?.idHistoria) {
-        try { evoluciones = await (await fetch(`${API}/historiasclinicas/${historia.idHistoria}/evoluciones`)).json(); } catch {}
-    }
-    try { sesiones = await (await fetch(`${API}/pacientes/${idPaciente}/sesiones-clinicas`)).json(); } catch {}
-
-    document.getElementById('modalBody').innerHTML = `
-        <div class="modal-tabs">
-            <button class="modal-tab activo" id="mtab-datos" onclick="modalTab('datos')">Datos del paciente</button>
-            <button class="modal-tab" id="mtab-evoluciones" onclick="modalTab('evoluciones')">Evoluciones</button>
-            <button class="modal-tab" id="mtab-sesiones" onclick="modalTab('sesiones')">Sesiones clínicas</button>
-        </div>
-        <div id="mpanel-datos">${renderDatosPaciente(paciente)}</div>
-        <div id="mpanel-evoluciones" style="display:none">${renderEvoluciones(evoluciones)}</div>
-        <div id="mpanel-sesiones" style="display:none">${renderSesionesClinicas(sesiones)}</div>
-    `;
-}
-
-function modalTab(nombre) {
-    ['datos','evoluciones','sesiones'].forEach(t => {
-        document.getElementById('mtab-' + t)?.classList.toggle('activo', t === nombre);
-        const p = document.getElementById('mpanel-' + t);
-        if (p) p.style.display = t === nombre ? 'block' : 'none';
+        ${pestanas.map((p, i) => `<div class="hc-panel${i ? ' oculto' : ''}" role="tabpanel" id="hc-panel-${p.id}" aria-labelledby="hc-tab-${p.id}">${p.html}</div>`).join('')}`;
+    cuerpo.querySelector('.ui-tabs').addEventListener('click', e => {
+        const b = e.target.closest('[data-tab]');
+        if (!b) return;
+        cuerpo.querySelectorAll('.ui-tab').forEach(t => {
+            t.classList.toggle('activo', t === b);
+            t.setAttribute('aria-selected', t === b);
+        });
+        cuerpo.querySelectorAll('.hc-panel').forEach(p => p.classList.toggle('oculto', p.id !== 'hc-panel-' + b.dataset.tab));
     });
 }
 
+// Sesión de video con el paciente ya elegido (desde Mis pacientes o desde la historia clínica)
+function abrirSesionCon(idPaciente) {
+    YS.shell.marcar('sesion');
+    sesion(idPaciente);
+}
 
 function renderSesionesClinicas(lista) {
+    if (!lista?.length) return YS.vacio({ icono: 'video', texto: 'Todavía no hay sesiones clínicas registradas.' });
     return lista.map(s => {
         let emociones = '';
         try {
             const emo = JSON.parse(s.historialEmociones || '{}');
             emociones = Object.entries(emo).map(([k,v]) =>
-                '<span style="display:inline-block;background:#f0f0f0;border-radius:6px;padding:3px 10px;font-size:12px;margin:2px">' + k + ': <strong>' + v + '%</strong></span>'
+                '<span class="ui-chip ui-chip--neutral ui-chip--sin-punto chip-emocion">' + YS.esc(k) + ': <strong>' + YS.esc(v) + '%</strong></span>'
             ).join('');
         } catch {}
         return '<div class="evolucion-item">' +
             '<div class="evolucion-fecha">' +
                 new Date(s.fechaHora).toLocaleDateString('es-AR', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) +
                 ' &nbsp;·&nbsp; ' + new Date(s.fechaHora).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) +
-                (s.tipoCierre ? ' &nbsp;<span style="background:#e8d5ff;color:#6A5ACD;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600">' + s.tipoCierre + '</span>' : '') +
+                (s.tipoCierre ? ' &nbsp;<span class="ui-chip ui-chip--info ui-chip--sin-punto">' + YS.esc(s.tipoCierre) + '</span>' : '') +
             '</div>' +
-            (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div style="margin-top:4px">' + emociones + '</div></div>' : '') +
-            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto" style="white-space:pre-line;max-height:180px;overflow-y:auto;font-size:12px">' + s.transcripcion + '</div></div>' : '') +
-            (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + s.notasEvolucion + '</div></div>' : '') +
+            (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div class="flex-gap mt-8">' + emociones + '</div></div>' : '') +
+            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto transcripcion">' + YS.esc(s.transcripcion) + '</div></div>' : '') +
+            (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + YS.esc(s.notasEvolucion) + '</div></div>' : '') +
         '</div>';
     }).join('');
 }
 
 function renderDatosPaciente(p) {
-    if (!p) return '<div class="sin-datos">Sin datos.</div>';
-    return `
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Nombre</span><span class="dato-valor">${[p.nombre, p.apellido].filter(Boolean).join(' ') || '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">DNI</span><span class="dato-valor">${p.dni ?? '—'}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Fecha de nacimiento</span><span class="dato-valor">${p.fechaNacimiento ? new Date(p.fechaNacimiento).toLocaleDateString('es-AR') : '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">Estado</span><span class="dato-valor">${p.estado ?? '—'}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Mail</span><span class="dato-valor">${p.mail ?? '—'}</span></div>
-            <div class="dato-item"><span class="dato-label">Teléfono</span><span class="dato-valor">${p.telefono ?? '—'}</span></div>
-        </div>
-        <div class="dato-fila">
-            <div class="dato-item"><span class="dato-label">Domicilio</span><span class="dato-valor">${p.domicilio ?? '—'}</span></div>
-        </div>
-    `;
+    if (!p) return YS.vacio({ icono: 'usuario', texto: 'No se pudieron cargar los datos del paciente.' });
+    const dato = (etiqueta, valor) => `
+        <div class="ui-dato"><span class="ui-dato-etiqueta">${etiqueta}</span>
+            <span class="ui-dato-valor${valor ? '' : ' vacio'}">${YS.esc(valor || '—')}</span></div>`;
+    return `<div class="ui-datos">
+        ${dato('Nombre', YS.nombreCompleto(p))}
+        ${dato('DNI', p.dni)}
+        ${dato('Fecha de nacimiento', p.fechaNacimiento ? YS.fecha.corta(p.fechaNacimiento) : '')}
+        ${dato('Estado', p.estado)}
+        ${dato('Mail', p.mail)}
+        ${dato('Teléfono', p.telefono)}
+        ${dato('Domicilio', p.domicilio)}
+    </div>`;
 }
 
-function renderEvoluciones(lista) {
-    if (!lista?.length) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
-    return lista.map(e => `
-        <div class="evolucion-item">
-            <div class="evolucion-fecha">${new Date(e.fecha).toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}</div>
-            ${e.diagnostico ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnóstico</div><div class="evolucion-bloque-texto">${e.diagnostico}</div></div>` : ''}
-            ${e.observaciones ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones / Transcripción IA</div><div class="evolucion-bloque-texto">${e.observaciones}</div></div>` : ''}
-            ${e.planTratamiento ? `<div class="evolucion-bloque"><div class="evolucion-bloque-label">Emociones / Plan</div><div class="evolucion-bloque-texto">${e.planTratamiento}</div></div>` : ''}
-        </div>
-    `).join('');
+// ── RN-02: consentimiento de telemedicina ───────────────────
+// El backend responde 409 { codigo: "RN-02", mensaje, urlConsentimiento } cuando se
+// intenta confirmar un turno de un paciente sin el consentimiento firmado.
+async function avisoConsentimiento(r) {
+    const data = await r.json().catch(() => ({}));
+    mostrarAvisoConsentimiento(
+        data.mensaje || 'El paciente todavía no firmó el consentimiento informado para atención por telemedicina.',
+        data.urlConsentimiento);
+}
+
+// Modal con el mensaje y el link para compartir con el paciente (el profesional no puede firmar por él).
+function mostrarAvisoConsentimiento(mensaje, url) {
+    const cuerpo = YS.el('div', { id: 'avisoConsentimiento' }, YS.el('p', { class: 'mb-12', text: mensaje }));
+    if (url) {
+        const input = YS.el('input', { class: 'ui-input', id: 'linkConsentimiento', readonly: true, value: url });
+        cuerpo.append(
+            YS.el('label', { class: 'ui-label', for: 'linkConsentimiento', text: 'Compartile al paciente este link para que lo firme desde su panel:' }),
+            YS.el('div', { class: 'dialogo-link mt-8' }, input,
+                YS.el('button', { class: 'ui-btn', type: 'button', text: 'Copiar', on: { click: () => { input.select(); YS.copiar(url, 'Link copiado'); } } })));
+    }
+    YS.modal({
+        titulo: 'No se puede confirmar el turno', cuerpo, rol: 'alertdialog', enfocarCampo: false,
+        acciones: [{ texto: 'Entendido', tipo: 'primary', foco: true, alClick: c => c.cerrar() }]
+    });
+}
+
+// Aviso persistente en la vista de sesión: la sesión arranca igual, pero el turno
+// queda sin confirmar hasta que el paciente firme.
+function bannerSinConsentimiento() {
+    const c = document.getElementById('contenido');
+    if (!c || document.getElementById('bannerSinConsentimiento')) return;
+    const b = document.createElement('div');
+    b.id = 'bannerSinConsentimiento';
+    b.className = 'ui-alerta mb-12';
+    b.setAttribute('role', 'alert');
+    b.textContent = 'Este paciente no tiene firmado el consentimiento informado para atención por telemedicina. ' +
+                    'La sesión puede hacerse igual, pero el turno queda sin confirmar hasta que lo firme desde su panel.';
+    c.prepend(b);
 }
 
 function sesion(idPaciente = null) {
@@ -819,7 +767,6 @@ function sesion(idPaciente = null) {
         ? `sesion_video.html?idPaciente=${idPaciente}` 
         : 'sesion_video.html';
     document.getElementById('contenido').innerHTML = `
-        <div class="titulo-seccion">Sesión de video</div>
         <div class="sesion-iframe-wrapper">
             <iframe src="${src}" allow="camera; microphone; display-capture"></iframe>
         </div>
@@ -827,75 +774,133 @@ function sesion(idPaciente = null) {
 }
 
 
+// Las mismas reglas que el registro (Pantalla_Usuario/Usuario/js/app.js)
+const RE_DNI   = /^\d{7,9}$/;
+const RE_MAIL  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const RE_TEL   = /^[\d\s+()-]{6,20}$/;
+// Un campo opcional que estaba vacío (null) y sigue vacío se manda como null, no como ""
+const opcional = (valor, original) => valor === '' && original == null ? null : valor;
+
 async function perfil() {
     const c = document.getElementById('contenido');
-    let prof = null, especialidades = [];
-    try { prof = await (await fetch(`${API}/profesionales/${idProfesional}`)).json(); } catch {}
-    try { especialidades = await (await fetch(`${API}/especialidades`)).json(); } catch {}
+    let prof;
+    try { prof = await YS.api(`/profesionales/${idProfesional}`); }
+    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('perfil')" }); return; }
+    const especialidades = await YS.api('/especialidades').catch(() => []);
+    if (YS.shell.actual !== 'perfil') return;
+    window._profActual = prof;
 
     const fn = prof?.fechaNacimiento ? prof.fechaNacimiento.substring(0, 10) : '';
-
+    const campo = (id, etiqueta, valor, extra = '') => `
+        <div class="ui-campo"><label for="${id}">${etiqueta}</label>
+            <input class="ui-input" id="${id}" value="${YS.esc(valor ?? '')}"${extra}></div>`;
     c.innerHTML = `
-        <div class="titulo-seccion">Mi Perfil</div>
-        <div class="card">
-            <div class="perfil-form">
-                <div class="campo"><label>Nombre</label><input id="pf-nombre" value="${prof?.nombre ?? ''}"></div>
-                <div class="campo"><label>Apellido</label><input id="pf-apellido" value="${prof?.apellido ?? ''}"></div>
-                <div class="campo"><label>Segundo nombre</label><input id="pf-segundoNombre" value="${prof?.segundoNombre ?? ''}"></div>
-                <div class="campo"><label>DNI</label><input id="pf-dni" value="${prof?.dni ?? ''}"></div>
-                <div class="campo"><label>Fecha de nacimiento</label><input type="date" id="pf-fechaNacimiento" value="${fn}"></div>
-                <div class="campo"><label>Mail</label><input id="pf-mail" value="${prof?.mail ?? ''}"></div>
-                <div class="campo"><label>Teléfono</label><input id="pf-telefono" value="${prof?.telefono ?? ''}"></div>
-                <div class="campo"><label>Provincia</label><input id="pf-provincia" value="${prof?.provincia ?? ''}"></div>
-                <div class="campo"><label>Matrícula</label><input id="pf-matricula" value="${prof?.matricula ?? ''}" disabled></div>
-                <div class="campo">
-                    <label>Especialidad</label>
-                    <select id="pf-especialidad">
-                        ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${e.nombre ?? e.descripcion ?? e.idEspecialidad}</option>`).join('')}
-                    </select>
+        <div class="card perfil-form">
+            <form id="formPerfil" novalidate>
+                <div class="ui-form-grid">
+                    ${campo('pf-nombre', 'Nombre', prof?.nombre, ' autocomplete="given-name" maxlength="60"')}
+                    ${campo('pf-apellido', 'Apellido', prof?.apellido, ' autocomplete="family-name" maxlength="60"')}
+                    ${campo('pf-segundoNombre', 'Segundo nombre', prof?.segundoNombre, ' autocomplete="additional-name" maxlength="60"')}
+                    ${campo('pf-dni', 'DNI', prof?.dni, ' inputmode="numeric" maxlength="9"')}
+                    <div class="ui-campo"><label for="pf-fechaNacimiento">Fecha de nacimiento</label>
+                        <input class="ui-input" type="date" id="pf-fechaNacimiento" value="${fn}" max="${YS.fecha.aISO(new Date())}"></div>
+                    ${campo('pf-mail', 'Mail', prof?.mail, ' type="email" autocomplete="email" maxlength="100"')}
+                    ${campo('pf-telefono', 'Teléfono', prof?.telefono, ' type="tel" autocomplete="tel" maxlength="20"')}
+                    ${campo('pf-provincia', 'Provincia', prof?.provincia, ' maxlength="60"')}
+                    <div class="ui-campo"><label for="pf-matricula">Matrícula</label>
+                        <input class="ui-input" id="pf-matricula" value="${YS.esc(prof?.matricula ?? '')}" disabled>
+                        <div class="ui-campo-ayuda">La cambia el equipo de YoSoy.</div></div>
+                    <div class="ui-campo"><label for="pf-especialidad">Especialidad</label>
+                        <select id="pf-especialidad" class="ui-select">
+                            ${especialidades.map(e => `<option value="${e.idEspecialidad}" ${e.idEspecialidad === prof?.idEspecialidad ? 'selected' : ''}>${YS.esc(e.nombre ?? e.descripcion ?? e.idEspecialidad)}</option>`).join('')}
+                        </select></div>
                 </div>
-                <button class="btn-guardar-perfil" onclick="guardarPerfil()">Guardar cambios</button>
-                <div class="msg-ok" id="msg-perfil-ok">Perfil actualizado correctamente.</div>
-            </div>
+                <div class="ui-form-acciones">
+                    <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
+                </div>
+            </form>
         </div>
-    `;
-    window._profActual = prof;
+        <div class="card mt-16">
+            <h3>Link público de reserva</h3>
+            ${prof?.linkPublicoActivo ? `
+                <p class="texto-suave mb-12">Cualquiera que tenga este link puede ver tus próximos horarios libres y pedir un turno. Si lo apagás, deja de funcionar al instante.</p>
+                <div class="dialogo-link mb-12">
+                    <input class="ui-input" id="linkPublicoUrl" readonly value="${YS.esc(urlLinkPublico(prof.slug))}">
+                    <button class="ui-btn" type="button" onclick="document.getElementById('linkPublicoUrl').select(); YS.copiar(urlLinkPublico('${prof.slug}'), 'Link copiado')">Copiar</button>
+                </div>
+                <button class="ui-btn ui-btn--danger" type="button" onclick="toggleLinkPublico(false)">Apagar link</button>
+            ` : `
+                <p class="texto-suave mb-12">Activalo para tener una página pública con tus horarios libres, para que un paciente pida turno sin necesidad de que lo contactes antes.</p>
+                <button class="ui-btn ui-btn--primary" type="button" onclick="toggleLinkPublico(true)">Activar link público</button>
+            `}
+        </div>`;
+    document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
+}
+
+function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
+
+async function toggleLinkPublico(activo) {
+    try {
+        const r = await YS.fetch(`/profesionales/${idProfesional}/link-publico`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo })
+        });
+        if (r.ok) { toast(activo ? 'Link público activado' : 'Link público apagado'); activarTab('perfil'); }
+        else toast(await YS.leerMensaje(r, 'No se pudo cambiar el link público.'), 'error');
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    }
 }
 
 async function guardarPerfil() {
+    const hoy = YS.fecha.aISO(new Date());
+    const valido = YS.form.validar([
+        { id: 'pf-nombre', requerido: 'Ingresá tu nombre.' },
+        { id: 'pf-apellido', requerido: 'Ingresá tu apellido.' },
+        { id: 'pf-dni', requerido: 'Ingresá tu DNI.', patron: RE_DNI, mensajePatron: 'El DNI tiene que tener entre 7 y 9 números, sin puntos.' },
+        { id: 'pf-fechaNacimiento', validar: v => v && v > hoy ? 'La fecha de nacimiento no puede ser futura.' : null },
+        { id: 'pf-mail', requerido: 'Ingresá tu mail: ahí te llegan los avisos.', patron: RE_MAIL, mensajePatron: 'Ingresá un mail válido.' },
+        { id: 'pf-telefono', patron: RE_TEL, mensajePatron: 'Usá solo números, espacios, + o guiones.' }
+    ]);
+    if (!valido) return;
+
+    const valor = id => document.getElementById(id).value.trim();
+    const antes = window._profActual || {};
     const prof = {
-        ...window._profActual,
-        nombre:          document.getElementById('pf-nombre').value,
-        apellido:        document.getElementById('pf-apellido').value,
-        segundoNombre:   document.getElementById('pf-segundoNombre').value,
-        dni:             document.getElementById('pf-dni').value,
-        fechaNacimiento: document.getElementById('pf-fechaNacimiento').value || null,
-        mail:            document.getElementById('pf-mail').value,
-        telefono:        document.getElementById('pf-telefono').value,
-        provincia:       document.getElementById('pf-provincia').value,
+        ...antes,
+        nombre:          valor('pf-nombre'),
+        apellido:        valor('pf-apellido'),
+        segundoNombre:   opcional(valor('pf-segundoNombre'), antes.segundoNombre),
+        dni:             valor('pf-dni'),
+        fechaNacimiento: valor('pf-fechaNacimiento') || null,
+        mail:            valor('pf-mail'),
+        telefono:        opcional(valor('pf-telefono'), antes.telefono),
+        provincia:       opcional(valor('pf-provincia'), antes.provincia),
         idEspecialidad:  parseInt(document.getElementById('pf-especialidad').value),
     };
+    const boton = document.getElementById('btnGuardarPerfil');
+    boton.disabled = true;
     try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}`, {
+        const r = await YS.fetch(`/profesionales/${idProfesional}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(prof)
         });
-        if (r.ok) {
-            const ok = document.getElementById('msg-perfil-ok');
-            ok.style.display = 'block';
-            setTimeout(() => ok.style.display = 'none', 3000);
-            toast('Perfil actualizado');
-        } else { toast('Error al guardar', 'error'); }
-    } catch { toast('Error de conexión', 'error'); }
+        if (r.ok) { window._profActual = prof; toast('Tu perfil quedó guardado.'); }
+        else toast(await YS.leerMensaje(r, 'No se pudieron guardar los cambios.'), 'error');
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function responderTurnoDesdeCal(id, aceptar) {
     try {
-        const turno = await (await fetch(`${API}/turnos/${id}`)).json();
+        const turno = await (await YS.fetch(`/turnos/${id}`)).json();
         turno.idEstadoTurno = aceptar ? 2 : 3;
-        const r = await fetch(`${API}/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+        const r = await YS.fetch(`/turnos/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
         if (r.ok) { toast(aceptar ? 'Turno aceptado' : 'Turno rechazado', aceptar ? 'ok' : 'warn'); await renderCalendario(); mostrarPanelDiaProfesional(_diaSeleccionadoProf); }
+        else if (r.status === 409) await avisoConsentimiento(r);
         else toast('Error', 'error');
     } catch { toast('Error de conexión', 'error'); }
 }
@@ -905,28 +910,12 @@ let _diaSeleccionadoProf = null;
 let _diaAgendaDisponible = false;
 
 async function cerrarSesion() {
-    const confirmado = await confirmar('¿Cerrar sesión?');
-    if (!confirmado) return;
-    localStorage.clear();
-    window.location.href = '/pantallas/index.html';
+    await YS.sesion.cerrar();
 }
 
-function confirmar(msg) {
-    return new Promise(resolve => {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
-        overlay.innerHTML = `
-            <div style="background:white;border-radius:16px;padding:32px 28px;max-width:340px;width:90%;text-align:center">
-                <p style="font-size:15px;color:#444;margin-bottom:20px">${msg}</p>
-                <div style="display:flex;gap:10px;justify-content:center">
-                    <button id="conf-si" style="background:#e53935;color:white;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold">Sí</button>
-                    <button id="conf-no" style="background:#eee;color:#555;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px">No</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-        overlay.querySelector('#conf-si').onclick = () => { overlay.remove(); resolve(true); };
-        overlay.querySelector('#conf-no').onclick = () => { overlay.remove(); resolve(false); };
-    });
+// Confirmaciones del sistema de diseño: confirmar(texto, { titulo, textoConfirmar, peligro })
+function confirmar(msg, opciones = {}) {
+    return YS.confirmar({ mensaje: msg, ...opciones });
 }
 
 const MESES      = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -944,7 +933,7 @@ let _agendaReprogProf    = [];
 
 async function renderCalendario() {
     try {
-        const r = await fetch(`${API}/profesionales/${idProfesional}/turnos`);
+        const r = await YS.fetch(`/profesionales/${idProfesional}/turnos`);
         turnosCalendarioProfesional = await r.json();
     } catch { turnosCalendarioProfesional = []; }
     await dibujarCalendarioProfesional();
@@ -1004,20 +993,29 @@ async function dibujarCalendarioProfesional() {
             const soloCancelado = tieneT && turnosPorDia[dia].every(t => t.idEstadoTurno === 3);
             const mePidieron    = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor === 'paciente');
             const yoPedi        = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor === 'profesional');
+            // Pendientes que esperan al profesional: pedidos del paciente y los anteriores a la
+            // columna CreadoPor (sin autor conocido).
+            const pendienteParaMi = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno === 1 && t.creadoPor !== 'profesional');
 
-            if (mePidieron && yoPedi) {
+            // Autoconfirmación ("si el paciente pidió y yo propuse el mismo día, se confirman todos
+            // los pendientes de ese día"): nunca corrió, porque creadoPor no llegaba del backend.
+            // Ahora que llega queda apagada a propósito: confirmaría turnos de pacientes distintos
+            // del mismo día y escribe en la base solo por abrir el calendario. Para activarla hace
+            // falta una decisión del equipo (ver CAMBIOS_AGUS.md).
+            const AUTOCONFIRMAR = false;
+            if (AUTOCONFIRMAR && mePidieron && yoPedi) {
                 turnosPorDia[dia].filter(t => t.idEstadoTurno === 1).forEach(t => {
                     autoconfirmarPromesas.push(
-                        fetch(`${API}/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
+                        YS.fetch(`/turnos/${t.idTurno}`).then(r => r.json()).then(turno => {
                             turno.idEstadoTurno = 2;
-                            return fetch(`${API}/turnos/${t.idTurno}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
+                            return YS.fetch(`/turnos/${t.idTurno}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(turno) });
                         }).catch(() => {})
                     );
                 });
             }
 
             const claseT = tieneT
-                ? (soloCancelado ? 'con-turno-cancelado' : (mePidieron && !yoPedi) ? 'con-turno-pendiente-ellos' : (yoPedi && !mePidieron) ? 'con-turno-pendiente-yo' : 'con-turno')
+                ? (soloCancelado ? 'con-turno-cancelado' : pendienteParaMi ? 'con-turno-pendiente-ellos' : yoPedi ? 'con-turno-pendiente-yo' : 'con-turno')
                 : (esPasado ? 'pasado' : 'futuro');
             clases  = ['cal-dia', claseT, esHoy ? 'hoy' : ''].join(' ').trim();
             onclick = !esPasado || tieneT ? `onclick="mostrarPanelDiaProfesional(${dia})"` : '';
@@ -1029,6 +1027,221 @@ async function dibujarCalendarioProfesional() {
     if (autoconfirmarPromesas.length) {
         await Promise.all(autoconfirmarPromesas);
         await renderCalendario();
+    }
+    await dibujarSemanaProfesional();
+}
+
+// ── Agenda: vistas Día / Semana / Mes ─────────────────────
+// El mes se sigue dibujando siempre (dibujarCalendarioProfesional, con la misma lógica
+// de siempre, incluida la autoconfirmación); cuando la vista es Día o Semana queda oculto
+// y además se dibuja esta grilla con los mismos turnos. Al hacer clic en un turno o en un
+// día se abre el mismo panel del día (mostrarPanelDiaProfesional) con las mismas acciones.
+// Mientras se reprograma se muestra el mes, porque ahí se elige el nuevo día.
+let _vistaAgendaProf = 'semana';
+let _fechaRefProf    = new Date();
+let _agendaSlotsProf = [];
+const HORA_PX = 64;
+const ESTADO_TURNO_LABEL = { 1: 'Pendiente', 2: 'Confirmado', 3: 'Cancelado', 4: 'Realizado' };
+
+function inicioSemanaProf(d) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    return x;
+}
+
+function diasVisiblesProf() {
+    if (_vistaAgendaProf === 'dia')
+        return [new Date(_fechaRefProf.getFullYear(), _fechaRefProf.getMonth(), _fechaRefProf.getDate())];
+    const lunes = inicioSemanaProf(_fechaRefProf);
+    return Array.from({ length: 7 }, (_, i) => new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + i));
+}
+
+function sincronizarMesProf() {
+    calAnio = _fechaRefProf.getFullYear();
+    calMes  = _fechaRefProf.getMonth();
+}
+
+async function cambiarVistaProf(vista) {
+    if (vista !== 'mes' && _vistaAgendaProf === 'mes') {
+        // Al pasar del mes a Día/Semana: el día de hoy si es este mes, si no el primero del mes.
+        const hoy = new Date();
+        _fechaRefProf = (calAnio === hoy.getFullYear() && calMes === hoy.getMonth()) ? hoy : new Date(calAnio, calMes, 1);
+    }
+    _vistaAgendaProf = vista;
+    if (vista !== 'mes') sincronizarMesProf();
+    await dibujarCalendarioProfesional();
+}
+
+async function navegarAgendaProf(delta) {
+    if (_vistaAgendaProf === 'mes' || _modoReprogramarProf) { await cambiarMesProfesional(delta); return; }
+    const paso = _vistaAgendaProf === 'dia' ? 1 : 7;
+    _fechaRefProf = new Date(_fechaRefProf.getFullYear(), _fechaRefProf.getMonth(), _fechaRefProf.getDate() + delta * paso);
+    sincronizarMesProf();
+    document.getElementById('panelTurnoProfesional')?.classList.remove('visible');
+    await dibujarCalendarioProfesional();
+}
+
+async function irAHoyProf() {
+    _fechaRefProf = new Date();
+    sincronizarMesProf();
+    if (!_modoReprogramarProf) document.getElementById('panelTurnoProfesional')?.classList.remove('visible');
+    await dibujarCalendarioProfesional();
+}
+
+// Clic en un turno o en la cabecera de un día de la grilla: mismo panel que en el mes.
+async function abrirDiaDesdeSemanaProf(anio, mes, dia) {
+    calAnio = anio; calMes = mes;
+    _diaSeleccionadoProf = dia;
+    await dibujarCalendarioProfesional();
+    await mostrarPanelDiaProfesional(dia);
+    await dibujarSemanaProfesional();   // marca el día abierto en la grilla
+    document.getElementById('panelTurnoProfesional')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function actualizarVistaAgendaProf() {
+    const mes     = document.getElementById('vistaMesProf');
+    const semana  = document.getElementById('vistaSemanaProf');
+    const titulo  = document.getElementById('calTituloProfesional');
+    if (!mes || !semana || !titulo) return;
+    const verMes = _vistaAgendaProf === 'mes' || _modoReprogramarProf;
+    mes.classList.toggle('oculto', !verMes);
+    semana.classList.toggle('oculto', verMes);
+    document.getElementById('avisoReprogProf')?.classList.toggle('oculto', !_modoReprogramarProf);
+    document.querySelectorAll('.ui-segmentado [data-vista]').forEach(b =>
+        b.classList.toggle('activo', b.dataset.vista === (verMes ? 'mes' : _vistaAgendaProf)));
+    if (verMes) return;   // el título del mes lo pone dibujarCalendarioProfesional
+    const dias = diasVisiblesProf();
+    if (_vistaAgendaProf === 'dia') {
+        titulo.textContent = dias[0].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    } else {
+        const a = dias[0], b = dias[6];
+        const fmt = d => d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
+        titulo.textContent = `${fmt(a)} – ${fmt(b)} ${b.getFullYear()}`;
+    }
+}
+
+async function dibujarSemanaProfesional() {
+    actualizarVistaAgendaProf();
+    const cont = document.getElementById('vistaSemanaProf');
+    if (!cont || cont.classList.contains('oculto')) return;
+
+    const dias = diasVisiblesProf();
+    const clave = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const porDia = {};
+    turnosCalendarioProfesional.forEach(t => {
+        const f = new Date(t.fecha);
+        (porDia[clave(f)] ??= []).push(t);
+    });
+    const visibles = dias.flatMap(d => porDia[clave(d)] ?? []);
+
+    // Nombres de pacientes (mismo caché que usa el panel del día)
+    await Promise.all([...new Set(visibles.map(t => t.idPaciente))].map(async id => {
+        if (!_pacientesCalMap[id]) {
+            try { _pacientesCalMap[id] = await (await YS.fetch(`/pacientes/${id}`)).json(); } catch {}
+        }
+    }));
+
+    // Franja horaria: la agenda de trabajo y los turnos visibles (por defecto 8 a 20)
+    const aMin = h => { const [hh, mm] = fmtHora(h).split(':').map(Number); return hh * 60 + (mm || 0); };
+    const franjasDia = d => _agendaSlotsProf.filter(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === d.getDay() && a.horaInicio && a.horaFin);
+    let desde = 8 * 60, hasta = 20 * 60;
+    const inicios = [], fines = [];
+    dias.forEach(d => franjasDia(d).forEach(a => { inicios.push(aMin(a.horaInicio)); fines.push(aMin(a.horaFin)); }));
+    visibles.forEach(t => { inicios.push(aMin(t.hora)); fines.push(aMin(t.hora) + 60); });
+    if (inicios.length) desde = Math.min(desde, Math.floor(Math.min(...inicios) / 60) * 60);
+    if (fines.length)   hasta = Math.max(hasta, Math.ceil(Math.max(...fines) / 60) * 60);
+    const alto = ((hasta - desde) / 60) * HORA_PX;
+    const y = min => ((min - desde) / 60) * HORA_PX;
+
+    const hoy = new Date();
+    const hoySinHora = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const columnas = `56px repeat(${dias.length}, minmax(0, 1fr))`;
+
+    const cabecera = dias.map(d => {
+        const esHoy = d.getTime() === hoySinHora.getTime();
+        const esPasado = d < hoySinHora;
+        const tieneT = !!porDia[clave(d)];
+        const sel = _diaSeleccionadoProf === d.getDate() && calMes === d.getMonth() && calAnio === d.getFullYear()
+            && document.getElementById('panelTurnoProfesional')?.classList.contains('visible');
+        const click = (!esPasado || tieneT) ? `onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})"` : '';
+        return `<button class="semana-col-cab${esHoy ? ' hoy' : ''}${esPasado && !tieneT ? ' pasado' : ''}${sel ? ' seleccionado' : ''}" ${click}>
+                    <span class="dia-nombre">${DIAS[(d.getDay() + 6) % 7]}</span>
+                    <span class="dia-numero">${d.getDate()}</span>
+                </button>`;
+    }).join('');
+
+    let horas = '';
+    for (let m = desde; m <= hasta; m += 60)
+        if (m > desde) horas += `<div class="semana-hora" style="top:${y(m)}px">${String(m / 60).padStart(2, '0')}:00</div>`;
+
+    const cols = dias.map(d => {
+        let html = '';
+        for (let m = desde; m < hasta; m += 30)
+            html += `<div class="semana-linea${m % 60 ? ' media' : ''}" style="top:${y(m)}px"></div>`;
+        // Fuera del horario de trabajo: rayado suave
+        const fr = franjasDia(d).map(a => [aMin(a.horaInicio), aMin(a.horaFin)]).sort((a, b) => a[0] - b[0]);
+        let cursor = desde;
+        fr.forEach(([i, f]) => {
+            if (i > cursor) html += `<div class="semana-fuera" style="top:${y(cursor)}px;height:${y(i) - y(cursor)}px"></div>`;
+            cursor = Math.max(cursor, f);
+        });
+        if (cursor < hasta) html += `<div class="semana-fuera" style="top:${y(cursor)}px;height:${y(hasta) - y(cursor)}px"></div>`;
+        // Turnos. Los que se superponen (por ejemplo uno cancelado y otro nuevo a la
+        // misma hora) se reparten el ancho de la columna en carriles, como en cualquier calendario.
+        const intervalo = franjasDia(d)[0]?.intervaloMinutos ?? 30;
+        const items = (porDia[clave(d)] ?? [])
+            .map(t => ({ t, i: aMin(t.hora), f: aMin(t.hora) + intervalo }))
+            .sort((a, b) => a.i - b.i || a.t.idEstadoTurno - b.t.idEstadoTurno);
+        let grupo = [], finGrupo = -1;
+        const cerrarGrupo = () => {
+            const carriles = [];
+            grupo.forEach(it => {
+                let c = carriles.findIndex(fin => fin <= it.i);
+                if (c < 0) { c = carriles.length; carriles.push(0); }
+                carriles[c] = it.f; it.carril = c;
+            });
+            grupo.forEach(it => it.carriles = carriles.length);
+            grupo = []; finGrupo = -1;
+        };
+        items.forEach(it => {
+            if (grupo.length && it.i >= finGrupo) cerrarGrupo();
+            grupo.push(it); finGrupo = Math.max(finGrupo, it.f);
+        });
+        if (grupo.length) cerrarGrupo();
+        items.forEach(({ t, i: inicio, carril, carriles }) => {
+            const p = _pacientesCalMap[t.idPaciente];
+            const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
+            const alto = Math.max(22, (intervalo / 60) * HORA_PX - 3);
+            const posicion = `left:calc(3px + (100% - 6px) * ${carril} / ${carriles});width:calc((100% - 6px) / ${carriles} - 2px)`;
+            const propuesto = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
+            html += `<button class="bloque-turno estado-${t.idEstadoTurno}${propuesto ? ' propuesto' : ''}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
+                         title="${fmtHora(t.hora)} · ${YS.esc(nombre)} · ${propuesto ? 'Propuesto, espera al paciente' : ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
+                         onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})">
+                        <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${YS.esc(nombre)}</span>
+                    </button>`;
+        });
+        // Línea de "ahora"
+        if (d.getTime() === hoySinHora.getTime()) {
+            const ahora = hoy.getHours() * 60 + hoy.getMinutes();
+            if (ahora >= desde && ahora <= hasta) html += `<div class="semana-ahora" style="top:${y(ahora)}px"></div>`;
+        }
+        return `<div class="semana-col${d.getTime() === hoySinHora.getTime() ? ' hoy' : ''}" style="height:${alto}px">${html}</div>`;
+    }).join('');
+
+    const scrollPrevio = cont.querySelector('.semana-cuerpo')?.scrollTop;
+    cont.innerHTML = `
+        <div class="semana">
+            <div class="semana-cabecera" style="grid-template-columns:${columnas}"><div></div>${cabecera}</div>
+            <div class="semana-cuerpo" style="grid-template-columns:${columnas}">
+                <div class="semana-horas" style="height:${alto}px">${horas}</div>${cols}
+            </div>
+        </div>`;
+    const cuerpo = cont.querySelector('.semana-cuerpo');
+    if (scrollPrevio != null) cuerpo.scrollTop = scrollPrevio;
+    else {
+        // Primera vez: arrancar cerca del comienzo del horario de trabajo
+        const primero = Math.min(...dias.flatMap(d => franjasDia(d).map(a => aMin(a.horaInicio))), hasta);
+        cuerpo.scrollTop = Math.max(0, y(primero) - 12);
     }
 }
 
@@ -1049,21 +1262,20 @@ async function mostrarPanelDiaProfesional(dia) {
 
     await Promise.all(turnosDia.map(async t => {
         if (!_pacientesCalMap[t.idPaciente]) {
-            try { _pacientesCalMap[t.idPaciente] = await (await fetch(`${API}/pacientes/${t.idPaciente}`)).json(); } catch {}
+            try { _pacientesCalMap[t.idPaciente] = await (await YS.fetch(`/pacientes/${t.idPaciente}`)).json(); } catch {}
         }
     }));
 
     const estadoLabel = { 1:'Pendiente', 2:'Confirmado', 3:'Cancelado', 4:'Realizado' };
-    const estadoColor = { 1:'#fff3cd|#856404', 2:'#d1e7dd|#0f5132', 3:'#f8d7da|#842029', 4:'#e2e3e5|#41464b' };
     const fechaStr    = `${calAnio}-${String(calMes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
     const tieneActivo = turnosDia.some(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4);
 
     const turnosHtml = turnosDia.map(t => {
         const p = _pacientesCalMap[t.idPaciente];
-        const [bg, fg] = (estadoColor[t.idEstadoTurno] ?? '#e2e3e5|#41464b').split('|');
         const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
         const puedeAccionar = t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4;
         const esPendientePaciente = t.idEstadoTurno === 1 && t.creadoPor === 'paciente';
+        const esPropuestoPorMi    = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
         return `
         <div class="panel-top${t.idEstadoTurno === 3 ? ' panel-cancelado' : ''}">
             <div class="panel-hora-bloque">
@@ -1071,44 +1283,46 @@ async function mostrarPanelDiaProfesional(dia) {
                 <div class="panel-hora-label">hs</div>
             </div>
             <div class="panel-info-principal">
-                <div class="panel-profesional">${nombre}</div>
+                <div class="panel-profesional">${YS.esc(nombre)}</div>
             </div>
-            <span class="panel-estado-badge" style="background:${bg};color:${fg}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span>
+            <span class="panel-estado-badge estado-${t.idEstadoTurno}${esPropuestoPorMi ? ' estado-propuesto' : ''}">${esPropuestoPorMi ? 'Propuesto' : (estadoLabel[t.idEstadoTurno] ?? '—')}</span>
         </div>
-        ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${t.motivo}</span></div></div>` : ''}
+        ${esPropuestoPorMi ? `<p class="texto-suave mb-12">Lo propusiste vos: queda pendiente hasta que el paciente lo confirme.</p>` : ''}
+        ${esPendientePaciente ? `<p class="texto-suave mb-12">Lo pidió el paciente: aceptalo o rechazalo.</p>` : ''}
+        ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${YS.esc(t.motivo)}</span></div></div>` : ''}
         ${esPendientePaciente ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-guardar" onclick="responderTurnoDesdeCal(${t.idTurno}, true)">Aceptar</button>
-                <button class="btn-ver" style="background:linear-gradient(to right,#e53935,#b71c1c)" onclick="responderTurnoDesdeCal(${t.idTurno}, false)">Rechazar</button>
+                <button class="btn-peligro" onclick="responderTurnoDesdeCal(${t.idTurno}, false)">Rechazar</button>
             </div>` : ''}
         ${puedeAccionar && !esPendientePaciente ? `
             <div class="panel-acciones">
                 <button class="btn-accion btn-cancelar" onclick="cancelarTurnoProf(${t.idTurno})">Cancelar turno</button>
-                <button class="btn-accion btn-reprogramar" id="btnReprogramarProf" onclick="abrirFormReprogramarProf(${t.idTurno})">Reprogramar</button>
+                <button class="btn-accion btn-reprogramar" id="btnReprogramarProf-${t.idTurno}" onclick="abrirFormReprogramarProf(${t.idTurno})">Reprogramar</button>
             </div>
-            <div class="form-reprogramar" id="formReprogramarProf">
+            <div class="form-reprogramar" id="formReprogramarProf-${t.idTurno}">
                 <p class="reprog-instruccion">Seleccioná el nuevo día en el calendario</p>
-                <div id="reprogDetallesProf" style="display:none">
-                    <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf"></div>
-                    <div class="form-fila" style="margin-top:12px">
-                        <div class="form-grupo" style="flex:1">
+                <div id="reprogDetallesProf-${t.idTurno}" class="oculto">
+                    <div class="reprog-dia-seleccionado" id="reprogDiaLabelProf-${t.idTurno}"></div>
+                    <div class="form-fila mt-12">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Hora</label>
-                            <select id="reprogHoraProf" class="turno-input"></select>
+                            <select id="reprogHoraProf-${t.idTurno}" class="turno-input"></select>
                         </div>
-                        <div class="form-grupo" style="flex:1">
+                        <div class="form-grupo form-grupo--ancho">
                             <label>Motivo</label>
-                            <input type="text" id="reprogMotivoProf" class="turno-input" placeholder="Motivo del cambio...">
+                            <input type="text" id="reprogMotivoProf-${t.idTurno}" class="turno-input" placeholder="Motivo del cambio...">
                         </div>
                     </div>
-                    <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarReprogramarProf(${t.idTurno})">Confirmar reprogramación</button>
+                    <button class="btn-accion btn-guardar mt-12" onclick="confirmarReprogramarProf(${t.idTurno})">Confirmar reprogramación</button>
                 </div>
-                <button class="btn-accion btn-cancelar" style="margin-top:10px" onclick="cancelarModoReprogramarProf()">Cancelar reprogramación</button>
+                <button class="btn-accion btn-cancelar mt-12" onclick="cancelarModoReprogramarProf()">Cancelar reprogramación</button>
             </div>` : ''}
         <div class="panel-separador"></div>`;
     }).join('');
 
     let agendaProf = [];
-    try { agendaProf = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
+    try { agendaProf = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
     const diaSem     = new Date(fechaStr + 'T12:00:00').getDay();
     const tieneSlot  = agendaProf.some(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === diaSem);
 
@@ -1118,7 +1332,7 @@ async function mostrarPanelDiaProfesional(dia) {
         </div>
         <div class="form-solicitar-dia" id="formSolicitudProf">
             <div class="form-fila">
-                <div class="form-grupo" style="flex:1">
+                <div class="form-grupo form-grupo--ancho">
                     <label>Paciente</label>
                     <select id="solProfPac" class="turno-input" onchange="cargarHorasSolicitudProf('${fechaStr}')">
                         <option value="">Cargando...</option>
@@ -1129,14 +1343,14 @@ async function mostrarPanelDiaProfesional(dia) {
                     <select id="solProfHora" class="turno-input" disabled><option value="">Elegí un paciente</option></select>
                 </div>
             </div>
-            <div class="form-grupo" style="margin-top:8px">
+            <div class="form-grupo mt-8">
                 <label>Motivo (opcional)</label>
                 <input type="text" id="solProfMotivo" class="turno-input" placeholder="Escribí el motivo...">
             </div>
-            <button class="btn-accion btn-guardar" style="margin-top:12px" onclick="confirmarSolicitudDiaProf('${fechaStr}')">Enviar turno al paciente</button>
+            <button class="btn-accion btn-guardar mt-12" onclick="confirmarSolicitudDiaProf('${fechaStr}')">Enviar turno al paciente</button>
         </div>` : '';
 
-    panel.innerHTML = (turnosDia.length ? turnosHtml : `<div class="sin-turnos" style="margin-bottom:10px">Sin turnos el ${dia} de ${MESES[calMes]}.</div>`) + solicitudHtml;
+    panel.innerHTML = (turnosDia.length ? turnosHtml : `<div class="sin-turnos mb-12">Sin turnos el ${dia} de ${MESES[calMes]}.</div>`) + solicitudHtml;
 
     if (!tieneActivo) cargarPacientesSolicitudProf(fechaStr);
 }
@@ -1158,9 +1372,9 @@ async function cargarPacientesSolicitudProf(fechaStr) {
         sel.disabled = true;
         return;
     }
-    const pacientes = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json()).catch(() => []);
+    const pacientes = await YS.fetch(`/profesionales/${idProfesional}/pacientes`).then(r => r.json()).catch(() => []);
     sel.innerHTML = pacientes.length
-        ? `<option value="">Seleccioná un paciente</option>` + pacientes.map(p => `<option value="${p.idPaciente}">${p.nombre}${p.apellido ? ' '+p.apellido : ''}</option>`).join('')
+        ? `<option value="">Seleccioná un paciente</option>` + pacientes.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')
         : `<option value="">Sin pacientes asignados</option>`;
     sel.disabled = !pacientes.length;
 }
@@ -1172,7 +1386,7 @@ async function cargarHorasSolicitudProf(fechaStr) {
     const diaSem = fecha.getDay();
 
     let agenda = [];
-    try { agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
+    try { agenda = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json()); } catch {}
     const slot = agenda.find(a => a.disponible && DIA_DB_NUM[normalizarP(a.dia)] === diaSem);
 
     if (!slot) { sel.innerHTML = `<option value="">Sin disponibilidad ese día</option>`; sel.disabled = true; return; }
@@ -1199,7 +1413,7 @@ async function confirmarSolicitudDiaProf(fechaStr) {
     if (!idPac) { toast('Seleccioná un paciente.', 'warn'); return; }
     if (!hora)  { toast('Seleccioná un horario.',  'warn'); return; }
 
-    const res = await fetch(`${API}/turnos/profesional-solicitar`, {
+    const res = await YS.fetch(`/turnos/profesional-solicitar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1219,25 +1433,31 @@ async function confirmarSolicitudDiaProf(fechaStr) {
 }
 
 async function cancelarTurnoProf(id) {
-    if (!await confirmar('¿Cancelar este turno?')) return;
-    await fetch(`${API}/turnos/${id}/cancelar`, { method: 'PUT' });
+    if (!await confirmar('¿Cancelar este turno? El paciente lo va a ver cancelado en su panel.', { titulo: 'Cancelar turno', textoConfirmar: 'Cancelar turno', textoCancelar: 'Volver', peligro: true })) return;
+    try {
+        const r = await YS.fetch(`/turnos/${id}/cancelar`, { method: 'PUT' });
+        if (r.ok) toast('Turno cancelado.', 'warn');
+        else toast(await YS.leerMensaje(r, 'No se pudo cancelar el turno.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
     await renderCalendario();
     mostrarPanelDiaProfesional(_diaSeleccionadoProf);
 }
 
+// Con dos turnos activos el mismo día, cada uno tiene su formulario (ids con el idTurno).
 async function abrirFormReprogramarProf(idTurno) {
-    const form = document.getElementById('formReprogramarProf');
+    const form = document.getElementById(`formReprogramarProf-${idTurno}`);
     if (!form) return;
     const abriendo = !form.classList.contains('visible');
+    document.querySelectorAll('.form-reprogramar.visible').forEach(f => { if (f !== form) f.classList.remove('visible'); });
     form.classList.toggle('visible');
     if (!abriendo) { cancelarModoReprogramarProf(); return; }
 
     _idTurnoReprogProf = idTurno;
     _reprogFechaSeleccionadaProf = null;
-    document.getElementById('reprogDetallesProf').style.display = 'none';
+    document.getElementById(`reprogDetallesProf-${idTurno}`).classList.add('oculto');
 
     try {
-        const agenda = await fetch(`${API}/profesionales/${idProfesional}/agenda`).then(r => r.json());
+        const agenda = await YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json());
         _agendaReprogProf = agenda.filter(a => a.disponible);
     } catch { _agendaReprogProf = []; }
 
@@ -1251,10 +1471,10 @@ function seleccionarDiaReprogProf(dia) {
 
     const slot = _agendaReprogProf.find(a => DIA_DB_NUM[normalizarP(a.dia)] === _reprogFechaSeleccionadaProf.getDay());
     const label = _reprogFechaSeleccionadaProf.toLocaleDateString('es-AR', { weekday:'long', day:'numeric', month:'long' });
-    document.getElementById('reprogDiaLabelProf').textContent = label;
-    document.getElementById('reprogDetallesProf').style.display = 'block';
+    document.getElementById(`reprogDiaLabelProf-${_idTurnoReprogProf}`).textContent = label;
+    document.getElementById(`reprogDetallesProf-${_idTurnoReprogProf}`).classList.remove('oculto');
 
-    const sel = document.getElementById('reprogHoraProf');
+    const sel = document.getElementById(`reprogHoraProf-${_idTurnoReprogProf}`);
     if (!sel) return;
     if (slot) {
         const [hI, mI] = slot.horaInicio.substring(0,5).split(':').map(Number);
@@ -1275,17 +1495,17 @@ function seleccionarDiaReprogProf(dia) {
 
 async function confirmarReprogramarProf(idTurno) {
     if (!_reprogFechaSeleccionadaProf) { toast('Seleccioná un día en el calendario.', 'warn'); return; }
-    const hora   = document.getElementById('reprogHoraProf')?.value;
-    const motivo = document.getElementById('reprogMotivoProf')?.value || null;
+    const hora   = document.getElementById(`reprogHoraProf-${idTurno}`)?.value;
+    const motivo = document.getElementById(`reprogMotivoProf-${idTurno}`)?.value || null;
     if (!hora) { toast('Seleccioná un horario.', 'warn'); return; }
 
-    const turno = await fetch(`${API}/turnos/${idTurno}`).then(r => r.json());
+    const turno = await YS.fetch(`/turnos/${idTurno}`).then(r => r.json());
     const fecha = _reprogFechaSeleccionadaProf;
     turno.fecha = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate(), 12).toISOString();
     turno.hora  = hora + ':00';
     if (motivo) turno.motivo = motivo;
 
-    const r = await fetch(`${API}/turnos/${idTurno}`, {
+    const r = await YS.fetch(`/turnos/${idTurno}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(turno)
@@ -1293,9 +1513,9 @@ async function confirmarReprogramarProf(idTurno) {
 
     if (r.ok) {
         toast('Turno reprogramado.');
-        cancelarModoReprogramarProf();
+        cancelarModoReprogramarProf();   // limpia _reprogFechaSeleccionadaProf: se usa la copia
         await renderCalendario();
-        mostrarPanelDiaProfesional(_reprogFechaSeleccionadaProf.getDate());
+        mostrarPanelDiaProfesional(fecha.getDate());
     } else toast('Error al reprogramar.', 'error');
 }
 
@@ -1303,427 +1523,235 @@ function cancelarModoReprogramarProf() {
     _modoReprogramarProf = false;
     _idTurnoReprogProf   = null;
     _reprogFechaSeleccionadaProf = null;
-    document.getElementById('formReprogramarProf')?.classList.remove('visible');
+    document.querySelectorAll('.form-reprogramar.visible').forEach(f => f.classList.remove('visible'));
     dibujarCalendarioProfesional();
 }
 
-activarTab('inicio');
-
-// ═══════════════════════════════════════════════════════════════
-// MÓDULO DE REPORTES DEL PROFESIONAL — Estadísticas + Excel + PDF
-// Reemplaza las funciones reportes() y descargarReporte() viejas
-// ═══════════════════════════════════════════════════════════════
- 
-const EMO_COLORES = {
-    Neutral:   '#888780',
-    Felicidad: '#639922',
-    Tristeza:  '#378ADD',
-    Enojo:     '#E24B4A',
-    Miedo:     '#7F77DD',
-    Sorpresa:  '#EF9F27',
-    Disgusto:  '#D4537E'
-};
- 
-let _chartsReportes = {}; // guardamos las instancias para exportar a PDF
- 
 async function reportes() {
     const cont = document.getElementById('contenido');
     cont.innerHTML = `
-        <div class="titulo-seccion">Reportes y Estadísticas</div>
- 
-        <!-- Botones de exportación -->
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-            <button onclick="exportarExcel()" style="padding:10px 20px;background:#217346;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
-                📊 Descargar datos en Excel
-            </button>
-            <button onclick="exportarPDF()" style="padding:10px 20px;background:#B23B3B;color:white;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px">
-                📄 Descargar gráficos en PDF
-            </button>
-        </div>
- 
-        <!-- KPIs -->
-        <div id="kpis-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
-            <div class="spinner">Cargando KPIs...</div>
-        </div>
- 
-        <!-- Gráficos -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-            <div class="card">
-                <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Mis sesiones por mes</h3>
-                <canvas id="chartSesionesMes" height="200"></canvas>
-            </div>
-            <div class="card">
-                <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Pacientes por tipo de cierre</h3>
-                <canvas id="chartCierres" height="200"></canvas>
-            </div>
-        </div>
- 
-        <div class="card" style="margin-bottom:16px">
-            <h3 style="margin-bottom:14px;color:#6A5ACD;font-size:15px">Perfil emocional promedio (todas mis sesiones)</h3>
-            <div style="max-width:420px;margin:0 auto">
-                <canvas id="chartEmocionesGlobal" height="260"></canvas>
-            </div>
-        </div>
- 
-        <!-- Evolución por paciente -->
-        <div class="card">
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-                <h3 style="color:#6A5ACD;font-size:15px;margin:0">Evolución emocional de un paciente</h3>
-                <select id="selPacienteEvol" onchange="cargarEvolucionPaciente()" style="padding:8px 12px;border:2px solid #e0d4f5;border-radius:8px;font-size:14px;flex:1;min-width:200px">
-                    <option value="">Seleccioná un paciente</option>
-                </select>
-            </div>
-            <canvas id="chartEvolucion" height="180"></canvas>
-        </div>
-    `;
- 
-    await cargarKPIs();
-    await cargarGraficos();
-    await cargarSelectorPacientes();
+        <div class="card reporte-card">
+            <div class="titulo-seccion titulo-seccion--tarjeta">Mis atenciones</div>
+            <p class="texto-suave mb-12">Descargá el detalle de tus atenciones (paciente, fecha, hora y tipo de cierre) en un archivo que se abre con Excel.</p>
+            <button class="ui-btn ui-btn--primary" onclick="descargarReporte()">${YS.icono('descargar')}Descargar Excel</button>
+        </div>`;
 }
- 
-// ─── KPIs ────────────────────────────────────────────────
-async function cargarKPIs() {
-    let k = {};
+
+async function descargarReporte() {
+    const url = API + '/reportes/atenciones?idProfesional=' + idProfesional;
+    let datos = [];
     try {
-        k = await fetch(`${API}/reportes/profesional/${idProfesional}/kpis`).then(r => r.json());
-    } catch { document.getElementById('kpis-grid').innerHTML = '<p style="color:#e74c3c">Error al cargar KPIs.</p>'; return; }
- 
-    const cards = [
-        { label: 'Sesiones este mes', valor: k.sesionesMes ?? 0, color: '#185FA5' },
-        { label: 'Pacientes activos', valor: k.pacientesActivos ?? 0, color: '#639922' },
-        { label: 'Tasa de asistencia', valor: (k.tasaAsistencia ?? 0) + '%', color: '#EF9F27' },
-        { label: 'Pacientes con alta', valor: k.sesionesAlta ?? 0, color: '#6A5ACD' },
-        { label: 'Total sesiones', valor: k.totalSesiones ?? 0, color: '#378ADD' }
-    ];
- 
-    document.getElementById('kpis-grid').innerHTML = cards.map(c => `
-        <div class="card" style="text-align:center;padding:18px 12px;border-top:3px solid ${c.color}">
-            <div style="font-size:30px;font-weight:700;color:${c.color}">${c.valor}</div>
-            <div style="font-size:12px;color:#888;margin-top:4px">${c.label}</div>
-        </div>
-    `).join('');
-}
- 
-// ─── GRÁFICOS ────────────────────────────────────────────
-async function cargarGraficos() {
-    // Destruir gráficos previos
-    Object.values(_chartsReportes).forEach(ch => { try { ch.destroy(); } catch {} });
-    _chartsReportes = {};
- 
-    const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
- 
-    // 1. Sesiones por mes
-    try {
-        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/sesiones-por-mes`).then(r => r.json());
-        _chartsReportes.sesionesMes = new Chart(document.getElementById('chartSesionesMes'), {
-            type: 'bar',
-            data: {
-                labels: data.map(d => `${MESES[d.mes-1]} ${d.anio}`),
-                datasets: [{
-                    label: 'Sesiones',
-                    data: data.map(d => d.total),
-                    backgroundColor: '#6A5ACD',
-                    borderRadius: 6
-                }]
-            },
-            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-        });
-    } catch {}
- 
-    // 2. Pacientes por cierre
-    try {
-        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/pacientes-por-cierre`).then(r => r.json());
-        const colorCierre = { 'Alta':'#639922', 'En seguimiento':'#EF9F27', 'Derivación':'#378ADD', 'Abandono':'#E24B4A' };
-        _chartsReportes.cierres = new Chart(document.getElementById('chartCierres'), {
-            type: 'doughnut',
-            data: {
-                labels: data.map(d => d.cierre),
-                datasets: [{
-                    data: data.map(d => d.total),
-                    backgroundColor: data.map(d => colorCierre[d.cierre] ?? '#999')
-                }]
-            },
-            options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
-        });
-    } catch {}
- 
-    // 3. Emociones globales (radar)
-    try {
-        const data = await fetch(`${API}/reportes/profesional/${idProfesional}/emociones-globales`).then(r => r.json());
-        const labels = Object.keys(data);
-        _chartsReportes.emociones = new Chart(document.getElementById('chartEmocionesGlobal'), {
-            type: 'radar',
-            data: {
-                labels,
-                datasets: [{
-                    label: '% promedio',
-                    data: labels.map(l => data[l]),
-                    backgroundColor: 'rgba(106,90,205,0.2)',
-                    borderColor: '#6A5ACD',
-                    pointBackgroundColor: labels.map(l => EMO_COLORES[l] ?? '#6A5ACD'),
-                    pointRadius: 5
-                }]
-            },
-            options: { responsive: true, plugins: { legend: { display: false } }, scales: { r: { beginAtZero: true } } }
-        });
-    } catch {}
-}
- 
-// ─── EVOLUCIÓN POR PACIENTE ──────────────────────────────
-async function cargarSelectorPacientes() {
-    try {
-        const lista = await fetch(`${API}/reportes/profesional/${idProfesional}/lista-pacientes`).then(r => r.json());
-        const sel = document.getElementById('selPacienteEvol');
-        sel.innerHTML = '<option value="">Seleccioná un paciente</option>' +
-            lista.map(p => `<option value="${p.idPaciente}">${p.nombre}</option>`).join('');
-    } catch {}
-}
- 
-async function cargarEvolucionPaciente() {
-    const idPac = document.getElementById('selPacienteEvol').value;
-    if (!idPac) return;
- 
-    let data = [];
-    try {
-        data = await fetch(`${API}/reportes/paciente/${idPac}/evolucion-emocional`).then(r => r.json());
-    } catch { return; }
- 
-    if (_chartsReportes.evolucion) { try { _chartsReportes.evolucion.destroy(); } catch {} }
- 
-    if (!data.length) {
-        // Mensaje si no hay datos
-        const ctx = document.getElementById('chartEvolucion').getContext('2d');
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        ctx.font = '14px Arial'; ctx.fillStyle = '#999'; ctx.textAlign = 'center';
-        ctx.fillText('Este paciente no tiene sesiones registradas todavía.', ctx.canvas.width/2, 80);
+        const r = await YS.fetch(url);
+        datos = await r.json();
+    } catch(e) {
+        toast('No se pudieron obtener tus atenciones. Probá de nuevo en un rato.', 'error');
         return;
     }
- 
-    const emociones = Object.keys(EMO_COLORES);
-    const datasets = emociones.map(emo => ({
-        label: emo,
-        data: data.map(d => d.emociones[emo] ?? 0),
-        borderColor: EMO_COLORES[emo],
-        backgroundColor: EMO_COLORES[emo],
-        tension: 0.3,
-        fill: false
-    }));
- 
-    _chartsReportes.evolucion = new Chart(document.getElementById('chartEvolucion'), {
-        type: 'line',
-        data: { labels: data.map(d => d.fecha), datasets },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'bottom' } },
-            scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: '% intensidad' } } }
-        }
+    if (!datos.length) {
+        toast('Todavía no tenés atenciones registradas.', 'warn');
+        return;
+    }
+    const encabezado = ['Nombre y Apellido', 'DNI', 'NHC', 'Fecha', 'Hora', 'Tipo de Cierre', 'Profesional'];
+    const filas = datos.map(function(d) {
+        return [d.nombre, d.dni, d.nhc || '', d.fecha, d.hora, d.tipoCierre || '', d.nombreProfesional];
+    });
+    const csvContent = [encabezado].concat(filas)
+        .map(function(row) { return row.map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(','); })
+        .join('\n');
+    // El BOM hace que Excel lea el archivo como UTF-8 (sin él, "García" sale como "GarcÃ­a")
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'mis_atenciones.csv';
+    link.click();
+}
+
+// ── MIS PACIENTES ───────────────────────────────────────────
+// Los pacientes asignados. Las asignaciones nuevas (vienen de admisión) se confirman
+// proponiendo un primer turno o se devuelven a admisión.
+async function pacientes() {
+    const c = document.getElementById('contenido');
+    let lista;
+    try { lista = await YS.api(`/profesionales/${idProfesional}/pacientes-detalle`); }
+    catch (e) {
+        if (YS.shell.actual === 'pacientes') c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('pacientes')" });
+        return;
+    }
+    if (YS.shell.actual !== 'pacientes') return;
+    window._misPacientes = lista;
+    const nuevos = lista.filter(p => p.estadoAsignacion === 'Nueva').length;
+    YS.shell.encabezado({ subtitulo: `${lista.length} paciente${lista.length === 1 ? '' : 's'}` +
+        (nuevos ? ` · ${nuevos} asignación${nuevos === 1 ? '' : 'es'} nueva${nuevos === 1 ? '' : 's'}` : '') });
+    YS.shell.acciones([{ texto: 'Actualizar', icono: 'refrescar', alClick: () => activarTab('pacientes') }]);
+
+    c.innerHTML = '<div id="tablaPacientes"></div><div id="panelNuevoPaciente"></div>';
+    YS.tabla(document.getElementById('tablaPacientes'), {
+        filas: lista, unidad: ['paciente', 'pacientes'], placeholder: 'Buscar por nombre, DNI, mail o teléfono',
+        buscar: p => [p.nombre, p.dni, p.mail, p.telefono].join(' '),
+        filtros: [
+            { id: 'todos', texto: 'Todos', pasa: () => true },
+            { id: 'nuevos', texto: 'Asignaciones nuevas', pasa: p => p.estadoAsignacion === 'Nueva' }
+        ],
+        ordenInicial: { col: 0 },
+        vacio: { icono: 'pacientes', titulo: 'Todavía no tenés pacientes asignados', texto: 'Te los asigna el equipo de admisión o el configurador.' },
+        columnas: [
+            { titulo: 'Paciente', orden: p => YS.normalizar(p.nombre),
+              html: p => `<span class="ui-flex">${YS.avatar(p.nombre, p.idPaciente, 'sm')}<span class="principal">${YS.esc(p.nombre)}</span>` +
+                  (p.estadoAsignacion === 'Nueva' ? '<span class="ui-chip ui-chip--info">Nuevo</span>' : '') + '</span>' },
+            { titulo: 'DNI', html: p => YS.esc(p.dni || '—'), orden: p => p.dni || '' },
+            { titulo: 'Mail', html: p => YS.esc(p.mail || '—') },
+            { titulo: 'Teléfono', html: p => YS.esc(p.telefono || '—') },
+            { titulo: '', clase: 'acciones', html: p => p.estadoAsignacion === 'Nueva'
+                ? `<button class="ui-btn ui-btn--sm" onclick="verEvolucionAdmision(${p.idPaciente})">Motivo de la asignación</button>
+                   <button class="ui-btn ui-btn--sm ui-btn--ok" onclick="confirmarNuevoPaciente(${p.idPaciente})">Confirmar</button>
+                   <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="derivarNuevoPaciente(${p.idPaciente})">Devolver a admisión</button>`
+                : `<button class="ui-btn ui-btn--sm" onclick="verHistoria(${p.idPaciente})">Historia clínica</button>
+                   <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${p.idPaciente})">${YS.icono('video')}Sesión</button>` }
+        ]
     });
 }
- 
-// ─── EXPORTAR A EXCEL ────────────────────────────────────
-async function exportarExcel() {
-    try {
-        // Traer datos de atenciones
-        const atenciones = await fetch(`${API}/reportes/atenciones?idProfesional=${idProfesional}`).then(r => r.json());
-        const kpis = await fetch(`${API}/reportes/profesional/${idProfesional}/kpis`).then(r => r.json());
- 
-        const wb = XLSX.utils.book_new();
- 
-        // Hoja 1: KPIs
-        const hojaKpis = [
-            ['Indicador', 'Valor'],
-            ['Sesiones este mes', kpis.sesionesMes ?? 0],
-            ['Pacientes activos', kpis.pacientesActivos ?? 0],
-            ['Tasa de asistencia', (kpis.tasaAsistencia ?? 0) + '%'],
-            ['Pacientes con alta', kpis.sesionesAlta ?? 0],
-            ['Total sesiones', kpis.totalSesiones ?? 0]
-        ];
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hojaKpis), 'Resumen');
- 
-        // Hoja 2: Atenciones
-        if (atenciones.length) {
-            const hojaAtenciones = [
-                ['Paciente', 'DNI', 'NHC', 'Fecha', 'Hora', 'Tipo de Cierre', 'Profesional'],
-                ...atenciones.map(d => [d.nombre, d.dni, d.nhc || '', d.fecha, d.hora, d.tipoCierre || '', d.nombreProfesional])
-            ];
-            XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(hojaAtenciones), 'Mis Atenciones');
-        }
- 
-        XLSX.writeFile(wb, `reporte_yosoy_${new Date().toISOString().slice(0,10)}.xlsx`);
-        if (typeof toast === 'function') toast('Excel descargado correctamente.');
-    } catch (e) {
-        if (typeof toast === 'function') toast('Error al generar el Excel.', 'error');
+
+// ── Mis casos (Fase 2) ───────────────────────────────────────
+async function casos() {
+    const c = document.getElementById('contenido');
+    let lista;
+    try { lista = await YS.api(`/profesionales/${idProfesional}/casos`); }
+    catch (e) {
+        if (YS.shell.actual === 'casos') c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "activarTab('casos')" });
+        return;
     }
-}
- 
-// ─── EXPORTAR A PDF ──────────────────────────────────────
-async function exportarPDF() {
-    try {
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const anchoPag = pdf.internal.pageSize.getWidth();
- 
-        // Título
-        pdf.setFontSize(18);
-        pdf.setTextColor(106, 90, 205);
-        pdf.text('YoSoy — Reporte de Estadísticas', anchoPag/2, 20, { align: 'center' });
-        pdf.setFontSize(10);
-        pdf.setTextColor(120);
-        pdf.text(`Generado el ${new Date().toLocaleDateString('es-AR')}`, anchoPag/2, 27, { align: 'center' });
- 
-        let y = 38;
-        const graficos = [
-            { chart: 'sesionesMes', titulo: 'Sesiones por mes' },
-            { chart: 'cierres', titulo: 'Pacientes por tipo de cierre' },
-            { chart: 'emociones', titulo: 'Perfil emocional promedio' },
-            { chart: 'evolucion', titulo: 'Evolución emocional del paciente' }
-        ];
- 
-        for (const g of graficos) {
-            const ch = _chartsReportes[g.chart];
-            if (!ch) continue;
- 
-            const img = ch.toBase64Image();
-            pdf.setFontSize(13);
-            pdf.setTextColor(60);
-            pdf.text(g.titulo, 14, y);
-            y += 4;
- 
-            const imgW = 180;
-            const imgH = (ch.height / ch.width) * imgW * 0.6;
- 
-            if (y + imgH > 280) { pdf.addPage(); y = 20; }
- 
-            pdf.addImage(img, 'PNG', 14, y, imgW, imgH);
-            y += imgH + 12;
-        }
- 
-        pdf.save(`graficos_yosoy_${new Date().toISOString().slice(0,10)}.pdf`);
-        if (typeof toast === 'function') toast('PDF descargado correctamente.');
-    } catch (e) {
-        if (typeof toast === 'function') toast('Error al generar el PDF.', 'error');
-    }
+    if (YS.shell.actual !== 'casos') return;
+    YS.shell.encabezado({ subtitulo: `${lista.length} caso${lista.length === 1 ? '' : 's'}` });
+    YS.shell.acciones([{ texto: 'Actualizar', icono: 'refrescar', alClick: () => activarTab('casos') }]);
+
+    const tono = { Nuevo: 'neutral', Derivado: 'info', Asignado: 'ok', 'En atención': 'ok', Cerrado: 'neutral' };
+    YS.tabla(c, {
+        filas: lista, unidad: ['caso', 'casos'], placeholder: 'Buscar por paciente o grupo',
+        buscar: cs => [cs.nombrePaciente, cs.nombreGrupo].join(' '),
+        filtros: [
+            { id: 'activos', texto: 'Activos', pasa: cs => cs.estado !== 'Cerrado' },
+            { id: 'todos', texto: 'Todos', pasa: () => true }
+        ],
+        ordenInicial: { col: 2, desc: true },
+        vacio: { icono: 'portapapeles', titulo: 'Todavía no tenés casos asignados', texto: 'Te los asigna el sistema o el configurador cuando entra una admisión.' },
+        columnas: [
+            { titulo: 'Paciente', orden: cs => YS.normalizar(cs.nombrePaciente),
+              html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, 'sm')}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },
+            { titulo: 'Grupo', html: cs => YS.esc(cs.nombreGrupo || '—') },
+            { titulo: 'Estado', html: cs => `<span class="ui-chip ui-chip--${tono[cs.estado] || 'neutral'}">${YS.esc(cs.estado)}</span>`, orden: cs => cs.estado },
+            { titulo: '', clase: 'acciones', html: cs => `
+                <button class="ui-btn ui-btn--sm" onclick="verHistoria(${cs.idPaciente})">Historia clínica</button>
+                <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${cs.idPaciente})">${YS.icono('video')}Sesión</button>` }
+        ]
+    });
 }
 
+const nombreDeMiPaciente = id => (window._misPacientes || []).find(p => p.idPaciente === id)?.nombre ?? null;
 
-// Mis Pacientes v2: asignaciones nuevas, confirmar y derivar
-async function pacientes() {
-    const c = document.getElementById("contenido");
-    let lista = [];
-    try {
-        const r = await fetch(API + "/profesionales/" + idProfesional + "/pacientes-detalle");
-        lista = await r.json();
-    } catch(e) {}
+function cerrarPanelNuevo() {
+    document.getElementById('panelNuevoPaciente').innerHTML = '';
+}
 
-    const filas = lista.map(function(p) {
-        const esNuevo = p.estadoAsignacion === "Nueva";
-        const nombreEsc = (p.nombre || "").split(String.fromCharCode(39)).join("").split(String.fromCharCode(34)).join("");
-        let acciones = '<button class="btn-ver" onclick="verHistoria(' + p.idPaciente + ', &quot;' + nombreEsc + '&quot;)">Historia</button> ' +
-            '<button class="btn-sesion" onclick="activarTab(&quot;sesion&quot;)">Sesion</button>';
-        if (esNuevo) {
-            acciones = '<button class="btn-ver" style="background:linear-gradient(to right,#0d6efd,#084298)" onclick="verEvolucionAdmision(' + p.idPaciente + ')">Motivo asignacion</button> ' +
-                '<button class="btn-ver" style="background:linear-gradient(to right,#198754,#0f5132)" onclick="confirmarNuevoPaciente(' + p.idPaciente + ')">Confirmar</button> ' +
-                '<button class="btn-ver" style="background:linear-gradient(to right,#e53935,#b71c1c)" onclick="derivarNuevoPaciente(' + p.idPaciente + ')">Derivar</button>';
-        }
-        return '<tr>' +
-            '<td>' + p.nombre + (esNuevo ? ' <span style="background:#0d6efd;color:white;border-radius:8px;padding:2px 10px;font-size:11px;font-weight:bold;margin-left:6px">NUEVO</span>' : "") + '</td>' +
-            '<td>' + (p.dni || "-") + '</td>' +
-            '<td>' + (p.mail || "-") + '</td>' +
-            '<td>' + (p.telefono || "-") + '</td>' +
-            '<td>' + acciones + '</td>' +
-            '</tr>';
-    }).join("");
-
-    c.innerHTML = '<div class="titulo-seccion">Mis Pacientes</div>' +
-        '<div class="card">' +
-        (lista.length === 0 ? '<div class="sin-turnos">No tenes pacientes asignados.</div>' :
-        '<div class="tabla-wrapper"><table><thead><tr><th>Nombre</th><th>DNI</th><th>Mail</th><th>Telefono</th><th></th></tr></thead><tbody>' + filas + '</tbody></table></div>') +
-        '</div>' +
-        '<div id="panelNuevoPaciente"></div>' +
-        '<div class="modal-overlay" id="modalHistoria">' +
-        '<div class="modal-box">' +
-        '<div class="modal-header">' +
-        '<span class="modal-titulo" id="modalTitulo">Historia Clinica</span>' +
-        '<button class="modal-cerrar" onclick="cerrarModal()">X</button>' +
-        '</div>' +
-        '<div class="modal-body" id="modalBody"></div>' +
-        '</div>' +
-        '</div>';
+function cabeceraPanelNuevo(titulo) {
+    return `<div class="ui-entre mb-12">
+        <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen">${YS.esc(titulo)}</div>
+        <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" onclick="cerrarPanelNuevo()">Cerrar</button>
+    </div>`;
 }
 
 async function verEvolucionAdmision(idPaciente) {
-    let historia = null, evoluciones = [];
-    try { historia = await (await fetch(API + "/pacientes/" + idPaciente + "/historiaclinica")).json(); } catch(e) {}
-    if (historia !== null && historia.idHistoria !== undefined) {
-        try { evoluciones = await (await fetch(API + "/historiasclinicas/" + historia.idHistoria + "/evoluciones")).json(); } catch(e) {}
-    }
-    const deAdmision = evoluciones.filter(function(e) { return ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1); });
-    const panel = document.getElementById("panelNuevoPaciente");
-    if (deAdmision.length === 0) {
-        panel.innerHTML = '<div class="card" style="margin-top:16px"><p style="color:#888">No hay evolucion de admision registrada.</p></div>';
+    const panel = document.getElementById('panelNuevoPaciente');
+    const nombre = nombreDeMiPaciente(idPaciente);
+    panel.innerHTML = `<div class="card mt-16">${YS.cargando()}</div>`;
+    let evoluciones = [];
+    try {
+        const historia = await YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true });
+        if (historia?.idHistoria) evoluciones = await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`);
+    } catch (e) {
+        panel.innerHTML = `<div class="card mt-16">${YS.errorCarga({ texto: e.message, reintentar: `verEvolucionAdmision(${idPaciente})` })}</div>`;
         return;
     }
-    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #0d6efd">' +
-        '<h3 style="color:#0d6efd;margin-bottom:12px">Evolucion del Equipo de Admision</h3>' +
-        deAdmision.map(function(e) {
-            return '<div style="background:#f0f6ff;border-radius:10px;padding:14px;margin-bottom:10px">' +
-                '<div style="font-weight:bold;margin-bottom:6px">' + new Date(e.fecha).toLocaleDateString("es-AR", { day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-                (e.observaciones ? '<div style="font-size:14px;margin-bottom:6px">' + e.observaciones + '</div>' : "") +
-                (e.planTratamiento ? '<div style="font-size:13px;color:#084298;font-weight:600">' + e.planTratamiento + '</div>' : "") +
-                '</div>';
-        }).join("") +
-        '</div>';
-    panel.scrollIntoView({ behavior: "smooth" });
+    const deAdmision = evoluciones.filter(e => (e.diagnostico || '').toLowerCase().includes('admis'));
+    panel.innerHTML = `<div class="card card--acento-info mt-16">
+        ${cabeceraPanelNuevo('Evolución del equipo de admisión' + (nombre ? ' · ' + nombre : ''))}
+        ${deAdmision.length ? deAdmision.map(e => `
+            <div class="caja-suave mb-12">
+                <div class="texto-fuerte mb-8">${YS.esc(YS.fecha.larga(e.fecha))}</div>
+                ${e.observaciones ? `<div class="mb-8">${YS.esc(e.observaciones)}</div>` : ''}
+                ${e.planTratamiento ? `<div class="texto-accent texto-fuerte">${YS.esc(e.planTratamiento)}</div>` : ''}
+            </div>`).join('')
+            : YS.vacio({ icono: 'portapapeles', texto: 'El equipo de admisión no dejó una evolución para este paciente.' })}
+    </div>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function confirmarNuevoPaciente(idPaciente) {
-    const panel = document.getElementById("panelNuevoPaciente");
-    panel.innerHTML = '<div class="card" style="margin-top:16px;border-left:6px solid #198754">' +
-        '<h3 style="color:#0f5132;margin-bottom:12px">Proponer primer turno</h3>' +
-        '<p style="font-size:13px;color:#888;margin-bottom:12px">Elegi una fecha estimativa. Al paciente le llegara como turno pendiente y podra confirmarlo o reprogramarlo segun tu agenda.</p>' +
-        '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">' +
-        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Fecha</label><input type="date" id="npFecha" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
-        '<div><label style="font-size:12px;font-weight:bold;color:#0f5132;display:block">Hora</label><input type="time" id="npHora" style="padding:8px;border:2px solid #badbcc;border-radius:8px"></div>' +
-        '<button onclick="enviarPrimerTurno(' + idPaciente + ')" style="padding:9px 20px;background:#198754;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold">Enviar propuesta</button>' +
-        '</div></div>';
-    panel.scrollIntoView({ behavior: "smooth" });
+    const panel = document.getElementById('panelNuevoPaciente');
+    const nombre = nombreDeMiPaciente(idPaciente);
+    panel.innerHTML = `<div class="card card--acento-ok mt-16">
+        ${cabeceraPanelNuevo('Proponer el primer turno' + (nombre ? ' · ' + nombre : ''))}
+        <p class="texto-suave mb-12">Elegí una fecha estimativa. Al paciente le llega como turno pendiente y puede confirmarlo o reprogramarlo según tu agenda.</p>
+        <div class="form-fila form-fila--abajo">
+            <div class="ui-campo"><label for="npFecha">Fecha</label><input type="date" id="npFecha" class="ui-input" min="${YS.fecha.aISO(new Date())}"></div>
+            <div class="ui-campo"><label for="npHora">Hora</label><input type="time" id="npHora" class="ui-input"></div>
+            <button class="ui-btn ui-btn--primary" id="npEnviar" onclick="enviarPrimerTurno(${idPaciente})">Enviar propuesta</button>
+        </div>
+    </div>`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('npFecha').focus();
 }
 
 async function enviarPrimerTurno(idPaciente) {
-    const fecha = document.getElementById("npFecha").value;
-    const hora  = document.getElementById("npHora").value;
-    if (fecha === "" || hora === "") { toast("Completa fecha y hora.", "warn"); return; }
+    const fecha = document.getElementById('npFecha').value;
+    const hora  = document.getElementById('npHora').value;
+    const hoy = YS.fecha.aISO(new Date());
+    if (!fecha) YS.form.marcar('npFecha', 'Elegí la fecha.');
+    else if (fecha < hoy) YS.form.marcar('npFecha', 'Elegí una fecha de hoy en adelante.');
+    if (!hora) YS.form.marcar('npHora', 'Elegí la hora.');
+    if (!fecha || fecha < hoy || !hora) return;
+
+    const boton = document.getElementById('npEnviar');
+    boton.disabled = true;
     try {
-        const r = await fetch(API + "/turnos/profesional-solicitar", {
+        const r = await YS.fetch("/turnos/profesional-solicitar", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, fecha: fecha, hora: hora + ":00", motivo: "Primer turno - derivacion de admision" })
         });
-        if (r.ok) {
-            await fetch(API + "/asignaciones/estado", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
-            });
-            toast("Propuesta enviada. El paciente podra confirmar o reprogramar el turno.");
-            pacientes();
-        } else toast("Error al crear el turno.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo crear el turno.'), 'error'); return; }
+        const rAsignacion = await YS.fetch("/asignaciones/estado", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
+        });
+        if (rAsignacion.ok) toast('Propuesta enviada. El paciente puede confirmar o reprogramar el turno.');
+        else toast('La propuesta se envió, pero la asignación sigue figurando como nueva.', 'warn');
+        pacientes();
+    } catch {
+        toast('No se pudo conectar con el servidor.', 'error');
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function derivarNuevoPaciente(idPaciente) {
-    const motivo = prompt("Indica el motivo por el cual no vas a atender a este paciente:");
-    if (motivo === null || motivo.trim() === "") return;
+    const nombre = nombreDeMiPaciente(idPaciente);
+    const motivo = await YS.pedirTexto({
+        titulo: 'Devolver a admisión',
+        mensaje: `${nombre ? nombre + ' vuelve' : 'El paciente vuelve'} al equipo de admisión para que lo asignen a otro profesional.`,
+        etiqueta: 'Por qué no vas a atender a este paciente', multilinea: true, maximo: 500,
+        mensajeRequerido: 'Contale al equipo el motivo.', textoConfirmar: 'Devolver a admisión', peligro: true
+    });
+    if (!motivo) return;
     try {
-        const r = await fetch(API + "/informes-admision/rechazar", {
+        const r = await YS.fetch("/informes-admision/rechazar", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, motivo: motivo })
         });
-        if (r.ok) { toast("El caso volvio al equipo de admision para re-derivar.", "warn"); pacientes(); }
-        else toast("Error al derivar.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
+        if (r.ok) { toast('El caso volvió al equipo de admisión para asignarlo de nuevo.', 'warn'); pacientes(); }
+        else toast(await YS.leerMensaje(r, 'No se pudo devolver el caso.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
 }
 
 function calcularTurnos(s) {
@@ -1752,54 +1780,21 @@ function actualizarPreviewNuevo() {
 
 // Evoluciones v2: las de admision se muestran en azul
 function renderEvoluciones(lista) {
-    if (lista === null || lista === undefined || lista.length === 0) return '<div class="sin-datos">Sin evoluciones registradas.</div>';
+    if (lista === null || lista === undefined || lista.length === 0) return YS.vacio({ icono: 'documento', texto: 'Todavía no hay evoluciones registradas.' });
     return lista.map(function(e) {
         const esAdmision = ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1);
-        const estilo = esAdmision ? ' style="border-left:5px solid #0d6efd;background:#f0f6ff;border-radius:8px;padding:12px"' : "";
-        return '<div class="evolucion-item"' + estilo + '>' +
-            (esAdmision ? '<div style="color:#0d6efd;font-weight:bold;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Inicio del proceso - Admision</div>' : "") +
+        return '<div class="evolucion-item' + (esAdmision ? ' evolucion-item--admision' : '') + '">' +
+            (esAdmision ? '<div class="evolucion-etiqueta-admision">Inicio del proceso - Admision</div>' : "") +
             '<div class="evolucion-fecha">' + new Date(e.fecha).toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long", year:"numeric" }) + '</div>' +
-            (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + e.diagnostico + '</div></div>' : "") +
-            (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + e.observaciones + '</div></div>' : "") +
-            (e.planTratamiento ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">' + (esAdmision ? "Derivacion" : "Plan") + '</div><div class="evolucion-bloque-texto">' + e.planTratamiento + '</div></div>' : "") +
+            (e.diagnostico ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Diagnostico</div><div class="evolucion-bloque-texto">' + YS.esc(e.diagnostico) + '</div></div>' : "") +
+            (e.observaciones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Observaciones</div><div class="evolucion-bloque-texto">' + YS.esc(e.observaciones) + '</div></div>' : "") +
+            (e.planTratamiento ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">' + (esAdmision ? "Derivacion" : "Plan") + '</div><div class="evolucion-bloque-texto">' + YS.esc(e.planTratamiento) + '</div></div>' : "") +
             '</div>';
     }).join("");
 }
 
-// Panel de turnos confirmados pendientes de generar sala
-async function cargarTurnosConfirmados() {
-    let lista = [];
-    try { lista = await (await fetch(API + "/profesionales/" + idProfesional + "/turnos-confirmados")).json(); } catch(e) { return; }
-    const sinSala = lista.filter(function(t) { return t.codigoSala === "" || t.codigoSala === null; });
-    if (sinSala.length === 0) return;
+// Los turnos confirmados sin sala se avisan en la campana de la barra (shared/shell.js).
+// Si se genera una sala desde ahí con el Inicio abierto, se actualiza la lista de hoy.
+document.addEventListener('ys:sala-generada', () => { if (YS.shell.actual === 'inicio') activarTab('inicio'); });
 
-    let cont = document.getElementById("panel-confirmados");
-    if (cont === null) {
-        cont = document.createElement("div");
-        cont.id = "panel-confirmados";
-        cont.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:9990;max-width:360px;display:flex;flex-direction:column;gap:10px";
-        document.body.appendChild(cont);
-    }
-    cont.innerHTML = sinSala.map(function(t) {
-        return '<div style="background:white;border-left:5px solid #198754;border-radius:10px;padding:14px 16px;box-shadow:0 4px 16px rgba(0,0,0,.15)">' +
-            '<div style="font-weight:bold;color:#0f5132;margin-bottom:4px">Turno confirmado</div>' +
-            '<div style="font-size:13px;color:#444;margin-bottom:8px">' + t.nombrePaciente + ' - ' + t.fecha + ' ' + t.hora + ' hs</div>' +
-            '<button onclick="generarSalaTurno(' + t.idTurno + ')" style="padding:7px 16px;background:#198754;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold">Generar sala</button>' +
-            '</div>';
-    }).join("");
-}
-
-async function generarSalaTurno(idTurno) {
-    try {
-        const r = await fetch(API + "/turnos/" + idTurno + "/generar-sala", { method: "PUT" });
-        if (r.ok) {
-            const resp = await r.json();
-            toast("Sala generada: " + resp.codigoSala + ". El paciente fue notificado.");
-            const cont = document.getElementById("panel-confirmados");
-            if (cont !== null) cont.innerHTML = "";
-            cargarTurnosConfirmados();
-        } else toast("Error al generar la sala.", "error");
-    } catch(e) { toast("Error de conexion.", "error"); }
-}
-
-cargarTurnosConfirmados();
+YS.shell.iniciar({ rol: 'profesional', navegar: id => activarTab(id) });
