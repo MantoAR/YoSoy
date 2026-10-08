@@ -3,19 +3,19 @@ using System.Collections.Generic;
 
 public class DerivacionDAO
 {
-    public void Insertar(Derivacion d)
+    public int Insertar(Derivacion d)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Derivacion (IdPaciente, IdProfesionalOrigen, IdProfesionalDestino, Fecha, Motivo, Estado) VALUES (@IdPaciente, @IdProfesionalOrigen, @IdProfesionalDestino, @Fecha, @Motivo, @Estado)", con);
+            "INSERT INTO Derivacion (IdPaciente, IdProfesionalOrigen, IdProfesionalDestino, Fecha, Motivo, Estado) VALUES (@IdPaciente, @IdProfesionalOrigen, @IdProfesionalDestino, @Fecha, @Motivo, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente",           d.IdPaciente);
         cmd.Parameters.AddWithValue("@IdProfesionalOrigen",  d.IdProfesionalOrigen);
         cmd.Parameters.AddWithValue("@IdProfesionalDestino", d.IdProfesionalDestino);
         cmd.Parameters.AddWithValue("@Fecha",                d.Fecha);
         cmd.Parameters.AddWithValue("@Motivo",               (object)d.Motivo ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Estado",               d.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Derivacion d)

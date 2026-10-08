@@ -3,15 +3,15 @@ using System.Collections.Generic;
 
 public class HistoriaClinicaDAO
 {
-    public void Insertar(HistoriaClinica h)
+    public int Insertar(HistoriaClinica h)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO HistoriaClinica (IdPaciente, FechaApertura) VALUES (@IdPaciente, @FechaApertura)", con);
+            "INSERT INTO HistoriaClinica (IdPaciente, FechaApertura) VALUES (@IdPaciente, @FechaApertura); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente",    h.IdPaciente);
         cmd.Parameters.AddWithValue("@FechaApertura", (object)h.FechaApertura ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public List<HistoriaClinica> ObtenerTodos()

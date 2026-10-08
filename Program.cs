@@ -850,7 +850,7 @@ app.MapGet("/pacientes/{id}/consentimientos", (int id, HttpContext ctx, Identida
 app.MapPost("/consentimientos", (Consentimiento c) =>
 {
     c.Estado = "Activo";
-    new ConsentimientoDAO().Insertar(c);
+    c.IdConsentimiento = new ConsentimientoDAO().Insertar(c);
     return Results.Created("/consentimientos", c);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -911,7 +911,7 @@ soloClinico(app.MapPost("/historiasclinicas", (HistoriaClinica h, HttpContext ct
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, h.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new HistoriaClinicaDAO().Insertar(h);
+    h.IdHistoria = new HistoriaClinicaDAO().Insertar(h);
     return Results.Created("/historiasclinicas", h);
 }));
 
@@ -942,7 +942,7 @@ soloClinico(app.MapPost("/evoluciones", (Evolucion e, HttpContext ctx) =>
     if (idPaciente is null) return Results.NotFound();
     if (!AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new EvolucionDAO().Insertar(e);
+    e.IdEvolucion = new EvolucionDAO().Insertar(e);
     return Results.Created("/evoluciones", e);
 }));
 
@@ -986,7 +986,7 @@ app.MapPost("/derivaciones", (Derivacion d) =>
 {
     d.Fecha  = DateTime.Now;
     d.Estado = "Pendiente";
-    new DerivacionDAO().Insertar(d);
+    d.IdDerivacion = new DerivacionDAO().Insertar(d);
     return Results.Created("/derivaciones", d);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -1096,7 +1096,7 @@ soloClinico(app.MapPost("/eventoscrisis", (EventoCrisis e, HttpContext ctx) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, e.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new EventoCrisisDAO().Insertar(e);
+    e.IdEvento = new EventoCrisisDAO().Insertar(e);
     return Results.Created("/eventoscrisis", e);
 }));
 
@@ -1134,7 +1134,7 @@ soloClinico(app.MapPost("/interaccionesia", (InteraccionIA i, HttpContext ctx) =
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, i.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new InteraccionIADAO().Insertar(i);
+    i.IdInteraccion = new InteraccionIADAO().Insertar(i);
     return Results.Created("/interaccionesia", i);
 }));
 
@@ -1155,7 +1155,7 @@ app.MapGet("/pacientes/{id}/coberturas", (int id) =>
 
 app.MapPost("/coberturas", (Cobertura c) =>
 {
-    new CoberturaDAO().Insertar(c);
+    c.IdCobertura = new CoberturaDAO().Insertar(c);
     return Results.Created("/coberturas", c);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 

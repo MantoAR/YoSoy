@@ -3,12 +3,12 @@ using System.Collections.Generic;
 
 public class EvolucionDAO
 {
-    public void Insertar(Evolucion e)
+    public int Insertar(Evolucion e)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Evolucion (IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento) VALUES (@IdHistoria, @IdProfesional, @IdTurno, @Fecha, @Diagnostico, @Observaciones, @PlanTratamiento)", con);
+            "INSERT INTO Evolucion (IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento) VALUES (@IdHistoria, @IdProfesional, @IdTurno, @Fecha, @Diagnostico, @Observaciones, @PlanTratamiento); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdHistoria",      e.IdHistoria);
         cmd.Parameters.AddWithValue("@IdProfesional",   e.IdProfesional);
         cmd.Parameters.AddWithValue("@IdTurno",         (object)e.IdTurno        ?? DBNull.Value);
@@ -16,7 +16,7 @@ public class EvolucionDAO
         cmd.Parameters.AddWithValue("@Diagnostico",     (object)e.Diagnostico    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Observaciones",   (object)e.Observaciones  ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@PlanTratamiento", (object)e.PlanTratamiento ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Evolucion e)
