@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -59,6 +60,71 @@ public class RegistroPublicoProfesionalTests
                   AND Detalle LIKE @d AND IdUsuario IS NULL", con);
             cmdLog.Parameters.AddWithValue("@d", "%" + marca);
             Assert.Equal(1, (int)(await cmdLog.ExecuteScalarAsync())!);
+        }
+        finally
+        {
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+
+            using var cmdDelLog = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'Profesional' AND Detalle LIKE @d", con);
+            cmdDelLog.Parameters.AddWithValue("@d", "%" + marca);
+            await cmdDelLog.ExecuteNonQueryAsync();
+
+            using var cmdDelProf = new SqlCommand("DELETE FROM Profesional WHERE Matricula = @m", con);
+            cmdDelProf.Parameters.AddWithValue("@m", marca);
+            await cmdDelProf.ExecuteNonQueryAsync();
+
+            using var cmdCheck = new SqlCommand("SELECT COUNT(*) FROM Profesional WHERE Matricula = @m", con);
+            cmdCheck.Parameters.AddWithValue("@m", marca);
+            Assert.Equal(0, (int)(await cmdCheck.ExecuteScalarAsync())!);
+        }
+    }
+
+    // QA exploratorio (docs/QA_INFORME.md, QA-04): la respuesta de este mismo registro
+    // devolvía idProfesional: 0 en vez del id real recién generado — la fila se crea bien
+    // en la base, pero el valor que viaja en el cuerpo de la respuesta no se actualiza.
+    [Fact]
+    public async Task Registro_publico_devuelve_el_idProfesional_real_no_cero()
+    {
+        var marca = "XTEST-" + Guid.NewGuid().ToString("N")[..10];
+
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, config) =>
+                config.AddInMemoryCollection(new Dictionary<string, string?> { ["Email:Password"] = " " })));
+        using var client = factory.CreateClient();
+
+        var idEspecialidad = ObtenerPrimeraEspecialidad();
+
+        var respuesta = await client.PostAsJsonAsync("/profesionales", new
+        {
+            nombre = "Prueba",
+            apellido = marca,
+            dni = marca,
+            sexo = "Otro",
+            fechaNacimiento = "1990-01-01",
+            matricula = marca,
+            idEspecialidad,
+            provincia = "Buenos Aires",
+            estado = "Pendiente",
+            mail = "xtest@example.com",
+            telefono = "1100000000",
+        });
+
+        try
+        {
+            Assert.True(respuesta.IsSuccessStatusCode, $"esperaba 2xx, llegó {(int)respuesta.StatusCode}");
+
+            var cuerpo = await respuesta.Content.ReadFromJsonAsync<JsonElement>();
+            var idDevuelto = cuerpo.GetProperty("idProfesional").GetInt32();
+
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            using var cmd = new SqlCommand("SELECT IdProfesional FROM Profesional WHERE Matricula = @m", con);
+            cmd.Parameters.AddWithValue("@m", marca);
+            var idReal = (int)(await cmd.ExecuteScalarAsync())!;
+
+            Assert.True(idDevuelto > 0, $"idProfesional en la respuesta tendría que ser > 0, llegó {idDevuelto}");
+            Assert.Equal(idReal, idDevuelto);
         }
         finally
         {

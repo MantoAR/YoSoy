@@ -433,7 +433,7 @@ app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     p.Estado = "Pendiente";
-    new ProfesionalDAO().Insertar(p);
+    p.IdProfesional = new ProfesionalDAO().Insertar(p);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
     return Results.Created("/profesionales", p);
 });

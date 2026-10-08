@@ -1871,3 +1871,157 @@ original menciona para el Paso 7 no existen hoy en este repo — ver Paso 0).
 
 Etiqueta anotada **local** `entrega-tesis-v1` sobre `integracion-main` — confirmado con
 `git ls-remote --tags origin` que no está en el remoto.
+
+## Fix id-profesional-registro
+
+Objetivo: un solo bug, el que apareció en el QA exploratorio (QA-04, `docs/QA_INFORME.md`
+en la rama `qa-exploratorio`, todavía no mergeada a `main`): el registro público de
+profesional responde `idProfesional: 0` en vez del id real recién generado. Nada de
+refactors ni otros cambios. Rama local, sin push, nunca a `main`.
+
+### Paso 0: ubicación del bug
+
+`ProfesionalDAO.Insertar` (`DAOs/ProfesionalDAO.cs`) era `void`: hacía el `INSERT` y
+nunca leía el id que generó SQL Server. `Program.cs` (`POST /profesionales`) llamaba
+`new ProfesionalDAO().Insertar(p)` sin tocar `p.IdProfesional`, así que el objeto que
+se devolvía en `Results.Created(...)` conservaba el valor con el que llegó del cliente
+(0, porque es un alta: nadie manda un id al registrarse). La fila se creaba bien en la
+base — el bug es solo que la respuesta nunca se entera de qué id le tocó.
+
+**Barrido del mismo patrón en el resto de la API** (no se corrige nada de esto en este
+alcance, solo se documenta, tal como pide el pedido): se listaron todos los `Insertar`
+de `DAOs/*.cs`, se separaron los que ya devuelven `int` vía `SCOPE_IDENTITY()` (el patrón
+correcto: `CasoDAO`, `CasoDerivacionDAO`, `EtiquetaConversacionDAO`, `GrupoDAO`,
+`HistorialAsignacionDAO`, `InformeAdmisionDAO`, `MensajeChatDAO`,
+`NotaInternaConversacionDAO`, `NotificacionInternaDAO`, `ReglaDerivacionDAO`,
+`RespuestaRapidaDAO`, `SesionClinicaDAO` — ninguno de estos tiene el bug) de los que son
+`void`, y de estos últimos se cruzó cada uno contra su endpoint en `Program.cs` **y**
+en `Endpoints/*.cs` (no alcanza con mirar solo `Program.cs`: `PreguntaFrecuenteDAO` se
+usa desde `Endpoints/MensajeriaEndpoints.cs`) para confirmar cuáles de verdad exponen
+el id generado en una respuesta pública.
+
+#### Correcciones: id 0 en respuestas
+
+Mismo patrón exacto (`Insertar` devuelve `void`, el endpoint hace
+`Results.Created(ruta, objeto)` con el objeto que llegó del cliente, el id generado
+nunca se actualiza) en estos endpoints — **no corregidos en este alcance**:
+
+| Endpoint | DAO |
+|---|---|
+| `POST /especialidades` | `EspecialidadDAO` |
+| `POST /roles` | `RolDAO` |
+| `POST /estadosturnos` | `EstadoTurnoDAO` |
+| `POST /tiposconsentimiento` | `TipoConsentimientoDAO` |
+| `POST /obrassociales` | `ObraSocialDAO` |
+| `POST /tutores` | `TutorDAO` |
+| `POST /pacientes` | `PacienteDAO` |
+| `POST /agendas` | `AgendaDAO` |
+| `POST /agenda` | `AgendaDAO` (misma clase, otra ruta) |
+| `POST /consentimientos` | `ConsentimientoDAO` |
+| `POST /historiasclinicas` | `HistoriaClinicaDAO` |
+| `POST /evoluciones` | `EvolucionDAO` |
+| `POST /derivaciones` | `DerivacionDAO` |
+| `POST /eventoscrisis` | `EventoCrisisDAO` |
+| `POST /interaccionesia` | `InteraccionIADAO` |
+| `POST /coberturas` | `CoberturaDAO` |
+| `POST /usuarios` | `UsuarioDAO` (acá se devuelve una proyección anónima con `u.IdUsuario`, no el modelo entero, pero el campo echado es igual de 0) |
+| `POST /mensajeria/preguntas-frecuentes` | `PreguntaFrecuenteDAO` (`Endpoints/MensajeriaEndpoints.cs`) — este caso es peor: el id en 0 también ensucia la URL de `Location` (`.../preguntas-frecuentes/0`), no solo el cuerpo |
+
+18 rutas, 16 DAOs distintos (`/agendas` y `/agenda` comparten `AgendaDAO`).
+
+**Confirmado que NO tienen este bug** (se revisaron para no dejar la lista incompleta):
+`PacienteTutor`, `UsuarioRol`, `UsuarioPaciente` y `UsuarioProfesional` son tablas de
+unión con clave compuesta (`IdPaciente`+`IdTutor`, `IdUsuario`+`IdRol`, etc.) sin ninguna
+columna de identidad propia — no hay ningún id generado que se pueda devolver mal,
+porque no existe. Confirmado leyendo cada `Models/*.cs`.
+
+**Hallazgo aparte, sin relación con el bug de id 0** (no se toca, es código ya muerto de
+antes, ajeno a este fix): `TurnoDAO.Insertar` y `RecuperacionPasswordDAO.Insertar` no
+los llama nadie en todo el repo — ni `Program.cs` ni ningún archivo de `Endpoints/`. Los
+turnos se crean por otro camino (no por este método) y la recuperación de contraseña
+nunca pasó a usar el suyo. Queda anotado por si alguna vez alguien lo encuentra y se
+pregunta por qué un método entero no tiene ningún llamador.
+
+### Paso 1: prueba que falla
+
+`YoSoy.Tests/RegistroPublicoProfesionalTests.cs`:
+`Registro_publico_devuelve_el_idProfesional_real_no_cero` — hace el mismo `POST
+/profesionales` público que ya probaba el test existente de este archivo, pero esta vez
+lee `idProfesional` del **cuerpo de la respuesta** y lo compara contra el id real que
+quedó en la tabla `Profesional` (consultado por `Matricula`, que es única por fila de
+prueba). Falló antes de tocar nada: *"idProfesional en la respuesta tendría que ser > 0,
+llegó 0"* — confirma el bug exactamente como lo describe QA-04, no un supuesto.
+
+### Paso 2: corrección
+
+- `DAOs/ProfesionalDAO.cs`: `Insertar` pasa de `void` a `int`. El `INSERT` ahora termina
+  en `; SELECT SCOPE_IDENTITY();` y el método hace
+  `return Convert.ToInt32(cmd.ExecuteScalar());` — el mismo patrón que ya usan
+  `InformeAdmisionDAO`, `SesionClinicaDAO`, `CasoDAO`, etc. Si `SCOPE_IDENTITY()` diera
+  `NULL` por algún motivo, `Convert.ToInt32(DBNull.Value)` tira `InvalidCastException`
+  (falla explícita) en vez de devolver 0 en silencio — así que esto también respeta la
+  regla de no usar nunca `?? 0` ni un 0 por defecto.
+- `Program.cs` (`POST /profesionales`): la llamada pasa a
+  `p.IdProfesional = new ProfesionalDAO().Insertar(p);` — una sola línea. El contrato
+  JSON no cambia de forma: el campo `idProfesional` sigue estando, solo que ahora con el
+  valor real.
+- **Código muerto que deja la corrección:** ninguno. `ProfesionalDAO.Insertar` tenía un
+  solo llamador (confirmado por grep en todo el repo) y sigue teniendo uno solo; no quedó
+  ningún `using`, variable ni método sin referencias.
+- Se probó devolver también la `Location` de `Results.Created` con el id
+  (`$"/profesionales/{p.IdProfesional}"`) por prolijidad, pero se revirtió: no es parte
+  del bug de QA-04 y la regla de esta tarea es no tocar nada que no sea el bug de id 0.
+
+### Paso 3: baterías
+
+- `dotnet test` (test nuevo solo): fallaba antes del Paso 2, pasa después.
+- `dotnet test` completo: **161/161**, sin texto nuevo que falle.
+- Playwright: además de los scripts ya existentes de fases previas (re-corridos como
+  regresión, no tocan nada de profesionales en sí) —
+  `p16_cierre_seguridad.py` **16/16**, `p17_merge_fixxss.py` **5/5**,
+  `p20_flujos_criticos.py` **5/5** (sin fallas de consola; las dos notas "BLOQUEADO" que
+  imprime son ajenas a este fix — un selector de texto en la reserva de turno del
+  paciente, y que no hay ninguna solicitud pendiente para aprobar en el momento de
+  correrlo, justamente porque esta misma tarea limpia cada profesional de prueba que
+  crea). `p19_qa_exploratorio.py` reprodujo los mismos 2 hallazgos ya conocidos del QA
+  exploratorio (overflow a 480px en `#usuarios` del configurador, dos 404 en el dashboard
+  del paciente) — preexistentes, sin relación con el registro de profesional, no se
+  tocan acá.
+- Script nuevo `docs/pruebas-ui-cambios-agus/p21_registro_id_profesional.py`, dedicado al
+  Paso 4 (detalle abajo): **5/5**.
+
+### Paso 4: verificación por Playwright y reversión de datos
+
+`p21_registro_id_profesional.py` completa el formulario público real
+(`pantallas/Pantalla_Usuario/Usuario/registro_profesional.html`, sin ninguna sesión
+simulada) con datos de prueba marcados (`XTESTPW<timestamp>`), intercepta la respuesta
+de red del `POST /profesionales` y confirma ahí mismo que `idProfesional` llegó en 1047
+(y 1048 en la segunda corrida) — no 0 — y que coincide con el id real en la base.
+
+**Sobre el correo real (regla de no mandarlo):** no hizo falta cortar el flujo en ningún
+punto. Se confirmó leyendo el handler (`Program.cs`, `POST /profesionales`) que este
+endpoint no manda ningún mail — solo inserta la fila y escribe la auditoría; el correo
+sale recién cuando el configurador aprueba la solicitud, desde otro endpoint que esta
+prueba nunca llama. El flujo se completó entero, hasta la pantalla de confirmación
+("Solicitud enviada"), sin disparar nada real.
+
+**Reversión:** el script borra por SQL el `Profesional` y el `LogAuditoria` que generó
+(con `SET QUOTED_IDENTIFIER ON;` antes del `DELETE` — `Profesional` tiene índices
+filtrados y sin eso sqlcmd lo rechaza con el mismo error 1934 que ya había aparecido en
+el QA exploratorio) y verifica por `COUNT(*)` que queda en 0. Verificación final aparte,
+contra toda la base, por cualquier marca usada en esta tarea (`XTEST%` de los tests de
+xUnit y `XTESTPW%` de Playwright): **0 filas** en `Profesional` y **0** en `LogAuditoria`.
+
+Servidor de desarrollo (levantado en segundo plano solo para esta verificación) detenido
+al terminar.
+
+### Verificación del fix id-profesional-registro
+
+- `dotnet build`: 0 errores.
+- `dotnet test` (161 pruebas): **161/161**.
+- Playwright: **36/36** entre los 5 scripts corridos (`p16`, `p17`, `p20`, `p21` en
+  asserts automáticos; `p19` es exploratorio y no asertivo, sin hallazgos nuevos).
+- Datos de prueba: 0 filas colgadas (`Profesional`, `LogAuditoria`), confirmado por SQL
+  después de cada corrida y de nuevo al cierre con una búsqueda amplia por prefijo.
+- Nada pusheado. Todo queda local en `fix-id-profesional-registro`, 2 commits sobre
+  `main` (`test: ...`, `fix: ...`).
