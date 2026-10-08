@@ -3,22 +3,23 @@ using System.Collections.Generic;
 
 public class AgendaDAO
 {
-    public void Insertar(Agenda a)
+    public int Insertar(Agenda a)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            @"INSERT INTO Agenda 
-              (IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos) 
-              VALUES 
-              (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible, @Intervalo)", con);
+            @"INSERT INTO Agenda
+              (IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos)
+              VALUES
+              (@IdProfesional, @Dia, @HoraInicio, @HoraFin, @Disponible, @Intervalo);
+              SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdProfesional", a.IdProfesional);
         cmd.Parameters.AddWithValue("@Dia",           (object)a.Dia        ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraInicio",    (object)a.HoraInicio ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HoraFin",       (object)a.HoraFin    ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Disponible",    a.Disponible);
         cmd.Parameters.AddWithValue("@Intervalo",     a.IntervaloMinutos);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Agenda a)

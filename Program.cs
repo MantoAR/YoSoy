@@ -591,7 +591,7 @@ app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService ident
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
-    new AgendaDAO().Insertar(a);
+    a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agendas", a);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
@@ -633,7 +633,7 @@ app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identi
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
-    new AgendaDAO().Insertar(a);
+    a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agenda", a);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
