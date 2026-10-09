@@ -3,17 +3,17 @@ using System.Collections.Generic;
 
 public class TutorDAO
 {
-    public void Insertar(Tutor t)
+    public int Insertar(Tutor t)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Tutor (Nombre, Dni, Vinculo, Contacto) VALUES (@Nombre, @Dni, @Vinculo, @Contacto)", con);
+            "INSERT INTO Tutor (Nombre, Dni, Vinculo, Contacto) VALUES (@Nombre, @Dni, @Vinculo, @Contacto); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Nombre",   (object)t.Nombre   ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Dni",      (object)t.Dni      ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Vinculo",  (object)t.Vinculo  ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Contacto", (object)t.Contacto ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Tutor t)

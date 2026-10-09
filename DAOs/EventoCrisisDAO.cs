@@ -3,17 +3,17 @@ using System.Collections.Generic;
 
 public class EventoCrisisDAO
 {
-    public void Insertar(EventoCrisis e)
+    public int Insertar(EventoCrisis e)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO EventoCrisis (IdPaciente, Fecha, NivelRiesgo, Acciones) VALUES (@IdPaciente, @Fecha, @NivelRiesgo, @Acciones)", con);
+            "INSERT INTO EventoCrisis (IdPaciente, Fecha, NivelRiesgo, Acciones) VALUES (@IdPaciente, @Fecha, @NivelRiesgo, @Acciones); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente",  e.IdPaciente);
         cmd.Parameters.AddWithValue("@Fecha",       e.Fecha);
         cmd.Parameters.AddWithValue("@NivelRiesgo", (object)e.NivelRiesgo ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Acciones",    (object)e.Acciones    ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(EventoCrisis e)

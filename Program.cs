@@ -155,7 +155,7 @@ app.MapGet("/especialidades/{id}", (int id) =>
 app.MapPost("/especialidades", (Especialidad e) =>
 {
     e.Estado = "Activo";
-    new EspecialidadDAO().Insertar(e);
+    e.IdEspecialidad = new EspecialidadDAO().Insertar(e);
     return Results.Created($"/especialidades", e);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -186,7 +186,7 @@ app.MapGet("/roles/{id}", (int id) =>
 app.MapPost("/roles", (Rol r) =>
 {
     r.Estado = "Activo";
-    new RolDAO().Insertar(r);
+    r.IdRol = new RolDAO().Insertar(r);
     return Results.Created($"/roles", r);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -219,7 +219,7 @@ app.MapGet("/estadosturnos/{id}", (int id) =>
 app.MapPost("/estadosturnos", (EstadoTurno et) =>
 {
     et.Estado = "Activo";
-    new EstadoTurnoDAO().Insertar(et);
+    et.IdEstadoTurno = new EstadoTurnoDAO().Insertar(et);
     return Results.Created($"/estadosturnos", et);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -250,7 +250,7 @@ app.MapGet("/tiposconsentimiento/{id}", (int id) =>
 app.MapPost("/tiposconsentimiento", (TipoConsentimiento tc) =>
 {
     tc.Estado = "Activo";
-    new TipoConsentimientoDAO().Insertar(tc);
+    tc.IdTipoConsentimiento = new TipoConsentimientoDAO().Insertar(tc);
     return Results.Created($"/tiposconsentimiento", tc);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -280,7 +280,7 @@ app.MapGet("/obrassociales/{id}", (int id) =>
 
 app.MapPost("/obrassociales", (ObraSocial o) =>
 {
-    new ObraSocialDAO().Insertar(o);
+    o.IdObraSocial = new ObraSocialDAO().Insertar(o);
     return Results.Created("/obrassociales", o);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -306,7 +306,7 @@ app.MapGet("/tutores/{id}", (int id) =>
 
 app.MapPost("/tutores", (Tutor t) =>
 {
-    new TutorDAO().Insertar(t);
+    t.IdTutor = new TutorDAO().Insertar(t);
     return Results.Created("/tutores", t);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
@@ -336,7 +336,7 @@ app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
     u.PasswordHash = Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
-    new UsuarioDAO().Insertar(u);
+    u.IdUsuario = new UsuarioDAO().Insertar(u);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", Detalle = u.Username });
     return Results.Created("/usuarios", new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
@@ -380,7 +380,7 @@ app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService i
 app.MapPost("/pacientes", (Paciente p) =>
 {
     p.Estado = "Activo";
-    new PacienteDAO().Insertar(p);
+    p.IdPaciente = new PacienteDAO().Insertar(p);
     return Results.Created("/pacientes", p);
 });
 
@@ -591,7 +591,7 @@ app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService ident
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
-    new AgendaDAO().Insertar(a);
+    a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agendas", a);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
@@ -633,7 +633,7 @@ app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identi
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
-    new AgendaDAO().Insertar(a);
+    a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agenda", a);
 }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
 
@@ -850,7 +850,7 @@ app.MapGet("/pacientes/{id}/consentimientos", (int id, HttpContext ctx, Identida
 app.MapPost("/consentimientos", (Consentimiento c) =>
 {
     c.Estado = "Activo";
-    new ConsentimientoDAO().Insertar(c);
+    c.IdConsentimiento = new ConsentimientoDAO().Insertar(c);
     return Results.Created("/consentimientos", c);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -911,7 +911,7 @@ soloClinico(app.MapPost("/historiasclinicas", (HistoriaClinica h, HttpContext ct
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, h.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new HistoriaClinicaDAO().Insertar(h);
+    h.IdHistoria = new HistoriaClinicaDAO().Insertar(h);
     return Results.Created("/historiasclinicas", h);
 }));
 
@@ -942,7 +942,7 @@ soloClinico(app.MapPost("/evoluciones", (Evolucion e, HttpContext ctx) =>
     if (idPaciente is null) return Results.NotFound();
     if (!AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new EvolucionDAO().Insertar(e);
+    e.IdEvolucion = new EvolucionDAO().Insertar(e);
     return Results.Created("/evoluciones", e);
 }));
 
@@ -986,7 +986,7 @@ app.MapPost("/derivaciones", (Derivacion d) =>
 {
     d.Fecha  = DateTime.Now;
     d.Estado = "Pendiente";
-    new DerivacionDAO().Insertar(d);
+    d.IdDerivacion = new DerivacionDAO().Insertar(d);
     return Results.Created("/derivaciones", d);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -1096,7 +1096,7 @@ soloClinico(app.MapPost("/eventoscrisis", (EventoCrisis e, HttpContext ctx) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, e.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new EventoCrisisDAO().Insertar(e);
+    e.IdEvento = new EventoCrisisDAO().Insertar(e);
     return Results.Created("/eventoscrisis", e);
 }));
 
@@ -1134,7 +1134,7 @@ soloClinico(app.MapPost("/interaccionesia", (InteraccionIA i, HttpContext ctx) =
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, i.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    new InteraccionIADAO().Insertar(i);
+    i.IdInteraccion = new InteraccionIADAO().Insertar(i);
     return Results.Created("/interaccionesia", i);
 }));
 
@@ -1155,7 +1155,7 @@ app.MapGet("/pacientes/{id}/coberturas", (int id) =>
 
 app.MapPost("/coberturas", (Cobertura c) =>
 {
-    new CoberturaDAO().Insertar(c);
+    c.IdCobertura = new CoberturaDAO().Insertar(c);
     return Results.Created("/coberturas", c);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 

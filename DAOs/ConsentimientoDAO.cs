@@ -3,18 +3,18 @@ using System.Collections.Generic;
 
 public class ConsentimientoDAO
 {
-    public void Insertar(Consentimiento c)
+    public int Insertar(Consentimiento c)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Consentimiento (IdPaciente, IdTipoConsentimiento, Version, FechaFirma, Estado) VALUES (@IdPaciente, @IdTipoConsentimiento, @Version, @FechaFirma, @Estado)", con);
+            "INSERT INTO Consentimiento (IdPaciente, IdTipoConsentimiento, Version, FechaFirma, Estado) VALUES (@IdPaciente, @IdTipoConsentimiento, @Version, @FechaFirma, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente",           c.IdPaciente);
         cmd.Parameters.AddWithValue("@IdTipoConsentimiento", c.IdTipoConsentimiento);
         cmd.Parameters.AddWithValue("@Version",              (object)c.Version ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@FechaFirma",           c.FechaFirma);
         cmd.Parameters.AddWithValue("@Estado",               (object)c.Estado  ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Consentimiento c)

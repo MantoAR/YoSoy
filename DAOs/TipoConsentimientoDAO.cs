@@ -3,15 +3,15 @@ using System.Collections.Generic;
 
 public class TipoConsentimientoDAO
 {
-    public void Insertar(TipoConsentimiento tc)
+    public int Insertar(TipoConsentimiento tc)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO TipoConsentimiento (Descripcion, Estado) VALUES (@Descripcion, @Estado)", con);
+            "INSERT INTO TipoConsentimiento (Descripcion, Estado) VALUES (@Descripcion, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Descripcion", tc.Descripcion);
         cmd.Parameters.AddWithValue("@Estado", tc.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(TipoConsentimiento tc)

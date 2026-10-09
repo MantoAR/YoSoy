@@ -3,14 +3,14 @@ using System.Collections.Generic;
 
 public class ObraSocialDAO
 {
-    public void Insertar(ObraSocial o)
+    public int Insertar(ObraSocial o)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO ObraSocial (Nombre) VALUES (@Nombre)", con);
+            "INSERT INTO ObraSocial (Nombre) VALUES (@Nombre); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Nombre", o.Nombre);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(ObraSocial o)

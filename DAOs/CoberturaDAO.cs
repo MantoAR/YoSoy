@@ -3,18 +3,18 @@ using System.Collections.Generic;
 
 public class CoberturaDAO
 {
-    public void Insertar(Cobertura c)
+    public int Insertar(Cobertura c)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Cobertura (IdPaciente, IdObraSocial, NroAfiliado, PlanCobertura, Estado) VALUES (@IdPaciente, @IdObraSocial, @NroAfiliado, @PlanCobertura, @Estado)", con);
+            "INSERT INTO Cobertura (IdPaciente, IdObraSocial, NroAfiliado, PlanCobertura, Estado) VALUES (@IdPaciente, @IdObraSocial, @NroAfiliado, @PlanCobertura, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente",    c.IdPaciente);
         cmd.Parameters.AddWithValue("@IdObraSocial",  c.IdObraSocial);
         cmd.Parameters.AddWithValue("@NroAfiliado",   (object)c.NroAfiliado   ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@PlanCobertura", (object)c.PlanCobertura ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Estado",        (object)c.Estado        ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Cobertura c)

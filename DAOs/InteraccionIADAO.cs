@@ -3,17 +3,17 @@ using System.Collections.Generic;
 
 public class InteraccionIADAO
 {
-    public void Insertar(InteraccionIA i)
+    public int Insertar(InteraccionIA i)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO InteraccionIA (IdPaciente, Fecha, Consulta, Respuesta) VALUES (@IdPaciente, @Fecha, @Consulta, @Respuesta)", con);
+            "INSERT INTO InteraccionIA (IdPaciente, Fecha, Consulta, Respuesta) VALUES (@IdPaciente, @Fecha, @Consulta, @Respuesta); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@IdPaciente", i.IdPaciente);
         cmd.Parameters.AddWithValue("@Fecha",      i.Fecha);
         cmd.Parameters.AddWithValue("@Consulta",   i.Consulta);
         cmd.Parameters.AddWithValue("@Respuesta",  i.Respuesta);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public List<InteraccionIA> ObtenerTodos()

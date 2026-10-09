@@ -3,15 +3,15 @@ using System.Collections.Generic;
 
 public class EstadoTurnoDAO
 {
-    public void Insertar(EstadoTurno et)
+    public int Insertar(EstadoTurno et)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO EstadoTurno (Descripcion, Estado) VALUES (@Descripcion, @Estado)", con);
+            "INSERT INTO EstadoTurno (Descripcion, Estado) VALUES (@Descripcion, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Descripcion", et.Descripcion);
         cmd.Parameters.AddWithValue("@Estado", et.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(EstadoTurno et)

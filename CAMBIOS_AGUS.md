@@ -1904,43 +1904,67 @@ el id generado en una respuesta pública.
 
 Mismo patrón exacto (`Insertar` devuelve `void`, el endpoint hace
 `Results.Created(ruta, objeto)` con el objeto que llegó del cliente, el id generado
-nunca se actualiza) en estos endpoints — **no corregidos en este alcance**:
+nunca se actualiza) — **las 17 rutas de esta lista ya están corregidas**, en la rama
+`fix-ids-cero-endpoints`, agrupadas en 4 commits:
 
-| Endpoint | DAO |
-|---|---|
-| `POST /especialidades` | `EspecialidadDAO` |
-| `POST /roles` | `RolDAO` |
-| `POST /estadosturnos` | `EstadoTurnoDAO` |
-| `POST /tiposconsentimiento` | `TipoConsentimientoDAO` |
-| `POST /obrassociales` | `ObraSocialDAO` |
-| `POST /tutores` | `TutorDAO` |
-| `POST /pacientes` | `PacienteDAO` |
-| `POST /agendas` | `AgendaDAO` |
-| `POST /agenda` | `AgendaDAO` (misma clase, otra ruta) |
-| `POST /consentimientos` | `ConsentimientoDAO` |
-| `POST /historiasclinicas` | `HistoriaClinicaDAO` |
-| `POST /evoluciones` | `EvolucionDAO` |
-| `POST /derivaciones` | `DerivacionDAO` |
-| `POST /eventoscrisis` | `EventoCrisisDAO` |
-| `POST /interaccionesia` | `InteraccionIADAO` |
-| `POST /coberturas` | `CoberturaDAO` |
-| `POST /usuarios` | `UsuarioDAO` (acá se devuelve una proyección anónima con `u.IdUsuario`, no el modelo entero, pero el campo echado es igual de 0) |
-| `POST /mensajeria/preguntas-frecuentes` | `PreguntaFrecuenteDAO` (`Endpoints/MensajeriaEndpoints.cs`) — este caso es peor: el id en 0 también ensucia la URL de `Location` (`.../preguntas-frecuentes/0`), no solo el cuerpo |
+| Endpoint | DAO | Estado | Commit |
+|---|---|---|---|
+| `POST /especialidades` | `EspecialidadDAO` | Corregido | `a698692` fix(catalogos) |
+| `POST /roles` | `RolDAO` | Corregido | `a698692` fix(catalogos) |
+| `POST /estadosturnos` | `EstadoTurnoDAO` | Corregido | `a698692` fix(catalogos) |
+| `POST /tiposconsentimiento` | `TipoConsentimientoDAO` | Corregido | `a698692` fix(catalogos) |
+| `POST /obrassociales` | `ObraSocialDAO` | Corregido | `a698692` fix(catalogos) |
+| `POST /tutores` | `TutorDAO` | Corregido | `89dc206` fix(personas) |
+| `POST /pacientes` | `PacienteDAO` | Corregido | `89dc206` fix(personas) |
+| `POST /usuarios` | `UsuarioDAO` (proyección anónima con `u.IdUsuario`, mismo bug) | Corregido | `89dc206` fix(personas) |
+| `POST /agendas` | `AgendaDAO` | Corregido | `44b790c` fix(agenda) |
+| `POST /agenda` | `AgendaDAO` (misma clase, otra ruta) | Corregido | `44b790c` fix(agenda) |
+| `POST /consentimientos` | `ConsentimientoDAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /historiasclinicas` | `HistoriaClinicaDAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /evoluciones` | `EvolucionDAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /derivaciones` | `DerivacionDAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /eventoscrisis` | `EventoCrisisDAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /interaccionesia` | `InteraccionIADAO` | Corregido | `f1252f7` fix(clinica) |
+| `POST /coberturas` | `CoberturaDAO` | Corregido | `f1252f7` fix(clinica) |
 
-18 rutas, 16 DAOs distintos (`/agendas` y `/agenda` comparten `AgendaDAO`).
+17 rutas, 16 DAOs distintos (`/agendas` y `/agenda` comparten `AgendaDAO`). Cada DAO
+pasó de `void` a `int`, con `SELECT CAST(SCOPE_IDENTITY() AS INT)` (mismo patrón que
+`PreguntaFrecuenteDAO` y el resto de los DAOs que ya lo hacían bien), y el endpoint
+asigna el id devuelto al campo del objeto antes de responder — el contrato JSON no
+cambia de forma.
 
-**Confirmado que NO tienen este bug** (se revisaron para no dejar la lista incompleta):
-`PacienteTutor`, `UsuarioRol`, `UsuarioPaciente` y `UsuarioProfesional` son tablas de
-unión con clave compuesta (`IdPaciente`+`IdTutor`, `IdUsuario`+`IdRol`, etc.) sin ninguna
-columna de identidad propia — no hay ningún id generado que se pueda devolver mal,
-porque no existe. Confirmado leyendo cada `Models/*.cs`.
+**Sacado de la lista, verificado antes de tocar código:** `POST
+/mensajeria/preguntas-frecuentes` (`PreguntaFrecuenteDAO`) — **no tiene el bug**. La
+lista original (de la vuelta anterior) lo incluía por mirar solo la firma `void` del
+método y el call site, sin leer el cuerpo completo de `Insertar`: ese método ya hace
+`INSERT ...; SELECT CAST(SCOPE_IDENTITY() AS INT);` y asigna `p.IdPregunta =
+(int)cmd.ExecuteScalar();` dentro de sí mismo — como `PreguntaFrecuente` es una clase,
+esa asignación por referencia ya deja el id real puesto antes de que el endpoint arme
+la respuesta. Verificado empíricamente con una prueba descartable (autenticada como
+configurador, borrada después de confirmar): `STATUS=201 IdCuerpo=1005
+Location=/mensajeria/preguntas-frecuentes/1005` — id real en el cuerpo y en la URL,
+nada en 0. No se tocó ni el DAO ni el endpoint.
 
-**Hallazgo aparte, sin relación con el bug de id 0** (no se toca, es código ya muerto de
-antes, ajeno a este fix): `TurnoDAO.Insertar` y `RecuperacionPasswordDAO.Insertar` no
-los llama nadie en todo el repo — ni `Program.cs` ni ningún archivo de `Endpoints/`. Los
-turnos se crean por otro camino (no por este método) y la recuperación de contraseña
-nunca pasó a usar el suyo. Queda anotado por si alguna vez alguien lo encuentra y se
-pregunta por qué un método entero no tiene ningún llamador.
+**Confirmado que NO tienen este bug** (se revisaron para no dejar la lista
+incompleta): `PacienteTutor`, `UsuarioRol`, `UsuarioPaciente` y `UsuarioProfesional`
+son tablas de unión con clave compuesta (`IdPaciente`+`IdTutor`, `IdUsuario`+`IdRol`,
+etc.) sin ninguna columna de identidad propia — no hay ningún id generado que se
+pueda devolver mal, porque no existe. Confirmado leyendo cada `Models/*.cs`. No se
+tocaron (regla explícita de esta vuelta).
+
+**Paso 3, código muerto preexistente — con una corrección a mitad de camino:**
+`TurnoDAO.Insertar` **se borró** (`69e0528` chore): no lo llama nadie en todo el
+repo — el alta real de turnos pasa por `TurnoRepositorioDAO.InsertarSiLibre` (su
+propia transacción con `UPDLOCK`/`HOLDLOCK`, confirmado leyendo el archivo entero),
+nunca por este método suelto.
+`RecuperacionPasswordDAO.Insertar` **no se borró y sigue como estaba**: la lista de
+la vuelta anterior lo daba por sin uso, pero sí tiene un llamador real —
+`POST /recuperacion-password` en `Program.cs`, a través de una variable local
+(`dao.Insertar(usuario.IdUsuario)`), no del patrón `new X().Insertar(...)` en línea
+que se había buscado la primera vez. Se detectó porque el build rompió al borrarlo
+(`CS1061`) y se restauró antes de seguir. Además, ese endpoint nunca devuelve ningún
+id en la respuesta (`Results.Ok()` sin cuerpo con id), así que tampoco es del tipo de
+bug de esta tarea — quedó afuera por dos motivos distintos, no solo por tener uso.
 
 ### Paso 1: prueba que falla
 
@@ -2025,3 +2049,73 @@ al terminar.
   después de cada corrida y de nuevo al cierre con una búsqueda amplia por prefijo.
 - Nada pusheado. Todo queda local en `fix-id-profesional-registro`, 2 commits sobre
   `main` (`test: ...`, `fix: ...`).
+
+## Fix ids-cero-endpoints
+
+Objetivo: el mismo bug que `fix-id-profesional-registro` (ya en `main` vía PR #3), pero
+en los otros 17 endpoints de alta catalogados en esa vuelta bajo "Correcciones: id 0 en
+respuestas" (arriba, ya actualizada con el resultado de esta rama). Rama local desde
+`main` actualizado, sin push, nunca a `main`.
+
+### Paso 0: re-verificación de la lista
+
+Antes de tocar código se releyó cada DAO completo (no solo la firma) y cada endpoint
+que lo llama, en `Program.cs` y en `Endpoints/*.cs` — ver el detalle y la corrección
+sobre `/mensajeria/preguntas-frecuentes` en la sección "Correcciones: id 0 en
+respuestas" arriba. Resultado: 17 rutas confirmadas con el bug (no 18), agrupadas en
+catálogos / personas / agenda / clínica.
+
+### Pasos 1-2: prueba que falla + corrección, por grupo
+
+Un archivo de pruebas por grupo (`YoSoy.Tests/IdsCeroCatalogosTests.cs`,
+`IdsCeroPersonasTests.cs`, `IdsCeroAgendaTests.cs`, `IdsCeroClinicaTests.cs`), un `Fact`
+por endpoint: cada uno hace el `POST` real contra el DAO en cuestión, lee el id de la
+**respuesta** y lo compara contra el id real que quedó en la tabla. Todas fallaron antes
+de tocar el código (`xUnit`, "Pruebas totales: N, Incorrecto: N" por grupo, siempre con
+el mensaje "...en la respuesta tendría que ser > 0, llegó 0"), confirmando el bug en
+las 17 rutas antes de corregir nada.
+
+Un hallazgo aparte durante el Grupo 4 (clínica): `HistoriaClinica` tiene una restricción
+`UNIQUE` sobre `IdPaciente` (una sola historia clínica por paciente) y los pacientes
+reales de la base de desarrollo ya tienen la suya — el primer intento de probar el alta
+contra el Paciente 1 real rompió con `Msg 2627` (violación de `UNIQUE KEY`), no con el
+bug de id 0. No es un hallazgo de este bug; se resolvió creando un paciente descartable
+propio para esa prueba puntual (limpiado al final junto con su historia).
+
+Corrección, grupo por grupo, mismo patrón en los 16 DAOs: `Insertar` pasa de `void` a
+`int`, con `SELECT CAST(SCOPE_IDENTITY() AS INT)`, y el endpoint asigna el id devuelto
+al campo del objeto antes de responder. El detalle de qué endpoint quedó en qué commit
+está en la tabla de "Correcciones: id 0 en respuestas" arriba. Código muerto que haya
+dejado el fix en sí: ninguno en los cuatro grupos — cada DAO tenía un solo llamador
+antes y después del cambio (confirmado por `git grep` en cada caso).
+
+### Paso 3: código muerto preexistente (ajeno al bug de id 0)
+
+`TurnoDAO.Insertar` se borró: sin ningún llamador en todo el repo (confirmado por
+`git grep` antes de borrar) — el alta real de turnos pasa por
+`TurnoRepositorioDAO.InsertarSiLibre`. `RecuperacionPasswordDAO.Insertar` **se
+restauró** después de borrarlo: el primer `git grep` (patrón `new X().Insertar(...)`
+en línea) no encontró su llamador real porque es por variable
+(`var dao = new RecuperacionPasswordDAO(); dao.Insertar(...)`, en
+`POST /recuperacion-password`) — el error de compilación (`CS1061`) lo mostró de
+inmediato, antes de seguir. Se detalla también arriba, en "Correcciones: id 0 en
+respuestas".
+
+### Paso 4: verificación final
+
+- `dotnet build`: 0 errores, antes y después del Paso 3.
+- `dotnet test`: **178/178** (161 de antes + 17 nuevos, uno por endpoint corregido).
+- `git grep "public void Insertar("` en `DAOs/*.cs`: quedan 7, los 7 justificados y sin
+  tocar — `LogAuditoriaDAO` (log interno, ningún endpoint propio devuelve su id),
+  `PacienteTutorDAO`/`UsuarioPacienteDAO`/`UsuarioProfesionalDAO`/`UsuarioRolDAO`
+  (clave compuesta, sin columna de identidad), `PreguntaFrecuenteDAO` (ya resuelve el
+  id por asignación dentro del método, ver arriba) y `RecuperacionPasswordDAO` (su
+  endpoint nunca devuelve ningún id).
+- Playwright: `p16` 16/16, `p17` 5/5, `p20` 5/5 (los mismos dos avisos "BLOQUEADO" de
+  siempre, ajenos a este fix), `p21` 5/5; `p19` (exploratorio) reprodujo los mismos 5
+  hallazgos crudos ya conocidos del QA, nada nuevo.
+- Datos de prueba: 0 filas colgadas, verificado con una búsqueda final por los
+  marcadores de los cuatro grupos (`XTEST%`/`IntervaloMinutos = 9999`) en las 15 tablas
+  que tocaron las pruebas, más `LogAuditoria`.
+- Nada pusheado. Todo queda local en `fix-ids-cero-endpoints`, 5 commits sobre `main`
+  (`fix(catalogos)`, `fix(personas)`, `fix(agenda)`, `fix(clinica)`, `chore`).

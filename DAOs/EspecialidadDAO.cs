@@ -3,15 +3,15 @@ using System.Collections.Generic;
 
 public class EspecialidadDAO
 {
-    public void Insertar(Especialidad e)
+    public int Insertar(Especialidad e)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "INSERT INTO Especialidad (Nombre, Estado) VALUES (@Nombre, @Estado)", con);
+            "INSERT INTO Especialidad (Nombre, Estado) VALUES (@Nombre, @Estado); SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
         cmd.Parameters.AddWithValue("@Nombre", e.Nombre);
         cmd.Parameters.AddWithValue("@Estado", e.Estado);
-        cmd.ExecuteNonQuery();
+        return (int)cmd.ExecuteScalar();
     }
 
     public void Modificar(Especialidad e)

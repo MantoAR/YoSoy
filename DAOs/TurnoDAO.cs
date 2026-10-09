@@ -3,23 +3,6 @@ using System.Collections.Generic;
 
 public class TurnoDAO
 {
-    public void Insertar(Turno t)
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(
-            "INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor) VALUES (@IdPaciente, @IdProfesional, @IdEstadoTurno, @Fecha, @Hora, @Modalidad, @Motivo, @CreadoPor)", con);
-        cmd.Parameters.AddWithValue("@IdPaciente",    t.IdPaciente);
-        cmd.Parameters.AddWithValue("@IdProfesional", t.IdProfesional);
-        cmd.Parameters.AddWithValue("@IdEstadoTurno", t.IdEstadoTurno);
-        cmd.Parameters.AddWithValue("@Fecha",         t.Fecha);
-        cmd.Parameters.AddWithValue("@Hora",          t.Hora);
-        cmd.Parameters.AddWithValue("@Modalidad",     (object)t.Modalidad ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@Motivo",        (object)t.Motivo    ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@CreadoPor",     (object?)t.CreadoPor ?? DBNull.Value);
-        cmd.ExecuteNonQuery();
-    }
-
     public void Modificar(Turno t)
     {
         using var con = Conexion.ObtenerConexion();
