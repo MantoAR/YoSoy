@@ -21,4 +21,12 @@
     <None Remove="YoSoy.Tests/**" />
   </ItemGroup>
 
+  <!-- Ni docs/ (sql de prueba, capturas, tokens de prueba gitignoreados) ni signaling-server/
+       (otro proceso, Node) son parte de la API: que dotnet publish no los arrastre. -->
+  <ItemGroup>
+    <Compile Remove="docs/**;signaling-server/**" />
+    <Content Remove="docs/**;signaling-server/**" />
+    <None Remove="docs/**;signaling-server/**" />
+  </ItemGroup>
+
 </Project>
