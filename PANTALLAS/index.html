@@ -64,13 +64,12 @@
             ¿Sos profesional? <a href="Pantalla_Usuario/Usuario/registro_profesional.html">Pedí tu cuenta acá</a>
         </p>
 
-        <!-- Recuperación de contraseña (solo paciente y profesional) -->
+        <!-- Recuperación de contraseña (solo paciente y profesional): autoservicio, el
+             link para elegir la contraseña nueva llega por mail (reset-password.html). -->
         <div id="seccionRecuperacion">
             <div class="acceso-separador" role="presentation"></div>
             <div class="acceso-links">
                 <button type="button" class="ui-btn ui-btn--ghost ui-btn--sm" onclick="toggleRecuperacion(event)" aria-controls="formRecuperacion">¿Olvidaste tu contraseña?</button>
-                <span aria-hidden="true">·</span>
-                <button type="button" class="ui-btn ui-btn--ghost ui-btn--sm" onclick="toggleConsultarSolicitud(event)" aria-controls="formConsultarSolicitud">Consultar una solicitud</button>
             </div>
 
             <form id="formRecuperacion" class="acceso-desplegable oculto" onsubmit="event.preventDefault(); enviarRecuperacion()" novalidate>
@@ -82,17 +81,6 @@
                     <button type="submit" class="ui-btn ui-btn--primary">Pedir contraseña nueva</button>
                 </div>
                 <div id="msgRecuperacion" class="ui-alerta mt-12 oculto" role="status"></div>
-            </form>
-
-            <form id="formConsultarSolicitud" class="acceso-desplegable oculto" onsubmit="event.preventDefault(); consultarSolicitud()" novalidate>
-                <div class="acceso-desplegable-fila">
-                    <div class="ui-campo">
-                        <label for="userConsulta">Usuario</label>
-                        <input type="text" id="userConsulta" class="ui-input" placeholder="Tu nombre de usuario" autocomplete="username">
-                    </div>
-                    <button type="submit" class="ui-btn ui-btn--primary">Consultar</button>
-                </div>
-                <div id="msgConsulta" class="ui-alerta mt-12 oculto" role="status"></div>
             </form>
         </div>
     </main>
@@ -201,23 +189,17 @@
             }
         }
 
-        function alternarDesplegable(mostrar, ocultar, msg) {
+        function alternarDesplegable(mostrar, msg) {
             const f = document.getElementById(mostrar);
             const abrir = f.classList.contains("oculto");
             f.classList.toggle("oculto", !abrir);
-            document.getElementById(ocultar).classList.add("oculto");
             document.getElementById(msg).classList.add("oculto");
             if (abrir) f.querySelector("input").focus();
         }
 
         function toggleRecuperacion(e) {
             e.preventDefault();
-            alternarDesplegable("formRecuperacion", "formConsultarSolicitud", "msgRecuperacion");
-        }
-
-        function toggleConsultarSolicitud(e) {
-            e.preventDefault();
-            alternarDesplegable("formConsultarSolicitud", "formRecuperacion", "msgConsulta");
+            alternarDesplegable("formRecuperacion", "msgRecuperacion");
         }
 
         // Mensaje dentro del desplegable: tipo ok | danger | info
@@ -227,36 +209,19 @@
             if (html) m.innerHTML = texto; else m.textContent = texto;
         }
 
+        // Autoservicio: la respuesta es la misma exista o no el usuario (el backend nunca
+        // lo distingue, a propósito) — así que acá tampoco hay nada que ramificar por
+        // status code, salvo un error de red/servidor real.
         async function enviarRecuperacion() {
             if (!YS.form.validar([{ id: "userRecuperacion", requerido: "Ingresá tu usuario." }])) return;
             const username = document.getElementById("userRecuperacion").value.trim();
             try {
                 const res = await YS.fetch("/recuperacion-password", { method: "POST", json: { username }, sinRedireccion: true });
-                if (res.ok) mensaje("msgRecuperacion", "ok", "Solicitud enviada. El administrador la va a revisar.");
-                else if (res.status === 409) mensaje("msgRecuperacion", "danger", "Ya tenés una solicitud pendiente.");
-                else if (res.status === 404) mensaje("msgRecuperacion", "danger", "Usuario no encontrado.");
-                else mensaje("msgRecuperacion", "danger", await YS.leerMensaje(res, "Error al enviar la solicitud."));
+                const data = await res.json().catch(() => ({}));
+                if (res.ok) mensaje("msgRecuperacion", "ok", data.mensaje || "Si el usuario existe, te llegó un mail con instrucciones.");
+                else mensaje("msgRecuperacion", "danger", data.mensaje || "Error al enviar la solicitud.");
             } catch {
                 mensaje("msgRecuperacion", "danger", "No se pudo conectar con el servidor.");
-            }
-        }
-
-        async function consultarSolicitud() {
-            if (!YS.form.validar([{ id: "userConsulta", requerido: "Ingresá tu usuario." }])) return;
-            const username = document.getElementById("userConsulta").value.trim();
-            try {
-                const res = await YS.fetch(`/recuperacion-password/estado/${encodeURIComponent(username)}`, { sinRedireccion: true });
-                if (res.status === 404) { mensaje("msgConsulta", "danger", "No hay solicitudes para este usuario."); return; }
-                const data = await res.json();
-                if (data.estado === "Pendiente") {
-                    mensaje("msgConsulta", "info", "Tu solicitud está siendo revisada por el administrador.");
-                } else if (data.estado === "Aceptada") {
-                    mensaje("msgConsulta", "ok", `Tu nueva contraseña temporal es: <strong>${YS.esc(data.passwordTemporal)}</strong>. Ingresá con ella y cambiala cuanto antes.`, true);
-                } else if (data.estado === "Rechazada") {
-                    mensaje("msgConsulta", "danger", "Tu solicitud fue rechazada. Contactá al administrador.");
-                }
-            } catch {
-                mensaje("msgConsulta", "danger", "No se pudo conectar con el servidor.");
             }
         }
     </script>

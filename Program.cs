@@ -59,6 +59,15 @@ builder.Services.AddRateLimiter(opt =>
         {
             Window = TimeSpan.FromMinutes(1), PermitLimit = 20, QueueLimit = 0
         }));
+    // Recuperación de contraseña autoservicio: más estricto que "publico" — es el único
+    // límite por IP; el límite por usuario (independiente de la IP) lo hace el propio
+    // endpoint contando filas de RecuperacionPassword, ver POST /recuperacion-password.
+    opt.AddPolicy("recuperacion", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(15), PermitLimit = 5, QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -1251,64 +1260,49 @@ app.MapGet("/auditoria", (int pagina = 1, int cantidad = 50) =>
     new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad))
     .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
-app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req) =>
+// Recuperación de contraseña, autoservicio: un link de un solo uso por mail, vence a los
+// 30 minutos. Sin aprobación de nadie en el medio. Respuesta siempre igual exista o no el
+// usuario, tenga o no Mail, haya pasado o no el límite de pedidos — nunca se revela cuál
+// de esos casos fue. Una cuenta sin Usuario.Mail no tiene autoservicio (no hay a dónde
+// mandarle nada); se la atiende aparte desde "Gestión de usuarios" (PUT /usuarios/{id}).
+app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req, EmailService emailService) =>
 {
+    var respuestaGenerica = Results.Ok(new { mensaje = "Si el usuario existe, te llegó un mail con instrucciones." });
+
     var usuario = new UsuarioDAO().ObtenerPorUsername(req.Username);
-    if (usuario == null) return Results.NotFound(new { mensaje = "Usuario no encontrado." });
+    if (usuario == null || string.IsNullOrWhiteSpace(usuario.Mail)) return respuestaGenerica;
 
     var dao = new RecuperacionPasswordDAO();
-    if (dao.TienePendiente(usuario.IdUsuario))
-        return Results.Conflict(new { mensaje = "Ya tenés una solicitud pendiente." });
+    if (dao.ContarRecientes(usuario.IdUsuario, TimeSpan.FromMinutes(15)) >= 3) return respuestaGenerica;
 
-    dao.Insertar(usuario.IdUsuario);
-    return Results.Ok();
-});
+    var tokenCrudo = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(tokenCrudo)));
+    dao.CrearToken(usuario.IdUsuario, tokenHash, DateTime.Now.AddMinutes(30));
 
-app.MapGet("/recuperacion-password/pendientes", () =>
-    new RecuperacionPasswordDAO().ObtenerPendientes())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    try { emailService.EnviarResetPassword(usuario.Mail, tokenCrudo); }
+    catch { /* la fila ya quedó creada; no se revela el fallo, el link simplemente no va a llegar */ }
 
-app.MapPut("/recuperacion-password/{id}/aceptar", (int id) =>
+    return respuestaGenerica;
+}).RequireRateLimiting("recuperacion");
+
+app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 {
-    var recDAO = new RecuperacionPasswordDAO();
-    var idUsuario = recDAO.ObtenerIdUsuario(id);
-    if (idUsuario == null) return Results.NotFound();
-
-    const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-    var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(8);
-    var passTemp = new string(bytes.Select(b => chars[b % chars.Length]).ToArray());
-
-    var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(passTemp)));
+    var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Token ?? "")));
+    var dao = new RecuperacionPasswordDAO();
+    var idUsuario = dao.ObtenerIdUsuarioPorTokenVigente(tokenHash);
+    if (idUsuario == null) return Results.BadRequest(new { mensaje = "Link inválido o vencido. Pedí uno nuevo." });
 
     var uDAO = new UsuarioDAO();
     var usuario = uDAO.ObtenerPorId(idUsuario.Value);
-    if (usuario == null) return Results.NotFound();
-    usuario.PasswordHash = hash;
+    if (usuario == null) return Results.BadRequest(new { mensaje = "Link inválido o vencido. Pedí uno nuevo." });
+
+    usuario.PasswordHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.NuevaPassword ?? "")));
     uDAO.Modificar(usuario);
     uDAO.ResetearIntentos(idUsuario.Value);
+    dao.MarcarUsado(tokenHash);
 
-    recDAO.Aceptar(id, passTemp);
-    return Results.Ok(new { passwordTemporal = passTemp });
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
-
-app.MapPut("/recuperacion-password/{id}/rechazar", (int id) =>
-{
-    var dao = new RecuperacionPasswordDAO();
-    if (dao.ObtenerIdUsuario(id) == null) return Results.NotFound();
-    dao.Rechazar(id);
-    return Results.Ok();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
-
-app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
-{
-    var rec = new RecuperacionPasswordDAO().ObtenerUltimaPorUsername(username);
-    if (rec == null) return Results.NotFound(new { mensaje = "No hay solicitudes para este usuario." });
-
-    if (rec.Estado == "Aceptada")
-        return Results.Ok(new { estado = rec.Estado, passwordTemporal = rec.PasswordTemporal });
-
-    return Results.Ok(new { estado = rec.Estado, passwordTemporal = (string)null });
-});
+    return Results.Ok(new { mensaje = "Contraseña actualizada. Ya podés ingresar con la nueva." });
+}).RequireRateLimiting("recuperacion");
 
 // SesionClinica
 soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx) =>
