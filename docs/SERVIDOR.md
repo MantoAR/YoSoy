@@ -52,6 +52,20 @@ como el usuario `yosoy`, con `WorkingDirectory=/opt/yosoy/app` y
 `EnvironmentFile=/opt/yosoy/config/.env`. Todavía **no está habilitado**
 —no hay ningún binario para correr—.
 
+## Variables de entorno que necesita la API
+
+Van en `/opt/yosoy/config/.env` (solo nombres y para qué sirve cada una —
+los valores reales se cargan a mano en el servidor, nunca acá ni en el
+repo):
+
+| Variable | Para qué sirve |
+|---|---|
+| `ConnectionStrings__YoSoy` | Cadena de conexión a SQL Server. Obligatoria: si falta, la app tira un error claro apenas intenta tocar la base (no hay valor por defecto). |
+| `Jwt__Key` | Clave con la que se firman y validan los tokens de sesión. Obligatoria, 32 caracteres o más: si falta o es corta, la app no arranca. |
+| `Email__Password` | Contraseña de la cuenta de Gmail que manda los mails reales (aprobación de profesional, recuperación de contraseña). Si se deja vacía, la app arranca igual pero no manda mails. |
+| `ASPNETCORE_ENVIRONMENT` | Tiene que ser `Production` en el VPS (evita páginas de error con detalles internos, entre otras cosas). |
+| `ASPNETCORE_URLS` | Dirección y puerto donde escucha la API. Tiene que ser exactamente `http://localhost:5000` — **nunca** `http://0.0.0.0:5000` ni `http://+:5000`. Con `localhost`, la API solo acepta conexiones desde el propio servidor (UFW ya bloquea el 5000 desde afuera, pero esto es una segunda barrera: ni loopback hacia otras interfaces). Caddy es el único camino de entrada desde internet, por el 443. El puerto 5000 que se usa en desarrollo viene de `launchSettings.json`, que no aplica a un binario publicado corriendo solo — por eso hay que fijarlo acá. |
+
 ## Pendiente
 
 - Instalar SQL Server.

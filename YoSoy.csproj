@@ -21,4 +21,23 @@
     <None Remove="YoSoy.Tests/**" />
   </ItemGroup>
 
+  <!-- Ni docs/ (sql de prueba, capturas, tokens de prueba gitignoreados) ni signaling-server/
+       (otro proceso, Node) son parte de la API: que dotnet publish no los arrastre. -->
+  <ItemGroup>
+    <Compile Remove="docs/**;signaling-server/**" />
+    <Content Remove="docs/**;signaling-server/**" />
+    <None Remove="docs/**;signaling-server/**" />
+  </ItemGroup>
+
+  <!-- PANTALLAS/ es el frontend que sirve la propia API (UseStaticFiles en Program.cs).
+       El SDK clasifica la mayoría de los archivos ahí (.html/.js/.css) como None por
+       default, y None no se copia al publicar; unos pocos .json ya entraban solos como
+       Content. El Remove limpia ambos casos antes de incluir todo de nuevo, explícito,
+       para no terminar con el mismo archivo contado dos veces. -->
+  <ItemGroup>
+    <Content Remove="PANTALLAS/**" />
+    <None Remove="PANTALLAS/**" />
+    <Content Include="PANTALLAS/**" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
