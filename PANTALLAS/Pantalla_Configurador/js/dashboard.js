@@ -109,7 +109,6 @@ const titulos = {
     coberturas:      "Coberturas",
     interaccionesia: "Interacciones IA",
     auditoria:       "Log de Auditoría",
-    recuperacion:    "Recuperación de Contraseña",
 };
 
 let tabActual = null;
@@ -118,7 +117,7 @@ let filaEnEdicion = null;
 
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
-const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
+const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "auditoria", "admisiones",
     "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "etiquetas", "coberturas", "interaccionesia"];
 
 // La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
@@ -171,7 +170,6 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "solicitudes")  return await renderSolicitudes(contenido);
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
         if (tab === "auditoria")    return await renderAuditoria(contenido);
-        if (tab === "recuperacion") return await renderRecuperacion(contenido);
         if (tab === "casos")              return await renderCasos(contenido, params);
         if (tab === "casosderivaciones")  return await renderCasosDerivaciones(contenido);
         if (tab === "grupos")             return await renderGrupos(contenido);
@@ -933,48 +931,6 @@ async function renderAuditoria(c, pagina = 1) {
     });
 }
 
-async function renderRecuperacion(c) {
-    const datos = await YS.fetch(`/recuperacion-password/pendientes`).then(r => r.json());
-    if (!encabezadoListado("recuperacion", datos.length, "pendientes")) return;
-
-    YS.tabla(c, {
-        filas: datos, unidad: ["solicitud", "solicitudes"], placeholder: "Buscar por usuario o mail",
-        buscar: d => [d.username, d.mail].join(" "),
-        ordenInicial: { col: 2, desc: true },
-        vacio: { icono: "candado", titulo: "No hay solicitudes pendientes", texto: "Las piden pacientes y profesionales desde el ingreso." },
-        columnas: [
-            { titulo: "Usuario", html: d => `<span class="principal">${celda(d.username)}</span>`, orden: d => d.username || "" },
-            { titulo: "Mail", html: d => celda(d.mail), orden: d => d.mail || "" },
-            { titulo: "Pedida", html: d => fechaHoraCelda(d.fechaSolicitud), orden: d => d.fechaSolicitud || "" },
-            { titulo: "", clase: "acciones", html: d => `
-                <button class="ui-btn ui-btn--sm ui-btn--ok" onclick="aceptarRecuperacion(${d.idRecuperacion})">Generar contraseña</button>
-                <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="rechazarRecuperacion(${d.idRecuperacion})">Rechazar</button>` }
-        ]
-    });
-}
-
-async function aceptarRecuperacion(id) {
-    if (!await confirmar("¿Generar contraseña temporal para este usuario?")) return;
-    const res = await YS.fetch(`/recuperacion-password/${id}/aceptar`, { method: "PUT" });
-    if (!res.ok) { toast(await YS.leerMensaje(res, "Error al procesar la solicitud."), "error"); return; }
-    const data = await res.json();
-    const cuerpo = YS.el("div", {},
-        YS.el("p", { text: "Pasale esta contraseña temporal al usuario. También la puede ver desde el ingreso, en «Consultar una solicitud»." }),
-        YS.el("div", { class: "clave-temporal" },
-            YS.el("code", { text: data.passwordTemporal }),
-            YS.el("button", { class: "ui-btn ui-btn--sm", type: "button", text: "Copiar", on: { click: () => YS.copiar(data.passwordTemporal, "Contraseña copiada") } })));
-    await YS.modal({ titulo: "Solicitud aceptada", cuerpo, tamano: "chico",
-        acciones: [{ texto: "Listo", tipo: "primary", foco: true, alClick: c => c.cerrar() }] }).resultado;
-    mostrarTab("recuperacion");
-}
-
-async function rechazarRecuperacion(id) {
-    if (!await confirmar("¿Rechazar esta solicitud de recuperación de contraseña?", { titulo: "Rechazar solicitud", textoConfirmar: "Rechazar", peligro: true })) return;
-    const res = await YS.fetch(`/recuperacion-password/${id}/rechazar`, { method: "PUT" });
-    if (res.ok) { toast("Solicitud rechazada.", "warn"); mostrarTab("recuperacion"); }
-    else toast(await YS.leerMensaje(res, "No se pudo rechazar la solicitud."), "error");
-}
-
 async function reportes() {
     const c = document.getElementById('contenido');
     c.innerHTML = YS.cargando();
@@ -1392,8 +1348,8 @@ async function inicioConfigurador() {
     });
 
     const pedir = ruta => YS.api(ruta).catch(() => null);
-    const [solicitudes, derivaciones, recuperacion, informes, pacientes, profesionales, turnos] = await Promise.all([
-        pedir("/profesionales/solicitudes"), pedir("/derivaciones/detalle"), pedir("/recuperacion-password/pendientes"),
+    const [solicitudes, derivaciones, informes, pacientes, profesionales, turnos] = await Promise.all([
+        pedir("/profesionales/solicitudes"), pedir("/derivaciones/detalle"),
         pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos")
     ]);
     const conChats = (await YS.shell.capacidades)?.mensajeria;
@@ -1410,7 +1366,6 @@ async function inicioConfigurador() {
         </a>`;
     const nRegistro = cuenta(solicitudes);
     const nCambio = cuenta(derivaciones, d => d.estado === "Pendiente");
-    const nRecuperacion = cuenta(recuperacion);
     const nAdmision = cuenta(informes, a => ["Pendiente", "En entrevista", "Rechazado"].includes(a.estado));
     const nTurnosHoy = cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3);
     const nPacientes = cuenta(pacientes, p => p.estado !== "Inactivo");
@@ -1430,7 +1385,6 @@ async function inicioConfigurador() {
         <div class="ui-stats">
             ${tarjeta("solicitudes", "Solicitudes de registro", "usuario-mas", nRegistro, "Profesionales esperando aprobación", true)}
             ${tarjeta("derivaciones", "Solicitudes de cambio", "flechas", nCambio, "Pacientes que pidieron otro profesional", true)}
-            ${tarjeta("recuperacion", "Recuperación de contraseña", "candado", nRecuperacion, "Pedidos de contraseña temporal", true)}
             ${tarjeta("admisiones", "Admisiones por resolver", "portapapeles", nAdmision, "Pendientes, en entrevista o rechazadas", true)}
             ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", nChatsSinLeer, "Conversaciones con mensajes nuevos") : ""}
             ${conChats ? tarjetaChats("derivadas", "Chats escalados", nChatsDerivados, nChatsUrgentes ? `${nChatsUrgentes} urgente${nChatsUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nChatsUrgentes > 0) : ""}

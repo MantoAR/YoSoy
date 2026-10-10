@@ -1,107 +1,67 @@
 using Microsoft.Data.SqlClient;
-using System.Collections.Generic;
 
+// Recuperación de contraseña autoservicio: un token de un solo uso por pedido, guardado
+// hasheado (nunca el valor crudo que se manda por mail — mismo criterio que
+// Usuario.PasswordHash). Estado va pasando por 'Pendiente' (recién creado, sin usar) ->
+// 'Usada' (ya se reseteó la contraseña con él) o 'Reemplazada' (se pidió uno nuevo antes
+// de usar este). PasswordTemporal y FechaResolucion, de la aprobación manual que esto
+// reemplazó, quedan sin usar — ver CAMBIOS_AGUS.md.
 public class RecuperacionPasswordDAO
 {
-    public void Insertar(int idUsuario)
+    // Un solo token vigente por usuario a la vez: el anterior (si había) queda
+    // Reemplazada antes de crear el nuevo, para que un link viejo deje de servir solo.
+    public void CrearToken(int idUsuario, string tokenHash, DateTime expiracionUtc)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(
-            "INSERT INTO RecuperacionPassword (IdUsuario) VALUES (@IdUsuario)", con);
+        using var invalidar = new SqlCommand(
+            "UPDATE RecuperacionPassword SET Estado = 'Reemplazada' WHERE IdUsuario = @IdUsuario AND Estado = 'Pendiente'", con);
+        invalidar.Parameters.AddWithValue("@IdUsuario", idUsuario);
+        invalidar.ExecuteNonQuery();
+
+        using var cmd = new SqlCommand(
+            "INSERT INTO RecuperacionPassword (IdUsuario, Estado, Token, TokenExpiracion) VALUES (@IdUsuario, 'Pendiente', @Token, @Exp)", con);
         cmd.Parameters.AddWithValue("@IdUsuario", idUsuario);
+        cmd.Parameters.AddWithValue("@Token", tokenHash);
+        cmd.Parameters.AddWithValue("@Exp", expiracionUtc);
         cmd.ExecuteNonQuery();
     }
 
-    public bool TienePendiente(int idUsuario)
+    // Cuántos pedidos (de cualquier estado) hizo este usuario en la ventana — para el
+    // límite de intentos por usuario de POST /recuperacion-password, independiente del
+    // límite por IP (que ya pone el rate limiter de Program.cs).
+    public int ContarRecientes(int idUsuario, TimeSpan ventana)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT COUNT(1) FROM RecuperacionPassword WHERE IdUsuario = @Id AND Estado = 'Pendiente'", con);
-        cmd.Parameters.AddWithValue("@Id", idUsuario);
-        return (int)cmd.ExecuteScalar() > 0;
+            "SELECT COUNT(1) FROM RecuperacionPassword WHERE IdUsuario = @IdUsuario AND FechaSolicitud > @Desde", con);
+        cmd.Parameters.AddWithValue("@IdUsuario", idUsuario);
+        cmd.Parameters.AddWithValue("@Desde", DateTime.Now - ventana);
+        return (int)cmd.ExecuteScalar();
     }
 
-    public List<RecuperacionPassword> ObtenerPendientes()
-    {
-        var lista = new List<RecuperacionPassword>();
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(@"
-            SELECT r.IdRecuperacion, r.IdUsuario, r.FechaSolicitud, r.Estado,
-                   r.PasswordTemporal, r.FechaResolucion, u.Username, u.Mail
-            FROM RecuperacionPassword r
-            JOIN Usuario u ON r.IdUsuario = u.IdUsuario
-            WHERE r.Estado = 'Pendiente'
-            ORDER BY r.FechaSolicitud ASC", con);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-            lista.Add(Mapear(reader));
-        return lista;
-    }
-
-    public RecuperacionPassword ObtenerUltimaPorUsername(string username)
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(@"
-            SELECT TOP 1 r.IdRecuperacion, r.IdUsuario, r.FechaSolicitud, r.Estado,
-                   r.PasswordTemporal, r.FechaResolucion, u.Username, u.Mail
-            FROM RecuperacionPassword r
-            JOIN Usuario u ON r.IdUsuario = u.IdUsuario
-            WHERE u.Username = @Username
-            ORDER BY r.FechaSolicitud DESC", con);
-        cmd.Parameters.AddWithValue("@Username", username);
-        using var reader = cmd.ExecuteReader();
-        return reader.Read() ? Mapear(reader) : null;
-    }
-
-    public void Aceptar(int idRecuperacion, string passwordTemporal)
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(@"
-            UPDATE RecuperacionPassword
-            SET Estado = 'Aceptada', PasswordTemporal = @Pass, FechaResolucion = GETDATE()
-            WHERE IdRecuperacion = @Id", con);
-        cmd.Parameters.AddWithValue("@Pass", passwordTemporal);
-        cmd.Parameters.AddWithValue("@Id",   idRecuperacion);
-        cmd.ExecuteNonQuery();
-    }
-
-    public void Rechazar(int idRecuperacion)
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        var cmd = new SqlCommand(@"
-            UPDATE RecuperacionPassword
-            SET Estado = 'Rechazada', FechaResolucion = GETDATE()
-            WHERE IdRecuperacion = @Id", con);
-        cmd.Parameters.AddWithValue("@Id", idRecuperacion);
-        cmd.ExecuteNonQuery();
-    }
-
-    public int? ObtenerIdUsuario(int idRecuperacion)
+    // Null si el hash no corresponde a ningún token Pendiente, o si ya venció — el
+    // endpoint no distingue cuál de los dos fue, mismo mensaje genérico en los dos casos.
+    public int? ObtenerIdUsuarioPorTokenVigente(string tokenHash)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(
-            "SELECT IdUsuario FROM RecuperacionPassword WHERE IdRecuperacion = @Id", con);
-        cmd.Parameters.AddWithValue("@Id", idRecuperacion);
-        var result = cmd.ExecuteScalar();
-        return result == null ? null : (int?)result;
+            "SELECT IdUsuario FROM RecuperacionPassword WHERE Token = @Token AND Estado = 'Pendiente' AND TokenExpiracion > @Ahora", con);
+        cmd.Parameters.AddWithValue("@Token", tokenHash);
+        cmd.Parameters.AddWithValue("@Ahora", DateTime.Now);
+        var resultado = cmd.ExecuteScalar();
+        return resultado == null ? null : (int)resultado;
     }
 
-    private RecuperacionPassword Mapear(SqlDataReader r) => new RecuperacionPassword
+    public void MarcarUsado(string tokenHash)
     {
-        IdRecuperacion   = (int)r["IdRecuperacion"],
-        IdUsuario        = (int)r["IdUsuario"],
-        FechaSolicitud   = (DateTime)r["FechaSolicitud"],
-        Estado           = (string)r["Estado"],
-        PasswordTemporal = r["PasswordTemporal"] == DBNull.Value ? null : (string)r["PasswordTemporal"],
-        FechaResolucion  = r["FechaResolucion"]  == DBNull.Value ? null : (DateTime?)r["FechaResolucion"],
-        Username         = r["Username"] == DBNull.Value ? null : (string)r["Username"],
-        Mail             = r["Mail"]     == DBNull.Value ? null : (string)r["Mail"]
-    };
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "UPDATE RecuperacionPassword SET Estado = 'Usada', FechaResolucion = GETDATE() WHERE Token = @Token", con);
+        cmd.Parameters.AddWithValue("@Token", tokenHash);
+        cmd.ExecuteNonQuery();
+    }
 }

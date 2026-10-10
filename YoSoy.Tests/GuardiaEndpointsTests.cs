@@ -16,7 +16,7 @@ public class GuardiaEndpointsTests
         ("POST", "/pacientes"),                                       // registro público de paciente
         ("POST", "/profesionales"),                                   // registro público de profesional
         ("POST", "/recuperacion-password"),                           // pedido de recuperación: todavía no hay sesión
-        ("GET", "/recuperacion-password/estado/{username}"),          // consulta de estado del pedido: idem
+        ("POST", "/recuperacion-password/reset"),                     // confirmación con el token del mail: idem, sin sesión todavía
         ("GET", "/reservar/{slug}"),                                  // página pública de reserva
         ("GET", "/public/profesionales/{slug}/disponibilidad"),       // disponibilidad pública
         ("POST", "/public/profesionales/{slug}/reservar"),            // reserva pública (misma superficie, rate-limited)

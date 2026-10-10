@@ -21,7 +21,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | POST | `/pacientes` | Registro público de paciente. |
 | POST | `/profesionales` | Registro público de profesional. |
 | POST | `/recuperacion-password` | Pedido de recuperación: todavía no hay sesión. |
-| GET | `/recuperacion-password/estado/{username}` | Consulta de estado del pedido: idem. |
+| POST | `/recuperacion-password/reset` | Confirmación con el token del mail: idem. |
 | GET | `/reservar/{slug}` | Página pública de reserva (Fase 3a). |
 | GET | `/public/profesionales/{slug}/disponibilidad` | Disponibilidad pública, misma superficie. |
 | POST | `/public/profesionales/{slug}/reservar` | Reserva pública, misma superficie (rate-limited). |
@@ -301,17 +301,23 @@ sesión del propio dueño. POST sigue público (es el registro).
 
 Plomería administrativa — ninguna pantalla de paciente/profesional la llama directo. Ya
 era Configurador-only de punta a punta desde la Fase JWT; sin cambios esta vuelta (salvo
-`/recuperacion-password` y `/estado/{username}`, públicos a propósito: todavía no hay
-sesión cuando se piden).
+`/recuperacion-password` y `/recuperacion-password/reset`, públicos a propósito: todavía
+no hay sesión cuando se piden).
+
+Recuperación de contraseña pasó a ser autoservicio (antes, un Configurador aprobaba cada
+pedido a mano desde una pestaña propia): el usuario pide el reset, recibe un link con un
+token de un solo uso por mail (vence a los 30 minutos) y entra a `reset-password.html`
+a poner la contraseña nueva. Los endpoints de aprobación manual (`/pendientes`,
+`/{id}/aceptar`, `/{id}/rechazar`, `/estado/{username}`) se borraron — ver
+CAMBIOS_AGUS.md.
 
 | Método | Ruta | Rol |
 |---|---|---|
 | GET/POST/PUT/DELETE | `/usuarios[/{id}]`, `/{id}/roles`, `/{id}/paciente`, `/{id}/profesional` | Configurador |
 | POST/DELETE | `/usuarioroles[/...]`, `/usuariopacientes[/...]`, `/usuarioprofesionales[/...]` | Configurador |
 | GET | `/auditoria` | Configurador |
-| POST | `/recuperacion-password` | **Público** |
-| GET | `/recuperacion-password/estado/{username}` | **Público** |
-| GET/PUT | `/recuperacion-password/pendientes`, `/{id}/aceptar`, `/rechazar` | Configurador |
+| POST | `/recuperacion-password` | **Público** (rate-limited, respuesta genérica) |
+| POST | `/recuperacion-password/reset` | **Público** (rate-limited) |
 
 ## Informes de admisión, notificaciones, asignaciones de equipo tratante
 

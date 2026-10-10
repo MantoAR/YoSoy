@@ -109,11 +109,6 @@
     max-width: 360px; white-space: normal;
 }
 .btn-icono-peligro:hover { color: var(--danger); background: var(--danger-bg); }
-.clave-temporal {
-    display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px;
-    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
-}
-.clave-temporal code { flex: 1; font-family: var(--mono); font-size: var(--fs-lg); font-weight: 600; color: var(--text); letter-spacing: .04em; }
 
 /* ── Ventana angosta (la app es para PC; esto evita que se rompa) ── */
 @media (max-width: 900px) {
