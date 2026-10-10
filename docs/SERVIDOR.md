@@ -1,12 +1,11 @@
 # Servidor de producción
 
-Estado del VPS donde va a correr YoSoy. No hay secretos en este archivo (ni
+Estado del VPS donde corre YoSoy. No hay secretos en este archivo (ni
 contraseñas, ni claves, ni el contenido de ningún `.env`) — para eso está el
 `.env` real en el servidor, que no se versiona.
 
 - **Servidor:** Ubuntu 24.04.5 LTS, IP `179.199.155.50`.
-- **Dominio:** `yosoytelemedicina.tech`, ya apunta a esa IP (DNS propagado y
-  verificado).
+- **Dominio:** `yosoytelemedicina.tech`, apuntando a esa IP.
 
 ## Usuarios
 
@@ -15,7 +14,8 @@ contraseñas, ni claves, ni el contenido de ningún `.env`) — para eso está e
   comando— y además una regla sin contraseña, limitada a un solo comando:
   reiniciar el servicio `yosoy-api` (`/etc/sudoers.d/yosoy-api`).
 - **`yosoy`**: usuario de sistema, sin shell de login (`nologin`). Es el
-  dueño de la app y de sus carpetas; no se usa para entrar al servidor.
+  dueño de la app, sus carpetas y el proceso de `yosoy-api`; no se usa para
+  entrar al servidor.
 - **`root`**: login por SSH deshabilitado (`PermitRootLogin no` en
   `/etc/ssh/sshd_config`).
 
@@ -25,54 +25,85 @@ contraseñas, ni claves, ni el contenido de ningún `.env`) — para eso está e
   22 (SSH), 80 (HTTP) y 443 (HTTPS). El resto —en particular el puerto de SQL
   Server (1433) y el del servidor de señalización (3001)— no está expuesto
   a internet.
-- **fail2ban** activo, vigilando `sshd`.
+- **fail2ban**: habilitado y activo, vigilando `sshd`.
+
+## Servicios (estado verificado)
+
+| Servicio | Habilitado | Activo | Qué es |
+|---|---|---|---|
+| `yosoy-api` | Sí | Sí | La API, corriendo como el usuario `yosoy`. Binario en `/opt/yosoy/app/YoSoy`. |
+| `caddy` | Sí | Sí | Reverse proxy. HTTPS real, certificado de Let's Encrypt, renovación automática. |
+| `mssql-server` | Sí | Sí | SQL Server 2025, edición Express. |
+| `fail2ban` | Sí | Sí | Ver arriba. |
+
+`Caddyfile` (`/etc/caddy/Caddyfile`):
+```
+yosoytelemedicina.tech {
+    reverse_proxy localhost:5000
+}
+```
 
 ## Carpetas de la app
 
 Todo bajo `/opt/yosoy/`, dueño `yosoy`:
 
-- `/opt/yosoy/app/` — donde va el código/binario de la API (vacío todavía).
+- `/opt/yosoy/app/` — el binario publicado de la API (`YoSoy`).
 - `/opt/yosoy/config/` — permisos `750`. Adentro, `.env` con permisos `600`,
-  vacío por ahora (los valores reales se cargan a mano en el servidor).
+  con los valores reales (cargados a mano en el servidor, nunca en el repo).
 - `/opt/yosoy/backups/` — permisos `700`, para los backups de la base.
 
-## Caddy (reverse proxy / HTTPS)
+## Base de datos
 
-Instalado desde los repositorios de Ubuntu (versión 2.6.2). El
-`Caddyfile` (`/etc/caddy/Caddyfile`) ya tiene la configuración para
-`yosoytelemedicina.tech` como reverse proxy hacia `localhost:5000`, validada
-con `caddy validate`. El servicio está **deshabilitado**: se activa recién
-cuando la API esté corriendo en el puerto 5000, para que Caddy pueda sacar el
-certificado HTTPS solo.
+SQL Server 2025 Express. Base `yosoy` creada con `docs/produccion/
+01-produccion.sql`: **43 tablas**, con sus claves primarias, foráneas e
+índices. Dos logins de SQL Server:
 
-## Servicio systemd de la API
+- **`yosoy_app`** (`docs/produccion/02-usuario-app.sql`): el que usa la API
+  (`ConnectionStrings__YoSoy`). Permisos `db_datareader`+`db_datawriter`
+  solo sobre `yosoy`, nada de servidor ni de otras bases.
+- **Usuario administrador** (`docs/produccion/03-usuario-admin.sql`): el
+  primer Configurador del sistema, para entrar por `/pantallas/index.html`.
 
-`/etc/systemd/system/yosoy-api.service` ya existe, como plantilla: corre
-como el usuario `yosoy`, con `WorkingDirectory=/opt/yosoy/app` y
-`EnvironmentFile=/opt/yosoy/config/.env`. Todavía **no está habilitado**
-—no hay ningún binario para correr—.
+Ninguna contraseña de ninguno de los dos está en este archivo ni en el repo.
+
+## Frontend público
+
+- **`https://yosoytelemedicina.tech/pantallas/index.html`** — login real,
+  los 3 roles. Verificado: responde `200` con HTTPS válido (no autofirmado).
+- **`GET /capacidades`** — sin sesión, no toca la base; sirve como chequeo
+  liviano de que la API está arriba. Verificado: responde
+  `{"mensajeria":false}`.
 
 ## Variables de entorno que necesita la API
 
-Van en `/opt/yosoy/config/.env` (solo nombres y para qué sirve cada una —
-los valores reales se cargan a mano en el servidor, nunca acá ni en el
-repo):
+Van en `/opt/yosoy/config/.env` (solo nombres y para qué sirve cada una):
 
 | Variable | Para qué sirve |
 |---|---|
-| `ConnectionStrings__YoSoy` | Cadena de conexión a SQL Server. Obligatoria: si falta, la app tira un error claro apenas intenta tocar la base (no hay valor por defecto). |
+| `ConnectionStrings__YoSoy` | Cadena de conexión a SQL Server (login `yosoy_app`). Obligatoria: si falta, la app tira un error claro apenas intenta tocar la base. |
 | `Jwt__Key` | Clave con la que se firman y validan los tokens de sesión. Obligatoria, 32 caracteres o más: si falta o es corta, la app no arranca. |
-| `Email__Password` | Contraseña de la cuenta de Gmail que manda los mails reales (aprobación de profesional, recuperación de contraseña). Si se deja vacía, la app arranca igual pero no manda mails. |
-| `ASPNETCORE_ENVIRONMENT` | Tiene que ser `Production` en el VPS (evita páginas de error con detalles internos, entre otras cosas). |
-| `ASPNETCORE_URLS` | Dirección y puerto donde escucha la API. Tiene que ser exactamente `http://localhost:5000` — **nunca** `http://0.0.0.0:5000` ni `http://+:5000`. Con `localhost`, la API solo acepta conexiones desde el propio servidor (UFW ya bloquea el 5000 desde afuera, pero esto es una segunda barrera: ni loopback hacia otras interfaces). Caddy es el único camino de entrada desde internet, por el 443. El puerto 5000 que se usa en desarrollo viene de `launchSettings.json`, que no aplica a un binario publicado corriendo solo — por eso hay que fijarlo acá. |
+| `Email__Password` | Contraseña de la cuenta de Gmail que manda los mails reales (aprobación de profesional, recuperación de contraseña). Si se deja vacía, la app arranca igual pero no manda mails — ver "Pendiente". |
+| `ASPNETCORE_ENVIRONMENT` | `Production` en este servidor (evita páginas de error con detalles internos, entre otras cosas). |
+| `ASPNETCORE_URLS` | `http://localhost:5000` — nunca `0.0.0.0` ni `+`. Caddy es el único camino de entrada desde internet, por el 443. |
 
 ## Pendiente
 
-- Instalar SQL Server.
-- Desplegar la API en `/opt/yosoy/app`.
-- Cargar los valores reales en `/opt/yosoy/config/.env` (a mano, en el
-  servidor).
-- Habilitar `yosoy-api` y `caddy`, y verificar que el certificado HTTPS
-  salga bien.
-- Reiniciar el servidor: la actualización del sistema dejó un kernel nuevo
-  instalado que todavía no se aplicó.
+- **Contraseña SMTP** (`Email__Password`): todavía no está cargada. La app
+  funciona sin ella, pero no manda ningún mail real (aprobación de
+  profesional, recuperación de contraseña).
+- **Reiniciar el servidor**: la actualización del sistema (Paso 1 del setup)
+  dejó un kernel nuevo instalado que todavía no se aplicó.
+- **Backup de la base y del código fuera del servidor**: antes de dar de
+  baja este VPS en algún momento, hace falta un backup de `yosoy` y del
+  código desplegado que no dependa de que el servidor siga existiendo.
+- **Mejora pendiente, no urgente**: las claves de Data Protection de
+  ASP.NET Core (las que cifran cookies/tokens internos del framework) están
+  guardadas sin cifrar en disco — el comportamiento por defecto fuera de
+  Windows/Azure, sin un proveedor de cifrado en reposo configurado. No es
+  explotable sin acceso al servidor, pero conviene resolverlo en algún
+  momento (por ejemplo, cifrarlas con una clave de `DataProtection:
+  CertificatePath`/`CertificatePassword` o un KMS).
+- **DeepSeek**: no existe ninguna integración con DeepSeek (ni con ningún
+  otro proveedor de IA externo) en el código todavía — confirmado buscando
+  en todo el repo. Si se agrega en el futuro, la clave va por variable de
+  entorno o `dotnet user-secrets`, nunca en `appsettings.json`.
