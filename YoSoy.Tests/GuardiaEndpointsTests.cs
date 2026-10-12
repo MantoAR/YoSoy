@@ -12,6 +12,7 @@ public class GuardiaEndpointsTests
     // UseStaticFiles, un middleware, nunca un endpoint — EndpointDataSource no los ve.
     private static readonly HashSet<(string Metodo, string Ruta)> Publicos = new()
     {
+        ("GET", "/"),                                                 // redirige a /pantallas/index.html, nada que proteger
         ("POST", "/login"),                                          // los 3 roles devuelven distinto según quién sea, misma ruta
         ("POST", "/pacientes"),                                       // registro público de paciente
         ("POST", "/profesionales"),                                   // registro público de profesional

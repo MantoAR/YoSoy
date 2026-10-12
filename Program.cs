@@ -76,6 +76,23 @@ var app = builder.Build();
 // primer login — se resuelve el singleton una vez ahora mismo para forzar el chequeo.
 app.Services.GetRequiredService<JwtEmisorService>();
 
+// Detrás de Caddy (reverse_proxy local, ver docs/SERVIDOR.md): sin esto, Connection.
+// RemoteIpAddress es siempre 127.0.0.1 para cualquier pedido real que llega por el proxy,
+// y el rate limiter por IP (políticas "publico"/"recuperacion", arriba) termina
+// compartiendo un solo contador entre todos los usuarios. Se confía el X-Forwarded-For
+// únicamente cuando el pedido llega desde el proxy local (loopback) — así no se puede
+// falsear saltándose a Caddy. Tiene que ir antes de UseRateLimiter/UseAuthentication, que
+// son los que leen RemoteIpAddress más abajo.
+var opcionesForwarded = new Microsoft.AspNetCore.Builder.ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+};
+opcionesForwarded.KnownProxies.Clear();
+opcionesForwarded.KnownNetworks.Clear();
+opcionesForwarded.KnownProxies.Add(System.Net.IPAddress.Loopback);
+opcionesForwarded.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
+app.UseForwardedHeaders(opcionesForwarded);
+
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
@@ -106,6 +123,8 @@ app.UseStaticFiles(new StaticFileOptions
     ServeUnknownFileTypes = true,
     DefaultContentType = "application/octet-stream"
 });
+
+app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
 
 // Login
 app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor) =>
@@ -1277,9 +1296,9 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req, EmailSer
 
     var tokenCrudo = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
     var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(tokenCrudo)));
-    dao.CrearToken(usuario.IdUsuario, tokenHash, DateTime.Now.AddMinutes(30));
+    dao.CrearToken(usuario.IdUsuario, tokenHash, DateTime.Now.AddMinutes(RecuperacionPasswordDAO.DuracionTokenMinutos));
 
-    try { emailService.EnviarResetPassword(usuario.Mail, tokenCrudo); }
+    try { emailService.EnviarResetPassword(usuario.Mail, tokenCrudo, RecuperacionPasswordDAO.DuracionTokenMinutos); }
     catch { /* la fila ya quedó creada; no se revela el fallo, el link simplemente no va a llegar */ }
 
     return respuestaGenerica;

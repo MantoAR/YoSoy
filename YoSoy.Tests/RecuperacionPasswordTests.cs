@@ -87,7 +87,7 @@ public class RecuperacionPasswordTests
         {
             var tokenCrudo = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
             var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(tokenCrudo)));
-            new RecuperacionPasswordDAO().CrearToken(idUsuario, tokenHash, DateTime.Now.AddMinutes(30));
+            new RecuperacionPasswordDAO().CrearToken(idUsuario, tokenHash, DateTime.Now.AddMinutes(RecuperacionPasswordDAO.DuracionTokenMinutos));
 
             using var client = factory.CreateClient();
             var r1 = await client.PostAsJsonAsync("/recuperacion-password/reset", new { token = tokenCrudo, nuevaPassword = "NuevaClave456" });
@@ -136,7 +136,7 @@ public class RecuperacionPasswordTests
         {
             var token1 = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
             var hash1 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token1)));
-            new RecuperacionPasswordDAO().CrearToken(idUsuario, hash1, DateTime.Now.AddMinutes(30));
+            new RecuperacionPasswordDAO().CrearToken(idUsuario, hash1, DateTime.Now.AddMinutes(RecuperacionPasswordDAO.DuracionTokenMinutos));
 
             using var client = factory.CreateClient();
             await client.PostAsJsonAsync("/recuperacion-password", new { username }); // pide uno nuevo
@@ -168,6 +168,38 @@ public class RecuperacionPasswordTests
         finally { await BorrarUsuarioDePrueba(con, idUsuario); }
     }
 
+    // Antes de UseForwardedHeaders (Program.cs), Connection.RemoteIpAddress era siempre
+    // 127.0.0.1 para cualquier pedido que llegara por Caddy: dos usuarios reales distintos
+    // compartían el mismo contador de la política "recuperacion" sin darse cuenta. Verificado
+    // antes a mano con curl contra el server real (5x 200 + 1x 429 desde una IP, 200
+    // inmediato desde otra); esto prueba lo mismo contra el pipeline real de la factory, con
+    // username inexistente para no tocar la base (la respuesta genérica es igual, y el rate
+    // limiter corre antes de que el handler llegue a mirar el usuario).
+    [Fact]
+    public async Task Limite_por_ip_no_se_comparte_entre_ips_distintas_detras_del_proxy()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var client = factory.CreateClient();
+
+        for (int i = 0; i < 5; i++)
+        {
+            client.DefaultRequestHeaders.Remove("X-Forwarded-For");
+            client.DefaultRequestHeaders.Add("X-Forwarded-For", "203.0.113.11");
+            var r = await client.PostAsJsonAsync("/recuperacion-password", new { username = "no-existe-ratelimit-a" });
+            Assert.True(r.IsSuccessStatusCode, $"pedido {i + 1} desde la IP A debía pasar, llegó {(int)r.StatusCode}");
+        }
+
+        client.DefaultRequestHeaders.Remove("X-Forwarded-For");
+        client.DefaultRequestHeaders.Add("X-Forwarded-For", "203.0.113.11");
+        var sexto = await client.PostAsJsonAsync("/recuperacion-password", new { username = "no-existe-ratelimit-a" });
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, sexto.StatusCode);
+
+        client.DefaultRequestHeaders.Remove("X-Forwarded-For");
+        client.DefaultRequestHeaders.Add("X-Forwarded-For", "203.0.113.22");
+        var otraIp = await client.PostAsJsonAsync("/recuperacion-password", new { username = "no-existe-ratelimit-b" });
+        Assert.True(otraIp.IsSuccessStatusCode, $"una IP distinta no debería estar bloqueada, llegó {(int)otraIp.StatusCode}");
+    }
+
     [Fact]
     public async Task Los_endpoints_viejos_de_aprobacion_manual_ya_no_existen()
     {
@@ -178,5 +210,16 @@ public class RecuperacionPasswordTests
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.PutAsync("/recuperacion-password/1/rechazar", null)).StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.GetAsync("/recuperacion-password/pendientes")).StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await client.GetAsync("/recuperacion-password/estado/cualquiera")).StatusCode);
+    }
+
+    // El mail decía "1 hora" con un token que vence a los 30 minutos (DuracionTokenMinutos).
+    // Esto prueba que el texto siempre refleja la constante, no un número suelto repetido.
+    [Fact]
+    public void El_texto_del_mail_coincide_con_la_duracion_real_del_token()
+    {
+        var cuerpo = EmailService.CuerpoResetPassword("http://localhost/x", RecuperacionPasswordDAO.DuracionTokenMinutos);
+
+        Assert.Contains($"{RecuperacionPasswordDAO.DuracionTokenMinutos} minutos", cuerpo);
+        Assert.DoesNotContain("1 hora", cuerpo);
     }
 }
