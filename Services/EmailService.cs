@@ -78,7 +78,7 @@ public class EmailService
         smtp.Disconnect(true);
     }
 
-    public void EnviarResetPassword(string destinatario, string token)
+    public void EnviarResetPassword(string destinatario, string token, int duracionMinutos)
     {
         var link = $"{_appUrl}/pantallas/reset-password.html?token={token}";
 
@@ -87,19 +87,7 @@ public class EmailService
         mensaje.To.Add(MailboxAddress.Parse(destinatario));
         mensaje.Subject = "Recuperación de contraseña – YoSoy";
 
-        var builder = new BodyBuilder
-        {
-            HtmlBody = $@"
-<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
-  <h2 style=""color:#2c3e50"">Recuperación de contraseña</h2>
-  <p>Recibimos una solicitud para restablecer tu contraseña en <strong>YoSoy</strong>.</p>
-  <p>Hacé clic en el botón para crear una nueva contraseña. El link expira en <strong>1 hora</strong>.</p>
-  <a href=""{link}"" style=""display:inline-block;padding:12px 24px;background:#2980b9;color:#fff;text-decoration:none;border-radius:6px;margin:16px 0"">
-    Restablecer contraseña
-  </a>
-  <p style=""font-size:12px;color:#888"">Si no solicitaste este cambio, ignorá este mail.</p>
-</div>"
-        };
+        var builder = new BodyBuilder { HtmlBody = CuerpoResetPassword(link, duracionMinutos) };
         mensaje.Body = builder.ToMessageBody();
 
         using var smtp = new SmtpClient();
@@ -108,4 +96,18 @@ public class EmailService
         smtp.Send(mensaje);
         smtp.Disconnect(true);
     }
+
+    // Separado del método de arriba para poder probar que el texto coincide con la
+    // duración real sin mandar un mail (RecuperacionPasswordTests). El llamador siempre
+    // tiene que pasar RecuperacionPasswordDAO.DuracionTokenMinutos, nunca un número suelto.
+    public static string CuerpoResetPassword(string link, int duracionMinutos) => $@"
+<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
+  <h2 style=""color:#2c3e50"">Recuperación de contraseña</h2>
+  <p>Recibimos una solicitud para restablecer tu contraseña en <strong>YoSoy</strong>.</p>
+  <p>Hacé clic en el botón para crear una nueva contraseña. El link expira en <strong>{duracionMinutos} minutos</strong>.</p>
+  <a href=""{link}"" style=""display:inline-block;padding:12px 24px;background:#2980b9;color:#fff;text-decoration:none;border-radius:6px;margin:16px 0"">
+    Restablecer contraseña
+  </a>
+  <p style=""font-size:12px;color:#888"">Si no solicitaste este cambio, ignorá este mail.</p>
+</div>";
 }

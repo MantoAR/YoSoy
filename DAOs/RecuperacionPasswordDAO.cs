@@ -8,6 +8,11 @@ using Microsoft.Data.SqlClient;
 // reemplazó, quedan sin usar — ver CAMBIOS_AGUS.md.
 public class RecuperacionPasswordDAO
 {
+    // Único lugar que fija cuánto dura un token: Program.cs la usa para la expiración
+    // real (CrearToken) y EmailService para el texto del mail — así no pueden volver a
+    // quedar desalineados (pasó: el mail decía "1 hora" con un token de 30 minutos).
+    public const int DuracionTokenMinutos = 30;
+
     // Un solo token vigente por usuario a la vez: el anterior (si había) queda
     // Reemplazada antes de crear el nuevo, para que un link viejo deje de servir solo.
     public void CrearToken(int idUsuario, string tokenHash, DateTime expiracionUtc)

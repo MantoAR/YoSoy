@@ -17,6 +17,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 
 | Método | Ruta | Por qué es público |
 |---|---|---|
+| GET | `/` | Redirige a `/pantallas/index.html`; no expone nada. |
 | POST | `/login` | Los 3 roles entran por la misma ruta; todavía no hay sesión. |
 | POST | `/pacientes` | Registro público de paciente. |
 | POST | `/profesionales` | Registro público de profesional. |
