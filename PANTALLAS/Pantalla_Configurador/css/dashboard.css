@@ -23,12 +23,15 @@
 @media (max-width: 1100px) { .casos-layout { grid-template-columns: 1fr; } .casos-detalle { position: static; max-height: none; } }
 
 /* ── Usuarios: dos columnas ─────────────────────── */
-.ui-encabezado-acciones .ui-buscador { width: 300px; }
+.ui-encabezado-acciones .ui-buscador { width: 300px; max-width: 100%; flex: 1 1 180px; }
 .split-view { display: flex; gap: 16px; height: calc(100vh - 230px); min-height: 320px; }
 .split-col {
     flex: 1; display: flex; flex-direction: column; min-width: 0;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden;
 }
+/* Mismo motivo que min-width:0 en .split-col de arriba: #casosTabla es un ítem de grid
+   (.casos-layout) y por default no se encoge por debajo del ancho de su contenido. */
+#casosTabla { min-width: 0; }
 .split-header {
     padding: 10px 14px; font-weight: 600; font-size: var(--fs-lg); color: var(--text);
     background: var(--surface); border-bottom: 1px solid var(--border);
