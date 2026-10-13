@@ -3,10 +3,19 @@
   "version": "1.0.0",
   "description": "Servidor de senalizacion WebRTC para las sesiones de video de YoSoy",
   "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "token": "node emitir-token.js"
   },
   "dependencies": {
+    "jsonwebtoken": "^9.0.3",
     "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "socket.io-client": "4.8.3"
   }
 }
