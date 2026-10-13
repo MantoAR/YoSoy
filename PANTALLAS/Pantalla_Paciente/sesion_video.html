@@ -92,9 +92,9 @@
 <script src="../shared/ui.js"></script>
 <script src="../shared/shell.js"></script>
 <script>YS.shell.iniciar({ rol: "paciente", activo: "sesion" });</script>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="../shared/vendor/socket.io.min.js"></script>
+<script src="../shared/video.js"></script>
 <script>
-const SIGNAL = 'http://localhost:3001';
 let pc, stream, socket, sala;
 
 // El link de la notificación (y los botones del panel) traen el código: ?sala=SALA-...
@@ -125,8 +125,8 @@ async function conectarse() {
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    } catch {
-        estadoBox.textContent = 'No se pudo acceder a la cámara o micrófono.';
+    } catch (err) {
+        estadoBox.textContent = YS.video.mensajeMedios(err);
         estadoBox.className = 'estado-box error';
         document.getElementById('btn-conectar').disabled = false;
         return;
@@ -150,8 +150,20 @@ async function conectarse() {
         if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
     };
 
-    // Conectar al servidor de señalización
-    socket = io(SIGNAL);
+    // Conectar al servidor de señalización. YS.video.conectar hace que un problema de conexión
+    // (o un rechazo) se vea acá, en vez de quedar para siempre en "Conectando…".
+    const estadoTxt = document.getElementById('estado-txt');
+    socket = YS.video.conectar({
+        mediaActiva: () => YS.video.conexionActiva(pc),
+        alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
+        alRecuperar: () => { estadoTxt.textContent = 'Conectando con el profesional...'; },
+        alFallo: (texto, { llamadaActiva }) => {
+            // Con la llamada andando no se tira la sala por un problema de la señalización.
+            if (llamadaActiva) estadoTxt.textContent = '⚠ ' + texto;
+            else volverAEspera(texto);
+        }
+    });
+    if (!socket) return;
 
     // Cuando el socket se conecta, unirse a la sala
     socket.on('connect', () => {
@@ -185,16 +197,29 @@ async function conectarse() {
     });
 }
 
-function finalizarSesion() {
+// Corta todo y vuelve a la pantalla de espera, sin tocar el código ni el mensaje de estado.
+function cerrarSesion() {
     stream?.getTracks().forEach(t => t.stop());
     pc?.close();
     socket?.disconnect();
     document.getElementById('pantalla-sesion').classList.add('oculto');
     document.getElementById('pantalla-espera').classList.remove('oculto');
-    document.getElementById('input-sala').value = '';
     document.getElementById('btn-conectar').disabled = false;
+}
+
+function finalizarSesion() {
+    cerrarSesion();
+    document.getElementById('input-sala').value = '';
     document.getElementById('estado-espera').textContent = 'Sesión finalizada.';
     document.getElementById('estado-espera').className = 'estado-box conectado';
+}
+
+// No se pudo entrar a la sala: vuelve a la espera diciendo por qué. El código queda cargado,
+// así que una vez resuelto alcanza con tocar "Conectarme" de nuevo.
+function volverAEspera(motivo) {
+    cerrarSesion();
+    document.getElementById('estado-espera').textContent = motivo;
+    document.getElementById('estado-espera').className = 'estado-box error';
 }
 </script>
 </body>

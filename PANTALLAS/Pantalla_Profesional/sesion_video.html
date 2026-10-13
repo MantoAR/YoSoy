@@ -20,6 +20,7 @@
         .campo-sesion { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
         .campo-sesion label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
         .estado-conexion { font-size: var(--fs-md); color: var(--text-3); margin-top: 10px; }
+        .estado-conexion.error { color: var(--danger); }
 
         /* Layout principal */
         .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 10px; }
@@ -108,7 +109,7 @@
         .btn-copiar:hover { background: var(--accent); color: #fff; }
         .sala-hint { font-size: var(--fs-sm); color: var(--text-3); margin-top: 8px; }
 
-        /* Aviso propio de la página (no carga shared/ui.js) */
+        /* Aviso propio de la página (el YS.toast de shared/ui.js usa otro contenedor y acá no se usa) */
         #toast { position: fixed; bottom: 20px; right: 20px; background: #1F1D2B; color: #fff; padding: 10px 16px; border-radius: var(--r-lg); font-size: var(--fs-md); z-index: 999; box-shadow: var(--shadow-lg); }
         #toast:not(.visible) { display: none; }
 
@@ -235,10 +236,10 @@
 
     <div id="toast" role="status" aria-live="polite"></div>
 
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="../shared/ui.js"></script>
+<script src="../shared/vendor/socket.io.min.js"></script>
+<script src="../shared/video.js"></script>
 <script>
-const API = 'http://localhost:5000';
-const SIGNAL = 'http://localhost:3001';
 const EMOCIONES = {
     neutral:   { label:'Neutral',   color:'#888780', emoji:'😐' },
     happy:     { label:'Felicidad', color:'#639922', emoji:'😄' },
@@ -262,10 +263,15 @@ let transcripcionLineas = [];
 
 // ─── CARGAR PACIENTES ─────────────────────────────────────
 const idProfesional = localStorage.getItem('idProfesional') || '1';
+// Avisos cuando la API contesta 401. Se pide sinRedireccion en cada YS.api de esta página: el
+// redirect a login de YS.fetch sacaría al profesional de la sala y perdería lo que ya cargó
+// (notas, transcripción, emociones).
+const MSG_VENCIDA_AL_ABRIR = 'Tu sesión venció. Ingresá de nuevo y recargá esta página antes de entrar a la sala.';
+const MSG_VENCIDA_AL_GUARDAR = 'Tu sesión venció. Ingresá de nuevo en otra pestaña y volvé a tocar Guardar: lo que cargaste en esta sala no se pierde.';
 
 async function cargarPacientes() {
     try {
-        const lista = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json());
+        const lista = await YS.api(`/profesionales/${idProfesional}/pacientes`, { sinRedireccion: true });
         const sel = document.getElementById('sel-paciente');
         if (!lista.length) {
             sel.innerHTML = '<option value="">Sin pacientes asignados</option>';
@@ -281,8 +287,11 @@ async function cargarPacientes() {
             sel.value = idPreseleccionado;
         }
         
-    } catch {
-        document.getElementById('sel-paciente').innerHTML = '<option value="">Error al cargar pacientes</option>';
+    } catch (err) {
+        const vencida = err.status === 401;
+        document.getElementById('sel-paciente').replaceChildren(
+            new Option(vencida ? 'Sesión vencida: ingresá de nuevo' : 'No se pudieron cargar los pacientes', ''));
+        toast(vencida ? MSG_VENCIDA_AL_ABRIR : err.message, 8000);
     }
 }
 
@@ -333,15 +342,44 @@ async function entrarASala() {
     if (!modelsListo) { toast('Esperá unos segundos: todavía se están cargando los modelos de análisis.'); return; }
     if (!sala) { toast('Primero creá la sala.'); return; }
 
+    const btn = document.getElementById('btn-crear');
+    const aviso = document.getElementById('estado-conexion');
+    btn.disabled = true;   // el permiso de cámara puede tardar: sin esto, otro clic abriría una segunda conexión
+    aviso.className = 'estado-conexion';
+    aviso.textContent = 'Pidiendo permiso para usar la cámara y el micrófono…';
+
+    // Primero los permisos y recién después se cambia de pantalla: si fallan, el profesional
+    // se queda donde puede leer el motivo y volver a intentar.
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (err) {
+        aviso.className = 'estado-conexion error';
+        aviso.textContent = YS.video.mensajeMedios(err);
+        btn.disabled = false;
+        return;
+    }
+
+    const estadoTxt = document.getElementById('estado-txt');
     document.getElementById('pantalla-conexion').classList.add('oculto');
     document.getElementById('pantalla-sesion').classList.remove('oculto');
-    document.getElementById('estado-txt').textContent = 'Esperando al paciente...';
-
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    estadoTxt.textContent = 'Esperando al paciente...';
     document.getElementById('vid-propio').srcObject = stream;
 
-    socket = io(SIGNAL);
-    socket.emit('join-room', { roomId: sala, role: 'profesional' });
+    // YS.video.conectar hace que un problema de conexión (o un rechazo) se vea acá, en vez de
+    // quedar para siempre en "Esperando al paciente...".
+    socket = YS.video.conectar({
+        mediaActiva: () => YS.video.conexionActiva(pc),
+        alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
+        alRecuperar: () => { estadoTxt.textContent = 'Esperando al paciente...'; },
+        alFallo: (texto, { llamadaActiva }) => {
+            // Con la llamada andando (o datos de la sesión ya cargados) no se tira nada.
+            if (llamadaActiva || sessionStart) { estadoTxt.textContent = '⚠ ' + texto; toast(texto, 8000); }
+            else volverAConexion(texto);
+        }
+    });
+    if (!socket) return;
+    // En cada (re)conexión: el servidor pierde las salas del socket anterior, hay que volver a entrar.
+    socket.on('connect', () => socket.emit('join-room', { roomId: sala, role: 'profesional' }));
 
     pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     stream.getTracks().forEach(t => pc.addTrack(t, stream));
@@ -374,6 +412,20 @@ async function entrarASala() {
     socket.on('user-left', () => {
         document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
     });
+}
+
+// No se pudo entrar a la sala: vuelve a la pantalla de conexión diciendo por qué. La sala sigue
+// creada, así que una vez resuelto alcanza con tocar "Entrar a la sala" de nuevo.
+function volverAConexion(motivo) {
+    stream?.getTracks().forEach(t => t.stop());
+    pc?.close();
+    socket?.disconnect();
+    document.getElementById('pantalla-sesion').classList.add('oculto');
+    document.getElementById('pantalla-conexion').classList.remove('oculto');
+    document.getElementById('btn-crear').disabled = false;
+    const aviso = document.getElementById('estado-conexion');
+    aviso.className = 'estado-conexion error';
+    aviso.textContent = motivo;
 }
 
 // ─── DETECCIÓN DE EXPRESIONES ─────────────────────────────
@@ -589,21 +641,13 @@ async function guardarEnHC() {
     };
 
     try {
-        const res = await fetch(`${API}/sesiones-clinicas`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-
-        if (res.ok) {
-            toast('✅ Sesión guardada en la Historia Clínica del paciente.');
-            document.getElementById('btn-guardar-hc').disabled = true;
-            document.getElementById('btn-guardar-hc').textContent = '✅ Guardado en HC';
-        } else {
-            toast('❌ Error al guardar en HC.');
-        }
-    } catch {
-        toast('❌ Error de conexión al guardar.');
+        await YS.api('/sesiones-clinicas', { method: 'POST', json: body, sinRedireccion: true });
+        toast('✅ Sesión guardada en la Historia Clínica del paciente.');
+        document.getElementById('btn-guardar-hc').disabled = true;
+        document.getElementById('btn-guardar-hc').textContent = '✅ Guardado en HC';
+    } catch (err) {
+        // El botón sigue habilitado: tras volver a ingresar en otra pestaña se puede reintentar.
+        toast(err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : '❌ No se pudo guardar en la HC. ' + err.message, 8000);
     }
 }
 
