@@ -1,0 +1,25 @@
+# Instalar en /etc/systemd/system/whatsapp-service.service — ver README.md para el
+# resto de la Etapa 2 (paquetes del sistema, creación de directorios, vinculación del chip).
+[Unit]
+Description=YoSoy WhatsApp service (whatsapp-web.js)
+After=network.target
+
+[Service]
+Type=simple
+User=yosoy
+Group=yosoy
+WorkingDirectory=/opt/yosoy/whatsapp/app
+ExecStart=/usr/bin/node index.js
+EnvironmentFile=/opt/yosoy/config/whatsapp.env
+Environment=WHATSAPP_SESSION_PATH=/opt/yosoy/whatsapp/sesion
+Environment=PUPPETEER_CACHE_DIR=/opt/yosoy/whatsapp/cache
+Restart=on-failure
+RestartSec=5
+MemoryMax=768M
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/yosoy/whatsapp/sesion /opt/yosoy/whatsapp/cache
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

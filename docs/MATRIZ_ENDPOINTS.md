@@ -29,6 +29,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | GET | `/capacidades` | Lo consulta cualquier pantalla antes de saber quién sos; sin datos sensibles (solo flags). |
 | POST | `/mensajeria/simulado/entrante` | Equivalente a un webhook: no hay sesión del otro lado. |
 | GET | `/mensajeria/simulado/conversacion` | Idem; ambos ya cierran con `Disponible()`/`SoloLocal`, no con JWT. |
+| POST | `/mensajeria/whatsapp/entrante` | Webhook real de `whatsapp-service`. Sin JWT a propósito (lo llama una máquina) — cierra con `EsLocal()` + secreto compartido, no con `Disponible()`/`SoloLocal` (candado propio, no depende de `ChatSimuladoHabilitado`). |
 
 Archivos estáticos (`/pantallas/*`) no aparecen en ninguna tabla: los sirve
 `UseStaticFiles`, un middleware, nunca un endpoint — `EndpointDataSource` no los ve, y por
@@ -73,6 +74,7 @@ nunca se la vuelve a servir, pero el *caché local* de esa sesión no se entera 
 |---|---|---|---|---|
 | POST | `/mensajeria/simulado/entrante` | Público | — | Simula un mensaje entrante (equivalente al webhook real). No tiene, ni tendría sentido, sesión del otro lado. |
 | GET | `/mensajeria/simulado/conversacion` | Público | — | Idem — el simulador del lado paciente todavía no tiene sesión. |
+| POST | `/mensajeria/whatsapp/entrante` | Público (candado propio) | — | Webhook real: lo llama `whatsapp-service`, nunca una persona. `EsLocal()` + secreto compartido (`X-Shared-Secret`, comparación en tiempo constante); un pedido que llega por Caddy desde internet da 404 aunque el secreto sea correcto. |
 | GET | `/mensajeria/conversaciones` | Profesional, Configurador | **Sí — filtra la lista** | `VisibilidadConversacion.Filtrar`. `idEtiqueta` filtra encima de lo ya visible (Paso 5 de la vuelta anterior). El buscador del frontend filtra client-side sobre esta misma lista, así que queda cubierto gratis. |
 | GET | `/mensajeria/conversaciones/{id}` | Profesional, Configurador | **Sí — 404** | |
 | GET | `/mensajeria/conversaciones/{id}/paciente` | Profesional, Configurador | **Sí — 404** | Panel del lead: datos administrativos únicamente. Devuelve también `idProfesionalAsignado`/`nombreProfesionalAsignado` (de la conversación, no del paciente). Único endpoint llamado solo al abrir/refrescar el panel (nunca por el polling de la lista) — ahí se audita la apertura (quién, conversación y paciente por id, cuándo; nunca el nombre ni contenido). |

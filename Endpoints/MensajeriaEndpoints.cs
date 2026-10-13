@@ -49,6 +49,35 @@ public static class MensajeriaEndpoints
             return c is null ? Results.NotFound() : Results.Ok(new { c.IdConversacion, c.Estado });
         }).AllowAnonymous();
 
+        // Webhook real de WhatsApp (whatsapp-service se lo manda por mensaje entrante) —
+        // lo que anticipaba el comentario de RequiereMensajeriaHabilitada de abajo. Fuera
+        // del grupo "g" a propósito: el candado acá no depende de ChatSimuladoHabilitado/
+        // SoloLocal (que son para el módulo de administración), es propio y siempre activo
+        // — EsLocal() + el secreto compartido, los dos, ninguno alcanza solo. Mismo 404
+        // para las dos fallas, para no revelar cuál fue.
+        app.MapPost("/mensajeria/whatsapp/entrante", async (MensajeEntranteRequest req, HttpContext ctx,
+            BotReservasService bot, IMessageChannel canal, IConfiguration config) =>
+        {
+            if (!EsLocal(ctx)) return Results.NotFound();
+
+            var esperado = config["Mensajeria:WhatsApp:Secreto"];
+            var recibido = ctx.Request.Headers["X-Shared-Secret"].ToString();
+            if (string.IsNullOrEmpty(esperado) || string.IsNullOrEmpty(recibido) ||
+                !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                    System.Text.Encoding.UTF8.GetBytes(esperado), System.Text.Encoding.UTF8.GetBytes(recibido)))
+                return Results.NotFound();
+
+            try
+            {
+                var r = await bot.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
+                return Results.Ok(r);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new { mensaje = ex.Message });
+            }
+        }).AllowAnonymous();
+
         // ── Modo administrador ──────────────────────────────────
         // desdeMensaje: solo las conversaciones con mensajes posteriores a ese IdMensaje
         // (la bandeja pide así lo nuevo en cada vuelta del polling).
@@ -484,8 +513,10 @@ public static class MensajeriaEndpoints
     // Al mergear con videollamadas-seguras (Caddy/túnel) seguir NOTAS_MERGE.md.
     // TODO(JWT): al mergear videollamadas-seguras, exigir en este filtro el token
     // firmado (JwtService.Validar) y el rol de administrador, igual que el TODO de
-    // Services/AutorizacionReporte.cs, para todo el grupo salvo /simulado/entrante,
-    // que en producción pasa a ser el webhook del canal real con su propia firma.
+    // Services/AutorizacionReporte.cs, para todo el grupo. /simulado/entrante sigue
+    // siendo solo de prueba; el webhook real de WhatsApp es un endpoint aparte,
+    // POST /mensajeria/whatsapp/entrante (fuera de este grupo), con su propio candado
+    // de EsLocal() + secreto compartido — ver ahí mismo.
     public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
         grupo.AddEndpointFilter(async (ctx, next) =>
             MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
