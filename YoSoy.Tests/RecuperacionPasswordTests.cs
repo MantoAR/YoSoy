@@ -41,7 +41,7 @@ public class RecuperacionPasswordTests
         using var factory = FactorySinMailReal();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest@example.com");
+        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest" + Guid.NewGuid().ToString("N")[..10] + "@example.com");
         try
         {
             using var client = factory.CreateClient();
@@ -82,7 +82,7 @@ public class RecuperacionPasswordTests
         using var factory = new WebApplicationFactory<Program>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var (idUsuario, _) = await CrearUsuarioDePrueba(con, "xtest@example.com");
+        var (idUsuario, _) = await CrearUsuarioDePrueba(con, "xtest" + Guid.NewGuid().ToString("N")[..10] + "@example.com");
         try
         {
             var tokenCrudo = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -111,7 +111,7 @@ public class RecuperacionPasswordTests
         using var factory = new WebApplicationFactory<Program>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var (idUsuario, _) = await CrearUsuarioDePrueba(con, "xtest@example.com");
+        var (idUsuario, _) = await CrearUsuarioDePrueba(con, "xtest" + Guid.NewGuid().ToString("N")[..10] + "@example.com");
         try
         {
             var tokenCrudo = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -131,7 +131,7 @@ public class RecuperacionPasswordTests
         using var factory = FactorySinMailReal();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest@example.com");
+        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest" + Guid.NewGuid().ToString("N")[..10] + "@example.com");
         try
         {
             var token1 = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
@@ -154,7 +154,7 @@ public class RecuperacionPasswordTests
         using var factory = FactorySinMailReal();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest@example.com");
+        var (idUsuario, username) = await CrearUsuarioDePrueba(con, "xtest" + Guid.NewGuid().ToString("N")[..10] + "@example.com");
         try
         {
             using var client = factory.CreateClient();

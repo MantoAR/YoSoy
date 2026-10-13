@@ -38,7 +38,7 @@ public class RegistroPublicoProfesionalTests
             provincia = "Buenos Aires",
             origenContacto = "Test",
             estado = "Pendiente",
-            mail = "xtest@example.com",
+            mail = marca.ToLowerInvariant() + "@example.com",
             telefono = "1100000000",
             fechaSolicitud = DateTime.Now,
         });
@@ -106,7 +106,7 @@ public class RegistroPublicoProfesionalTests
             idEspecialidad,
             provincia = "Buenos Aires",
             estado = "Pendiente",
-            mail = "xtest@example.com",
+            mail = marca.ToLowerInvariant() + "@example.com",
             telefono = "1100000000",
         });
 

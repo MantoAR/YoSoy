@@ -50,6 +50,25 @@
             <div class="ui-campo ui-campo--ancho"><label for="provincia">Provincia<span class="ui-requerido">*</span></label><input type="text" id="provincia" class="ui-input" autocomplete="address-level1"></div>
         </div>
 
+        <div class="acceso-seccion">Acceso</div>
+        <div class="acceso-grid">
+            <div class="ui-campo"><label for="usuario">Usuario<span class="ui-requerido">*</span></label><input type="text" id="usuario" class="ui-input" placeholder="Elegí un nombre de usuario" autocomplete="username"></div>
+            <div class="ui-campo">
+                <label for="pass1">Contraseña<span class="ui-requerido">*</span></label>
+                <div class="campo-clave">
+                    <input type="password" id="pass1" class="ui-input" placeholder="Al menos 6 caracteres" autocomplete="new-password">
+                    <button type="button" class="ver-clave" onclick="togglePass('pass1', this)" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                </div>
+            </div>
+            <div class="ui-campo">
+                <label for="pass2">Confirmar contraseña<span class="ui-requerido">*</span></label>
+                <div class="campo-clave">
+                    <input type="password" id="pass2" class="ui-input" placeholder="Repetí tu contraseña" autocomplete="new-password">
+                    <button type="button" class="ver-clave" onclick="togglePass('pass2', this)" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                </div>
+            </div>
+        </div>
+
         <!-- Datos del tutor: se muestran si el paciente es menor de edad -->
         <div id="seccionTutor" class="oculto">
             <div class="acceso-seccion">Datos del tutor responsable</div>

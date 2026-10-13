@@ -68,6 +68,15 @@ builder.Services.AddRateLimiter(opt =>
         {
             Window = TimeSpan.FromMinutes(15), PermitLimit = 5, QueueLimit = 0
         }));
+    // Registro público de paciente con acceso: más laxo que "recuperacion" (una familia
+    // registrándose junto desde la misma red no debería chocar) pero igual pensado para
+    // frenar un alta masiva automatizada.
+    opt.AddPolicy("registro", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(10), PermitLimit = 10, QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();
@@ -405,12 +414,62 @@ app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService i
     return p is null ? Results.NotFound() : Results.Ok(p);
 }).RequireAuthorization();
 
-app.MapPost("/pacientes", (Paciente p) =>
+// Registro público de paciente, con acceso: Usuario + Paciente + UsuarioPaciente juntos
+// (PacienteDAO.RegistrarConAcceso), para que nunca quede un paciente sin login ni un login
+// a medias. A diferencia de /recuperacion-password, acá la respuesta de conflicto SÍ dice
+// cuál campo está repetido: la persona está registrando su propio dato, no el de un tercero.
+var EsMailValido = (string mail) =>
 {
-    p.Estado = "Activo";
-    p.IdPaciente = new PacienteDAO().Insertar(p);
-    return Results.Created("/pacientes", p);
-});
+    try { return new System.Net.Mail.MailAddress(mail).Address == mail; }
+    catch { return false; }
+};
+app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Nombre))
+        return Results.BadRequest(new { mensaje = "El nombre es obligatorio." });
+    if (string.IsNullOrWhiteSpace(req.Dni))
+        return Results.BadRequest(new { mensaje = "El DNI es obligatorio." });
+    if (string.IsNullOrWhiteSpace(req.Usuario) || !System.Text.RegularExpressions.Regex.IsMatch(req.Usuario, "^[a-zA-Z0-9_.-]{3,50}$"))
+        return Results.BadRequest(new { mensaje = "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." });
+    if (string.IsNullOrWhiteSpace(req.Contrasena) || req.Contrasena.Length < 6)
+        return Results.BadRequest(new { mensaje = "La contraseña debe tener al menos 6 caracteres." });
+    if (string.IsNullOrWhiteSpace(req.Mail) || !EsMailValido(req.Mail))
+        return Results.BadRequest(new { mensaje = "El mail es obligatorio y tiene que tener un formato válido." });
+
+    var paciente = new Paciente
+    {
+        Nombre          = req.Nombre,
+        Dni             = req.Dni,
+        FechaNacimiento = req.FechaNacimiento,
+        Domicilio       = req.Domicilio,
+        Telefono        = req.Telefono,
+        Mail            = req.Mail
+    };
+    var passwordHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Contrasena)));
+
+    var (campoConflicto, idPacienteNuevo, idUsuarioNuevo) = new PacienteDAO().RegistrarConAcceso(paciente, req.Usuario, passwordHash);
+    if (campoConflicto != null)
+    {
+        var mensaje = campoConflicto switch
+        {
+            "usuario" => "Ese nombre de usuario ya está en uso.",
+            "mail"    => "Ya existe una cuenta registrada con ese mail.",
+            "dni"     => "Ya existe un paciente registrado con ese DNI.",
+            _         => "No se pudo completar el registro porque alguno de estos datos ya existe. Probá de nuevo."
+        };
+        return Results.Json(new { mensaje }, statusCode: 409);
+    }
+
+    paciente.IdPaciente = idPacienteNuevo;
+    paciente.Estado = "Activo";
+    return Results.Created("/pacientes", new
+    {
+        idPaciente = idPacienteNuevo,
+        idUsuario  = idUsuarioNuevo,
+        paciente.Nombre, paciente.Dni, paciente.FechaNacimiento,
+        paciente.Domicilio, paciente.Telefono, paciente.Mail, paciente.Estado
+    });
+}).RequireRateLimiting("registro");
 
 app.MapPut("/pacientes/{id}", (int id, Paciente p, HttpContext ctx, IdentidadActualService identidad) =>
 {
