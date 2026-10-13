@@ -289,7 +289,7 @@ hr { border: none; height: 1px; background: var(--border); margin: 14px 0; }
 .ui-encabezado-textos { min-width: 0; }
 .ui-encabezado-titulo { font-size: var(--fs-2xl); font-weight: 600; margin: 0; letter-spacing: -.01em; }
 .ui-encabezado-sub { font-size: var(--fs-md); color: var(--text-3); margin: 2px 0 0; }
-.ui-encabezado-acciones { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ui-encabezado-acciones { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Contenido de la página */
 .ui-pagina { flex: 1; min-width: 0; }
@@ -518,7 +518,7 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 .ui-barra { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .ui-barra-espacio { flex: 1; }
 .ui-barra-info { font-size: var(--fs-sm); color: var(--text-3); }
-.ui-barra .ui-buscador { width: 320px; }
+.ui-barra .ui-buscador { width: 320px; max-width: 100%; flex: 1 1 200px; }
 .ui-barra > .ui-select { width: auto; max-width: 260px; }   /* filtros extra (p. ej. profesional) en la misma fila */
 
 /* ── Tablas densas ────────────────────────────────────────────── */
