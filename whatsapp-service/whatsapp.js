@@ -6,10 +6,11 @@ const qrcodeTerminal = require("qrcode-terminal");
 const QRCode = require("qrcode");
 
 class ServicioWhatsApp {
-    constructor({ dataPath, apiBaseUrl, secreto, onEntrante, log }) {
+    constructor({ dataPath, apiBaseUrl, secreto, webVersion, onEntrante, log }) {
         this._dataPath = dataPath;
         this._apiBaseUrl = apiBaseUrl;
         this._secreto = secreto;
+        this._webVersion = webVersion || null;
         this._onEntrante = onEntrante;
         this._log = log;
         this._conectado = false;
@@ -24,12 +25,28 @@ class ServicioWhatsApp {
     // Separado del constructor para poder llamarlo de nuevo al reiniciar (ver _reiniciar),
     // no solo una vez al arrancar.
     _crearCliente() {
-        const client = new Client({
+        const opciones = {
             authStrategy: new LocalAuth({ dataPath: this._dataPath }),
             // --no-sandbox: AppArmor en Ubuntu 24.04 restringe los user namespaces sin
             // privilegios que usa el sandbox normal de Chromium — ver README.md.
             puppeteer: { args: ["--no-sandbox", "--disable-setuid-sandbox"] }
-        });
+        };
+
+        // WHATSAPP_WEB_VERSION (opcional, ver README.md "Fijar la versión de WhatsApp
+        // Web"): mitigación manual para cuando WhatsApp Web rompe algo del lado de ellos
+        // y todavía no hay una versión publicada de whatsapp-web.js con el parche — fija
+        // una build conocida en vez de la que trae la librería por default. remotePath
+        // apunta al índice de versiones que ya usa la comunidad de whatsapp-web.js para
+        // esto (wppconnect-team/wa-version), no un servidor propio.
+        if (this._webVersion) {
+            opciones.webVersion = this._webVersion;
+            opciones.webVersionCache = {
+                type: "remote",
+                remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${this._webVersion}.html`
+            };
+        }
+
+        const client = new Client(opciones);
 
         // Cada handler empieza chequeando que "client" (el cliente que armó ESTE handler)
         // siga siendo this._client — destroy() no garantiza que un cliente reemplazado deje
@@ -52,19 +69,63 @@ class ServicioWhatsApp {
             this._log.info(`WhatsApp conectado (número ${this._numero}).`);
         });
 
+        // Diagnóstico (Problema 2: vinculado en el teléfono pero la web se queda sin
+        // llegar nunca a "ready") — una línea por evento, nunca el payload entero (puede
+        // traer datos de la cuenta real).
+        client.on("authenticated", () => {
+            if (client !== this._client) return;
+            this._log.info("WhatsApp: authenticated");
+        });
+
+        client.on("loading_screen", (percent) => {
+            if (client !== this._client) return;
+            this._log.info(`WhatsApp: loading_screen ${percent}%`);
+        });
+
+        client.on("change_state", (estado) => {
+            if (client !== this._client) return;
+            this._log.info(`WhatsApp: change_state ${estado}`);
+        });
+
+        // Solo lo emite la estrategia RemoteAuth de la librería, no LocalAuth (la que usa
+        // este servicio) — queda cableado para no perder el log si algún día cambia la
+        // estrategia, pero con la configuración actual nunca va a disparar.
+        client.on("remote_session_saved", () => {
+            if (client !== this._client) return;
+            this._log.info("WhatsApp: remote_session_saved");
+        });
+
         // "LOGOUT" es el motivo exacto que emite la librería cuando la página navega a la
         // URL de post-logout (node_modules/whatsapp-web.js/src/Client.js:495-497) — pasa
         // tanto si llamamos nosotros a logout() como si se desvincula desde el teléfono
-        // (WhatsApp empuja el logout, la página navega sola). Ahí la sesión está
-        // confirmada muerta: se borra y se fuerza un QR nuevo, igual que auth_failure.
-        // Cualquier otro motivo (corte de red, etc.) solo recrea el cliente sin tocar la
-        // sesión guardada, para poder reconectar solo si fue algo transitorio.
+        // (WhatsApp empuja el logout, la página navega sola).
         client.on("disconnected", razon => {
             if (client !== this._client) return;
             this._conectado = false;
             this._numero = null;
             this._log.error(`WhatsApp desconectado: ${razon}`);
-            this._reiniciar({ borrarSesion: razon === "LOGOUT" });
+
+            if (razon === "LOGOUT") {
+                // La librería misma reacciona a esto en su propio listener interno de
+                // framenavigated (Client.js:495-504): llama a authStrategy.logout() —que
+                // ya borra la sesión, LocalAuth.js:56-68— y vuelve a llamar a inject()
+                // sobre ESTE MISMO cliente/página, sin destruir nada. Verificado leyendo
+                // inject() (Client.js, rama needAuthentication): si la página queda en
+                // estado UNPAIRED/UNPAIRED_IDLE, reinscribe el callback de QR y dispara
+                // uno nuevo sola. Si nosotros ADEMÁS destruíamos el cliente acá (lo que
+                // hacía este handler antes), competíamos por la misma página con la
+                // librería — esa carrera fue la causa real de un crash en producción
+                // ("Execution context was destroyed", en Client.inject() disparado desde
+                // el mismo framenavigated). Por eso acá NO se llama a _reiniciar: solo se
+                // invalida el QR viejo que teníamos guardado, la librería hace el resto.
+                this._qrActual = null;
+                this._qrPendiente = false;
+                return;
+            }
+
+            // Cualquier otro motivo (corte de red, etc.): recrear el cliente sin tocar la
+            // sesión guardada, para poder reconectar solo si fue algo transitorio.
+            this._reiniciar({ borrarSesion: false });
         });
 
         client.on("auth_failure", msg => {
@@ -101,11 +162,28 @@ class ServicioWhatsApp {
         };
     }
 
+    // Red de seguridad ante un unhandledRejection/uncaughtException del proceso (ver
+    // index.js) — no asume que la sesión esté muerta: mismo criterio que un
+    // "disconnected" transitorio (no borra sesión), por si el cliente quedó en un estado
+    // raro pero recuperable.
+    recuperar() {
+        this._reiniciar({ borrarSesion: false });
+    }
+
+    // Apagado limpio (SIGTERM/SIGINT, ver index.js) — no pasa por _reiniciar: no tiene
+    // sentido reintentar ni recrear nada, el proceso se está yendo. Quien llama a esto le
+    // pone su propio timeout (ver apagar() en index.js).
+    async cerrar() {
+        try { await this._client.destroy(); }
+        catch (err) { this._log.error(`Error destruyendo el cliente al apagar: ${err.message || err}`); }
+    }
+
     // Reemplaza por completo el cliente actual: destruye el viejo (best-effort), opcionalmente
     // borra la sesión guardada y arranca uno nuevo. Bandera de reentrancia porque un mismo
     // logout puede disparar esto dos veces (desvincular() de forma directa, y el evento
     // "disconnected" que ese mismo logout puede terminar generando) — la segunda llamada
-    // concurrente es un no-op.
+    // concurrente es un no-op. NO se usa para el caso "disconnected" con motivo LOGOUT (ver
+    // ese handler más arriba) — ahí la librería ya se reinicializa sola.
     async _reiniciar({ borrarSesion }) {
         if (this._reiniciando) return;
         this._reiniciando = true;

@@ -130,19 +130,53 @@ salvo que la sesión en sí ya no sirva.
 
 ## Si se desconecta sola
 
-`whatsapp.js` reacciona solo a dos casos:
-- `disconnected` con un motivo distinto de `"LOGOUT"` (por ejemplo, un corte de red): recrea
-  el cliente sin tocar la sesión guardada — si el corte fue pasajero, reconecta solo, sin
-  pedir un escaneo nuevo.
+`whatsapp.js` reacciona distinto según el motivo de `disconnected`:
+- Motivo distinto de `"LOGOUT"` (por ejemplo, un corte de red): recrea el cliente sin tocar
+  la sesión guardada — si el corte fue pasajero, reconecta solo, sin pedir un escaneo nuevo.
+- `auth_failure`: la sesión está confirmada muerta — se borra (solo el contenido de
+  `/opt/yosoy/whatsapp/sesion`, nunca el directorio en sí) y se fuerza un QR nuevo, igual que
+  el botón "Desvincular" del Configurador.
 - `disconnected` con motivo `"LOGOUT"` (alguien lo desvinculó desde el teléfono, en
-  Dispositivos vinculados) o `auth_failure`: ahí la sesión está confirmada muerta — se borra
-  (solo el contenido de `/opt/yosoy/whatsapp/sesion`, nunca el directorio en sí) y se fuerza
-  un QR nuevo, igual que el botón "Desvincular" del Configurador.
+  Dispositivos vinculados): acá **no se toca el cliente para nada** — ni se destruye ni se
+  recrea. whatsapp-web.js ya maneja este caso internamente (borra la sesión y vuelve a
+  inicializarse sobre la misma página) y hacerlo nosotros también, al mismo tiempo, generaba
+  una carrera real: un crash en producción (`Execution context was destroyed`, Puppeteer).
+  Solo se limpia el QR viejo que teníamos guardado; la librería termina emitiendo uno nuevo
+  por su cuenta.
 
 Por esto, usar el chip también desde el teléfono físico en simultáneo ya no deja el servicio
-colgado sin salida — va a pedir un escaneo nuevo la próxima vez que se abra el Configurador
-—, pero sigue sin ser buena idea: invalida la sesión sin aviso, justo cuando puede estar
-esperando salir un recordatorio de turno.
+colgado sin salida — va a pedir un escaneo nuevo solo, sin reiniciar el proceso —, pero
+sigue sin ser buena idea: invalida la sesión sin aviso, justo cuando puede estar esperando
+salir un recordatorio de turno.
+
+## Si el proceso no responde a nada de esto
+
+Dos redes de seguridad adicionales, para cuando algo revienta del lado de Puppeteer/
+whatsapp-web.js que no es ninguno de los eventos de arriba:
+- `unhandledRejection`/`uncaughtException` a nivel proceso: se loguean (nunca el objeto
+  entero del error, puede traer datos de la cuenta) y se intenta recuperar el cliente por
+  el mismo camino que un corte transitorio — no tiran abajo el proceso.
+- `SIGTERM`/`SIGINT` (lo manda systemd al hacer `stop`/`restart`): deja de aceptar pedidos
+  nuevos, cierra el cliente de WhatsApp con un tope de 10s, y recién ahí sale. Si ese cierre
+  se cuelga, sale igual pasado el tope — nunca bloquea un restart/deploy.
+
+## Diagnóstico: vinculado en el teléfono pero la web no llega a "ready"
+
+Si el celular ya muestra el dispositivo como vinculado pero `whatsapp-service` sigue
+mostrando (o pidiendo) un QR sin parar, revisar el log por estos eventos, en orden — todos
+quedan con una línea propia, sin datos de la cuenta:
+```
+WhatsApp: authenticated
+WhatsApp: loading_screen 0%
+...
+WhatsApp: loading_screen 100%
+WhatsApp conectado (número 549...).     ← esto es "ready"
+```
+Si el log se corta en algún `loading_screen` y nunca llega al último, o directamente nunca
+aparece `authenticated`, es señal de que whatsapp-web.js y la versión de WhatsApp Web que
+sirven los servidores en ese momento no se llevan bien — ver la sección siguiente.
+(`change_state` también se loguea, por completitud; `remote_session_saved` está cableado
+pero no lo usa esta configuración — ver el comentario en el código.)
 
 ## Prender el canal en la API
 
@@ -173,6 +207,10 @@ y `sudo systemctl restart yosoy-api`.
   deploy de la API borra y reescribe entero en cada publish. Si algún día se
   automatiza el deploy de este servicio también, nunca debe tocar
   `/opt/yosoy/whatsapp/sesion`.
+- **Cuánta memoria hace falta:** `MemoryMax` quedó en `2G` (antes `768M`) — con el valor
+  viejo, el proceso llegó al tope real (contando swap) durante la vinculación del chip en
+  el VPS. Chromium es el grueso de esto, no Node; si se nota que igual anda justo, revisar
+  `systemctl status whatsapp-service` por un `OOMKilled` antes de asumir que es otra cosa.
 
 ## Actualizar whatsapp-web.js
 
@@ -183,6 +221,31 @@ actualizaría solo en el próximo `npm install`, sin que nadie lo decida ni lo
 pruebe antes. Para actualizar: cambiar el número a mano, probar en un
 entorno que no sea el chip de producción si es posible, recién entonces
 `npm install` + redeploy.
+
+## Fijar la versión de WhatsApp Web
+
+whatsapp-web.js trae pineada una versión de WhatsApp Web por default (la que probó al
+publicar esa versión de la librería), pero WhatsApp cambia su web seguido y a veces rompe
+algo del lado de ellos antes de que haya una versión nueva de whatsapp-web.js con el
+parche — pasó más de una vez en 2026 (cliente que nunca llega a "ready" aunque el teléfono
+ya lo muestre vinculado; ver el diagnóstico más arriba). El mitigador manual, ya usado por
+la comunidad de whatsapp-web.js para esto: fijar una build anterior conocida, en vez de la
+que sirven los servidores de WhatsApp en ese momento.
+
+Variable opcional `WHATSAPP_WEB_VERSION` (sin definir: comportamiento actual, sin cambios).
+Si se define, por ejemplo:
+```
+WHATSAPP_WEB_VERSION=<version-conocida-buena, ej. 2.3000.1037753511-alpha>
+```
+el servicio arranca con esa build exacta, bajada de un índice de versiones público
+(`wppconnect-team/wa-version` en GitHub — no un servidor propio). Para encontrar una build
+conocida como buena: revisar los comentarios de los issues de
+[wwebjs/whatsapp-web.js](https://github.com/wwebjs/whatsapp-web.js/issues) sobre el
+problema puntual que se esté viendo — suelen mencionar una versión anterior que sigue
+andando.
+
+Nunca se aplicó un cambio de versión de WhatsApp Web sin probarlo antes fuera del chip de
+producción, mismo criterio que actualizar whatsapp-web.js en sí (sección de arriba).
 
 ## Vulnerabilidades conocidas en dependencias transitivas
 
