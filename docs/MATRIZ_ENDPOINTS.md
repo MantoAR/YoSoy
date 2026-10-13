@@ -19,7 +19,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 |---|---|---|
 | GET | `/` | Redirige a `/pantallas/index.html`; no expone nada. |
 | POST | `/login` | Los 3 roles entran por la misma ruta; todavía no hay sesión. |
-| POST | `/pacientes` | Registro público de paciente. |
+| POST | `/pacientes` | Registro público de paciente (con acceso: ver abajo); rate-limited ("registro"). |
 | POST | `/profesionales` | Registro público de profesional. |
 | POST | `/recuperacion-password` | Pedido de recuperación: todavía no hay sesión. |
 | POST | `/recuperacion-password/reset` | Confirmación con el token del mail: idem. |
@@ -283,7 +283,7 @@ sesión del propio dueño. POST sigue público (es el registro).
 |---|---|---|---|---|
 | GET | `/pacientes` | Configurador | — | Volcado completo; antes, sin ningún chequeo. |
 | GET | `/pacientes/{id}` | Cualquier rol autenticado | **Sí (paciente) — 403** | Antes, sin ningún chequeo. |
-| POST | `/pacientes` | **Público** | — | Registro. |
+| POST | `/pacientes` | **Público** (rate-limited, política "registro") | — | Registro — crea Paciente + Usuario + UsuarioPaciente juntos, en una transacción; la persona elige usuario y contraseña en el mismo alta. |
 | PUT | `/pacientes/{id}` | Cualquier rol autenticado | **Sí (paciente) — 403** | Antes, sin ningún chequeo: cualquiera editaba la ficha de cualquiera. |
 | DELETE | `/pacientes/{id}`, `PUT /alta` | Configurador | — | Antes, sin ningún chequeo. |
 | POST/DELETE | `/pacientes/{id}/profesionales[/{idProf}]` | Configurador | — | Asignar/desasignar el equipo tratante es administrativo (mismo criterio que `/derivaciones/*`). Antes, sin ningún chequeo. |

@@ -39,6 +39,16 @@ function rechazar() {
     setTimeout(() => window.location.href = conRetorno("index.html"), 2000);
 }
 
+// Copiado de crear-cuenta-profesional.html — único otro lugar del repo con un campo de
+// contraseña con mostrar/ocultar.
+function togglePass(id, boton) {
+    const inp = document.getElementById(id);
+    const mostrar = inp.type === "password";
+    inp.type = mostrar ? "text" : "password";
+    boton.setAttribute("aria-pressed", mostrar);
+    boton.setAttribute("aria-label", mostrar ? "Ocultar contraseña" : "Mostrar contraseña");
+}
+
 function calcularEdad(fechaNacimiento) {
     const fecha = new Date(fechaNacimiento + "T12:00:00");
     const hoy = new Date();
@@ -63,7 +73,11 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         { id: "email", requerido: "Ingresá tu email.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un email válido." },
         { id: "domicilio", requerido: "Ingresá la calle." },
         { id: "numero", requerido: "Ingresá el número." },
-        { id: "provincia", requerido: "Ingresá la provincia." }
+        { id: "provincia", requerido: "Ingresá la provincia." },
+        { id: "usuario", requerido: "Elegí un nombre de usuario.", patron: /^[a-zA-Z0-9_.-]{3,50}$/, mensajePatron: "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." },
+        { id: "pass1", requerido: "Ingresá una contraseña.", minimo: 6, mensajeMinimo: "La contraseña debe tener al menos 6 caracteres." },
+        { id: "pass2", requerido: "Repetí la contraseña.",
+          validar: v => v !== document.getElementById("pass1").value ? "Las contraseñas no coinciden." : null }
     ]);
     if (!valido) return;
 
@@ -93,7 +107,9 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         provincia: valor("provincia"),
         estado: "Activo",
         esMenorEdad: edad < 18,
-        fechaAlta: new Date().toISOString()
+        fechaAlta: new Date().toISOString(),
+        usuario: valor("usuario"),
+        contrasena: valor("pass1")
     };
 
     const btn = document.getElementById("btnRegistrar");

@@ -56,10 +56,11 @@ public class IdsCeroPersonasTests
     public async Task Paciente_alta_devuelve_id_real_no_cero()
     {
         var marca = "XTEST-" + Guid.NewGuid().ToString("N")[..10];
+        var mail = marca.ToLowerInvariant() + "@example.com"; // único por corrida: ahora también es Usuario.Mail (UNIQUE).
         using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient(); // POST /pacientes es público (registro), sin token.
 
-        var respuesta = await client.PostAsJsonAsync("/pacientes", new { nombre = "Prueba", dni = marca, mail = "xtest@example.com" });
+        var respuesta = await client.PostAsJsonAsync("/pacientes", new { nombre = "Prueba", dni = marca, mail, usuario = marca, contrasena = "ClaveDePrueba123" });
         try
         {
             Assert.True(respuesta.IsSuccessStatusCode, $"esperaba 2xx, llegó {(int)respuesta.StatusCode}");
@@ -79,6 +80,11 @@ public class IdsCeroPersonasTests
         {
             using var con = Conexion.ObtenerConexion();
             con.Open();
+            using (var del = new SqlCommand(
+                "DELETE FROM UsuarioPaciente WHERE IdPaciente IN (SELECT IdPaciente FROM Paciente WHERE Dni = @m)", con))
+            { del.Parameters.AddWithValue("@m", marca); await del.ExecuteNonQueryAsync(); }
+            using (var del = new SqlCommand("DELETE FROM Usuario WHERE Username = @m", con))
+            { del.Parameters.AddWithValue("@m", marca); await del.ExecuteNonQueryAsync(); }
             using (var del = new SqlCommand("DELETE FROM Paciente WHERE Dni = @m", con))
             { del.Parameters.AddWithValue("@m", marca); await del.ExecuteNonQueryAsync(); }
             using var chk = new SqlCommand("SELECT COUNT(*) FROM Paciente WHERE Dni = @m", con);
