@@ -19,11 +19,19 @@ Environment=PUPPETEER_CACHE_DIR=/opt/yosoy/whatsapp/cache
 Environment=HOME=/opt/yosoy/whatsapp/cache
 Restart=on-failure
 RestartSec=5
-MemoryMax=768M
+# Con 768M llegó al tope real (con swap) durante la vinculación del chip en el VPS — ver
+# README.md, "Cuánta memoria hace falta". Con esto Chromium se mata por OOM antes de que
+# el apagado limpio (SIGTERM, TimeoutStopSec de abajo) llegue a correr.
+MemoryMax=2G
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/yosoy/whatsapp/sesion /opt/yosoy/whatsapp/cache
 PrivateTmp=true
+# index.js atiende SIGTERM (cierra el servidor HTTP, la cola y el cliente de WhatsApp con
+# un tope propio de 10s) — este valor le da margen de sobra antes de que systemd mande
+# SIGKILL. El default de systemd (90s) también hubiera alcanzado; se deja explícito y más
+# corto para no tardar tanto en un restart/stop normal.
+TimeoutStopSec=20
 
 [Install]
 WantedBy=multi-user.target

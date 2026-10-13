@@ -14,6 +14,9 @@ const PUERTO = parseInt(process.env.WHATSAPP_SERVICE_PORT || "3002", 10);
 const SESSION_PATH = process.env.WHATSAPP_SESSION_PATH || "./.wwebjs_auth";
 const API_BASE_URL = process.env.API_BASE_URL;
 const SECRETO = process.env.Mensajeria__WhatsApp__Secreto;
+// Opcional — ver README.md "Fijar la versión de WhatsApp Web". Sin definir, whatsapp-web.js
+// usa la versión que trae pineada por default (comportamiento actual, sin cambios).
+const WEB_VERSION = process.env.WHATSAPP_WEB_VERSION || null;
 
 if (!API_BASE_URL) { log.error("Falta API_BASE_URL en el entorno."); process.exit(1); }
 if (!SECRETO) { log.error("Falta Mensajeria__WhatsApp__Secreto en el entorno."); process.exit(1); }
@@ -31,6 +34,7 @@ const wa = new ServicioWhatsApp({
     dataPath: SESSION_PATH,
     apiBaseUrl: API_BASE_URL,
     secreto: SECRETO,
+    webVersion: WEB_VERSION,
     log
 });
 
@@ -74,7 +78,47 @@ app.post("/desvincular", (req, res) => {
     res.json({ exito: true });
 });
 
-app.listen(PUERTO, "127.0.0.1", () => {
+const servidor = app.listen(PUERTO, "127.0.0.1", () => {
     log.info(`whatsapp-service escuchando en 127.0.0.1:${PUERTO}`);
     wa.iniciar();
 });
+
+// Red de seguridad: un error sin capturar en el código de Puppeteer/whatsapp-web.js (fuera
+// de nuestro control directo) no tiene por qué tirar abajo todo el proceso — se loguea
+// (nunca el objeto entero del error, puede traer de más) y se intenta recuperar el cliente
+// por el mismo camino que un "disconnected" transitorio. Si el problema es realmente
+// persistente, _reiniciar ya tiene su propio reintento con backoff — esto no lo duplica,
+// solo lo dispara una vez más por si el cliente quedó en un estado raro que un evento
+// normal de whatsapp-web.js no iba a reportar solo.
+process.on("unhandledRejection", razon => {
+    log.error(`unhandledRejection (no se cae el proceso): ${razon?.message || razon}`);
+    wa.recuperar();
+});
+process.on("uncaughtException", err => {
+    log.error(`uncaughtException (no se cae el proceso): ${err?.message || err}`);
+    wa.recuperar();
+});
+
+// Apagado limpio (systemd manda SIGTERM al hacer stop/restart; TimeoutStopSec=20 en la
+// unit le da margen de sobra a este timeout interno de 10s + el tiempo propio de Node/SO).
+// Orden: dejar de aceptar pedidos nuevos (servidor + cola), después cerrar el cliente de
+// WhatsApp con un tope de tiempo — nunca bloquear el apagado esperando a Puppeteer.
+let apagando = false;
+async function apagar(señal) {
+    if (apagando) return;
+    apagando = true;
+    log.info(`${señal} recibido, apagando...`);
+    cola.detener();
+    servidor.close();
+    try {
+        await Promise.race([
+            wa.cerrar(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de espera agotado cerrando el cliente de WhatsApp.")), 10000))
+        ]);
+    } catch (err) {
+        log.error(`${err.message || err} — se sale igual.`);
+    }
+    process.exit(0);
+}
+process.on("SIGTERM", () => apagar("SIGTERM"));
+process.on("SIGINT", () => apagar("SIGINT"));

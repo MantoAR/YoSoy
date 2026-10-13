@@ -16,10 +16,21 @@ class ColaEnvios {
         this._pendientes = [];
         this._procesando = false;
         this._siguienteId = 1;
+        this._detenida = false;
+    }
+
+    // Apagado limpio (ver apagar() en index.js): deja de aceptar pedidos nuevos y hace que
+    // el loop de _procesarEnSegundoPlano corte después del envío en curso, en vez de seguir
+    // vaciando la cola — el proceso se está yendo, no hace falta terminarla entera.
+    detener() {
+        this._detenida = true;
     }
 
     // Devuelve { ok: true, idExterno } o { ok: false, error } — nunca espera al envío real.
     encolar(telefono, texto) {
+        if (this._detenida) {
+            return { ok: false, error: "El servicio se está reiniciando, probá de nuevo en un momento." };
+        }
         if (this._pendientes.length >= CAPACIDAD_MAXIMA) {
             return { ok: false, error: "Cola llena, probá de nuevo en unos minutos." };
         }
@@ -37,7 +48,7 @@ class ColaEnvios {
         if (this._procesando) return;
         this._procesando = true;
         try {
-            while (this._pendientes.length > 0) {
+            while (this._pendientes.length > 0 && !this._detenida) {
                 const item = this._pendientes.shift();
                 try {
                     await this._enviarAhora(item.telefono, item.texto);
