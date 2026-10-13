@@ -24,6 +24,7 @@ public class GuardiaEndpointsTests
         ("GET", "/capacidades"),                                      // lo consulta cualquier pantalla antes de saber quién sos; sin datos sensibles
         ("POST", "/mensajeria/simulado/entrante"),                    // equivalente a un webhook: no hay sesión del otro lado
         ("GET", "/mensajeria/simulado/conversacion"),                 // idem; ambos ya cierran con Disponible()/SoloLocal, no con JWT
+        ("POST", "/mensajeria/whatsapp/entrante"),                    // webhook real de whatsapp-service: sin JWT a propósito, cierra con EsLocal()+secreto compartido (no con Disponible())
         ("GET", "/especialidades"),                                   // catálogo sin PII; lo necesita el registro público de profesional antes de loguearse
         ("GET", "/especialidades/{id}"),                              // idem, por id
         ("GET", "/profesionales/{id}/agenda"),                        // cualquier paciente necesita ver el horario de CUALQUIER profesional al pedir turno (decisión preexistente, ver README)

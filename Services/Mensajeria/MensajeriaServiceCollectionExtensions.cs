@@ -22,9 +22,22 @@ public static class MensajeriaServiceCollectionExtensions
             case "Simulado":
                 services.AddSingleton<IMessageChannel, CanalSimulado>();
                 break;
+            case "WhatsAppWebJs":
+                // whatsapp-service solo escucha en loopback (ver whatsapp-service/README.md) —
+                // nunca una URL configurable desde afuera. AddHttpClient<T> registra el canal
+                // mismo como transient; se envuelve en un singleton para que todo lo que
+                // inyecta IMessageChannel (NotificadorTurnos, BotReservasService, ambos
+                // singleton) reciba siempre la misma instancia, como con CanalSimulado.
+                services.AddHttpClient<CanalWhatsAppWebJs>(http =>
+                {
+                    http.BaseAddress = new Uri("http://127.0.0.1:3002/");
+                    http.Timeout = TimeSpan.FromSeconds(10);
+                });
+                services.AddSingleton<IMessageChannel>(sp => sp.GetRequiredService<CanalWhatsAppWebJs>());
+                break;
             default:
                 throw new InvalidOperationException(
-                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Por ahora el único canal es \"Simulado\".");
+                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\" y \"WhatsAppWebJs\".");
         }
 
         // DAOs sin estado: una instancia alcanza.
