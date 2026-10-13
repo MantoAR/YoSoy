@@ -77,6 +77,27 @@ builder.Services.AddRateLimiter(opt =>
         {
             Window = TimeSpan.FromMinutes(10), PermitLimit = 10, QueueLimit = 0
         }));
+    // Pantalla de WhatsApp del Configurador: ya exige sesión de administrador, así que esto
+    // es un respaldo, no la defensa principal — por IP igual que las de arriba (no por el
+    // header Authorization crudo: eso permitiría crear un balde nuevo por pedido con solo
+    // mandar un header distinto cada vez, sin ningún login). RemoteIpAddress ya es la IP
+    // real del cliente gracias a UseForwardedHeaders (fix/recuperacion-ajustes), aunque el
+    // pedido pase por Caddy. "estado" es polling (cada pocos segundos mientras se espera un
+    // QR): límite laxo. "admin" son acciones deliberadas e infrecuentes (desvincular,
+    // confirmar-vinculacion): mucho más estricto, mismo criterio que separa "publico" de
+    // "recuperacion".
+    opt.AddPolicy("whatsapp-estado", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1), PermitLimit = 60, QueueLimit = 0
+        }));
+    opt.AddPolicy("whatsapp-admin", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(5), PermitLimit = 10, QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();

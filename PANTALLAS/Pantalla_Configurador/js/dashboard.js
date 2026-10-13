@@ -109,6 +109,7 @@ const titulos = {
     coberturas:      "Coberturas",
     interaccionesia: "Interacciones IA",
     auditoria:       "Log de Auditoría",
+    whatsapp:        "WhatsApp",
 };
 
 let tabActual = null;
@@ -118,7 +119,7 @@ let filaEnEdicion = null;
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
 const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "auditoria", "admisiones",
-    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "etiquetas", "coberturas", "interaccionesia"];
+    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "etiquetas", "coberturas", "interaccionesia", "whatsapp"];
 
 // La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
 // paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
@@ -175,6 +176,7 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "grupos")             return await renderGrupos(contenido);
         if (tab === "reglasderivacion")   return await renderReglasDerivacion(contenido);
         if (tab === "etiquetas")          return await renderEtiquetas(contenido);
+        if (tab === "whatsapp")           return await renderWhatsapp(contenido);
 
         if (tab === "turnos") return await renderTurnos(contenido, params);
         const datos = await YS.fetch(`/${tab}`).then(r => r.json());
@@ -1686,6 +1688,101 @@ async function desactivarEtiqueta(id) {
         if (res.ok || res.status === 204) { toast("Etiqueta desactivada."); mostrarTab("etiquetas"); }
         else toast(await YS.leerMensaje(res, "No se pudo desactivar."), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+// ── WHATSAPP ───────────────────────────────────────────
+// Polling con setTimeout que se reprograma solo (mismo patrón que bandeja.js de
+// Pantalla_ChatSimulado - no hay nada parecido ya en este archivo): 3s mientras no está
+// conectado (para que el QR aparezca/se refresque rápido), 30s de heartbeat ya conectado
+// (solo para notar una caída sin recargar la pantalla). Se frena solo si se navega a otra
+// sección (no hay un "on leave" propio de mostrarTab) o si la pestaña queda oculta; al
+// volver a quedar visible, el listener de visibilitychange lo reactiva.
+let _waTimer = null;
+let _waEstabaConectado = false;
+
+async function renderWhatsapp(c) {
+    _waEstabaConectado = false;
+    c.innerHTML = `
+        <div class="ui-card">
+            <div class="ui-card-header"><h3 class="ui-card-titulo">WhatsApp</h3></div>
+            <div id="waEstado"></div>
+        </div>`;
+    await waPulso();
+}
+
+function waDetenerPolling() {
+    clearTimeout(_waTimer);
+    _waTimer = null;
+}
+
+async function waPulso() {
+    waDetenerPolling();
+    if (YS.shell.actual !== "whatsapp") return;
+    if (document.hidden) return; // lo reactiva el listener de visibilitychange de abajo
+
+    let e;
+    try { e = await YS.api("/mensajeria/whatsapp/estado"); }
+    catch { e = { servicioDisponible: false, conectado: false, numero: null, qrPendiente: false, qr: null }; }
+    if (YS.shell.actual !== "whatsapp") return;
+
+    // Transición a conectado: se avisa al servidor una sola vez (no en cada vuelta del
+    // polling); el propio endpoint vuelve a verificar el estado real antes de auditar, así
+    // que no hace falta esperar la respuesta para seguir mostrando la pantalla.
+    if (e.conectado && !_waEstabaConectado)
+        YS.fetch("/mensajeria/whatsapp/confirmar-vinculacion", { method: "POST" }).catch(() => {});
+    _waEstabaConectado = e.conectado;
+
+    document.getElementById("waEstado").innerHTML = waHtml(e);
+
+    const espera = (!e.servicioDisponible || !e.conectado) ? 3000 : 30000;
+    _waTimer = setTimeout(waPulso, espera);
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && YS.shell.actual === "whatsapp" && !_waTimer) waPulso();
+});
+
+function waHtml(e) {
+    if (!e.servicioDisponible) {
+        return `
+            <span class="ui-chip ui-chip--neutral">Servicio no disponible</span>
+            <p class="ui-muted mt-12">No se pudo conectar con whatsapp-service. Si recién se reinició puede demorar unos segundos; si sigue así, revisar por SSH (systemctl status whatsapp-service).</p>`;
+    }
+    if (e.conectado) {
+        return `
+            <span class="ui-chip ui-chip--ok">Conectado (+${YS.esc(e.numero || "?")})</span>
+            <p class="mt-12"><button class="ui-btn ui-btn--danger-solido" type="button" onclick="waDesvincular()">Desvincular y cambiar número</button></p>`;
+    }
+    const chip = e.qrPendiente
+        ? `<span class="ui-chip ui-chip--warn">Esperando escaneo del QR</span>`
+        : `<span class="ui-chip ui-chip--danger">Desconectado</span>`;
+    if (!e.qr) return `${chip}<p class="ui-muted mt-12">Generando el código QR...</p>`;
+    return `${chip}
+        <div class="wa-qr-caja"><img src="${e.qr}" alt="Código QR para vincular WhatsApp" class="wa-qr"></div>
+        <p>Abrí WhatsApp en el chip dedicado → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>, y escaneá este código.</p>
+        <p class="ui-alerta ui-alerta--warn">Quien escanee este código controla ese WhatsApp — usar solo el chip dedicado de la clínica.</p>
+        <p><button class="ui-btn ui-btn--ghost ui-btn--sm" type="button" onclick="waGenerarQrNuevo()">¿El código no funciona? Generar uno nuevo</button></p>`;
+}
+
+async function waDesvincular() {
+    if (!await confirmar("Esto corta la conexión actual de WhatsApp. Vas a necesitar escanear un código QR nuevo para vincular un número (el mismo u otro).",
+        { titulo: "Desvincular WhatsApp", textoConfirmar: "Desvincular", peligro: true })) return;
+    await waEjecutarDesvincular("Desvinculado. Generando un código QR nuevo...");
+}
+
+async function waGenerarQrNuevo() {
+    if (!await confirmar("¿Generar un código QR nuevo? El código actual, si todavía no lo escaneaste, deja de servir.",
+        { titulo: "Generar un QR nuevo", textoConfirmar: "Generar" })) return;
+    await waEjecutarDesvincular("Generando un código QR nuevo...");
+}
+
+async function waEjecutarDesvincular(mensajeOk) {
+    try {
+        const res = await YS.fetch("/mensajeria/whatsapp/desvincular", { method: "POST" });
+        if (res.ok) toast(mensajeOk);
+        else toast(await YS.leerMensaje(res, "No se pudo completar la acción."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+    await waPulso();
 }
 
 // ── CASOS ────────────────────────────────────────────────────

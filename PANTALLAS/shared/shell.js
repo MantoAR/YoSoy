@@ -82,6 +82,11 @@
                         { id: "interaccionesia", texto: "Interacciones IA", icono: "ia" }
                     ]
                 },
+                // Ítem estático, no a través de agregarGrupoCRM(): esa ruta solo aparece si
+                // ChatSimuladoHabilitado está prendido, pero vincular WhatsApp es una
+                // configuración independiente (recordatorios de turno pueden usar WhatsApp
+                // con el chat simulado apagado).
+                { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono" },
                 { id: "auditoria", texto: "Auditoría", titulo: "Log de auditoría" }
             ],
             usuario: []

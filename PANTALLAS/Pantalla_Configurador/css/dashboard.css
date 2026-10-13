@@ -113,6 +113,12 @@
 }
 .btn-icono-peligro:hover { color: var(--danger); background: var(--danger-bg); }
 
+/* ── WhatsApp: QR para vincular ───────────────────── */
+/* Fondo blanco fijo (no var(--surface)): un QR necesita buen contraste para poder
+   escanearse, independiente del tema de la página. */
+.wa-qr-caja { display: flex; justify-content: center; margin: 12px 0; }
+.wa-qr { width: 260px; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--r-md); background: #fff; padding: 8px; }
+
 /* ── Ventana angosta (la app es para PC; esto evita que se rompa) ── */
 @media (max-width: 900px) {
     .split-view { flex-direction: column; height: auto; }

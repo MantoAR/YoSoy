@@ -91,27 +91,58 @@ sudo systemctl restart yosoy-api   # para que levante el drop-in con el secreto
 
 ## Vincular el chip (QR)
 
-Nada de endpoint HTTP para esto — más simple y sin superficie nueva expuesta
-es mirarlo directo por journal:
+**Forma normal: desde el Configurador** (sección WhatsApp, rol administrador)
+— muestra el estado y el QR como imagen, sin SSH. Ahí mismo está "Desvincular
+y cambiar número". Lo que sigue es la forma manual/de respaldo, para cuando
+no se puede usar el navegador (primer arranque antes de confirmar que el
+servicio levantó, diagnóstico por SSH, etc.).
+
+`GET /estado` y `POST /desvincular` son las dos rutas que usa esa pantalla —
+ambas piden el mismo `X-Shared-Secret` que `/enviar` (no están pensadas para
+pegarles directo salvo para diagnóstico):
+```bash
+curl -s http://127.0.0.1:3002/estado -H "X-Shared-Secret: $SECRETO"
+# { "conectado": true, "numero": "549...", "qrPendiente": false, "qr": null }
+```
+Mientras falta escanear, `"qr"` trae el código como data-URL
+(`data:image/png;base64,...`) en vez de `null` — se puede pegar ese valor en
+la barra de direcciones de un navegador para verlo sin decodificar nada a
+mano.
+
+El QR también se sigue imprimiendo por journal como respaldo (si el servicio
+recién arranca y todavía no hay forma de llegar a la pantalla del
+Configurador, por ejemplo):
 ```bash
 sudo journalctl -u whatsapp-service -f
 ```
-Va a imprimir un QR la primera vez (o cada vez que la sesión se invalide).
-Escanealo con el chip dedicado, en WhatsApp → Dispositivos vinculados. Una
-vez vinculado, `LocalAuth` guarda la sesión en `/opt/yosoy/whatsapp/sesion`
-— no hace falta repetirlo salvo que se cierre sesión manualmente o WhatsApp
-la invalide (p. ej. por usar el chip también desde el teléfono físico al
-mismo tiempo — no hacerlo).
+Conviene tener la terminal maximizada — el QR como ASCII necesita bastante
+ancho para que la cámara lo pueda leer sin que quede cortado o demasiado
+chico (confirmado en el VPS real).
 
-Confirmado en el VPS real: el QR se ve bien por `journalctl` así — conviene
-tener la terminal maximizada, el QR como ASCII necesita bastante ancho para
-que la cámara lo pueda leer sin que quede cortado o demasiado chico.
+Una vez vinculado (por cualquiera de las dos formas), `LocalAuth` guarda la
+sesión en `/opt/yosoy/whatsapp/sesion` — no hace falta repetirlo salvo que se
+desvincule (desde el Configurador, desde el teléfono en Dispositivos
+vinculados, o `POST /desvincular`) o WhatsApp invalide la sesión por su
+cuenta (p. ej. por usar el chip también desde el teléfono físico al mismo
+tiempo — no hacerlo). Una desconexión transitoria (corte de red) no borra la
+sesión guardada — el servicio reintenta solo, sin pedir un escaneo nuevo,
+salvo que la sesión en sí ya no sirva.
 
-Confirmar que levantó bien:
-```bash
-curl -s http://127.0.0.1:3002/estado
-# { "conectado": true, "numero": "549...", "qrPendiente": false }
-```
+## Si se desconecta sola
+
+`whatsapp.js` reacciona solo a dos casos:
+- `disconnected` con un motivo distinto de `"LOGOUT"` (por ejemplo, un corte de red): recrea
+  el cliente sin tocar la sesión guardada — si el corte fue pasajero, reconecta solo, sin
+  pedir un escaneo nuevo.
+- `disconnected` con motivo `"LOGOUT"` (alguien lo desvinculó desde el teléfono, en
+  Dispositivos vinculados) o `auth_failure`: ahí la sesión está confirmada muerta — se borra
+  (solo el contenido de `/opt/yosoy/whatsapp/sesion`, nunca el directorio en sí) y se fuerza
+  un QR nuevo, igual que el botón "Desvincular" del Configurador.
+
+Por esto, usar el chip también desde el teléfono físico en simultáneo ya no deja el servicio
+colgado sin salida — va a pedir un escaneo nuevo la próxima vez que se abra el Configurador
+—, pero sigue sin ser buena idea: invalida la sesión sin aviso, justo cuando puede estar
+esperando salir un recordatorio de turno.
 
 ## Prender el canal en la API
 
