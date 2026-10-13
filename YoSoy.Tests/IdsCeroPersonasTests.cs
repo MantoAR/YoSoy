@@ -100,7 +100,7 @@ public class IdsCeroPersonasTests
         using var factory = new WebApplicationFactory<Program>();
         using var client = ClienteCon(factory, 1, Roles.Configurador);
 
-        var respuesta = await client.PostAsJsonAsync("/usuarios", new { username = marca, passwordHash = "ClaveTemporal123", mail = "xtest@example.com" });
+        var respuesta = await client.PostAsJsonAsync("/usuarios", new { username = marca, passwordHash = "ClaveTemporal123", mail = marca + "@example.com" });
         try
         {
             Assert.True(respuesta.IsSuccessStatusCode, $"esperaba 2xx, llegó {(int)respuesta.StatusCode}");
