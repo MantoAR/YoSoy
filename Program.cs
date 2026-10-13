@@ -3,6 +3,7 @@ builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 builder.Services.AddSingleton<EmailService>();
 builder.Services.AddMensajeria(builder.Configuration);
+builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
 
@@ -136,11 +137,16 @@ app.UseAuthorization();
 // DENY la rompería. CSP queda afuera a propósito (ver abajo): hay mucho JS/CSS inline en
 // PANTALLAS/ y una política restrictiva rompería pantallas; se deja anotado como mejora
 // futura en CAMBIOS_AGUS.md.
+// Permissions-Policy: la cámara y el micrófono los usa solo la sala de video, que corre en este mismo
+// origen (también dentro del <iframe> del dashboard). Con (self) quedan permitidos para esta página y
+// para los iframes del mismo origen, y bloqueados para cualquier contenido embebido de otro origen. El
+// resto de las funciones del navegador conserva su comportamiento por defecto.
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
     ctx.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     ctx.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+    ctx.Response.Headers["Permissions-Policy"] = "camera=(self), microphone=(self)";
     await next();
 });
 
@@ -1993,6 +1999,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 app.MapMensajeria();
 app.MapConsentimiento();
 app.MapCasos();
+app.MapVideo();
 
 app.Run();
 

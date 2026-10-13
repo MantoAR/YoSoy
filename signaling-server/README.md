@@ -52,6 +52,9 @@ mismo dominio (Caddy) y no hace falta nada.
 Es el contrato con la API (PR 3). El cliente lo manda en el handshake: `io(url, { auth: { token } })`. Va en
 `auth` y no en la URL para que no quede en logs de acceso.
 
+Desde el PR 3 lo emite la API con `POST /video/acceso` (ver [`docs/VIDEOLLAMADAS.md`](../docs/VIDEOLLAMADAS.md)): el
+`SIGNALING_SECRETO` de acá y el `Video__SignalingSecreto` de la API tienen que ser **el mismo valor**.
+
 JWT firmado con **HS256** usando `SIGNALING_SECRETO` interpretado como UTF-8 (en .NET:
 `Encoding.UTF8.GetBytes(secreto)`). Cualquier otro algoritmo se rechaza, incluido `alg: none`.
 
