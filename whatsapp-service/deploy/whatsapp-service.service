@@ -13,6 +13,10 @@ ExecStart=/usr/bin/node index.js
 EnvironmentFile=/opt/yosoy/config/whatsapp.env
 Environment=WHATSAPP_SESSION_PATH=/opt/yosoy/whatsapp/sesion
 Environment=PUPPETEER_CACHE_DIR=/opt/yosoy/whatsapp/cache
+# Con ProtectSystem=strict, el home real de yosoy queda de solo lectura y Chromium
+# necesita poder escribir en $HOME (no solo en PUPPETEER_CACHE_DIR) — confirmado en el
+# VPS real en la Etapa 2. Mismo directorio que ya está en ReadWritePaths, sin agregar uno nuevo.
+Environment=HOME=/opt/yosoy/whatsapp/cache
 Restart=on-failure
 RestartSec=5
 MemoryMax=768M
