@@ -138,8 +138,9 @@ cd YoSoy
    | 12 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 10 | Sí |
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
+   | 15 | `add_atencion_consentimientos_ia_evolucion.sql` | Consentimientos opcionales (IA de expresiones, transcripción, WhatsApp) y su revocación; `ConfiguracionProfesional`; `SalaSesion` y `SesionFuncion` (interruptores de la sala); evolución por enfoque (`Evolucion.Enfoque`, `ContenidoJson`, `Estado`, `FechaFirma`, `HashContenido`…), `EvolucionAddendum` y los triggers que impiden modificar o borrar una evolución firmada — requiere el 6 y el 9. Ver [Circuito de atención](#circuito-de-atención-consentimientos-opcionales-ia-y-evolución-por-enfoque) | Sí |
 
-   Las 14 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 15 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
@@ -248,6 +249,58 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 - CSP (Content-Security-Policy): no se activa todavía — hay demasiado JS/CSS inline en `PANTALLAS/` y rompería pantallas. Ver `CAMBIOS_AGUS.md` para el detalle de por qué queda como mejora futura.
 
 ---
+
+## Circuito de atención: consentimientos opcionales, IA y evolución por enfoque
+
+> **Estado:** octubre 2026. Requiere la migración 15. Lo que sigue en el circuito (cobros y
+> liquidación, rol de recepción con chat por IA) está documentado pero todavía no programado.
+
+### Qué hace
+
+- **Consentimientos opcionales** (`Pantalla_Paciente/consentimiento.html`, debajo del de telemedicina): análisis de expresiones por IA, transcripción de la sesión y avisos por WhatsApp. Se aceptan y se revocan de a uno; la revocación no borra la fila (queda `Estado = 'Revocado'` con fecha). Ninguno es obligatorio para atenderse.
+- **Salas registradas:** cada código de sala (turno, entrevista de admisión o sesión directa) queda en `SalaSesion` con su paciente. Con solo el código, la API sabe qué consentimientos mirar y quién puede hacer qué. Las salas anteriores se siguen resolviendo por `Turno.CodigoSala` e `InformeAdmision.CodigoSala`.
+- **Interruptores en la sala del profesional** (`Pantalla_Profesional/sesion_video.html` + `js/sesion_video.js`):
+  - Sin consentimiento vigente, el interruptor aparece deshabilitado (RN-10 IA, RN-15 transcripción) y el servidor rechaza encenderlo con 409.
+  - El valor con el que arranca sale de **Mi perfil → Preferencias de sesión**.
+  - Cada encendido y apagado queda en `SesionFuncion`.
+  - Con la IA apagada, `face-api` ni siquiera se carga.
+- **Indicador para el paciente** (`Pantalla_Paciente/sesion_video.html`): "Análisis de expresiones activo" o "Transcripción activa", con un botón para pedir que se apague. El paciente puede apagar, nunca encender. Si revoca el consentimiento en medio de la sesión, la función figura apagada para los dos.
+- **Evolución por enfoque** (`shared/evolucion.js`, plantillas servidas por `GET /plantillas-evolucion`):
+  - TCC: situación, pensamiento, emoción y conducta, con PHQ-9 y GAD-7 calculadas en el servidor; alerta si el ítem 9 del PHQ-9 es positivo.
+  - Psicoanálisis: nota libre; la plantilla avisa que no sugiere transcripción.
+  - Sistémica: varios consultantes, con su vínculo y si estuvieron presentes.
+  - Infanto-juvenil: qué se le devuelve al tutor, nivel de confidencialidad e indicadores de riesgo.
+  - General: nota libre.
+  - Psiquiatría queda afuera en esta etapa.
+- **Modos de registro:** manual, dictado, transcripción de la sesión como borrador, o dictado + transcripción. Todo texto generado es borrador (RN-16).
+- **Firma inmutable (RN-11):** borrador → firmada, con hash SHA-256 del contenido. Una evolución firmada no se modifica ni por la API (`PUT /evoluciones/{id}` responde 409) ni por la base (triggers `TR_Evolucion_Inmutable` y `TR_Evolucion_NoBorrarFirmada`). Las correcciones van como addendum desde la historia clínica, que además avisa si el hash no coincide.
+- `POST /sesiones-clinicas` descarta las emociones o la transcripción si no hay consentimiento vigente. La transcripción completa no se guarda salvo `Atencion:ConservarTranscripcion = true`.
+
+### Configuración (`appsettings.json` → `Atencion`)
+
+| Clave | Por defecto | Para qué sirve |
+|---|---|---|
+| `VersionTextoOpcionales` | `sin-validar` | Versión del texto de los consentimientos opcionales; se guarda con cada firma. |
+| `ConservarTranscripcion` | `false` | `true` guarda la transcripción completa en `SesionClinica` (solo con consentimiento). |
+| `MotorTranscripcion` | `NavegadorDemo` | `NavegadorDemo` usa el reconocimiento de voz del navegador, **que envía el audio a un servicio externo: solo para la demo**. `Ninguno` apaga transcripción y dictado. El servicio propio (Whisper local) se agrega como otro valor. |
+
+### Endpoints nuevos (`Endpoints/AtencionEndpoints.cs`)
+
+| Método | Ruta | Quién |
+|---|---|---|
+| GET | `/pacientes/{id}/consentimientos-opcionales` | El paciente (propios), su profesional, Configurador |
+| POST | `/pacientes/{id}/consentimientos-opcionales/{clave}` y `.../{clave}/revocar` | Solo el propio paciente |
+| GET / PUT | `/profesionales/{id}/configuracion-sesion` | El propio profesional, Configurador |
+| GET | `/plantillas-evolucion` | Profesional, Configurador |
+| POST | `/salas` | Profesional asociado al paciente, Configurador |
+| GET | `/salas/{codigo}` | Paciente de la sala, su profesional, Configurador |
+| PUT | `/salas/{codigo}/funciones` | Encender: profesional de la sala o Configurador, con consentimiento. Apagar: también el paciente |
+| POST | `/evoluciones/por-enfoque` | Profesional asociado, Configurador |
+| PUT | `/evoluciones/{id}/borrador` | Quien escribió el borrador |
+| POST | `/evoluciones/{id}/addenda` | Profesional asociado, Configurador |
+| GET | `/historiasclinicas/{id}/addenda`, `/historiasclinicas/{id}/integridad` | Profesional asociado, Configurador |
+
+Pruebas nuevas: `FuncionesSesionServiceTests` y `EvolucionEnfoquesTests` (sin base de datos).
 
 ## Mensajería: chatbot de reservas y recordatorios
 

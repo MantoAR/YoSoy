@@ -318,6 +318,7 @@ async function irASala(idTurno, idPaciente) {
 
     // Si el turno no tiene sala, generarla primero
     let sinConsentimiento = false;
+    let codigoSala = null;
     try {
         const r = await YS.fetch(`/turnos/${idTurno}`);
         const turno = await r.json();
@@ -330,16 +331,19 @@ async function irASala(idTurno, idPaciente) {
             const rSala = await YS.fetch(`/turnos/${idTurno}/generar-sala`, { method: 'PUT' });
             if (rSala.ok) {
                 const data = await rSala.json();
+                codigoSala = data.codigoSala;
                 toast(`Sala generada: ${data.codigoSala}. El paciente fue notificado.`);
             }
         } else {
+            codigoSala = turno.codigoSala;
             toast(`Sala ya generada: ${turno.codigoSala}`);
         }
     } catch { toast('Error al generar la sala.', 'error'); }
 
-
+    // La sala del turno (la misma que recibió el paciente) va a la sesión: así el
+    // profesional y el paciente entran al mismo código, y la API sabe de quién es.
     YS.shell.marcar('sesion');
-    sesion(idPaciente);
+    sesion(idPaciente, codigoSala, idTurno);
     if (sinConsentimiento) bannerSinConsentimiento();
 }
 
@@ -648,15 +652,20 @@ async function verHistoria(idPaciente) {
         YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true }).catch(() => null),
         YS.api(`/pacientes/${idPaciente}/sesiones-clinicas`).catch(() => [])
     ]);
-    const evoluciones = historia?.idHistoria
-        ? await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`).catch(() => [])
-        : [];
+    const [evoluciones, addenda, integridad] = historia?.idHistoria
+        ? await Promise.all([
+            YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`).catch(() => []),
+            YS.api(`/historiasclinicas/${historia.idHistoria}/addenda`).catch(() => []),
+            YS.api(`/historiasclinicas/${historia.idHistoria}/integridad`).catch(() => []),
+            YS.evolucion.cargar().catch(() => null)
+          ])
+        : [[], [], []];
     if (m.cerrado) return;
     if (paciente) m.elemento.querySelector('.ui-modal-titulo').textContent = `Historia clínica · ${YS.nombreCompleto(paciente)}`;
 
     const pestanas = [
         { id: 'datos', texto: 'Datos del paciente', html: renderDatosPaciente(paciente) },
-        { id: 'evoluciones', texto: 'Evoluciones', n: evoluciones.length, html: renderEvoluciones(evoluciones) },
+        { id: 'evoluciones', texto: 'Evoluciones', n: evoluciones.length, html: renderEvoluciones(evoluciones, addenda, integridad) },
         { id: 'sesiones', texto: 'Sesiones clínicas', n: sesiones.length, html: renderSesionesClinicas(sesiones) }
     ];
     cuerpo.innerHTML = `
@@ -666,6 +675,11 @@ async function verHistoria(idPaciente) {
                 ? ` <span class="ui-contador ui-contador--suave">${p.n}</span>` : ''}</button>`).join('')}
         </div>
         ${pestanas.map((p, i) => `<div class="hc-panel${i ? ' oculto' : ''}" role="tabpanel" id="hc-panel-${p.id}" aria-labelledby="hc-tab-${p.id}">${p.html}</div>`).join('')}`;
+    // Addendum: la única forma de corregir una evolución firmada (RN-11).
+    cuerpo.addEventListener('click', e => {
+        const b = e.target.closest('[data-addendum]');
+        if (b) abrirAddendum(parseInt(b.dataset.addendum), idPaciente, m);
+    });
     cuerpo.querySelector('.ui-tabs').addEventListener('click', e => {
         const b = e.target.closest('[data-tab]');
         if (!b) return;
@@ -704,6 +718,28 @@ function renderSesionesClinicas(lista) {
             (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + YS.esc(s.notasEvolucion) + '</div></div>' : '') +
         '</div>';
     }).join('');
+}
+
+async function abrirAddendum(idEvolucion, idPaciente, modalHistoria) {
+    const texto = YS.el('textarea', { class: 'ui-textarea', id: 'addendumTexto', rows: 5, maxlength: 10000 });
+    const cuerpo = YS.el('div', {},
+        YS.el('p', { class: 'texto-suave mb-12', text: 'La evolución firmada no cambia: el addendum se agrega debajo, con tu nombre, la fecha y la hora.' }),
+        YS.el('label', { class: 'ui-label', for: 'addendumTexto', text: 'Corrección o aclaración' }), texto);
+    YS.modal({
+        titulo: 'Agregar addendum', cuerpo,
+        acciones: [
+            { texto: 'Cancelar', alClick: c => c.cerrar() },
+            { texto: 'Agregar', tipo: 'primary', alClick: async c => {
+                if (!texto.value.trim()) { toast('Escribí el texto del addendum.', 'warn'); return; }
+                const r = await YS.fetch(`/evoluciones/${idEvolucion}/addenda`, { method: 'POST', json: { texto: texto.value } });
+                if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo agregar el addendum.'), 'error'); return; }
+                c.cerrar();
+                toast('Addendum agregado.');
+                modalHistoria?.cerrar();
+                verHistoria(idPaciente);
+            } }
+        ]
+    });
 }
 
 function renderDatosPaciente(p) {
@@ -762,10 +798,12 @@ function bannerSinConsentimiento() {
     c.prepend(b);
 }
 
-function sesion(idPaciente = null) {
-    const src = idPaciente 
-        ? `sesion_video.html?idPaciente=${idPaciente}` 
-        : 'sesion_video.html';
+function sesion(idPaciente = null, codigoSala = null, idTurno = null) {
+    const q = new URLSearchParams();
+    if (idPaciente) q.set('idPaciente', idPaciente);
+    if (codigoSala) q.set('sala', codigoSala);
+    if (idTurno) q.set('idTurno', idTurno);
+    const src = 'sesion_video.html' + (q.toString() ? '?' + q : '');
     document.getElementById('contenido').innerHTML = `
         <div class="sesion-iframe-wrapper">
             <iframe src="${src}" allow="camera; microphone; display-capture"></iframe>
@@ -820,6 +858,11 @@ async function perfil() {
                 </div>
             </form>
         </div>
+        <div class="card mt-16" id="cardPreferencias">
+            <h3>Preferencias de sesión</h3>
+            <p class="texto-suave mb-12">Valores con los que arranca cada sesión. En la sala podés cambiarlos, y la IA y la transcripción solo se encienden si el paciente dio su consentimiento.</p>
+            <div class="ui-form-grid" id="formPreferencias">${YS.cargando('Cargando…')}</div>
+        </div>
         <div class="card mt-16">
             <h3>Link público de reserva</h3>
             ${prof?.linkPublicoActivo ? `
@@ -835,6 +878,47 @@ async function perfil() {
             `}
         </div>`;
     document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
+    cargarPreferencias();
+}
+
+async function cargarPreferencias() {
+    const cont = document.getElementById('formPreferencias');
+    let cfg, datos;
+    try {
+        [cfg, datos] = await Promise.all([
+            YS.api(`/profesionales/${idProfesional}/configuracion-sesion`),
+            YS.evolucion.cargar()
+        ]);
+    } catch (e) {
+        if (cont) cont.innerHTML = YS.errorCarga({ texto: e.message, reintentar: 'cargarPreferencias()' });
+        return;
+    }
+    if (!cont) return;
+    const opcion = (v, t, sel) => `<option value="${YS.esc(v)}"${v === sel ? ' selected' : ''}>${YS.esc(t)}</option>`;
+    cont.innerHTML = `
+        <div class="ui-campo"><label for="pref-enfoque">Enfoque y plantilla de evolución</label>
+            <select id="pref-enfoque" class="ui-select">${datos.plantillas.map(p => opcion(p.enfoque, p.nombre, cfg.enfoque)).join('')}</select></div>
+        <div class="ui-campo"><label for="pref-modo">Registro de la evolución</label>
+            <select id="pref-modo" class="ui-select">${datos.modos.map(m => opcion(m, YS.evolucion.etiquetaModo(m), cfg.modoEvolucionPorDefecto)).join('')}</select></div>
+        <label class="ui-check"><input type="checkbox" id="pref-ia"${cfg.iaExpresionesPorDefecto ? ' checked' : ''}> Encender el análisis de expresiones al iniciar (si el paciente lo aceptó)</label>
+        <label class="ui-check"><input type="checkbox" id="pref-tr"${cfg.transcripcionPorDefecto ? ' checked' : ''}> Encender la transcripción al iniciar (si el paciente la aceptó)</label>
+        <div class="ui-form-acciones"><button type="button" class="ui-btn ui-btn--primary" id="btnGuardarPref">Guardar preferencias</button></div>`;
+    document.getElementById('btnGuardarPref').addEventListener('click', guardarPreferencias);
+}
+
+async function guardarPreferencias() {
+    const v = id => document.getElementById(id);
+    const r = await YS.fetch(`/profesionales/${idProfesional}/configuracion-sesion`, {
+        method: 'PUT',
+        json: {
+            enfoque: v('pref-enfoque').value,
+            modoEvolucionPorDefecto: v('pref-modo').value,
+            iaExpresionesPorDefecto: v('pref-ia').checked,
+            transcripcionPorDefecto: v('pref-tr').checked
+        }
+    }).catch(() => null);
+    if (r?.ok) toast('Preferencias de sesión guardadas.');
+    else toast(r ? await YS.leerMensaje(r, 'No se pudieron guardar.') : 'No se pudo conectar con el servidor.', 'error');
 }
 
 function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
@@ -1779,8 +1863,24 @@ function actualizarPreviewNuevo() {
 }
 
 // Evoluciones v2: las de admision se muestran en azul
-function renderEvoluciones(lista) {
+// Evoluciones de la historia clínica: por enfoque (shared/evolucion.js) con sus addenda, y
+// aviso si el contenido firmado no coincide con su hash (alguien la cambió por fuera de la app).
+function renderEvoluciones(lista, addenda = [], integridad = []) {
     if (lista === null || lista === undefined || lista.length === 0) return YS.vacio({ icono: 'documento', texto: 'Todavía no hay evoluciones registradas.' });
+    if (YS.evolucion?.plantilla('General')) {
+        const alteradas = new Set(integridad.filter(i => !i.integra).map(i => i.idEvolucion));
+        const cont = YS.el('div');
+        for (const e of lista) {
+            const item = YS.evolucion.vista(e, addenda);
+            if (alteradas.has(e.idEvolucion))
+                item.prepend(YS.el('div', { class: 'ui-alerta ui-alerta--danger mb-8', role: 'alert',
+                    text: 'El contenido de esta evolución no coincide con lo que se firmó. Avisá a Coordinación.' }));
+            if (e.estado === 'Firmada')
+                item.append(YS.el('button', { type: 'button', class: 'ui-btn ui-btn--sm mt-8', dataset: { addendum: e.idEvolucion }, text: 'Agregar addendum' }));
+            cont.append(item);
+        }
+        return cont.innerHTML;
+    }
     return lista.map(function(e) {
         const esAdmision = ((e.diagnostico || "").toLowerCase().indexOf("admis") > -1);
         return '<div class="evolucion-item' + (esAdmision ? ' evolucion-item--admision' : '') + '">' +

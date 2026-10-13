@@ -1,0 +1,37 @@
+YoSoy - cambios del 12/10/2026 (circuito de atención)
+
+Cómo aplicarlos:
+1. Hacé una rama nueva en tu repo:   git checkout -b circuito-atencion
+2. Descomprimí este zip ENCIMA de la carpeta YoSoy (reemplazá los archivos cuando pregunte).
+3. Revisá con:                         git status   y   git diff
+4. Corré la migración 15 y las pruebas, y seguí docs/PRUEBA_CIRCUITO_ATENCION.md
+
+Archivos modificados y nuevos: ver la lista de abajo.
+DAOs/AtencionRepositorioDAO.cs
+DAOs/ConsentimientoDAO.cs
+DAOs/EvolucionDAO.cs
+Endpoints/AtencionEndpoints.cs
+Models/Evolucion.cs
+PANTALLAS/Pantalla_Paciente/consentimiento.html
+PANTALLAS/Pantalla_Paciente/css/consentimiento.css
+PANTALLAS/Pantalla_Paciente/js/consentimiento.js
+PANTALLAS/Pantalla_Paciente/sesion_video.html
+PANTALLAS/Pantalla_Profesional/css/nuevo_dashboard.css
+PANTALLAS/Pantalla_Profesional/css/sesion_video.css
+PANTALLAS/Pantalla_Profesional/js/nuevo_dashboard.js
+PANTALLAS/Pantalla_Profesional/js/sesion_video.js
+PANTALLAS/Pantalla_Profesional/nuevo_dashboard.html
+PANTALLAS/Pantalla_Profesional/sesion_video.html
+PANTALLAS/js/sesion.js
+PANTALLAS/shared/evolucion.js
+Program.cs
+README.md
+Services/ConsentimientosOpcionales.cs
+Services/EvolucionEnfoques.cs
+Services/FuncionesSesionService.cs
+YoSoy.Tests/EvolucionEnfoquesTests.cs
+YoSoy.Tests/FuncionesSesionServiceTests.cs
+appsettings.json
+docs/PRUEBA_CIRCUITO_ATENCION.md
+migrations/add_atencion_consentimientos_ia_evolucion.sql
+signaling-server/server.js

@@ -7,6 +7,10 @@ builder.Services.AddSingleton<EmailService>();
 builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
+// Circuito de atención: salas, interruptores de IA/transcripción y evolución por enfoque.
+builder.Services.AddSingleton<IAtencionRepositorio, AtencionRepositorioDAO>();
+builder.Services.AddSingleton<FuncionesSesionService>();
+builder.Services.AddOptions<AtencionOptions>().Bind(builder.Configuration.GetSection(AtencionOptions.Seccion));
 
 // JWT (rama Cambios-Agus-jwt): reemplaza la identidad autodeclarada por X-Usuario-Id.
 // La clave de firma no vive en ningún archivo versionado — JwtConfig.ClaveOFallar lee
@@ -953,6 +957,10 @@ soloClinico(app.MapPut("/evoluciones/{id}", (int id, Evolucion e, HttpContext ct
     var existente = new EvolucionDAO().ObtenerPorId(id);
     var idPaciente = existente is null ? null : new HistoriaClinicaDAO().ObtenerPorId(existente.IdHistoria)?.IdPaciente;
     if (idPaciente is null || !AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value)) return Results.NotFound();
+    // RN-11: una evolución firmada no se modifica (la base también lo impide con un trigger).
+    // Las correcciones van como addendum: POST /evoluciones/{id}/addenda.
+    if (existente!.Estado == "Firmada")
+        return Results.Json(new { codigo = "RN-11", mensaje = "Esta evolución ya está firmada y no se puede modificar. Agregá un addendum." }, statusCode: 409);
     e.IdEvolucion = id;
     new EvolucionDAO().Modificar(e);
     return Results.Ok(e);
@@ -1313,7 +1321,8 @@ app.MapGet("/recuperacion-password/estado/{username}", (string username) =>
 });
 
 // SesionClinica
-soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx) =>
+soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx,
+    Microsoft.Extensions.Options.IOptionsMonitor<AtencionOptions> opcionesAtencion) =>
 {
     // Mismo criterio que turnos (Paso 3): si quien crea es profesional, la sesión queda a
     // su propio nombre, nunca al de otro id enviado en el cuerpo.
@@ -1321,6 +1330,15 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx)
     if (!esAdmin) s.IdProfesional = idPropio!.Value;
     if (!AutorizacionClinica.PuedePaciente(ctx, s.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
+    // RN-10 / RN-15: sin consentimiento vigente no se guarda nada de esa función, aunque el
+    // navegador lo mande. La transcripción completa, además, solo si la organización eligió
+    // conservarla (Atencion:ConservarTranscripcion, por defecto no).
+    var consentimientos = new ConsentimientoDAO();
+    if (consentimientos.ObtenerVigente(s.IdPaciente, ConsentimientosOpcionales.Ia.Descripcion) is null)
+        s.HistorialEmociones = null!;
+    if (!opcionesAtencion.CurrentValue.ConservarTranscripcion
+        || consentimientos.ObtenerVigente(s.IdPaciente, ConsentimientosOpcionales.Transcripcion.Descripcion) is null)
+        s.Transcripcion = null!;
     s.FechaHora = DateTime.Now;
     int id = new SesionClinicaDAO().Insertar(s);
     s.IdSesion = id;
@@ -1535,6 +1553,10 @@ app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req)
     cmd.Parameters.AddWithValue("@Sala", codigoSala);
     cmd.Parameters.AddWithValue("@Id", id);
     var idPacObj = cmd.ExecuteScalar();
+
+    if (idPacObj != null)
+        try { AtencionRepositorioDAO.RegistrarSala(codigoSala, (int)idPacObj, null, "Admision", null, id, null); }
+        catch (Microsoft.Data.SqlClient.SqlException) { }
 
     if (idPacObj != null)
     {
@@ -1876,6 +1898,12 @@ app.MapPut("/turnos/{id}/generar-sala", (int id, HttpContext ctx, IdentidadActua
     {
         if (r.Read()) { idPac = (int)r["IdPaciente"]; fecha = (DateTime)r["Fecha"]; if (r["Hora"] != DBNull.Value) hora = (TimeSpan)r["Hora"]; }
     }
+    // Circuito de atención: la sala queda registrada con su paciente y profesional (para
+    // los interruptores de IA y transcripción). Si la migración 15 no corrió todavía, la sala
+    // se sigue resolviendo por Turno.CodigoSala: no se corta el flujo.
+    if (idPac > 0)
+        try { AtencionRepositorioDAO.RegistrarSala(codigoSala, idPac, turno.IdProfesional, "Turno", id, null, yo.IdUsuario); }
+        catch (Microsoft.Data.SqlClient.SqlException) { }
     if (idPac > 0)
     {
         var fechaLegible = fecha.ToString("dd/MM/yyyy") + " a las " + hora.ToString(@"hh\:mm") + " hs";
@@ -1901,6 +1929,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 
 app.MapMensajeria();
 app.MapConsentimiento();
+app.MapAtencion();
 app.MapCasos();
 
 // ═══════════════════════════════════════════════════════

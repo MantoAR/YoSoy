@@ -1,0 +1,131 @@
+/* Sala de video del profesional. Colores y tipografía: ../../shared/tema.css */
+* { box-sizing: border-box; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); margin: 0; padding: 12px; }
+.card { background: var(--surface); border-radius: var(--r-lg); padding: 14px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.card h3 { font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 10px 0; }
+.card--crece { flex: 1; }
+.texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0 0 16px; }
+.texto-ayuda--chico { font-size: var(--fs-xs); margin: 8px 0 0; }
+.campo-sesion { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.campo-sesion label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
+.estado-conexion { font-size: var(--fs-md); color: var(--text-3); margin-top: 10px; }
+.resumen-sala { margin-bottom: 14px; font-size: var(--fs-md); color: var(--text-2); display: flex; flex-direction: column; gap: 6px; }
+.resumen-sala .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Interruptores de funciones */
+.funciones { margin-bottom: 10px; }
+.funciones-fila { display: flex; gap: 24px; flex-wrap: wrap; }
+.interruptor { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; max-width: 380px; }
+.interruptor input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.interruptor-pista { width: 38px; height: 22px; border-radius: 11px; background: var(--border-strong); position: relative; flex-shrink: 0; transition: background .2s; margin-top: 1px; }
+.interruptor-pista::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: var(--shadow-sm); }
+.interruptor input:checked + .interruptor-pista { background: var(--accent); }
+.interruptor input:checked + .interruptor-pista::after { transform: translateX(16px); }
+.interruptor input:focus-visible + .interruptor-pista { box-shadow: 0 0 0 3px var(--accent-ring); }
+.interruptor input:disabled + .interruptor-pista { opacity: .45; }
+.interruptor:has(input:disabled) { cursor: not-allowed; }
+.interruptor strong { display: block; font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.interruptor-ayuda { display: block; font-size: var(--fs-sm); color: var(--text-3); margin-top: 2px; }
+.aviso-motor { margin: 10px 0 0; font-size: var(--fs-sm); color: var(--warn); background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: 8px 10px; }
+
+/* Layout principal */
+.main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 10px; }
+.video-principal { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
+.video-principal video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+.emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: var(--fs-lg); padding: 6px 12px; border-radius: var(--r-md); font-weight: 500; }
+.video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
+.mini-video { width: 100%; border-radius: var(--r-md); margin-top: 8px; height: 90px; object-fit: cover; background: #111; }
+.panel { display: flex; flex-direction: column; gap: 8px; }
+
+/* Emociones */
+.ia-apagada { font-size: var(--fs-sm); color: var(--text-4); font-style: italic; margin: 0; }
+.ia-nota { font-size: var(--fs-xs); color: var(--text-4); margin: 6px 0 0; }
+.emo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: var(--fs-sm); }
+.emo-label { width: 68px; color: var(--text-2); }
+.emo-track { flex: 1; height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.emo-fill { width: 0; height: 100%; border-radius: 3px; transition: width .3s; }
+#b-neutral { background: #888780; } #b-happy { background: #639922; } #b-sad { background: #378ADD; }
+#b-angry { background: #E24B4A; } #b-fearful { background: #7F77DD; } #b-surprised { background: #EF9F27; }
+#b-disgusted { background: #D4537E; }
+.emo-val { width: 28px; text-align: right; color: var(--text-4); font-size: var(--fs-xs); }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stat-box { background: var(--surface-2); border-radius: var(--r-md); padding: 8px; }
+.stat-box--ancho { grid-column: 1 / -1; }
+.stat-num { font-size: 18px; font-weight: 600; color: var(--text); }
+.stat-num--chico { font-size: var(--fs-md); }
+.stat-lbl { font-size: var(--fs-xs); color: var(--text-3); margin-top: 1px; }
+.tl { max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.tl-row { display: flex; gap: 5px; align-items: center; font-size: var(--fs-sm); }
+.tl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.tl-time { color: var(--text-4); min-width: 32px; }
+
+/* Panel inferior */
+.bottom-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; margin-top: 10px; align-items: start; }
+.transcripcion-box { height: 220px; overflow-y: auto; background: var(--surface-2); border-radius: var(--r-md); padding: 10px; font-size: var(--fs-sm); line-height: 1.6; border: 1px solid var(--border); }
+.transcripcion-vacia { color: var(--text-4); font-style: italic; font-size: var(--fs-sm); }
+.msg-medico { color: var(--accent-strong); margin-bottom: 4px; }
+.msg-paciente { color: var(--ok); margin-bottom: 4px; }
+.msg-label { font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
+.mic-btns { display: flex; gap: 6px; margin-top: 8px; }
+.btn-mic { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); font-weight: 500; }
+.btn-mic:disabled { opacity: .5; cursor: not-allowed; }
+.btn-mic-medico { background: var(--accent-soft); color: var(--accent-strong); }
+.btn-mic-medico.activo { background: var(--accent); color: #fff; }
+.btn-mic-paciente { background: var(--ok-bg); color: var(--ok); }
+.btn-mic-paciente.activo { background: var(--ok); color: #fff; }
+.btn-limpiar { margin-left: auto; padding: 6px 10px; }
+
+/* Evolución */
+.evolucion-box { display: flex; flex-direction: column; gap: 10px; }
+.evo-cabecera { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.evo-descripcion { font-size: var(--fs-sm); color: var(--text-3); margin: 0; }
+.evo-campos, .evo-comunes { display: flex; flex-direction: column; gap: 10px; }
+.evo-textarea { min-height: 70px; resize: vertical; }
+.evo-consultantes { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.evo-consultantes-titulo { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
+.evo-consultantes-filas { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.evo-consultante { display: grid; grid-template-columns: 1.2fr 1fr auto auto; gap: 6px; align-items: center; }
+.evo-presente { font-size: var(--fs-sm); color: var(--text-2); white-space: nowrap; }
+.evo-escala { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; background: var(--surface-2); }
+.evo-escala summary { cursor: pointer; font-weight: 600; font-size: var(--fs-sm); }
+.evo-escala-consigna { font-size: var(--fs-sm); color: var(--text-3); margin: 8px 0; }
+.evo-escala-items { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-sm); }
+.evo-escala-item { color: var(--text); margin-bottom: 3px; }
+.evo-escala-opciones { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--text-2); }
+.evo-escala-resultado { margin-top: 8px; font-weight: 600; font-size: var(--fs-sm); color: var(--text-2); }
+.evo-escala-resultado--alerta { color: var(--danger); }
+.etiqueta-cierre { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
+.tipo-cierre { display: flex; gap: 6px; flex-wrap: wrap; }
+.tipo-btn { padding: 5px 10px; border: 1px solid var(--accent-border); border-radius: var(--r-md); background: var(--surface); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); color: var(--accent-strong); }
+.tipo-btn.activo { background: var(--accent); color: #fff; border-color: var(--accent); }
+.evo-herramientas { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.evolucion-estado { margin-top: 8px; font-size: var(--fs-sm); color: var(--text-3); }
+.evolucion-estado--firmada { color: var(--ok); font-weight: 600; }
+.evolucion-box.bloqueada { opacity: .7; pointer-events: none; }
+
+/* Controles */
+.controles { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+.btn-rojo, .btn-gris, .btn-guardar-hc {
+    height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: var(--r-md);
+    cursor: pointer; font-family: var(--font); font-size: var(--fs-md); font-weight: 500;
+}
+.btn-rojo { background: var(--danger-solid); color: #fff; }
+.btn-guardar-hc { background: var(--accent); color: #fff; }
+.btn-guardar-hc:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-gris { background: var(--surface); color: var(--text-2); border-color: var(--border-strong); }
+.btn-gris:disabled, .btn-guardar-hc:disabled { opacity: .5; cursor: default; }
+.btn-mic.btn-gris { height: auto; }
+.estado { font-size: var(--fs-sm); color: var(--text-3); }
+
+/* Pantalla de conexión */
+.sala-box { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--r-lg); padding: 16px; margin-top: 16px; }
+.sala-box-titulo { font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 8px; }
+.sala-codigo-wrap { display: flex; align-items: center; gap: 10px; }
+.sala-codigo { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--accent-strong); letter-spacing: .1em; }
+.btn-copiar { background: var(--surface); border: 1px solid var(--accent-border); color: var(--accent-strong); padding: 6px 14px; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); }
+.btn-copiar:hover { background: var(--accent); color: #fff; }
+
+@media (max-width: 900px) { .main-grid, .bottom-grid, .evo-cabecera { grid-template-columns: 1fr; } }

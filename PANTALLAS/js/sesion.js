@@ -85,5 +85,10 @@
         reiniciarTimer();
         ["mousemove", "keydown", "click", "scroll", "touchstart"].forEach(ev =>
             document.addEventListener(ev, reiniciarTimer, { passive: true }));
+        // La sala de video corre dentro de un iframe: su actividad no llega a este documento,
+        // así que avisa cada minuto mientras la sesión está abierta (Pantalla_Profesional/js/sesion_video.js).
+        window.addEventListener("message", e => {
+            if (e.origin === location.origin && e.data === "ys-actividad") reiniciarTimer();
+        });
     });
 })();

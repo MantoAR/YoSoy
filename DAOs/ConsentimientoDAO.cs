@@ -81,7 +81,8 @@ public class ConsentimientoDAO
     }
 
     // RN-02: consentimiento vigente de un tipo (buscado por Descripcion). No hay
-    // vencimiento en el modelo: vigente = existe y no fue dado de baja ('Inactivo').
+    // vencimiento en el modelo: vigente = existe y no fue dado de baja ('Inactivo') ni
+    // revocado por el paciente ('Revocado', consentimientos opcionales).
     public Consentimiento? ObtenerVigente(int idPaciente, string descripcionTipo)
     {
         using var con = Conexion.ObtenerConexion();
@@ -91,7 +92,7 @@ public class ConsentimientoDAO
             FROM Consentimiento c
             JOIN TipoConsentimiento tc ON tc.IdTipoConsentimiento = c.IdTipoConsentimiento
             WHERE c.IdPaciente = @IdPac AND tc.Descripcion = @Tipo
-              AND ISNULL(c.Estado, 'Activo') <> 'Inactivo'
+              AND ISNULL(c.Estado, 'Activo') NOT IN ('Inactivo', 'Revocado')
             ORDER BY c.FechaFirma DESC", con);
         cmd.Parameters.AddWithValue("@IdPac", idPaciente);
         cmd.Parameters.AddWithValue("@Tipo",  descripcionTipo);
@@ -117,7 +118,7 @@ public class ConsentimientoDAO
                 BEGIN TRAN;
                 IF EXISTS (SELECT 1 FROM Consentimiento WITH (UPDLOCK, HOLDLOCK)
                            WHERE IdPaciente = @IdPac AND IdTipoConsentimiento = @IdTipo
-                             AND ISNULL(Estado, 'Activo') <> 'Inactivo')
+                             AND ISNULL(Estado, 'Activo') NOT IN ('Inactivo', 'Revocado'))
                     SET @Resultado = 0;
                 ELSE
                 BEGIN
@@ -133,6 +134,41 @@ public class ConsentimientoDAO
         cmd.Parameters.AddWithValue("@Version", version.Length > 20 ? version[..20] : version);
         cmd.Parameters.AddWithValue("@Fecha",   fechaHora);
         return (int)cmd.ExecuteScalar();
+    }
+
+    /// <summary>
+    /// El paciente revoca un consentimiento opcional (RN-10/RN-15): la fila vigente pasa a
+    /// 'Revocado' con fecha, nunca se borra. Devuelve false si no había uno vigente.
+    /// </summary>
+    public bool Revocar(int idPaciente, string descripcionTipo, DateTime fechaHora)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE c SET c.Estado = 'Revocado', c.FechaRevocacion = @Fecha
+            FROM Consentimiento c
+            JOIN TipoConsentimiento tc ON tc.IdTipoConsentimiento = c.IdTipoConsentimiento
+            WHERE c.IdPaciente = @IdPac AND tc.Descripcion = @Tipo
+              AND ISNULL(c.Estado, 'Activo') NOT IN ('Inactivo', 'Revocado')", con);
+        cmd.Parameters.AddWithValue("@IdPac", idPaciente);
+        cmd.Parameters.AddWithValue("@Tipo",  descripcionTipo);
+        cmd.Parameters.AddWithValue("@Fecha", fechaHora);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    /// <summary>Última revocación de un tipo (para mostrarle al paciente desde cuándo está revocado).</summary>
+    public DateTime? UltimaRevocacion(int idPaciente, string descripcionTipo)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT MAX(c.FechaRevocacion) FROM Consentimiento c
+            JOIN TipoConsentimiento tc ON tc.IdTipoConsentimiento = c.IdTipoConsentimiento
+            WHERE c.IdPaciente = @IdPac AND tc.Descripcion = @Tipo AND c.Estado = 'Revocado'", con);
+        cmd.Parameters.AddWithValue("@IdPac", idPaciente);
+        cmd.Parameters.AddWithValue("@Tipo",  descripcionTipo);
+        var v = cmd.ExecuteScalar();
+        return v is DateTime d ? d : null;
     }
 
     private Consentimiento Mapear(SqlDataReader r) => new Consentimiento

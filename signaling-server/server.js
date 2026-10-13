@@ -36,6 +36,16 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('ice-candidate', { candidate });
     });
 
+    // Circuito de atención: avisos de cambio en los interruptores de IA y transcripción.
+    // Solo dicen "consultá de nuevo": el estado real lo da la API (GET /salas/{codigo}), que
+    // sí valida quién es quién. Nada de lo que viaje por acá se toma como verdad.
+    socket.on('funciones-cambio', ({ roomId }) => {
+        if (roomId && roomId === socket.data.roomId) socket.to(roomId).emit('funciones-cambio');
+    });
+    socket.on('pedido-apagado', ({ roomId, funcion }) => {
+        if (roomId && roomId === socket.data.roomId) socket.to(roomId).emit('pedido-apagado', { funcion: String(funcion || '') });
+    });
+
     socket.on('disconnect', () => {
         const roomId = socket.data.roomId;
         if (roomId) socket.to(roomId).emit('user-left', { role: socket.data.role });

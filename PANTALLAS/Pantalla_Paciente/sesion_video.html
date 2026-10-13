@@ -34,6 +34,15 @@
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
         .controles { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
         .estado { font-size: var(--fs-md); color: var(--text-3); }
+        /* Indicadores de funciones activas (RN-10, RN-15): siempre visibles mientras estén encendidas */
+        .indicadores { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+        .indicador { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--r-md);
+                     border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent-strong); font-weight: 500; }
+        .indicador-punto { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: latido 1.6s ease-in-out infinite; }
+        .indicador-texto { flex: 1; min-width: 200px; }
+        .indicador-texto small { display: block; font-weight: 400; color: var(--text-3); }
+        @keyframes latido { 50% { opacity: .35; } }
+        @media (prefers-reduced-motion: reduce) { .indicador-punto { animation: none; } }
         @media (max-width: 760px) { .videos-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -70,6 +79,20 @@
 
     <!-- PANTALLA DE SESIÓN -->
     <div id="pantalla-sesion" class="oculto">
+        <div class="indicadores" aria-live="polite">
+            <div id="ind-IaExpresiones" class="indicador oculto" role="status">
+                <span class="indicador-punto" aria-hidden="true"></span>
+                <span class="indicador-texto">Análisis de expresiones activo
+                    <small>Tu profesional ve una estimación de tus expresiones. No se graban imágenes.</small></span>
+                <button class="ui-btn ui-btn--sm" type="button" data-apagar="IaExpresiones">Pedir que se apague</button>
+            </div>
+            <div id="ind-Transcripcion" class="indicador oculto" role="status">
+                <span class="indicador-punto" aria-hidden="true"></span>
+                <span class="indicador-texto">Transcripción activa
+                    <small>Lo que se dice se pasa a texto para ayudar a tu profesional a escribir la evolución.</small></span>
+                <button class="ui-btn ui-btn--sm" type="button" data-apagar="Transcripcion">Pedir que se apague</button>
+            </div>
+        </div>
         <div class="videos-grid">
             <div class="video-wrap">
                 <video id="vid-profesional" autoplay playsinline></video>
@@ -94,8 +117,35 @@
 <script>YS.shell.iniciar({ rol: "paciente", activo: "sesion" });</script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
-const SIGNAL = 'http://localhost:3001';
-let pc, stream, socket, sala;
+const SIGNAL = (location.protocol.startsWith('http') ? `${location.protocol}//${location.hostname}` : 'http://localhost') + ':3001';
+let pc, stream, socket, sala, pollFunciones;
+
+// ── Indicadores de funciones (RN-10, RN-15) ──────────────────────────────
+// El estado lo da la API, no el otro navegador: el aviso por socket solo dispara la consulta.
+async function refrescarIndicadores() {
+    try {
+        const info = await YS.api(`/salas/${encodeURIComponent(sala)}`);
+        for (const f of info.funciones || [])
+            document.getElementById('ind-' + f.funcion)?.classList.toggle('oculto', !f.activa);
+    } catch { /* sala anterior a esta versión o sin conexión: sin indicadores */ }
+}
+
+// El paciente puede apagar una función en cualquier momento, sin pedir permiso.
+document.querySelectorAll('[data-apagar]').forEach(b => b.addEventListener('click', async () => {
+    const funcion = b.dataset.apagar;
+    b.disabled = true;
+    try {
+        const r = await YS.fetch(`/salas/${encodeURIComponent(sala)}/funciones`, { method: 'PUT', json: { funcion, activa: false } });
+        if (r.ok) {
+            socket?.emit('funciones-cambio', { roomId: sala });
+            socket?.emit('pedido-apagado', { roomId: sala, funcion });
+            YS.toast('Listo, se apagó. Tu profesional recibió el aviso.');
+        } else YS.toast(await YS.leerMensaje(r, 'No se pudo apagar.'), 'error');
+    } finally {
+        b.disabled = false;
+        refrescarIndicadores();
+    }
+}));
 
 // El link de la notificación (y los botones del panel) traen el código: ?sala=SALA-...
 // Queda cargado y solo falta "Conectarme" (la cámara se pide recién ahí).
@@ -152,6 +202,9 @@ async function conectarse() {
 
     // Conectar al servidor de señalización
     socket = io(SIGNAL);
+    socket.on('funciones-cambio', refrescarIndicadores);
+    refrescarIndicadores();
+    pollFunciones = setInterval(refrescarIndicadores, 10000);
 
     // Cuando el socket se conecta, unirse a la sala
     socket.on('connect', () => {
@@ -186,6 +239,8 @@ async function conectarse() {
 }
 
 function finalizarSesion() {
+    clearInterval(pollFunciones);
+    document.querySelectorAll('.indicador').forEach(i => i.classList.add('oculto'));
     stream?.getTracks().forEach(t => t.stop());
     pc?.close();
     socket?.disconnect();

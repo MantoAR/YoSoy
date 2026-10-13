@@ -50,6 +50,7 @@ async function cargar() {
         const p = await rPac.json();
         const estado = await rEstado.json();
         $("paciente").textContent = `Paciente: ${p.nombre} · DNI ${p.dni}`;
+        cargarOpcionales();
 
         if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada); return; }
         versionTexto = estado.versionTexto;
@@ -81,6 +82,71 @@ async function firmar() {
     } finally {
         btn.disabled = false;
     }
+}
+
+// ── Consentimientos opcionales (RN-10 IA de expresiones, RN-15 transcripción, WhatsApp) ──
+// Se firman y se revocan de a uno. El servidor nunca deja encender una función sin el
+// consentimiento vigente, y si se revoca durante una sesión la función se apaga sola.
+async function cargarOpcionales() {
+    let lista;
+    try {
+        lista = await YS.api(`/pacientes/${idPaciente}/consentimientos-opcionales`);
+    } catch {
+        return;   // la sección queda oculta: el consentimiento principal no depende de esto
+    }
+    $("opcionales").classList.remove("oculto");
+    $("opcionalesBorrador").classList.toggle("oculto", lista.some(c => versionEsReal(c.versionTexto)));
+    const cont = $("listaOpcionales");
+    cont.replaceChildren(...lista.map(tarjetaOpcional));
+}
+
+function tarjetaOpcional(c) {
+    const estado = c.firmado
+        ? `Lo aceptaste el ${fechaHora(c.fechaFirma)}.`
+        : c.revocadoEl ? `Lo revocaste el ${fechaHora(c.revocadoEl)}.` : "Todavía no lo aceptaste.";
+    const boton = c.firmado
+        ? YS.el("button", { class: "ui-btn", type: "button", text: "Revocar", on: { click: () => revocarOpcional(c) } })
+        : YS.el("button", { class: "ui-btn ui-btn--primary", type: "button", text: "Leí y acepto", on: { click: () => firmarOpcional(c) } });
+    return YS.el("article", { class: "opcional", "aria-labelledby": "op-" + c.clave },
+        YS.el("div", { class: "opcional-cabecera" },
+            YS.el("h3", { id: "op-" + c.clave, text: c.titulo }),
+            YS.el("span", { class: "ui-chip " + (c.firmado ? "ui-chip--ok" : "ui-chip--neutral"), text: c.firmado ? "Aceptado" : "No aceptado" })),
+        YS.el("p", { class: "opcional-texto", text: c.resumen }),
+        YS.el("p", { class: "opcional-estado", text: estado }),
+        boton);
+}
+
+async function firmarOpcional(c) {
+    error("");
+    try {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/consentimientos-opcionales/${encodeURIComponent(c.clave)}`, {
+            method: "POST", json: { acepto: true, version: c.versionTexto }
+        });
+        if (!r.ok && r.status !== 409) { error(await YS.leerMensaje(r, "No se pudo registrar tu aceptación.")); return; }
+        if (r.status === 409) { const m = await YS.leerMensaje(r); if (!/ya estaba/i.test(m)) error(m); }
+        else YS.toast(`Aceptaste: ${c.titulo}.`);
+    } catch {
+        error("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.");
+    }
+    cargarOpcionales();
+}
+
+async function revocarOpcional(c) {
+    const ok = await YS.confirmar({
+        titulo: "Revocar consentimiento",
+        mensaje: `Vas a revocar "${c.titulo}". Rige desde ahora: si estás en una sesión, la función se apaga. Podés volver a aceptarlo cuando quieras.`,
+        textoConfirmar: "Revocar", peligro: true
+    });
+    if (!ok) return;
+    error("");
+    try {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/consentimientos-opcionales/${encodeURIComponent(c.clave)}/revocar`, { method: "POST" });
+        if (r.ok) YS.toast(`Revocaste: ${c.titulo}.`);
+        else error(await YS.leerMensaje(r, "No se pudo revocar."));
+    } catch {
+        error("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.");
+    }
+    cargarOpcionales();
 }
 
 $("btnFirmar").addEventListener("click", firmar);

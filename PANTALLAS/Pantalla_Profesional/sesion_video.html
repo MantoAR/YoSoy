@@ -8,112 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="../shared/tema.css">
-    <script src="face-api.min.js"></script>
-    <style>
-        /* Propio de esta página; colores y tipografía salen de ../shared/tema.css */
-        * { box-sizing: border-box; }
-        body { font-family: var(--font); background: var(--bg); color: var(--text); margin: 0; padding: 12px; }
-        .card { background: var(--surface); border-radius: var(--r-lg); padding: 14px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-        .card h3 { font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 10px 0; }
-        .card--crece { flex: 1; }
-        .texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0 0 16px; }
-        .campo-sesion { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
-        .campo-sesion label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); }
-        .estado-conexion { font-size: var(--fs-md); color: var(--text-3); margin-top: 10px; }
-
-        /* Layout principal */
-        .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 10px; }
-
-        /* Video */
-        .video-principal { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
-        .video-principal video { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        .emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: var(--fs-lg); padding: 6px 12px; border-radius: var(--r-md); font-weight: 500; }
-        .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
-        .mini-video { width: 100%; border-radius: var(--r-md); margin-top: 8px; height: 90px; object-fit: cover; background: #111; }
-
-        /* Panel derecho */
-        .panel { display: flex; flex-direction: column; gap: 8px; }
-
-        /* Emociones (el ancho de cada barra lo actualiza el análisis en vivo) */
-        .emo-row { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: var(--fs-sm); }
-        .emo-label { width: 68px; color: var(--text-2); }
-        .emo-track { flex: 1; height: 5px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
-        .emo-fill { width: 0; height: 100%; border-radius: 3px; transition: width .3s; }
-        #b-neutral { background: #888780; } #b-happy { background: #639922; } #b-sad { background: #378ADD; }
-        #b-angry { background: #E24B4A; } #b-fearful { background: #7F77DD; } #b-surprised { background: #EF9F27; }
-        #b-disgusted { background: #D4537E; }
-        .emo-val { width: 28px; text-align: right; color: var(--text-4); font-size: var(--fs-xs); }
-
-        /* Stats */
-        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .stat-box { background: var(--surface-2); border-radius: var(--r-md); padding: 8px; }
-        .stat-box--ancho { grid-column: 1 / -1; }
-        .stat-num { font-size: 18px; font-weight: 600; color: var(--text); }
-        .stat-num--chico { font-size: var(--fs-md); }
-        .stat-lbl { font-size: var(--fs-xs); color: var(--text-3); margin-top: 1px; }
-
-        /* Historial de emociones */
-        .tl { max-height: 100px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
-        .tl-row { display: flex; gap: 5px; align-items: center; font-size: var(--fs-sm); }
-        .tl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-        .tl-time { color: var(--text-4); min-width: 32px; }
-
-        /* Panel inferior - transcripción y evolución */
-        .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-
-        /* Transcripción */
-        .transcripcion-box { height: 180px; overflow-y: auto; background: var(--surface-2); border-radius: var(--r-md); padding: 10px; font-size: var(--fs-sm); line-height: 1.6; border: 1px solid var(--border); }
-        .transcripcion-vacia { color: var(--text-4); font-style: italic; font-size: var(--fs-sm); }
-        .msg-medico { color: var(--accent-strong); margin-bottom: 4px; }
-        .msg-paciente { color: var(--ok); margin-bottom: 4px; }
-        .msg-label { font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
-        .mic-btns { display: flex; gap: 6px; margin-top: 8px; }
-        .btn-mic { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); font-weight: 500; }
-        .btn-mic-medico { background: var(--accent-soft); color: var(--accent-strong); }
-        .btn-mic-medico.activo { background: var(--accent); color: #fff; }
-        .btn-mic-paciente { background: var(--ok-bg); color: var(--ok); }
-        .btn-mic-paciente.activo { background: var(--ok); color: #fff; }
-        .btn-limpiar { margin-left: auto; padding: 6px 10px; }
-
-        /* Evolución */
-        .evolucion-box { display: flex; flex-direction: column; gap: 8px; }
-        .evolucion-box textarea { width: 100%; border: 1px solid var(--border); background: var(--surface-2); border-radius: var(--r-md); padding: 8px 10px; font-size: var(--fs-md); resize: vertical; outline: none; font-family: var(--font); color: var(--text); }
-        .evolucion-box textarea:focus { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
-        .etiqueta-cierre { font-size: var(--fs-sm); font-weight: 500; color: var(--text-label); margin-bottom: 6px; }
-        .tipo-cierre { display: flex; gap: 6px; flex-wrap: wrap; }
-        .tipo-btn { padding: 5px 10px; border: 1px solid var(--accent-border); border-radius: var(--r-md); background: var(--surface); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); color: var(--accent-strong); }
-        .tipo-btn.activo { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-        /* Controles */
-        .controles { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
-        .btn-rojo, .btn-verde, .btn-gris, .btn-guardar-hc {
-            height: 36px; padding: 0 16px; border: 1px solid transparent; border-radius: var(--r-md);
-            cursor: pointer; font-family: var(--font); font-size: var(--fs-md); font-weight: 500;
-        }
-        .btn-rojo { background: var(--danger-solid); color: #fff; }
-        .btn-verde, .btn-guardar-hc { background: var(--accent); color: #fff; }
-        .btn-verde:hover, .btn-guardar-hc:hover:not(:disabled) { background: var(--accent-hover); }
-        .btn-gris { background: var(--surface); color: var(--text-2); border-color: var(--border-strong); }
-        .btn-gris:disabled, .btn-guardar-hc:disabled { opacity: .5; cursor: default; }
-        .btn-mic.btn-gris { height: auto; }
-        .estado { font-size: var(--fs-sm); color: var(--text-3); }
-
-        /* Pantalla de conexión */
-        .sala-box { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--r-lg); padding: 16px; margin-top: 16px; }
-        .sala-box-titulo { font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 8px; }
-        .sala-codigo-wrap { display: flex; align-items: center; gap: 10px; }
-        .sala-codigo { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--accent-strong); letter-spacing: .1em; }
-        .btn-copiar { background: var(--surface); border: 1px solid var(--accent-border); color: var(--accent-strong); padding: 6px 14px; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); }
-        .btn-copiar:hover { background: var(--accent); color: #fff; }
-        .sala-hint { font-size: var(--fs-sm); color: var(--text-3); margin-top: 8px; }
-
-        /* Aviso propio de la página (no carga shared/ui.js) */
-        #toast { position: fixed; bottom: 20px; right: 20px; background: #1F1D2B; color: #fff; padding: 10px 16px; border-radius: var(--r-lg); font-size: var(--fs-md); z-index: 999; box-shadow: var(--shadow-lg); }
-        #toast:not(.visible) { display: none; }
-
-        @media (max-width: 900px) { .main-grid, .bottom-grid { grid-template-columns: 1fr; } }
-    </style>
+    <link rel="stylesheet" href="css/sesion_video.css">
 </head>
 <body class="ui-pagina-ancha">
 
@@ -121,51 +16,70 @@
     <div id="pantalla-conexion">
         <div class="card">
             <h3>Iniciar sesión con paciente</h3>
-            <p class="texto-ayuda">
-                Creá la sala y compartí el código con tu paciente para que se una.
-            </p>
+            <p class="texto-ayuda" id="ayuda-conexion">Elegí el paciente y abrí la sala. El paciente recibe el código en sus avisos.</p>
 
-            <!-- Selector de paciente -->
-            <div class="campo-sesion">
+            <div class="campo-sesion" id="campo-paciente">
                 <label for="sel-paciente">Paciente de la sesión</label>
                 <select id="sel-paciente" class="ui-select">
                     <option value="">Cargando pacientes...</option>
                 </select>
             </div>
 
-            <button class="btn-verde" id="btn-crear" onclick="crearSala()">📹 Crear sala</button>
+            <div id="resumen-sala" class="resumen-sala oculto" aria-live="polite"></div>
+
+            <button class="ui-btn ui-btn--primary" id="btn-crear" type="button">📹 Abrir sala</button>
             <div id="estado-conexion" class="estado-conexion" aria-live="polite"></div>
 
             <div class="sala-box oculto" id="sala-box">
-                <div class="sala-box-titulo">Código de sala — compartilo con tu paciente</div>
+                <div class="sala-box-titulo">Código de sala — el paciente ya lo tiene en sus avisos</div>
                 <div class="sala-codigo-wrap">
                     <span class="sala-codigo" id="sala-codigo-display">—</span>
-                    <button class="btn-copiar" onclick="copiarCodigo()">📋 Copiar</button>
+                    <button class="btn-copiar" type="button" id="btn-copiar">📋 Copiar</button>
                 </div>
-                <div class="sala-hint">El paciente debe ingresar este código para unirse a la sesión.</div>
             </div>
         </div>
     </div>
 
     <!-- PANTALLA DE SESIÓN -->
     <div id="pantalla-sesion" class="oculto">
+
+        <!-- Interruptores: RN-10 (IA) y RN-15 (transcripción). Sin consentimiento quedan deshabilitados. -->
+        <div class="card funciones" aria-labelledby="titulo-funciones">
+            <h3 id="titulo-funciones">Funciones de la sesión</h3>
+            <div class="funciones-fila">
+                <label class="interruptor" id="lbl-ia">
+                    <input type="checkbox" id="sw-ia" role="switch" disabled>
+                    <span class="interruptor-pista" aria-hidden="true"></span>
+                    <span><strong>Análisis de expresiones (IA)</strong><span class="interruptor-ayuda" id="ayuda-ia">Consultando…</span></span>
+                </label>
+                <label class="interruptor" id="lbl-tr">
+                    <input type="checkbox" id="sw-tr" role="switch" disabled>
+                    <span class="interruptor-pista" aria-hidden="true"></span>
+                    <span><strong>Transcripción de la sesión</strong><span class="interruptor-ayuda" id="ayuda-tr">Consultando…</span></span>
+                </label>
+            </div>
+            <p class="aviso-motor oculto" id="aviso-motor">
+                Motor de transcripción y dictado de demostración: usa el reconocimiento de voz del navegador, que envía el audio a un servicio externo.
+                No lo uses con pacientes reales hasta que esté instalado el servicio propio.
+            </p>
+        </div>
+
         <div class="main-grid">
-            <!-- VIDEO PACIENTE + ANÁLISIS -->
             <div>
                 <div class="video-principal">
                     <video id="vid-paciente" autoplay playsinline></video>
                     <canvas id="overlay"></canvas>
-                    <div class="emo-live" id="emo-live">😐 Esperando...</div>
+                    <div class="emo-live oculto" id="emo-live">😐 Esperando...</div>
                     <span class="video-label">Paciente</span>
                 </div>
                 <video id="vid-propio" autoplay playsinline muted class="mini-video"></video>
             </div>
 
-            <!-- PANEL ANÁLISIS -->
             <div class="panel">
                 <div class="card">
                     <h3>Expresiones del paciente</h3>
-                    <div id="emo-bars">
+                    <p class="ia-apagada" id="ia-apagada">El análisis de expresiones está apagado.</p>
+                    <div id="emo-bars" class="oculto">
                         <div class="emo-row"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="b-neutral"></div></div><span class="emo-val" id="v-neutral">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Felicidad</span><div class="emo-track"><div class="emo-fill" id="b-happy"></div></div><span class="emo-val" id="v-happy">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Tristeza</span><div class="emo-track"><div class="emo-fill" id="b-sad"></div></div><span class="emo-val" id="v-sad">0%</span></div>
@@ -173,6 +87,7 @@
                         <div class="emo-row"><span class="emo-label">Miedo</span><div class="emo-track"><div class="emo-fill" id="b-fearful"></div></div><span class="emo-val" id="v-fearful">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Sorpresa</span><div class="emo-track"><div class="emo-fill" id="b-surprised"></div></div><span class="emo-val" id="v-surprised">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Disgusto</span><div class="emo-track"><div class="emo-fill" id="b-disgusted"></div></div><span class="emo-val" id="v-disgusted">0%</span></div>
+                        <p class="ia-nota">Dato de apoyo, no diagnóstico. Puede fallar según la luz, la cámara o la persona.</p>
                     </div>
                 </div>
 
@@ -180,7 +95,7 @@
                     <h3>Estadísticas</h3>
                     <div class="stats-grid">
                         <div class="stat-box"><div class="stat-num" id="stat-dur">0:00</div><div class="stat-lbl">Duración</div></div>
-                        <div class="stat-box"><div class="stat-num" id="stat-muestras">0</div><div class="stat-lbl">Muestras</div></div>
+                        <div class="stat-box"><div class="stat-num" id="stat-muestras">0</div><div class="stat-lbl">Muestras de IA</div></div>
                         <div class="stat-box stat-box--ancho"><div class="stat-num stat-num--chico" id="stat-dom">—</div><div class="stat-lbl">Emoción dominante</div></div>
                     </div>
                 </div>
@@ -192,443 +107,48 @@
             </div>
         </div>
 
-        <!-- PANEL INFERIOR: TRANSCRIPCIÓN + EVOLUCIÓN -->
         <div class="bottom-grid">
-
             <!-- TRANSCRIPCIÓN -->
             <div class="card">
                 <h3>Transcripción de la sesión</h3>
                 <div class="transcripcion-box" id="transcripcion-box">
-                    <div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>
+                    <div class="transcripcion-vacia" id="transcripcion-vacia">La transcripción está apagada.</div>
                 </div>
                 <div class="mic-btns">
-                    <button class="btn-mic btn-mic-medico" id="btn-mic-medico" onclick="toggleMic('medico')">🎤 Mi micrófono</button>
-                    <button class="btn-mic btn-mic-paciente" id="btn-mic-paciente" onclick="toggleMic('paciente')">🎤 Micrófono paciente</button>
-                    <button class="btn-mic btn-gris btn-limpiar" onclick="limpiarTranscripcion()">🗑 Limpiar</button>
+                    <button class="btn-mic btn-mic-medico" id="btn-mic-medico" type="button" disabled>🎤 Mi micrófono</button>
+                    <button class="btn-mic btn-mic-paciente" id="btn-mic-paciente" type="button" disabled>🎤 Micrófono paciente</button>
+                    <button class="btn-mic btn-gris btn-limpiar" id="btn-limpiar" type="button">🗑 Limpiar</button>
                 </div>
+                <p class="texto-ayuda texto-ayuda--chico">Es un borrador para armar la evolución. La transcripción completa no se guarda en la historia clínica.</p>
             </div>
 
             <!-- EVOLUCIÓN -->
             <div class="card">
                 <h3>Evolución clínica</h3>
-                <div class="evolucion-box">
-                    <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
-                    <div>
-                        <div class="etiqueta-cierre">Tipo de cierre</div>
-                        <div class="tipo-cierre">
-                            <button class="tipo-btn" onclick="seleccionarCierre('Seguimiento')">📋 Seguimiento</button>
-                            <button class="tipo-btn" onclick="seleccionarCierre('Alta')">✅ Alta</button>
-                            <button class="tipo-btn" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
-                        </div>
-                    </div>
+                <div id="evolucion-admision" class="ui-alerta ui-alerta--info oculto">
+                    Esta es una entrevista de admisión: la evolución inicial se escribe al derivar, desde Admisiones.
                 </div>
+                <div id="evolucion-form" class="evolucion-box"></div>
+                <div class="evo-herramientas" id="evo-herramientas">
+                    <button class="ui-btn ui-btn--sm" id="btn-dictar" type="button" disabled>🎙 Dictar en el campo seleccionado</button>
+                    <button class="ui-btn ui-btn--sm" id="btn-volcar" type="button" disabled>⤵ Pasar la transcripción al borrador</button>
+                </div>
+                <div id="evolucion-estado" class="evolucion-estado" aria-live="polite"></div>
             </div>
         </div>
 
         <div class="controles">
-            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
-            <button class="btn-guardar-hc" id="btn-guardar-hc" onclick="guardarEnHC()" disabled>💾 Guardar en HC</button>
-            <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
+            <button class="btn-rojo" id="btn-finalizar" type="button">⏹ Finalizar videollamada</button>
+            <button class="btn-gris" id="btn-borrador" type="button">💾 Guardar borrador</button>
+            <button class="btn-guardar-hc" id="btn-firmar" type="button">✍ Firmar evolución</button>
+            <button class="btn-gris" id="btn-exportar" type="button" disabled>⬇ Exportar resumen</button>
             <span class="estado" id="estado-txt">Conectando...</span>
         </div>
     </div>
 
-    <div id="toast" role="status" aria-live="polite"></div>
-
+<script src="../shared/ui.js"></script>
+<script src="../shared/evolucion.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>
-const API = 'http://localhost:5000';
-const SIGNAL = 'http://localhost:3001';
-const EMOCIONES = {
-    neutral:   { label:'Neutral',   color:'#888780', emoji:'😐' },
-    happy:     { label:'Felicidad', color:'#639922', emoji:'😄' },
-    sad:       { label:'Tristeza',  color:'#378ADD', emoji:'😢' },
-    angry:     { label:'Enojo',     color:'#E24B4A', emoji:'😠' },
-    fearful:   { label:'Miedo',     color:'#7F77DD', emoji:'😨' },
-    surprised: { label:'Sorpresa',  color:'#EF9F27', emoji:'😲' },
-    disgusted: { label:'Disgusto',  color:'#D4537E', emoji:'🤢' }
-};
-
-let pc, stream, socket, detectionTimer, timerInterval, sessionStart;
-let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
-let modelsListo = false;
-let sala = '';
-let tipoCierreSeleccionado = null;
-
-// Transcripción
-let recMedico = null, recPaciente = null;
-let micMedicoActivo = false, micPacienteActivo = false;
-let transcripcionLineas = [];
-
-// ─── CARGAR PACIENTES ─────────────────────────────────────
-const idProfesional = localStorage.getItem('idProfesional') || '1';
-
-async function cargarPacientes() {
-    try {
-        const lista = await fetch(`${API}/profesionales/${idProfesional}/pacientes`).then(r => r.json());
-        const sel = document.getElementById('sel-paciente');
-        if (!lista.length) {
-            sel.innerHTML = '<option value="">Sin pacientes asignados</option>';
-            return;
-        }
-        sel.innerHTML = '<option value="">-- Seleccioná el paciente --</option>';
-        lista.forEach(p => sel.add(new Option(`${p.nombre} ${p.apellido ?? ''}`.trim(), p.idPaciente)));
-
-        // Preseleccionar paciente si viene por URL
-        const params = new URLSearchParams(window.location.search);
-        const idPreseleccionado = params.get('idPaciente');
-        if (idPreseleccionado) {
-            sel.value = idPreseleccionado;
-        }
-        
-    } catch {
-        document.getElementById('sel-paciente').innerHTML = '<option value="">Error al cargar pacientes</option>';
-    }
-}
-
-cargarPacientes();
-
-// ─── CARGAR MODELOS ───────────────────────────────────────
-Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromUri('../models'),
-    faceapi.nets.faceLandmark68TinyNet.loadFromUri('../models'),
-    faceapi.nets.faceExpressionNet.loadFromUri('../models')
-]).then(() => {
-    modelsListo = true;
-    document.getElementById('estado-conexion').textContent = 'Listo. Podés crear la sala.';
-}).catch(() => {
-    document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
-});
-
-// ─── TOAST ────────────────────────────────────────────────
-function toast(msg, dur = 3000) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('visible');
-    clearTimeout(t._timer);
-    t._timer = setTimeout(() => t.classList.remove('visible'), dur);
-}
-
-// ─── CREAR SALA ───────────────────────────────────────────
-function crearSala() {
-    const salaURL = new URLSearchParams(window.location.search).get('sala');
-    sala = salaURL ? salaURL : ('SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase());
-    document.getElementById('sala-codigo-display').textContent = sala;
-    document.getElementById('sala-box').classList.remove('oculto');
-    document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';
-    document.getElementById('btn-crear').onclick = entrarASala;
-    document.getElementById('estado-conexion').textContent = 'Compartí el código con tu paciente y luego entrá.';
-}
-
-function copiarCodigo() {
-    navigator.clipboard.writeText(sala).then(() => {
-        const btn = document.querySelector('.btn-copiar');
-        btn.textContent = '✅ Copiado';
-        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
-    });
-}
-
-// ─── ENTRAR A LA SALA ─────────────────────────────────────
-async function entrarASala() {
-    if (!modelsListo) { toast('Esperá unos segundos: todavía se están cargando los modelos de análisis.'); return; }
-    if (!sala) { toast('Primero creá la sala.'); return; }
-
-    document.getElementById('pantalla-conexion').classList.add('oculto');
-    document.getElementById('pantalla-sesion').classList.remove('oculto');
-    document.getElementById('estado-txt').textContent = 'Esperando al paciente...';
-
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    document.getElementById('vid-propio').srcObject = stream;
-
-    socket = io(SIGNAL);
-    socket.emit('join-room', { roomId: sala, role: 'profesional' });
-
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-    pc.ontrack = e => {
-        const vidPaciente = document.getElementById('vid-paciente');
-        vidPaciente.srcObject = e.streams[0];
-        document.getElementById('estado-txt').textContent = '🟢 Sesión activa';
-        sessionStart = Date.now();
-        muestras = 0; totales = {}; historial = []; ultimaEmo = null;
-        iniciarDeteccion(vidPaciente);
-        iniciarTimer();
-    };
-
-    pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
-    };
-
-    socket.on('offer', async ({ offer }) => {
-        await pc.setRemoteDescription(offer);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.emit('answer', { roomId: sala, answer });
-    });
-
-    socket.on('ice-candidate', async ({ candidate }) => {
-        try { await pc.addIceCandidate(candidate); } catch {}
-    });
-
-    socket.on('user-left', () => {
-        document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
-    });
-}
-
-// ─── DETECCIÓN DE EXPRESIONES ─────────────────────────────
-function iniciarDeteccion(video) {
-    const canvas = document.getElementById('overlay');
-    async function detectar() {
-        if (!video || video.readyState < 2) {
-            detectionTimer = setTimeout(detectar, 500); return;
-        }
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
-        const result = await faceapi.detectSingleFace(video, opts)
-            .withFaceLandmarks(true).withFaceExpressions();
-
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (result) {
-            const { box } = result.detection;
-            ctx.strokeStyle = '#185FA5';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(box.x, box.y, box.width, box.height);
-
-            const exps = result.expressions;
-            muestras++;
-            for (const [k,v] of Object.entries(exps)) totales[k] = (totales[k]||0) + v;
-
-            for (const k of Object.keys(EMOCIONES)) {
-                const pct = Math.round((exps[k]||0)*100);
-                document.getElementById(`b-${k}`).style.width = pct+'%';
-                document.getElementById(`v-${k}`).textContent = pct+'%';
-            }
-            document.getElementById('stat-muestras').textContent = muestras;
-
-            const dom = Object.entries(exps).sort((a,b) => b[1]-a[1])[0];
-            document.getElementById('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
-
-            let dk='neutral', dv=0;
-            for (const [k,v] of Object.entries(totales)) { if(v>dv){dk=k;dv=v;} }
-            document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
-
-            if (dom[0] !== ultimaEmo) {
-                ultimaEmo = dom[0];
-                const elapsed = Date.now() - sessionStart;
-                const t = `${String(Math.floor(elapsed/60000)).padStart(2,'0')}:${String(Math.floor((elapsed%60000)/1000)).padStart(2,'0')}`;
-                historial.push({ tiempo:t, emocion:dom[0], label:EMOCIONES[dom[0]].label, intensidad:Math.round(dom[1]*100), ts:new Date().toISOString() });
-                const tl = document.getElementById('tl');
-                const row = document.createElement('div');
-                row.className = 'tl-row';
-                row.innerHTML = `<span class="tl-dot" style="background:${EMOCIONES[dom[0]].color}"></span><span class="tl-time">${t}</span><span>${EMOCIONES[dom[0]].label} (${Math.round(dom[1]*100)}%)</span>`;
-                tl.appendChild(row);
-                tl.scrollTop = tl.scrollHeight;
-            }
-        }
-        detectionTimer = setTimeout(detectar, 500);
-    }
-    detectionTimer = setTimeout(detectar, 1000);
-}
-
-function iniciarTimer() {
-    timerInterval = setInterval(() => {
-        const elapsed = Date.now() - sessionStart;
-        const m = String(Math.floor(elapsed/60000)).padStart(2,'0');
-        const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
-        document.getElementById('stat-dur').textContent = `${m}:${s}`;
-    }, 1000);
-}
-
-// ─── TRANSCRIPCIÓN ────────────────────────────────────────
-function crearReconocedor(quien) {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        toast('Tu navegador no soporta reconocimiento de voz. Usá Chrome o Edge.');
-        return null;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const rec = new SR();
-    rec.lang = 'es-AR';
-    rec.continuous = true;
-    rec.interimResults = true;
-
-    rec.onresult = (e) => {
-        let texto = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-            if (e.results[i].isFinal) {
-                texto = e.results[i][0].transcript.trim();
-                if (texto) agregarLinea(quien, texto);
-            }
-        }
-    };
-
-    rec.onerror = (e) => {
-        if (e.error !== 'no-speech') toast(`Error micrófono (${quien}): ${e.error}`);
-    };
-
-    rec.onend = () => {
-        // Si sigue activo, reiniciamos
-        if (quien === 'medico' && micMedicoActivo) rec.start();
-        if (quien === 'paciente' && micPacienteActivo) rec.start();
-    };
-
-    return rec;
-}
-
-function agregarLinea(quien, texto) {
-    const box = document.getElementById('transcripcion-box');
-
-    // Limpiar placeholder si existe
-    const placeholder = box.querySelector('.transcripcion-vacia');
-    if (placeholder) placeholder.remove();
-
-    const hora = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    const linea = `[${hora}] ${texto}`;
-    transcripcionLineas.push({ quien, texto: linea });
-
-    const div = document.createElement('div');
-    div.className = quien === 'medico' ? 'msg-medico' : 'msg-paciente';
-    const etiqueta = document.createElement('span');
-    etiqueta.className = 'msg-label';
-    etiqueta.textContent = quien === 'medico' ? '👨‍⚕️ Médico' : '🧑 Paciente';
-    div.append(etiqueta, linea);
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-function toggleMic(quien) {
-    if (quien === 'medico') {
-        if (!micMedicoActivo) {
-            recMedico = crearReconocedor('medico');
-            if (!recMedico) return;
-            recMedico.start();
-            micMedicoActivo = true;
-            document.getElementById('btn-mic-medico').classList.add('activo');
-            document.getElementById('btn-mic-medico').textContent = '⏹ Detener mi mic';
-        } else {
-            recMedico?.stop();
-            micMedicoActivo = false;
-            document.getElementById('btn-mic-medico').classList.remove('activo');
-            document.getElementById('btn-mic-medico').textContent = '🎤 Mi micrófono';
-        }
-    } else {
-        if (!micPacienteActivo) {
-            recPaciente = crearReconocedor('paciente');
-            if (!recPaciente) return;
-            recPaciente.start();
-            micPacienteActivo = true;
-            document.getElementById('btn-mic-paciente').classList.add('activo');
-            document.getElementById('btn-mic-paciente').textContent = '⏹ Detener mic paciente';
-        } else {
-            recPaciente?.stop();
-            micPacienteActivo = false;
-            document.getElementById('btn-mic-paciente').classList.remove('activo');
-            document.getElementById('btn-mic-paciente').textContent = '🎤 Micrófono paciente';
-        }
-    }
-}
-
-function limpiarTranscripcion() {
-    transcripcionLineas = [];
-    document.getElementById('transcripcion-box').innerHTML =
-        '<div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>';
-}
-
-// ─── TIPO DE CIERRE ───────────────────────────────────────
-function seleccionarCierre(tipo) {
-    tipoCierreSeleccionado = tipo;
-    document.querySelectorAll('.tipo-btn').forEach(b => b.classList.remove('activo'));
-    event.target.classList.add('activo');
-}
-
-// ─── FINALIZAR ────────────────────────────────────────────
-async function finalizarSesion() {
-    clearTimeout(detectionTimer);
-    clearInterval(timerInterval);
-
-    // Detener micrófonos
-    if (micMedicoActivo) { recMedico?.stop(); micMedicoActivo = false; }
-    if (micPacienteActivo) { recPaciente?.stop(); micPacienteActivo = false; }
-
-    stream?.getTracks().forEach(t => t.stop());
-    pc?.close();
-    socket?.disconnect();
-
-    document.getElementById('btn-exportar').disabled = false;
-    document.getElementById('btn-guardar-hc').disabled = false;
-    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${muestras} muestras registradas.`;
-    toast('Sesión finalizada. Podés guardar en HC o exportar el reporte.');
-}
-
-// ─── GUARDAR EN HC ────────────────────────────────────────
-async function guardarEnHC() {
-    const idPaciente = document.getElementById('sel-paciente').value;
-    if (!idPaciente) { toast('Seleccioná el paciente antes de guardar.'); return; }
-
-    const n = muestras || 1;
-    const promedioEmociones = {};
-    for (const [k,v] of Object.entries(totales))
-        promedioEmociones[EMOCIONES[k]?.label || k] = Math.round(v/n*100);
-
-    const transcripcionTexto = transcripcionLineas
-        .map(l => `[${l.quien === 'medico' ? 'MÉDICO' : 'PACIENTE'}] ${l.texto}`)
-        .join('\n');
-
-    const notas = document.getElementById('notas-evolucion').value;
-
-    const body = {
-        idPaciente:         parseInt(idPaciente),
-        idProfesional:      parseInt(idProfesional),
-        transcripcion:      transcripcionTexto || null,
-        notasEvolucion:     notas || null,
-        historialEmociones: JSON.stringify(promedioEmociones),
-        tipoCierre:         tipoCierreSeleccionado || null
-    };
-
-    try {
-        const res = await fetch(`${API}/sesiones-clinicas`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-
-        if (res.ok) {
-            toast('✅ Sesión guardada en la Historia Clínica del paciente.');
-            document.getElementById('btn-guardar-hc').disabled = true;
-            document.getElementById('btn-guardar-hc').textContent = '✅ Guardado en HC';
-        } else {
-            toast('❌ Error al guardar en HC.');
-        }
-    } catch {
-        toast('❌ Error de conexión al guardar.');
-    }
-}
-
-// ─── EXPORTAR REPORTE ─────────────────────────────────────
-function exportarReporte() {
-    const n = muestras || 1;
-    const reporte = {
-        fecha: new Date().toLocaleDateString('es-AR'),
-        sala,
-        duracion_segundos: Math.floor((Date.now() - sessionStart) / 1000),
-        total_muestras: muestras,
-        promedio_emociones: Object.fromEntries(
-            Object.entries(totales).map(([k,v]) => [EMOCIONES[k]?.label||k, Math.round(v/n*100)+'%'])
-        ),
-        historial_cambios: historial,
-        transcripcion: transcripcionLineas,
-        notas_evolucion: document.getElementById('notas-evolucion').value,
-        tipo_cierre: tipoCierreSeleccionado
-    };
-    const blob = new Blob([JSON.stringify(reporte, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `sesion_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-}
-</script>
+<script src="js/sesion_video.js"></script>
 </body>
 </html>
