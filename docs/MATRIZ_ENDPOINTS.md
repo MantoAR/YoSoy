@@ -349,6 +349,17 @@ con título y mensaje completos.
 | GET | `/pacientes/{id}/notificaciones` | Cualquier rol autenticado | **Sí (paciente) — 403** | Antes, sin ningún chequeo. |
 | PUT | `/notificaciones/{id}/leida` | Cualquier rol autenticado | **Sí (paciente) — 403/404** | Antes, sin ningún chequeo. |
 
+## Video: acceso a las salas, token de sala y servidores ICE (`Endpoints/VideoEndpoints.cs`)
+
+`POST /video/acceso` es el único endpoint nuevo. El cliente dice `origen` (`turno` | `admision`) + `id`; la sala y el
+rol los decide el servidor con los datos de la base, nunca el cuerpo. A cambio recibe un token de sala de vida corta
+para el signaling y los servidores ICE (STUN y, si está configurado, TURN con credenciales efímeras). Reglas, ventana
+horaria y variables de configuración: `docs/VIDEOLLAMADAS.md`.
+
+| Método | Ruta | Rol | Pertenencia | Notas |
+|---|---|---|---|---|
+| POST | `/video/acceso` | Cualquier rol autenticado | **Sí — 404** | Turno: el paciente o el profesional del turno, o un Configurador (misma regla que `PUT /turnos/{id}/generar-sala`). Admisión: el paciente del informe o un Configurador. 404 si no existe **o si existe y no sos parte: la misma respuesta, con el mismo status y el mismo cuerpo, para que no se pueda sondear qué ids existen** (el rechazo por pertenencia igual se audita); 409 si el estado, el horario (de 10 min antes a 30 min después del fin) o la sala no lo permiten. La pertenencia se evalúa **antes** que el estado y el horario, así un ajeno no se entera de ninguno de los dos. No crea la sala. Rate limit propio por IP real (política `video`). `Cache-Control: no-store`; el token y las credenciales no se loguean; los accesos y los rechazos van a `LogAuditoria`. 503 si falta un secreto de señalización válido (la API arranca igual). |
+
 ## Superficie pública (reserva por link, sin sesión)
 
 Sin cambios esta vuelta — ya estaba bien decidida desde la Fase 3a. 404 idéntico si el
@@ -375,3 +386,8 @@ slug no existe o si el link está apagado (nunca se revela cuál de las dos cosa
   CB-04 de reportes, cabeceras de seguridad globales.
 - **Modo legacy (Paso 5):** `YoSoy.Tests/ModoLegacyTests.cs` — con el flag en `false`,
   `X-Usuario-Id` solo no identifica a nadie (401); un JWT real sigue andando igual.
+- **Videollamadas (PR 3):** `YoSoy.Tests/VideoAccesoEndpointsTests.cs` (matriz 401/404/409, respuesta idéntica para "no existe" y "no sos parte", bordes de la
+  ventana, rol y `exp` del token desde el servidor, 503, ICE, auditoría, cabeceras, rate limit),
+  `AccesoSalaServiceTests`, `TurnCredentialsServiceTests` (vectores HMAC-SHA1 calculados aparte), `TokenSalaServiceTests`,
+  `VideoInteropNodeTests` (el token de la API verificado con `signaling-server/token.js`) y `VideoBaseRealTests`
+  (base real). Detalle en `docs/VIDEOLLAMADAS.md`.
