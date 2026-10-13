@@ -78,6 +78,52 @@ public static class MensajeriaEndpoints
             }
         }).AllowAnonymous();
 
+        // ── WhatsApp: pantalla de administración (estado, QR, desvincular) ──────
+        // Grupo propio, no "g": exige Configurador específicamente (no Profesional), y a
+        // propósito SIN RequiereMensajeriaHabilitada() — ese filtro depende de
+        // ChatSimuladoHabilitado, una configuración independiente de si WhatsApp está
+        // vinculado (una clínica puede querer WhatsApp para recordatorios con el chat
+        // simulado apagado; atarlos haría que esta pantalla diera 404 sin motivo).
+        var wa = app.MapGroup("/mensajeria/whatsapp")
+            .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+
+        // El QR viaja adentro de esta misma respuesta (ver WhatsAppAdminService/
+        // ServicioWhatsApp.estado() del lado Node) — no hay una ruta /qr separada, así el
+        // polling del frontend es un solo pedido. No-store: nunca se cachea una respuesta
+        // que puede traer un QR vigente; tampoco se loguea en ningún lado.
+        wa.MapGet("/estado", async (WhatsAppAdminService admin, HttpContext ctx) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(await admin.ObtenerEstadoAsync());
+        }).RequireRateLimiting("whatsapp-estado");
+
+        // Guarda el número desvinculado en el detalle de auditoría ANTES de desvincular
+        // (después ya no se puede volver a preguntar). Se audita aunque no hubiera nada
+        // conectado (p. ej. para generar un QR nuevo durante una vinculación que no arrancó) —
+        // el Detalle lo aclara.
+        wa.MapPost("/desvincular", async (WhatsAppAdminService admin, HttpContext ctx) =>
+        {
+            var previo = await admin.ObtenerEstadoAsync();
+            if (!await admin.DesvincularAsync())
+                return Results.Json(new { mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+            AuditarWhatsApp(ctx, "Desvinculación de WhatsApp",
+                previo.Conectado ? $"Número desvinculado: {previo.Numero}" : "Sin número conectado al momento de desvincular.");
+            return Results.Ok(new { exito = true });
+        }).RequireRateLimiting("whatsapp-admin");
+
+        // Disparado por el frontend cuando su polling nota la transición a conectado — pero
+        // la fila de auditoría no se escribe solo porque el navegador lo diga: se vuelve a
+        // pedir el estado real antes de confirmar, para que quede respaldada por un chequeo
+        // del servidor. Límite conocido y aceptado: si se cierra la pestaña antes de que el
+        // polling note el cambio, esa vinculación puntual no queda auditada.
+        wa.MapPost("/confirmar-vinculacion", async (WhatsAppAdminService admin, HttpContext ctx) =>
+        {
+            var e = await admin.ObtenerEstadoAsync();
+            if (e.ServicioDisponible && e.Conectado)
+                AuditarWhatsApp(ctx, "Vinculación de WhatsApp", $"Número vinculado: {e.Numero}");
+            return Results.NoContent();
+        }).RequireRateLimiting("whatsapp-admin");
+
         // ── Modo administrador ──────────────────────────────────
         // desdeMensaje: solo las conversaciones con mensajes posteriores a ese IdMensaje
         // (la bandeja pide así lo nuevo en cada vuelta del polling).
@@ -621,6 +667,22 @@ public static class MensajeriaEndpoints
     private static void AuditarConIds(HttpContext http, string accion, int idConversacion, int? idPaciente)
     {
         AuditoriaIds.Registrar(http, accion, "Conversacion", idConversacion, idPaciente);
+    }
+
+    // No se usa AuditoriaIds.Registrar acá: pide un IdEntidad (int) obligatorio, y no hay
+    // ninguno natural para "la única conexión de WhatsApp de la clínica" — queda sin usar
+    // (nullable en el modelo), mismo criterio que otras filas sin un id puntual. Nunca
+    // incluye el contenido del QR, solo el número (y ni eso, en /confirmar-vinculacion si
+    // no hay).
+    private static void AuditarWhatsApp(HttpContext http, string accion, string detalle)
+    {
+        var idUsuario = http.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(http)?.IdUsuario;
+        if (idUsuario is null) return;
+        try
+        {
+            new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = idUsuario.Value, Accion = accion, Entidad = "WhatsApp", Detalle = detalle });
+        }
+        catch (Exception) { /* la auditoría no debe impedir responder */ }
     }
 }
 

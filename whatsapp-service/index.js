@@ -41,7 +41,20 @@ app.use(express.json());
 
 app.get("/salud", (req, res) => res.json({ ok: true }));
 
-app.get("/estado", (req, res) => res.json(wa.estado()));
+// Antes no pedía secreto — tenía sentido cuando solo devolvía conectado/numero/qrPendiente,
+// pero ahora el QR viaja en esta misma respuesta (ver ServicioWhatsApp.estado()), así que se
+// gatea igual que /enviar. try/catch explícito: Express 4 no atrapa solo el rechazo de un
+// handler async, así que sin esto un error acá (p. ej. QRCode.toDataURL) dejaría el pedido
+// colgado en vez de responder.
+app.get("/estado", async (req, res) => {
+    if (!secretoValido(req.headers["x-shared-secret"])) return res.status(401).json({ error: "Secreto inválido." });
+    try {
+        res.json(await wa.estado());
+    } catch (err) {
+        log.error(`Error obteniendo el estado: ${err.message || err}`);
+        res.status(500).json({ error: "Error interno." });
+    }
+});
 
 app.post("/enviar", (req, res) => {
     if (!secretoValido(req.headers["x-shared-secret"])) return res.status(401).json({ exito: false, error: "Secreto inválido." });
@@ -50,6 +63,15 @@ app.post("/enviar", (req, res) => {
     const resultado = cola.encolar(telefono, texto);
     if (!resultado.ok) return res.status(503).json({ exito: false, error: resultado.error });
     res.json({ exito: true, idExterno: resultado.idExterno });
+});
+
+// Responde apenas valida el secreto, sin esperar a que termine el reinicio (que puede tardar
+// varios segundos) — mismo criterio que /enviar, que responde apenas encola, no cuando el
+// mensaje sale de verdad.
+app.post("/desvincular", (req, res) => {
+    if (!secretoValido(req.headers["x-shared-secret"])) return res.status(401).json({ exito: false, error: "Secreto inválido." });
+    wa.desvincular().catch(err => log.error(`Error desvinculando: ${err.message || err}`));
+    res.json({ exito: true });
 });
 
 app.listen(PUERTO, "127.0.0.1", () => {

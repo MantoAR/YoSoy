@@ -28,10 +28,11 @@ public static class MensajeriaServiceCollectionExtensions
                 // mismo como transient; se envuelve en un singleton para que todo lo que
                 // inyecta IMessageChannel (NotificadorTurnos, BotReservasService, ambos
                 // singleton) reciba siempre la misma instancia, como con CanalSimulado.
-                services.AddHttpClient<CanalWhatsAppWebJs>(http =>
+                services.AddHttpClient<CanalWhatsAppWebJs>((sp, http) =>
                 {
                     http.BaseAddress = new Uri("http://127.0.0.1:3002/");
                     http.Timeout = TimeSpan.FromSeconds(10);
+                    AgregarSecretoWhatsApp(http, sp);
                 });
                 services.AddSingleton<IMessageChannel>(sp => sp.GetRequiredService<CanalWhatsAppWebJs>());
                 break;
@@ -39,6 +40,19 @@ public static class MensajeriaServiceCollectionExtensions
                 throw new InvalidOperationException(
                     $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\" y \"WhatsAppWebJs\".");
         }
+
+        // WhatsAppAdminService (pantalla de WhatsApp del Configurador: estado/QR/desvincular)
+        // se registra siempre, sin condición con CanalActivo — a diferencia del canal de
+        // envío de arriba, tiene que poder usarse para vincular el número ANTES de activar
+        // "WhatsAppWebJs". La URL sale de MensajeriaOptions (configurable, a diferencia de la
+        // de CanalWhatsAppWebJs) para poder apuntar los tests a un listener falso.
+        services.AddHttpClient<WhatsAppAdminService>((sp, http) =>
+        {
+            var opciones = sp.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
+            http.BaseAddress = new Uri(opciones.WhatsAppServiceUrl);
+            http.Timeout = TimeSpan.FromSeconds(10);
+            AgregarSecretoWhatsApp(http, sp);
+        });
 
         // DAOs sin estado: una instancia alcanza.
         services.AddSingleton<IMensajeChatDAO, MensajeChatDAO>();
@@ -64,5 +78,15 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<RecordatorioBackgroundService>());
 
         return services;
+    }
+
+    // whatsapp-service exige este secreto en /enviar, /estado y /desvincular (ver
+    // whatsapp-service/index.js) — mismo valor que valida el webhook entrante
+    // (Endpoints/MensajeriaEndpoints.cs). Sin esto, CanalWhatsAppWebJs.EnviarAsync y
+    // WhatsAppAdminService recibirían 401 en cada pedido.
+    private static void AgregarSecretoWhatsApp(HttpClient http, IServiceProvider sp)
+    {
+        var secreto = sp.GetRequiredService<IConfiguration>()["Mensajeria:WhatsApp:Secreto"];
+        if (!string.IsNullOrEmpty(secreto)) http.DefaultRequestHeaders.Add("X-Shared-Secret", secreto);
     }
 }

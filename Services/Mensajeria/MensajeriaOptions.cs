@@ -7,6 +7,13 @@ public class MensajeriaOptions
     // Canal por el que salen los mensajes. Hoy solo existe "Simulado".
     public string CanalActivo { get; set; } = "Simulado";
 
+    // URL base de whatsapp-service para las rutas de administración (estado/desvincular,
+    // ver WhatsAppAdminService) — siempre loopback, no es secreta. A diferencia del canal de
+    // envío (CanalWhatsAppWebJs, URL fija en el código: funciona sin que CanalActivo sea
+    // "WhatsAppWebJs"), esta sale de configuración para poder apuntar los tests a un listener
+    // falso en vez del puerto 3002 real.
+    public string WhatsAppServiceUrl { get; set; } = "http://127.0.0.1:3002/";
+
     public int RecordatorioHorasAntes { get; set; } = 24;
     public int IntervaloChequeoMinutos { get; set; } = 5;
     public int TimeoutConversacionMinutos { get; set; } = 30;
