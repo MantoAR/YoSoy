@@ -1,0 +1,42 @@
+# Instalar en /etc/systemd/system/signaling-server.service — el paso a paso completo (carpetas, npm ci,
+# secretos, orden de puesta en marcha) está en docs/DESPLIEGUE_VIDEO.md, paso b.
+[Unit]
+Description=YoSoy signaling server (Socket.IO, videollamadas)
+After=network.target
+
+[Service]
+Type=simple
+User=yosoy
+Group=yosoy
+WorkingDirectory=/opt/yosoy/signaling/app
+ExecStart=/usr/bin/node server.js
+# SIGNALING_SECRETO (obligatoria; sin ella el proceso no arranca) y, si hiciera falta, el resto de las
+# variables de signaling-server/README.md. Lo crea deploy/video/generar-secretos.sh.
+EnvironmentFile=/opt/yosoy/config/signaling.env
+# Solo loopback y puerto 3001: el único camino desde internet es Caddy (/socket.io/*) y el 3001 no se abre
+# nunca en UFW. Son los valores por defecto del servidor, escritos acá para que se vean. signaling.env los
+# repite y, si define las mismas variables, GANA (EnvironmentFile pisa a Environment): si algún día se cambia
+# el puerto, cambiarlo también en deploy/caddy/video.caddy.
+Environment=HOST=127.0.0.1
+Environment=PORT=3001
+Restart=on-failure
+RestartSec=5
+# Es un relay de mensajes chicos (no toca la base ni los medios: el video no pasa por acá). 256M es holgado
+# y corta una fuga antes de que le moleste a la API o a coturn, que comparten la máquina. Confirmar con la
+# primera llamada real ("Memory:" en `systemctl status signaling-server`) y ajustar si hace falta.
+MemoryMax=256M
+NoNewPrivileges=true
+ProtectSystem=strict
+# Ni el home de yosoy ni /tmp compartido hacen falta. Sin ReadWritePaths: el servidor no escribe en disco
+# (el log sale por stdout, o sea al journal).
+ProtectHome=true
+PrivateTmp=true
+# server.js atiende SIGTERM y SIGINT: loguea PARADA, desconecta a todos los clientes (las pantallas
+# reintentan solas y vuelven a entrar a su sala; la llamada ya armada sigue, el video no depende de este
+# proceso) y sale con 0. Medido con clientes por websocket y por long-polling: menos de 10 ms. No tiene un tope
+# propio de espera, así que este es el único: si algo lo dejara colgado, systemd manda SIGKILL a los 10 s,
+# y no hay nada que perder (no guarda estado: las salas viven solo en memoria).
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

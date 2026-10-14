@@ -2,8 +2,9 @@
 
 Cómo entra una persona a una sala de video: qué le pregunta el frontend a la API, qué decide la API, qué
 recibe, qué hace la pantalla con eso, y qué hay que configurar en el servidor. Cubre **la API** (PR 3 del plan de
-videollamadas) y **las pantallas que la usan** (PR 4). Lo que falta: el despliegue de la señalización, Caddy y coturn
-(PR 5) y el consentimiento y la privacidad (PR 6).
+videollamadas), **las pantallas que la usan** (PR 4) y **cómo se despliega todo** (PR 5, en
+[`docs/DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md): señalización como servicio, secretos, coturn y Caddy; preparado,
+todavía no ejecutado en el servidor). Lo que falta: el consentimiento y la privacidad (PR 6).
 
 El contrato del token con el servidor de señalización está en [`signaling-server/README.md`](../signaling-server/README.md)
 ("Token de sala"). Esta página es el lado de la API y de las pantallas.
@@ -170,8 +171,8 @@ coturn las valida con el mismo secreto (`static-auth-secret`), sin base de datos
 - **Sin `Video:Ice:StunUrls`**: queda `stun:stun.l.google.com:19302`, el que usan hoy las pantallas. Con coturn
   propio conviene apuntarlo ahí.
 
-Del lado de coturn (se arma en el PR 5), el secreto es el mismo: `use-auth-secret` y
-`static-auth-secret=<el valor de Video__TurnSecreto>`.
+Del lado de coturn (`deploy/coturn/turnserver.conf`), el secreto es el mismo: `use-auth-secret` y
+`static-auth-secret=<el valor de Video__TurnSecreto>`, que escribe `deploy/video/generar-secretos.sh` sin mostrarlo.
 
 ## El frontend
 
@@ -312,51 +313,31 @@ secretos nunca van en el archivo**.
 
 Un valor numérico fuera del rango se acota al rango en vez de romper nada.
 
-### Cargarlas en el servidor (solo documentado; todavía no se despliega)
+### Cargarlas en el servidor
 
-Mismo esquema que `whatsapp.env` (`whatsapp-service/deploy/yosoy-api-whatsapp.conf`): un archivo de variables
-aparte y un *drop-in* de systemd, sin tocar la unit original ni el `.env` principal.
+Mismo esquema que `whatsapp.env` (`whatsapp-service/deploy/yosoy-api-whatsapp.conf`): un archivo de variables aparte y un
+*drop-in* de systemd, sin tocar la unit original ni el `.env` principal. El paso a paso completo, con la verificación y el
+rollback de cada paso, está en [`docs/DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md) (**preparado en el PR 5; todavía no se
+ejecutó en el servidor**). Lo que sigue es qué hay en cada pieza:
 
-**1. Generar los secretos** (uno para cada cosa, distintos entre sí y distintos de `Jwt__Key`):
+| En el repositorio | En el servidor | Qué es |
+|---|---|---|
+| `deploy/video/generar-secretos.sh` | se corre con `sudo` | Genera con `openssl rand -hex 32` el secreto de la señalización y el de TURN y los escribe, **sin mostrarlos**, en los dos `.env` y en `turnserver.conf`. No pisa lo que ya existe; `--rotar-signaling` y `--rotar-turn` generan uno nuevo, con copia previa del archivo. |
+| *(lo genera el script)* | `/opt/yosoy/config/video.env` (600, `yosoy`) | `Video__SignalingSecreto`, `Video__TurnSecreto`, `Video__Ice__StunUrls__0`, `Video__Ice__TurnUrls__0` y `__1` (UDP y TCP) y `Video__ZonaHoraria=America/Argentina/Buenos_Aires`. Sin comillas ni espacios alrededor del `=`. |
+| `deploy/yosoy-api.service.d/video.conf` | `/etc/systemd/system/yosoy-api.service.d/video.conf` | Drop-in: `EnvironmentFile=-/opt/yosoy/config/video.env`. El `-` es a propósito: si el archivo faltara, la API arranca igual y `/video/acceso` contesta 503 en vez de quedar caída. |
+| *(lo genera el script)* | `/opt/yosoy/config/signaling.env` (600, `yosoy`) | `SIGNALING_SECRETO` (**el mismo valor** que `Video__SignalingSecreto`), `HOST=127.0.0.1` y `PORT=3001`. |
+| `deploy/signaling-server.service` | `/etc/systemd/system/signaling-server.service` | La unit del signaling-server (ver `signaling-server/README.md`, "En el servidor"). |
+| `deploy/coturn/turnserver.conf` | `/etc/turnserver.conf` | La configuración de coturn, sin ningún secreto: `static-auth-secret` lo escribe el script. |
+| `deploy/caddy/video.caddy` | `/etc/caddy/video.caddy` | `/socket.io/*` hacia `127.0.0.1:3001`; se suma al `Caddyfile` con una sola línea `import`. |
 
-```bash
-openssl rand -hex 32     # → Video__SignalingSecreto  (y SIGNALING_SECRETO, el mismo valor)
-openssl rand -hex 32     # → Video__TurnSecreto       (y static-auth-secret de coturn, el mismo valor)
-```
+**Verificar que la API quedó bien**, sin imprimir nada secreto: en `journalctl -u yosoy-api` tiene que aparecer
+`Video: /video/acceso habilitado.` (si aparece `deshabilitado`, la misma línea dice por qué: secreto ausente, corto o igual
+a `Jwt__Key`). El script no lee el `.env` de la API, así que no compara con `Jwt__Key`; esa comprobación la hace la propia API
+al arrancar.
 
-**2. Crear `/opt/yosoy/config/video.env`**, dueño `yosoy`, permisos `600`:
-
-```bash
-sudo install -m 600 -o yosoy -g yosoy /dev/null /opt/yosoy/config/video.env
-sudoedit /opt/yosoy/config/video.env
-```
-
-```
-Video__SignalingSecreto=<el primer valor>
-Video__TurnSecreto=<el segundo valor>
-Video__Ice__StunUrls__0=stun:yosoytelemedicina.tech:3478
-Video__Ice__TurnUrls__0=turn:yosoytelemedicina.tech:3478?transport=udp
-Video__Ice__TurnUrls__1=turn:yosoytelemedicina.tech:3478?transport=tcp
-Video__ZonaHoraria=America/Argentina/Buenos_Aires
-```
-
-(Los hosts son un ejemplo; el real se define con coturn en el PR 5. Sin comillas ni espacios alrededor del `=`.)
-
-**3. Crear el drop-in `/etc/systemd/system/yosoy-api.service.d/video.conf`:**
-
-```ini
-[Service]
-EnvironmentFile=/opt/yosoy/config/video.env
-```
-
-**4. Recargar y reiniciar:** `sudo systemctl daemon-reload && sudo systemctl restart yosoy-api`.
-
-**5. Verificar** sin imprimir nada secreto: en `journalctl -u yosoy-api` tiene que aparecer
-`Video: /video/acceso habilitado.` (si aparece `deshabilitado`, la misma línea dice por qué).
-
-El signaling-server lee `SIGNALING_SECRETO` de **su propio** archivo de entorno (su unit se define en el PR 5), con
-**el mismo valor** que `Video__SignalingSecreto`. Si uno de los dos se rota, hay que rotar los dos y reiniciar los dos
-servicios: los tokens ya emitidos (hasta 2 horas) dejan de valer y la gente vuelve a pedir uno.
+Si `SIGNALING_SECRETO` o `Video__SignalingSecreto` se rotan, hay que rotar los dos y reiniciar los dos servicios: los tokens
+ya emitidos (hasta 2 horas) dejan de valer y la gente vuelve a pedir uno. `generar-secretos.sh --rotar-signaling` lo hace en un
+solo paso (ver "Rotar un secreto más adelante" en el runbook).
 
 ## Qué queda auditado
 
@@ -409,23 +390,27 @@ dotnet test --filter "FullyQualifiedName~Video|FullyQualifiedName~AccesoSala|Ful
 
 ## Pendiente / fuera de alcance
 
-- **Despliegue** (PR 5): unit del signaling, `/socket.io/*` en Caddy, coturn y los puertos de UFW. Hasta que estén los
-  PR 2, 3 y 4 en producción, `/socket.io/*` no se expone.
+- **Despliegue** (PR 5): está preparado (unit del signaling, drop-in de la API, script de secretos, coturn, el snippet de
+  Caddy y el runbook [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md)) pero **todavía no se ejecutó en el servidor**. Hasta que
+  estén los PR 2, 3 y 4 en producción, `/socket.io/*` no se expone: en el runbook, Caddy es el último paso.
 - **Consentimiento, cifrado y retención** (PR 6): reemplaza el aviso provisorio del paciente y decide qué pasa con la
   transcripción (apagada) y con la lectura de emociones.
 - **Sin verificar con un despliegue real.** La sala se probó en `http://localhost` con Chromium y Firefox, una máquina y
   cámara y micrófono falsos, con la API y la señalización reales. Falta: cámaras y micrófonos físicos, TURN y el relay
-  (no hay coturn), redes y NAT distintos, Safari y celulares, y HTTPS detrás de Caddy.
+  (la configuración de coturn está escrita pero no se corrió con un coturn real), redes y NAT distintos, Safari y celulares,
+  y HTTPS detrás de Caddy (el snippet sí se probó con un Caddy real, por HTTP; ver el final de `DESPLIEGUE_VIDEO.md`).
 - **Panel del Configurador.** Sigue abriendo la entrevista con `?sala=ADM-…` (anda porque el código lleva el id) y guarda
   en `localStorage` el id del profesional admisionista (`ADM-001`) para poder usar la pantalla del profesional. El video
   ya no necesita ese truco (el acceso sale del JWT del Configurador); solo lo usa "Guardar en HC". Conviene pasar
   `?admision=<IdInforme>` y decidir cómo se guarda la entrevista en la historia clínica. No se tocó en este PR.
 - **coturn real sin probar.** Las credenciales TURN están verificadas contra vectores calculados aparte (RFC 2202,
-  OpenSSL y Python), pero no contra un coturn de verdad. Tampoco se sabe si coturn corta una renovación de ICE hecha
-  después de vencidas las credenciales (por eso el TTL de 2 horas): conviene probar una llamada relayada larga en el
-  PR 5.
+  OpenSSL y Python) y, en el PR 5, recalculadas a mano con el secreto que genera el script, pero no contra un coturn de
+  verdad. Tampoco se sabe si coturn corta una renovación de ICE hecha después de vencidas las credenciales (por eso el TTL
+  de 2 horas): conviene probar una llamada relayada larga al desplegar (paso h5 del runbook).
 - **El signaling real con un socket.** El token se verifica con `signaling-server/token.js`, que es el código del
-  handshake, pero no hay un test que levante `server.js` y conecte un cliente de socket.io con un token de la API.
+  handshake, pero no hay un test automático que levante `server.js` y conecte un cliente de socket.io con un token de la
+  API. En el PR 5 se comprobó a mano, fuera del repositorio: la API real y el signaling real, arrancados con los archivos
+  que escribe `generar-secretos.sh`, aceptan ese token y rechazan uno sin token o firmado con otro secreto.
 - **Los 401 y 403 de la autorización** (los que corta la autenticación antes de llegar al middleware de headers) salen
   sin headers de seguridad, `Permissions-Policy` incluido; ya era así con los otros tres. Son JSON sin contenido, no
   documentos donde se use la cámara. Un 404 de este endpoint, en cambio, sí los lleva.

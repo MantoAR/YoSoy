@@ -1,0 +1,6 @@
+# Archivos que se copian tal cual a un servidor Linux (units de systemd, scripts, configuración de coturn y de
+# Caddy): siempre con final de línea LF, aun en Windows con core.autocrlf=true. Con CRLF un script de bash falla
+# ("bad interpreter" / "$'\r': command not found") y un valor de coturn quedaría con un "\r" pegado al final.
+# No afecta a ningún otro archivo del repositorio.
+/deploy/** text eol=lf
+*.sh text eol=lf
