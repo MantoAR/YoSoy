@@ -18,6 +18,19 @@ public static class VideoServiceCollectionExtensions
         services.AddSingleton<TokenSalaService>();
         services.AddSingleton<TurnCredentialsService>();
 
+        // Consentimiento por sesión para la lectura de emociones (PR 6): reglas, cifrado en reposo, guardia de lo que se
+        // guarda, auditoría y purga por retención. La purga arranca deshabilitada (Video:Emociones:PurgaHabilitada).
+        services.AddSingleton<IConsentimientoVideoRepositorio, ConsentimientoVideoDAO>();
+        services.AddSingleton<IEmocionesPurgaRepositorio, EmocionesPurgaDAO>();
+        services.AddSingleton<IAuditoriaEmociones, AuditoriaEmociones>();
+        services.AddSingleton<IEmocionesCifrado, EmocionesCifradoService>();
+        services.AddSingleton<ITextoConsentimientoVideo, TextoConsentimientoVideo>();
+        services.AddSingleton<ConsentimientoVideoService>();
+        services.AddSingleton<GuardiaEmocionesService>();
+        services.AddSingleton<VistaSesionesClinicas>();
+        services.AddSingleton<PurgaEmocionesBackgroundService>();
+        services.AddHostedService(sp => sp.GetRequiredService<PurgaEmocionesBackgroundService>());
+
         // Rate limit propio de /video/acceso, por IP real (RemoteIpAddress ya es la del cliente detrás de Caddy
         // gracias a UseForwardedHeaders), ventana fija de un minuto, en memoria: mismo estilo que "publico" y las
         // demás de Program.cs. El tope sale de Video:LimitePorMinuto. Cada sesión pide un acceso (o dos o tres si
@@ -28,6 +41,18 @@ public static class VideoServiceCollectionExtensions
             {
                 Window = TimeSpan.FromMinutes(1),
                 PermitLimit = Math.Clamp(httpContext.RequestServices.GetRequiredService<IOptionsMonitor<VideoOptions>>().CurrentValue.LimitePorMinuto, 1, 10000),
+                QueueLimit = 0
+            })));
+
+        // Política aparte para el consentimiento y el permiso de emociones: la pantalla del profesional pregunta cada
+        // pocos segundos mientras dura la sesión (20 por minuto por persona), mucho más que un acceso. El limitador corre
+        // antes de la autenticación, así que se particiona por IP real como las demás. Tope: Video:Emociones:LimitePorMinuto.
+        services.AddRateLimiter(opt => opt.AddPolicy("video-consentimiento", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = Math.Clamp(httpContext.RequestServices.GetRequiredService<IOptionsMonitor<VideoOptions>>().CurrentValue.Emociones.LimitePorMinuto, 1, 10000),
                 QueueLimit = 0
             })));
 

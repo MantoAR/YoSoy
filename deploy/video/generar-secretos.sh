@@ -2,14 +2,21 @@
 # =====================================================================================================
 # generar-secretos.sh — secretos de las videollamadas de YoSoy.
 #
-# Genera con `openssl rand -hex 32` el secreto de la señalización y el de TURN y los escribe donde hacen
-# falta, SIN imprimirlos nunca: ni en pantalla, ni en los errores, ni en la línea de comandos de ningún
-# otro proceso (solo se mueven por builtins de bash y por pipes).
+# Genera con `openssl rand -hex 32` el secreto de la señalización y el de TURN, y con `openssl rand -base64 32`
+# la clave de cifrado de las emociones guardadas, y los escribe donde hacen falta, SIN imprimirlos nunca: ni en
+# pantalla, ni en los errores, ni en la línea de comandos de ningún otro proceso (solo se mueven por builtins de
+# bash y por pipes).
 #
 #   /opt/yosoy/config/signaling.env   SIGNALING_SECRETO, HOST, PORT     lo lee signaling-server.service
 #   /opt/yosoy/config/video.env       Video__SignalingSecreto (= SIGNALING_SECRETO), Video__TurnSecreto,
-#                                     URLs STUN/TURN y zona horaria     lo lee yosoy-api (drop-in video.conf)
+#                                     Video__Emociones__ClaveCifrado, URLs STUN/TURN y zona horaria
+#                                                                       lo lee yosoy-api (drop-in video.conf)
 #   /etc/turnserver.conf              static-auth-secret (= Video__TurnSecreto)   lo lee coturn
+#
+# LA CLAVE DE CIFRADO NO SE ROTA SOLA: con ella se cifra lo que la API guarda en SesionClinica.HistorialEmociones.
+# Si se pierde o se cambia, lo ya guardado no se puede volver a leer. Por eso este script la crea una sola vez, no
+# la pisa nunca (no hay opción --rotar para ella) y, al generarla, avisa que hay que guardar una copia FUERA del
+# servidor y FUERA del repositorio. Nunca en el chat, en un mail ni en un ticket.
 #
 # Uso, en el VPS:   sudo bash deploy/video/generar-secretos.sh [opciones]
 #
@@ -56,6 +63,7 @@ SIG_ENV="$CONFIG_DIR/signaling.env"
 VIDEO_ENV="$CONFIG_DIR/video.env"
 MARCA_TURN='# >>> static-auth-secret:'     # la deja deploy/coturn/turnserver.conf; la línea del secreto va debajo
 SECRETO_MIN=32                            # el mínimo que exigen la API y el signaling
+CLAVE_EMOCIONES=Video__Emociones__ClaveCifrado   # base64 de 32 bytes (AES-256)
 SELLO="$(date +%Y%m%d-%H%M%S)"
 
 ROTAR_SIGNALING=0
@@ -111,6 +119,10 @@ fi
 
 # ----------------------------------------------------------------------------------------- utilidades
 nuevo_secreto() { openssl rand -hex 32 | tr -d '\r\n'; }
+
+# La clave de cifrado de las emociones: 32 bytes al azar en base64 (44 caracteres, con un "=" al final).
+nueva_clave_cifrado() { openssl rand -base64 32 | tr -d '\r\n'; }
+clave_cifrado_valida() { [[ $1 =~ ^[A-Za-z0-9+/]{43}=$ ]]; }
 
 # Un secreto sirve si tiene al menos 32 caracteres y solo de los que systemd y .NET leen tal cual (sin
 # espacios, comillas, #, \ ni $): así el valor del .env, el de la API y el del signaling nunca difieren.
@@ -278,6 +290,22 @@ if [ "$SIG" = "$TURN" ]; then
     fallar "El secreto de la señalización y el de TURN son el mismo (no se muestra). Tienen que ser distintos: rotá uno con --rotar-signaling o --rotar-turn."
 fi
 
+# La clave de cifrado de las emociones: si ya hay una válida se deja como está; si falta, se genera; si hay una que no
+# sirve, se frena sin tocar nada (cambiarla a ciegas dejaría ilegible lo que ya se guardó cifrado).
+CLAVE_A="$(valor_de "$VIDEO_ENV" "$CLAVE_EMOCIONES")"
+if [ -z "$CLAVE_A" ]; then
+    CLAVE="$(nueva_clave_cifrado)"; CLAVE_ESTADO=generada
+else
+    if ! clave_cifrado_valida "$CLAVE_A"; then
+        fallar "$CLAVE_EMOCIONES: el valor que ya hay no sirve (tiene que ser base64 de 32 bytes). No se muestra y NO se reemplaza sola: cambiarla dejaría ilegible lo que ya se guardó cifrado. Si todavía no hay emociones guardadas, borrá esa línea de video.env a mano y volvé a correr este script."
+    fi
+    CLAVE="$CLAVE_A"; CLAVE_ESTADO=existente
+fi
+if ! clave_cifrado_valida "$CLAVE"; then fallar "$CLAVE_EMOCIONES: no se pudo obtener una clave válida (¿openssl?)."; fi
+if [ "$CLAVE" = "$SIG" ] || [ "$CLAVE" = "$TURN" ]; then
+    fallar "$CLAVE_EMOCIONES tiene el mismo valor que otro secreto (no se muestra): tiene que ser una clave propia."
+fi
+
 TURN_CONF_LISTA=0
 if [ -f "$TURN_CONF" ]; then
     TURN_CONF_LISTA=1
@@ -312,6 +340,9 @@ if [ ! -f "$VIDEO_ENV" ]; then
         printf '%s\n' "# Video__SignalingSecreto tiene que ser IGUAL a SIGNALING_SECRETO de signaling.env."
         printf 'Video__SignalingSecreto=%s\n' "$SIG"
         printf 'Video__TurnSecreto=%s\n' "$TURN"
+        printf '%s\n' "# Clave de cifrado de las emociones guardadas. NO la cambies ni la borres: lo guardado no se podría volver a leer."
+        printf '%s\n' "# Guardá una copia FUERA del servidor y FUERA del repositorio (nunca en el chat)."
+        printf '%s=%s\n' "$CLAVE_EMOCIONES" "$CLAVE"
         printf 'Video__Ice__StunUrls__0=stun:%s:3478\n' "$DOMINIO"
         printf 'Video__Ice__TurnUrls__0=turn:%s:3478?transport=udp\n' "$DOMINIO"
         printf 'Video__Ice__TurnUrls__1=turn:%s:3478?transport=tcp\n' "$DOMINIO"
@@ -321,6 +352,11 @@ if [ ! -f "$VIDEO_ENV" ]; then
 else
     aplicar_secreto "$VIDEO_ENV" Video__SignalingSecreto "$SIG" 600 "$DUENO" "$GRUPO"
     aplicar_secreto "$VIDEO_ENV" Video__TurnSecreto "$TURN" 600 "$DUENO" "$GRUPO"
+    # La clave de cifrado solo se escribe si falta: nunca se pisa una existente.
+    if [ -z "$CLAVE_A" ]; then
+        poner_clave "$VIDEO_ENV" "$CLAVE_EMOCIONES" "$CLAVE" 600 "$DUENO" "$GRUPO"
+        CAMBIOS+=("video.env: $CLAVE_EMOCIONES escrita")
+    fi
     # Las listas de URLs se completan solo si no hay NINGUNA entrada (si ya las personalizaste, quedan como están).
     if ! tiene_prefijo "$VIDEO_ENV" "Video__Ice__StunUrls__"; then
         poner_clave "$VIDEO_ENV" Video__Ice__StunUrls__0 "stun:$DOMINIO:3478" 600 "$DUENO" "$GRUPO"
@@ -354,6 +390,7 @@ echo
 echo "Qué se hizo:"
 printf '  Secreto de la señalización ... %s\n' "$SIG_ESTADO"
 printf '  Secreto de TURN .............. %s\n' "$TURN_ESTADO"
+printf '  Clave de cifrado (emociones) . %s\n' "$CLAVE_ESTADO"
 if [ "${#CAMBIOS[@]}" -eq 0 ]; then
     echo "  Archivos ..................... sin cambios (ya estaba todo)"
 else
@@ -365,6 +402,16 @@ fi
 for r in "${RESPALDOS[@]:-}"; do
     if [ -n "$r" ]; then aviso "Copia del archivo anterior: $r (borrala cuando confirmes que todo anda)."; fi
 done
+if [ "$CLAVE_ESTADO" = "generada" ]; then
+    echo
+    echo "  ************************************************************************************************"
+    echo "  * SE GENERÓ la clave de cifrado de las emociones ($CLAVE_EMOCIONES)."
+    echo "  * Guardá YA una copia FUERA de este servidor y FUERA del repositorio (un gestor de contraseñas o"
+    echo "  * un archivo cifrado que solo tengas vos). NUNCA en el chat, en un mail ni en un ticket."
+    echo "  * Si se pierde, las emociones guardadas NO se pueden volver a leer. Si se filtra, hay que"
+    echo "  * cambiarla y volver a cifrar lo guardado (todavía no hay una herramienta para eso)."
+    echo "  ************************************************************************************************"
+fi
 
 echo
 echo "Verificación:"
@@ -373,6 +420,7 @@ echo "Verificación:"
 V_SIG_A="$(valor_de "$SIG_ENV" SIGNALING_SECRETO)"
 V_SIG_B="$(valor_de "$VIDEO_ENV" Video__SignalingSecreto)"
 V_TURN_A="$(valor_de "$VIDEO_ENV" Video__TurnSecreto)"
+V_CLAVE="$(valor_de "$VIDEO_ENV" "$CLAVE_EMOCIONES")"
 
 if secreto_valido "$V_SIG_A" && [ "$V_SIG_A" = "$V_SIG_B" ]; then
     ok "SIGNALING_SECRETO (signaling.env) es igual a Video__SignalingSecreto (video.env), de ${#V_SIG_A} caracteres."
@@ -383,6 +431,11 @@ if secreto_valido "$V_TURN_A" && [ "$V_TURN_A" != "$V_SIG_A" ]; then
     ok "Video__TurnSecreto es válido y distinto del de la señalización."
 else
     mal "Video__TurnSecreto no es válido o es igual al de la señalización."
+fi
+if clave_cifrado_valida "$V_CLAVE" && [ "$V_CLAVE" != "$V_SIG_A" ] && [ "$V_CLAVE" != "$V_TURN_A" ]; then
+    ok "$CLAVE_EMOCIONES: presente (base64 de 32 bytes) y distinta de los otros secretos."
+else
+    mal "$CLAVE_EMOCIONES no es válida o es igual a otro secreto."
 fi
 if [ "$TURN_CONF_LISTA" -eq 1 ]; then
     if [ "$(valor_de "$TURN_CONF" static-auth-secret)" = "$V_TURN_A" ]; then

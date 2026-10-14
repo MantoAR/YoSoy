@@ -5,6 +5,11 @@ secretos, coturn (el relay TURN), la API y las pantallas nuevas, y Caddy. Es el 
 con token, `POST /video/acceso`, pantallas nuevas) ya están en `main`. **El PR 5 no despliega nada**: solo agrega los
 archivos de `deploy/` y este documento. El despliegue lo hacés vos, a mano, con lo que sigue.
 
+**PR 6 (consentimiento de la lectura de emociones).** Es el único PR de video que **toca la base** (una tabla y tres columnas) y
+que agrega una **clave de cifrado**. Por eso hay un backup de la base hecho por vos y dos pasos nuevos: **f0** (la migración y la
+clave, **antes** de desplegar la API) y **f1** (recifrar lo que ya estaba guardado, a mano, **después**). Los pasos a a e y g no
+cambian, salvo lo que se indica en cada uno.
+
 El contrato de la API y las variables están en [`docs/VIDEOLLAMADAS.md`](VIDEOLLAMADAS.md); el del servidor de
 señalización, en [`signaling-server/README.md`](../signaling-server/README.md); cómo está armado el servidor hoy, en
 [`docs/SERVIDOR.md`](SERVIDOR.md).
@@ -16,10 +21,12 @@ señalización, en [`signaling-server/README.md`](../signaling-server/README.md)
 - **Ningún comando de acá imprime un secreto.** Si alguno te lo mostrara, algo está mal: pará y avisá.
 - **Cada paso se puede deshacer** (ver "Rollback" en cada uno y el resumen del final) y **cada paso tiene una verificación**.
 
-> **Decidí antes del paso g.** Con el paso g las videollamadas quedan usables por pacientes reales. Hoy la sala del
-> paciente trae un aviso **provisorio** de cámara y micrófono; el consentimiento definitivo, la decisión sobre la
-> transcripción y la lectura de emociones son del PR 6. Podés hacer los pasos a a f y **dejar el g para después**: todo
-> queda instalado y dormido (nadie llega al signaling mientras Caddy no lo publique).
+> **Decidí antes del paso g.** Con el paso g las videollamadas quedan usables por pacientes reales. La sala del paciente trae
+> un aviso **provisorio** de cámara y micrófono y, desde el PR 6, un panel de consentimiento de la lectura de emociones
+> **con un texto provisorio: lo tiene que validar un profesional legal antes de usarse con pacientes reales** (lista en
+> "Qué hay que verificar con el equipo legal", de `docs/VIDEOLLAMADAS.md`). La transcripción sigue apagada y sin decisión.
+> Podés hacer los pasos a a f1 y **dejar el g para después**: todo queda instalado y dormido (nadie llega al signaling
+> mientras Caddy no lo publique).
 
 ## Antes de empezar
 
@@ -61,6 +68,7 @@ cuesta.
 | `deploy/coturn/turnserver.conf` | `/etc/turnserver.conf` | `root:turnserver`, **640** |
 | `deploy/caddy/video.caddy` | `/etc/caddy/video.caddy` | `root`, 644 |
 | `deploy/video/generar-secretos.sh` | se corre desde `~/video-deploy/deploy/video/` | — |
+| `migrations/add_consentimiento_video.sql` | se aplica a la base `yosoy` con `sqlcmd` (paso f0); no se copia a `/opt` | — |
 
 ## El orden, y por qué
 
@@ -69,8 +77,10 @@ cuesta.
 3. **Secretos**, y recién ahí arranca el signaling (solo en loopback; nadie de afuera llega).
 4. **coturn y UFW**: el relay queda listo antes de que la API empiece a ofrecerlo.
 5. **Drop-in de la API**: carga `video.env`. La API de hoy todavía no sabe usarlo; es inocuo y se verifica que no rompa nada.
-6. **API y pantallas nuevas**: ahora `/video/acceso` existe, con secretos y TURN ya listos.
-7. **Caddy, lo último**: es lo que publica `/socket.io/*`. Hasta acá nadie de afuera podía llegar a la señalización.
+6. **PR 6, la base y la clave de cifrado** (paso f0): tu backup, la migración y la clave, **antes** de que arranque la API nueva.
+7. **API y pantallas nuevas** (paso f): ahora `/video/acceso` y el consentimiento existen, con secretos y TURN ya listos.
+8. **Recifrar lo guardado en claro** (paso f1): a mano, cuando quieras y con tu backup hecho.
+9. **Caddy, lo último**: es lo que publica `/socket.io/*`. Hasta acá nadie de afuera podía llegar a la señalización.
 
 ---
 
@@ -100,9 +110,9 @@ sudo ls -la $B            # app, config, Caddyfile, yosoy-api.service.d, yosoy-a
 sudo du -sh $B            # tamaño razonable (la carpeta app)
 ```
 
-No hace falta backup de la base para este despliegue: los PR 1 a 4 no tocaron ningún `.sql` (verificado con `git diff`) y la
-columna `CodigoSala` de `Turno` y de `InformeAdmision` ya está en `docs/produccion/01-produccion.sql`. Si igual querés una
-copia, hacela como siempre.
+**La base.** Los PR 1 a 4 no tocaron ningún `.sql` (verificado con `git diff`) y la columna `CodigoSala` de `Turno` y de
+`InformeAdmision` ya está en `docs/produccion/01-produccion.sql`. **El PR 6 sí toca la base** (una tabla y tres columnas): su
+backup lo hacés vos, a mano, justo antes de la migración (paso f0.1). Este paso a no hace ningún backup de la base.
 
 **Rollback:** no hay nada que deshacer; este backup es el que usan los otros rollbacks. No lo borres hasta pasados unos
 días. (En otra sesión de SSH, para encontrarlo: `B=$(sudo ls -d /opt/yosoy/backups/video-* | tail -1)`.)
@@ -172,6 +182,12 @@ mostrarlos** en `signaling.env` y `video.env` (600, dueño `yosoy`). Después, e
 TURN en la configuración de coturn. Es idempotente: sin opciones **no pisa** ningún secreto que ya exista; si dos archivos
 discrepan, se detiene sin tocar nada. Detalle y opciones: `sudo bash ~/video-deploy/deploy/video/generar-secretos.sh --ayuda`.
 
+Desde el PR 6 crea además, con `openssl rand -base64 32`, la **clave de cifrado de las emociones**
+(`Video__Emociones__ClaveCifrado`, en `video.env`): una sola vez, y **no se rota sola** (no hay una opción para eso; si el
+archivo ya tiene una clave válida, la deja como está). Al crearla imprime un recuadro con la advertencia de guardar una copia
+fuera del servidor (ver el paso f0.3). Si este paso c ya lo corriste con una versión anterior del script, **no hace falta
+repetirlo ahora**: en el paso f0.3 vas a volver a correrlo y agrega solo la clave que falta.
+
 **En el VPS:**
 
 ```bash
@@ -186,13 +202,23 @@ YoSoy · secretos de las videollamadas (ningún valor se muestra)
 Qué se hizo:
   Secreto de la señalización ... generado
   Secreto de TURN .............. generado
+  Clave de cifrado (emociones) . generada
   Archivos ..................... signaling.env: creado
   Archivos ..................... video.env: creado
   [i] /etc/turnserver.conf todavía no existe: instalá coturn y copiá turnserver.conf (paso d) y volvé a correr este script.
 
+  ************************************************************************************************
+  * SE GENERÓ la clave de cifrado de las emociones (Video__Emociones__ClaveCifrado).
+  * Guardá YA una copia FUERA de este servidor y FUERA del repositorio (un gestor de contraseñas o
+  * un archivo cifrado que solo tengas vos). NUNCA en el chat, en un mail ni en un ticket.
+  * Si se pierde, las emociones guardadas NO se pueden volver a leer. Si se filtra, hay que
+  * cambiarla y volver a cifrar lo guardado (todavía no hay una herramienta para eso).
+  ************************************************************************************************
+
 Verificación:
   [ok] SIGNALING_SECRETO (signaling.env) es igual a Video__SignalingSecreto (video.env), de 64 caracteres.
   [ok] Video__TurnSecreto es válido y distinto del de la señalización.
+  [ok] Video__Emociones__ClaveCifrado: presente (base64 de 32 bytes) y distinta de los otros secretos.
   [ok] HOST=127.0.0.1 (solo loopback: el signaling no se expone sin Caddy).
   [ok] signaling.env: 600 yosoy:yosoy
   [ok] video.env: 600 yosoy:yosoy
@@ -344,9 +370,94 @@ sudo systemctl daemon-reload && sudo systemctl restart yosoy-api
 
 ---
 
+## Paso f0 — PR 6: la base y la clave de cifrado (antes del paso f)
+
+El PR 6 (consentimiento de la lectura de emociones) es el único de los de video que **toca la base**: agrega la tabla
+`ConsentimientoVideo` y tres columnas `NULL` a `SesionClinica`. Y necesita una **clave de cifrado** para lo que se guarde. Las dos
+cosas tienen que estar **antes** de que arranque la API nueva (paso f): sin la migración la API no puede leer las sesiones
+clínicas (las columnas nuevas) y el consentimiento da error; sin la clave la API arranca igual, pero la lectura de emociones queda
+"no disponible", no se ofrece a nadie y la videollamada anda igual.
+
+La migración **solo agrega**: no modifica ni borra ninguna fila, y es idempotente (correrla otra vez no hace nada).
+
+### f0.1 — Tu backup de la base
+
+Lo hacés **vos**, a mano, con tu herramienta de siempre. **Comprobá que el archivo existe y tiene un tamaño razonable antes de
+seguir.** Este documento no lo hace por vos: la migración solo agrega, pero el recifrado del paso f1 sí modifica filas, y conviene
+tener un punto de partida de verdad.
+
+### f0.2 — Aplicar la migración
+
+Con un login que pueda crear tablas: el administrador de SQL Server con el que creaste la base (por ejemplo `sa`), **no**
+`yosoy_app` (ese solo lee y escribe). `sqlcmd` te pide la contraseña si no ponés `-P`: no la escribas en la línea de comandos.
+
+```bash
+sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -f 65001 -i migrations/add_consentimiento_video.sql
+```
+
+(`-I` es obligatorio: `QUOTED_IDENTIFIER ON`, como en los demás scripts; `-f 65001`, por los acentos. En Linux `sqlcmd` suele estar
+en `/opt/mssql-tools18/bin/`. El archivo está en el repositorio, en `migrations/`: si lo corrés desde el VPS, copialo antes con
+`scp`. Se aplica **antes** de desplegar la API, y no hace falta cortar nada: la API que está andando ignora las columnas y la tabla
+nuevas.)
+
+**Verificá** (tiene que dar 3 columnas nuevas y 0 decisiones):
+
+```bash
+sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT (SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.SesionClinica') AND name IN ('IdConsentimientoVideo','EmocionesAnuladasUtc','EmocionesAnuladasMotivo')) AS columnas_nuevas, (SELECT COUNT(*) FROM ConsentimientoVideo) AS decisiones"
+```
+
+**Rollback** (solo mientras todavía no haya decisiones: después se perderían los consentimientos registrados). El rollback de la
+API (paso f) **no** necesita esto: la app anterior ignora las columnas y la tabla nuevas.
+
+```sql
+ALTER TABLE SesionClinica DROP CONSTRAINT CK_SesionClinica_EmocionesAnuladasMotivo;
+ALTER TABLE SesionClinica DROP CONSTRAINT FK_SesionClinica_ConsentimientoVideo;
+ALTER TABLE SesionClinica DROP COLUMN IdConsentimientoVideo, EmocionesAnuladasUtc, EmocionesAnuladasMotivo;
+DROP TABLE ConsentimientoVideo;
+```
+
+### f0.3 — La clave de cifrado
+
+```bash
+sudo bash ~/video-deploy/deploy/video/generar-secretos.sh
+```
+
+Si el paso c se hizo con el script de antes del PR 6, esta corrida **agrega solo la clave que falta** a `video.env` y no toca
+ninguno de los otros secretos (ni siquiera los muestra). Tiene que terminar en `Listo.`, con `Clave de cifrado (emociones) .
+generada` y el recuadro de advertencia (ver el paso c). La corrida siguiente dice `existente` y no hace nada.
+
+**Guardá YA una copia de la clave fuera del VPS y fuera del repositorio** (un gestor de contraseñas, o un archivo cifrado que solo
+tengas vos). **Nunca en el chat, en un mail ni en un ticket.** Es la única clave de este despliegue que **no se puede
+regenerar**: con ella se cifran las emociones guardadas, y si se pierde, esas sesiones ya no se pueden volver a leer (la API
+devuelve `null` en ese campo y deja un aviso en el log; las notas y lo demás siguen intactos).
+
+Para sacarla del servidor hay que verla una vez. Es **el único comando de este documento que imprime un secreto**: hacelo en tu
+terminal, pasá el valor directo a tu gestor y limpiá la pantalla:
+
+```bash
+sudo sed -n 's/^Video__Emociones__ClaveCifrado=//p' /opt/yosoy/config/video.env
+clear
+```
+
+**Verificá** sin imprimir nada (tiene que decir `44 caracteres` y `600 yosoy:yosoy`):
+
+```bash
+sudo sh -c 'v=$(sed -n "s/^Video__Emociones__ClaveCifrado=//p" /opt/yosoy/config/video.env); echo "${#v} caracteres"'
+sudo stat -c '%a %U:%G %n' /opt/yosoy/config/video.env
+```
+
+**No se rota con el script** (no hay `--rotar-emociones`, a propósito: cambiarla sin más dejaría ilegible lo guardado). Si la clave
+se filtrara, hay que cambiarla **y** volver a cifrar lo guardado; para eso todavía no hay una herramienta (`--recifrar-emociones`
+solo cifra lo que está en claro, no vuelve a cifrar con otra clave).
+
+**Rollback:** nada que deshacer. Una clave de más en `video.env` no molesta a la API anterior.
+
+---
+
 ## Paso f — La API y las pantallas nuevas
 
-Despliega lo que hay en `main` (los PR 3 y 4 todavía no están en producción: `POST /video/acceso` y las pantallas que lo usan).
+Despliega lo que hay en `main` (los PR 3, 4 y 6 todavía no están en producción: `POST /video/acceso`, las pantallas que lo
+usan y el consentimiento de la lectura de emociones). **Va después del paso f0**: la migración y la clave primero.
 Es tu flujo de siempre: publicar en la PC, subir el publish y reemplazar `/opt/yosoy/app` a mano, dejando antes el backup
 `app-anterior-<fecha>`. El publish es `--self-contained true`: lleva su propio runtime de .NET y el servidor no necesita tenerlo.
 
@@ -395,8 +506,13 @@ sudo systemctl is-active yosoy-api                                  # active
 sudo journalctl -u yosoy-api --since '10 minutes ago' --no-pager | grep 'Video:'
 # Video: /video/acceso habilitado.          <- tiene que decir "habilitado".
 # Si dice "deshabilitado ..." la misma línea da el motivo (sin valores): secreto ausente, corto, o igual a Jwt__Key.
+# Video: lectura de emociones habilitada (cifrado configurado, clave k1).     <- con la clave del paso f0.3
+# Si dice "deshabilitada ..." falta la clave (o no es válida): la lectura de emociones no se ofrece; la llamada anda igual.
 curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:5000/video/acceso -H 'Content-Type: application/json' -d '{}'
 # 401  (existe y pide sesión; antes del PR 3 daba 404)
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/video/consentimiento
+# 401  (existe y pide sesión; sin el PR 6 daba 404)
+curl -s https://yosoytelemedicina.tech/pantallas/shared/emociones.js | grep -c 'YS.emociones'     # 1 o más: la pantalla nueva
 curl -s https://yosoytelemedicina.tech/pantallas/shared/video.js | grep -c 'video/acceso'                   # 1 o más: las pantallas nuevas
 curl -s -o /dev/null -w '%{http_code}\n' https://yosoytelemedicina.tech/pantallas/shared/vendor/socket.io.min.js   # 200: el cliente va vendoreado
 ls /usr/share/zoneinfo/America/Argentina/Buenos_Aires               # existe (la zona que usa Video__ZonaHoraria)
@@ -417,13 +533,71 @@ sudo systemctl start yosoy-api
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:5000/     # 302 http://localhost:5000/pantallas/index.html
 ```
 
-(El paso a dejó además una copia de la app en `/opt/yosoy/backups/video-<fecha>/app`, por si hiciera falta.)
+(El paso a dejó además una copia de la app en `/opt/yosoy/backups/video-<fecha>/app`, por si hiciera falta.) Este rollback **no**
+necesita deshacer la migración del paso f0 ni sacar la clave: la app anterior las ignora. Una sesión que ya guardó emociones
+cifradas, vista por la app anterior, devolvería ese texto cifrado (`ys1.…`) tal cual y las pantallas viejas no lo entienden: es
+otra razón para no volver atrás sin necesidad una vez que hay datos cifrados.
+
+---
+
+## Paso f1 — Recifrar lo que ya estaba guardado en claro (a mano, cuando quieras)
+
+Las emociones guardadas **antes** del PR 6 están en claro en `SesionClinica.HistorialEmociones`. La API nueva las sigue leyendo
+igual, pero **no las cifra sola**: es un paso manual, tuyo, y por defecto **solo simula**. El mismo ejecutable de la API trae la
+herramienta (`YoSoy --recifrar-emociones`). Hacelo **con tu backup (f0.1) hecho**.
+
+Tiene que correr con el entorno del servicio (la cadena de conexión y la clave están en sus archivos de entorno), como el usuario
+`yosoy`. `systemd-run` carga esos archivos como los carga el servicio, sin mostrar ningún valor:
+
+```bash
+# 1) SIMULACIÓN: cuenta cuántas sesiones están en claro y no modifica nada
+sudo systemd-run --pty --wait --collect --uid=yosoy --working-directory=/opt/yosoy/app \
+  -p EnvironmentFile=/opt/yosoy/config/.env -p EnvironmentFile=/opt/yosoy/config/video.env \
+  /opt/yosoy/app/YoSoy --recifrar-emociones
+```
+
+Tiene que empezar con `SIMULACIÓN (no se modifica nada)` y decir `Clave de cifrado ... configurada`:
+
+```
+Recifrado de emociones guardadas: SIMULACIÓN (no se modifica nada).
+  Clave de cifrado ............. configurada
+  Sesiones con emociones ....... 3
+    ya cifradas ................ 0
+    en claro (a recifrar) ...... 2
+    en claro pero no son JSON .. 1   (se dejan como están)
+Para aplicar, DESPUÉS de tu backup de la base:  YoSoy --recifrar-emociones --aplicar
+```
+
+Si `en claro (a recifrar)` da 0, no hay nada que hacer. Si no, y **solo con tu backup hecho**:
+
+```bash
+# 2) APLICAR: cifra de verdad
+sudo systemd-run --pty --wait --collect --uid=yosoy --working-directory=/opt/yosoy/app \
+  -p EnvironmentFile=/opt/yosoy/config/.env -p EnvironmentFile=/opt/yosoy/config/video.env \
+  /opt/yosoy/app/YoSoy --recifrar-emociones --aplicar
+```
+
+Tiene que decir `APLICANDO` y, al final, `Recifradas ... N` con el mismo N que `en claro (a recifrar)`. Se puede volver a correr: lo
+ya cifrado se saltea y la siguiente pasada da 0.
+
+- **Nunca borra ni anula nada.** Reemplaza el texto legible por su versión cifrada, fila por fila. Las notas, la transcripción y
+  el resto de la sesión no se tocan.
+- **Cada fila se comprueba antes de escribirse**: se cifra, se vuelve a descifrar y se compara con el original. Y se actualiza solo
+  si la fila sigue teniendo el mismo texto (si alguien la cambió mientras tanto, la deja y la cuenta: `Cambiaron mientras tanto`;
+  se vuelve a correr).
+- **No imprime la clave, ni contenido, ni ids**: solo cantidades.
+- **Sin la clave no aplica nada** (`NO configurada` y sale con error): la simulación sí funciona.
+- Lo que no es un JSON (si hubiera algo así) se deja como está y se cuenta aparte.
+
+**Rollback:** no hay uno directo: la herramienta no guarda el texto en claro aparte. Para volver atrás se restaura el backup de
+f0.1 (por eso va primero). Con la clave en tu poder, el texto cifrado sí se puede leer de vuelta (es lo que hace la propia API).
 
 ---
 
 ## Paso g — Caddy (lo último: es lo que publica `/socket.io/*`)
 
-Antes de empezar: ¿decidiste lo del aviso provisorio y el PR 6? (ver el recuadro del principio). Si no, parate acá.
+Antes de empezar: ¿decidiste lo del aviso y del consentimiento provisorios, y que el texto legal lo valide un profesional legal?
+(ver el recuadro del principio). Si no, parate acá.
 
 Se agrega a tu `Caddyfile` **una sola línea** (`import`) dentro del bloque del sitio; el bloque nuevo vive en
 `deploy/caddy/video.caddy`. No se reescribe el resto.
@@ -582,6 +756,9 @@ TURN"): no está confirmado cómo se porta coturn con una renovación de ICE des
 | coturn rechaza con `401` | El usuario tiene que ser `vencimiento:algo` con el vencimiento en el futuro, y el secreto de `/etc/turnserver.conf` el mismo que `Video__TurnSecreto`. | `sudo bash .../generar-secretos.sh` sin opciones: verifica que coincidan. |
 | `caddy validate` falla | Caddy anterior a la 2.7 (`unrecognized subdirective stream_close_delay`) o el `import` mal escrito. | Ver el paso g. **No recargar.** |
 | `/socket.io/...` da 502 | El signaling está caído. | `sudo systemctl status signaling-server`; la API y el sitio siguen andando. |
+| El paciente no ve el panel de consentimiento (y no es menor ni le falta la fecha de nacimiento) | La API no tiene la clave de cifrado, o la migración no está aplicada. | `sudo journalctl -u yosoy-api --since today --no-pager \| grep 'Video:'`: `lectura de emociones deshabilitada` + motivo. Paso f0.3. |
+| `500` al abrir las sesiones clínicas de un paciente, o al consentir | Falta la migración (columnas o tabla nuevas). | Paso f0.2 y su verificación. |
+| Una sesión muestra las emociones vacías y el log dice `no se pudieron descifrar las emociones` | La clave de `video.env` no es la que cifró ese dato (se cambió o se perdió), o el dato se alteró. | Volver a poner la clave original (la copia de f0.3). No hay otra forma de leerlo. |
 
 ## Qué mirar en `journalctl`
 
@@ -590,7 +767,7 @@ Siempre con `sudo` (tu usuario puede no estar en el grupo del journal); `-n 50` 
 | Servicio | Comando | Qué buscar |
 |---|---|---|
 | signaling | `sudo journalctl -u signaling-server -n 50 --no-pager` | `ARRANQUE escuchando=127.0.0.1:3001`; `CONEXION`/`DESCONEXION` (ip, rol, id de usuario, sala); `RECHAZO` (motivo: `rol-ocupado`, `sala-llena`, token...); `PARADA` al detenerlo; `ERROR`. Nunca hay tokens ni secretos. |
-| API | `sudo journalctl -u yosoy-api --since today --no-pager \| grep -i video` | `Video: /video/acceso habilitado.` o `deshabilitado` + motivo; `Video: no se entregan credenciales TURN`; `Video:ZonaHoraria "..." no existe`. |
+| API | `sudo journalctl -u yosoy-api --since today --no-pager \| grep -i video` | `Video: /video/acceso habilitado.` o `deshabilitado` + motivo; `Video: lectura de emociones habilitada` o `deshabilitada` + motivo; `Video: no se entregan credenciales TURN`; `Video:ZonaHoraria "..." no existe`; `Video: purga de emociones DESHABILITADA (simulación): N sesión(es)…` (la purga no modifica nada mientras no pongas `Video__Emociones__PurgaHabilitada=true`). |
 | coturn | `sudo journalctl -u coturn -n 50 --no-pager` (o `-t turnserver`) | Arranque sin `CONFIG ERROR`; altas y bajas de sesiones con el usuario efímero; errores de autenticación. |
 | Caddy | `sudo journalctl -u caddy -n 50 --no-pager` | Errores de recarga; `502` por el signaling caído. |
 | Firewall | `sudo ufw status numbered` | Las reglas de coturn presentes; el 3001 ausente. |
@@ -610,14 +787,18 @@ sudo bash ~/video-deploy/deploy/video/generar-secretos.sh --rotar-turn
 sudo systemctl restart coturn yosoy-api
 ```
 
+**La clave de cifrado de las emociones no se rota con este script** (no tiene esa opción): con ella se cifran datos clínicos ya
+guardados, y cambiarla sin más los dejaría ilegibles. Ni `--rotar-signaling` ni `--rotar-turn` la tocan.
+
 El script deja una copia `ARCHIVO.previo-AAAAMMDD-HHMMSS` de cada archivo que cambia (mismos permisos). Cuando confirmes que
 todo anda, borralas **a mano y por nombre** (contienen el secreto anterior):
 `sudo ls -l /opt/yosoy/config/*.previo-* /etc/turnserver.conf.previo-*`.
 
 ## Rollback total
 
-En orden inverso, cada uno con su comando en el paso respectivo: **g** (Caddy) → **f** (app) → **e** (drop-in) → **d** (coturn y
-UFW) → **c** (signaling y secretos) → **b** (archivos del signaling). Con eso el servidor vuelve a como estaba antes del paso a,
+En orden inverso, cada uno con su comando en el paso respectivo: **g** (Caddy) → **f1** (el recifrado solo se deshace con el backup
+de la base) → **f** (app) → **f0** (migración y clave; normalmente no hace falta) → **e** (drop-in) → **d** (coturn y UFW) →
+**c** (signaling y secretos) → **b** (archivos del signaling). Con eso el servidor vuelve a como estaba antes del paso a,
 que está en `/opt/yosoy/backups/video-<fecha>/`. Lo mínimo para dejar de exponer la señalización de inmediato es el rollback del
 paso g: es una recarga de Caddy, sin cortar el sitio.
 
@@ -625,7 +806,10 @@ paso g: es una recarga de Caddy, sin cortar el sitio.
 
 Cuando todo esté verificado, actualizá `docs/SERVIDOR.md` (describe lo que está **verificado** en el servidor, por eso no se
 tocó en este PR): UFW (3478 UDP/TCP y 49160–49200 UDP), la tabla de servicios (`signaling-server`, `coturn`), las carpetas
-(`/opt/yosoy/signaling`, los dos `.env` nuevos), el bloque del `Caddyfile` y las variables de entorno nuevas.
+(`/opt/yosoy/signaling`, los dos `.env` nuevos), el bloque del `Caddyfile` y las variables de entorno nuevas (para el PR 6:
+`Video__Emociones__ClaveCifrado`, solo el nombre, y los `Video__Emociones__*` opcionales), la migración y el recuento de tablas
+(44 con `ConsentimientoVideo`). Y decidí, con tu abogado, cuándo se prende la purga (`Video__Emociones__PurgaHabilitada`) y el
+plazo de `Video__Emociones__RetencionDias` (3650 es provisorio).
 
 ## Mejoras pendientes
 
@@ -635,6 +819,8 @@ tocó en este PR): UFW (3478 UDP/TCP y 49160–49200 UDP), la tabla de servicios
   (alcanza para unas 20 personas relayadas a la vez) con el uso real; y `MemoryMax=256M` del signaling con `systemctl status`.
 - **Acortar el TTL** de las credenciales TURN (`Video__Turn__TtlMinutos`) una vez probada una llamada relayada larga.
 - **Alertas** sobre la transferencia del mes y sobre los servicios caídos.
+- **Rotar la clave de cifrado de las emociones** (volver a cifrar lo guardado con otra clave): no hay una herramienta.
+- **Que el paciente vea y pueda pedir la supresión** de lo guardado de él (hoy solo puede revocar por sesión).
 
 ## Qué está verificado y qué no
 
@@ -646,7 +832,7 @@ escribe el script (token firmado con el secreto generado, credencial TURN recalc
 firma); el empaquetado (`tar` de Windows → `npm ci --omit=dev` → arranque con Node 22); el snippet de Caddy con **Caddy real**
 (v2.11.7; versión mínima con 2.6.4, 2.7.0 y 2.8.4): sintaxis en las tres formas de integrar, ruteo, WebSocket, `502` con el
 signaling caído, IP del cliente y qué hace `stream_close_delay` en una recarga; los `curl` del paso h y el generador de credencial
-TURN (contrastado con `openssl`); el script y los 32 bloques `bash` de este documento con shellcheck 0.11 (sin avisos); y el apagado
+TURN (contrastado con `openssl`); el script y los 40 bloques `bash` de este documento (32 del PR 5 y 8 del PR 6) con shellcheck 0.11 (sin avisos); y el apagado
 del servidor con clientes conectados (menos de 10 ms; el manejador de `SIGTERM` en sí lo prueba `npm test` en Linux: se omite en Windows).
 
 **No verificado** (necesita el VPS real): coturn arrancando con `deploy/coturn/turnserver.conf` (los nombres de las opciones y
@@ -657,3 +843,18 @@ instrucciones de `systemctl`/`ss`/`journalctl`; dueños y permisos reales (en Wi
 verifica y los imprime al correr en el VPS); las herramientas `turnutils_*` (flags y salida); tu `Caddyfile` real (acá se usó el de
 tres líneas de `docs/SERVIDOR.md`); los comandos del paso f (son tu flujo de siempre, transcriptos: no los corrí); y todo lo que
 requiere gente y redes reales: cámaras, TURN con relay de verdad, NAT, celulares, Safari.
+
+**PR 6, verificado sin el VPS** (Windows, SQL Server Express local con una base **descartable** que se borró al terminar, Chromium
+con cámara falsa, la API y la señalización reales): la migración aplicada dos veces seguidas, con un esquema final idéntico al de
+`docs/produccion/01-produccion.sql`, y su rollback; las pruebas de .NET y de Node del PR; 137 comprobaciones con navegadores reales
+en 7 escenarios (aceptar y guardar cifrado, rechazar, revocar en plena llamada con los tiempos de producción, menores y sin
+fecha de nacimiento, falla cerrada, sin clave, entrevista de admisión y pertenencia); 12 roturas inventadas del código que las
+pruebas detectan; `generar-secretos.sh` con la clave (116 comprobaciones, sin que ningún proceso externo reciba un secreto); y el
+recifrado real contra esa base (simulación, aplicar, repetir y sin clave).
+
+**PR 6, no verificado** (necesita el despliegue real): la migración sobre la base de **producción** (SQL Server 2025, en Linux, con
+el login que la aplique); el `systemd-run` del paso f1 en un systemd real; el análisis con un **rostro real** (en las pruebas el
+modelo de expresiones se reemplazó por un doble, porque la cámara falsa no tiene cara); la latencia real a través de Caddy y
+HTTPS (el corte por revocación se midió en 2,5 s con la API local); celulares, Safari y pestañas en segundo plano (los
+navegadores frenan los temporizadores de una pestaña oculta); la custodia y la restauración de la clave de cifrado; y la
+validez legal del texto, del plazo y del tratamiento de menores.

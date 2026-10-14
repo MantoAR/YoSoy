@@ -1,3 +1,12 @@
+// Modo mantenimiento (no levanta el servidor): cifra las emociones que se guardaron en claro antes del PR 6. Por defecto
+// es una simulación; con --aplicar escribe. Se corre a mano, con el entorno del servicio: ver
+// docs/DESPLIEGUE_VIDEO.md ("Recifrar las emociones ya guardadas") y Services/Video/RecifrarEmociones.cs.
+if (args.Contains("--recifrar-emociones"))
+{
+    Environment.ExitCode = RecifrarEmociones.Ejecutar(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
@@ -1410,32 +1419,79 @@ app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 }).RequireRateLimiting("recuperacion");
 
 // SesionClinica
-soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinica s, HttpContext ctx) =>
+// PR 6 (consentimiento de la lectura de emociones): el pedido ya no se enlaza directo a la entidad. Las emociones solo se
+// guardan con una aceptación vigente del paciente de esa sesión de video (GuardiaEmocionesService) y siempre cifradas; si no
+// pasan la guardia, la sesión se guarda igual (notas, tipo de cierre) y la respuesta dice que las emociones se descartaron.
+soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpContext ctx, IdentidadActualService identidad,
+    GuardiaEmocionesService guardia, IEmocionesCifrado cifrado) =>
 {
     // Mismo criterio que turnos (Paso 3): si quien crea es profesional, la sesión queda a
     // su propio nombre, nunca al de otro id enviado en el cuerpo.
     var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
-    if (!esAdmin) s.IdProfesional = idPropio!.Value;
-    if (!AutorizacionClinica.PuedePaciente(ctx, s.IdPaciente))
+    if (!esAdmin && idPropio is null)
+        return Results.Json(new { mensaje = "No se pudo identificar tu usuario profesional." }, statusCode: 403);
+    if (!AutorizacionClinica.PuedePaciente(ctx, req.IdPaciente))
         return Results.Json(new { mensaje = "Ese paciente no está asociado a tu atención." }, statusCode: 403);
-    s.FechaHora = DateTime.Now;
-    int id = new SesionClinicaDAO().Insertar(s);
-    s.IdSesion = id;
-    return Results.Created("/sesiones-clinicas", s);
+    var idProfesional = esAdmin ? req.IdProfesional ?? 0 : idPropio!.Value;
+    if (idProfesional <= 0)
+        return Results.BadRequest(new { mensaje = "Indicá el profesional de la sesión." });
+
+    var s = new SesionClinica
+    {
+        IdTurno = req.IdTurno,
+        IdPaciente = req.IdPaciente,
+        IdProfesional = idProfesional,
+        FechaHora = DateTime.Now,
+        Transcripcion = req.Transcripcion,
+        NotasEvolucion = req.NotasEvolucion,
+        TipoCierre = req.TipoCierre
+    };
+
+    var yo = identidad.Resolver(ctx)!;
+    var ev = guardia.Evaluar(yo, req.IdPaciente, req.Emociones, vinoElFormatoViejo: !string.IsNullOrWhiteSpace(req.HistorialEmociones));
+    if (ev.Aprobada) s.IdConsentimientoVideo = ev.IdConsentimiento;
+    var insertada = new SesionClinicaDAO().Insertar(s, ev.Aprobada
+        ? idSesion => cifrado.Cifrar(ev.JsonPlano!, EmocionesCifradoService.DatosAsociadosDeSesion(idSesion))
+        : null);
+    int id = insertada.IdSesion;
+    // La escritura vuelve a mirar el consentimiento: si el paciente revocó justo en el medio, la sesión quedó sin emociones.
+    ev = GuardiaEmocionesService.TrasLaEscritura(ev, insertada.EmocionesGuardadas);
+    guardia.Registrar(yo, ev, id);
+
+    return Results.Created("/sesiones-clinicas", new
+    {
+        idSesion = id,
+        idTurno = s.IdTurno,
+        idPaciente = s.IdPaciente,
+        idProfesional = s.IdProfesional,
+        fechaHora = s.FechaHora,
+        tipoCierre = s.TipoCierre,
+        emociones = new
+        {
+            estado = ev.Estado,
+            motivo = ev.Motivo,
+            mensaje = ev.Estado == EvaluacionEmociones.Descartadas
+                ? "La sesión se guardó sin las emociones: " + GuardiaEmocionesService.MensajeDeDescarte(ev.Motivo) + "."
+                : null
+        }
+    });
 }));
 
-soloClinico(app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id, HttpContext ctx) =>
+// Lectura de sesiones clínicas: el Configurador NO recibe las emociones (HistorialEmociones) aunque su pantalla nunca las
+// mostró; el profesional las recibe descifradas (VistaSesionesClinicas). Ver docs/VIDEOLLAMADAS.md.
+soloClinico(app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id, HttpContext ctx, VistaSesionesClinicas vista) =>
 {
     if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
     AuditoriaIds.Registrar(ctx, "Apertura de sesiones clínicas", "SesionClinica", id);
-    return Results.Ok(new SesionClinicaDAO().ObtenerPorPaciente(id));
+    var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
+    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorPaciente(id), puedeVerEmociones: !esAdmin));
 }));
 
-soloClinico(app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id, HttpContext ctx) =>
+soloClinico(app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id, HttpContext ctx, VistaSesionesClinicas vista) =>
 {
     var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
     if (!esAdmin && idPropio != id) return Results.Json(new { mensaje = "Solo podés ver tus propias sesiones." }, statusCode: 403);
-    return Results.Ok(new SesionClinicaDAO().ObtenerPorProfesional(id));
+    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorProfesional(id), puedeVerEmociones: !esAdmin));
 }));
 
 
@@ -2000,6 +2056,7 @@ app.MapMensajeria();
 app.MapConsentimiento();
 app.MapCasos();
 app.MapVideo();
+app.MapConsentimientoVideo();
 
 app.Run();
 

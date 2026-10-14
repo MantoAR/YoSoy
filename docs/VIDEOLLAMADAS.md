@@ -2,9 +2,11 @@
 
 Cómo entra una persona a una sala de video: qué le pregunta el frontend a la API, qué decide la API, qué
 recibe, qué hace la pantalla con eso, y qué hay que configurar en el servidor. Cubre **la API** (PR 3 del plan de
-videollamadas), **las pantallas que la usan** (PR 4) y **cómo se despliega todo** (PR 5, en
+videollamadas), **las pantallas que la usan** (PR 4), **cómo se despliega todo** (PR 5, en
 [`docs/DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md): señalización como servicio, secretos, coturn y Caddy; preparado,
-todavía no ejecutado en el servidor). Lo que falta: el consentimiento y la privacidad (PR 6).
+todavía no ejecutado en el servidor) y **el consentimiento y el manejo de los datos de la lectura de emociones** (PR 6,
+en "Lectura de emociones: consentimiento y datos sensibles"; **el texto legal es provisorio y lo tiene que validar un
+profesional legal**).
 
 El contrato del token con el servidor de señalización está en [`signaling-server/README.md`](../signaling-server/README.md)
 ("Token de sala"). Esta página es el lado de la API y de las pantallas.
@@ -260,14 +262,15 @@ La pantalla vuelve a la espera con el mensaje y la persona puede reintentar.
 
 Antes de conectarse, la pantalla del paciente dice que la sesión usa cámara y micrófono y que el profesional lo va a
 ver y escuchar en vivo; mientras dura la sesión queda un recordatorio. **El texto es provisorio** (lleva el cartel "Aviso
-provisorio"): no es el consentimiento informado, que se incorpora en el PR 6 y reemplaza a este.
+provisorio"): no es el consentimiento informado de la atención ni el de la lectura de emociones. Este último es un panel
+aparte, con su propio texto (también provisorio): ver "Lectura de emociones: consentimiento y datos sensibles".
 
 ### Transcripción (apagada)
 
 `YS.video.FLAGS.transcripcion` es `false` y no se prende desde la URL ni desde el navegador: se cambia en el código, en
 una revisión. Con la bandera apagada la pantalla del profesional ni muestra la tarjeta de transcripción (el
-reconocimiento de voz del navegador manda el audio a servidores externos en Chrome; la decisión es del PR 6). La lectura
-de emociones no se tocó.
+reconocimiento de voz del navegador manda el audio a servidores externos en Chrome; la decisión sigue pendiente: no se
+trató en el PR 6). La lectura de emociones, en cambio, ahora pide consentimiento: ver la sección siguiente.
 
 ### Probar en una máquina
 
@@ -290,6 +293,292 @@ El profesional entra por `http://localhost:5000/pantallas/index.html`, genera la
 con "Entrar a la sala →"; el paciente entra desde su notificación o escribiendo el código. Para probar sin cámaras ni
 micrófonos, Chrome con `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`. Los pasos con `docs/DEMO.md`.
 
+## Lectura de emociones: consentimiento y datos sensibles
+
+> **Todo lo legal de esta sección es provisorio.** El texto que lee el paciente, el plazo de conservación, el trato de
+> los menores y la relación con la historia clínica son una propuesta técnica que **tiene que validar un profesional
+> legal** antes de usarse con pacientes reales. Nada de lo que sigue afirma que se cumpla una norma: al final de la
+> sección está la lista de lo que hay que verificar.
+
+### Qué hace la lectura de emociones y qué se guardaba
+
+- **Dónde corre.** En el navegador del profesional (o del Configurador, en una entrevista de admisión), sobre el video
+  que recibe del paciente, con `face-api.js` y sus tres modelos de `PANTALLAS/models/` (detector, puntos de la cara y
+  expresiones). El video no sale del navegador: **no hay análisis en el servidor ni se envía ninguna imagen**.
+- **Qué produce.** Unas dos veces por segundo, siete números de 0 a 1: `neutral`, `happy`, `sad`, `angry`, `fearful`,
+  `surprised` y `disgusted`. Es una estimación automática de la expresión del rostro, no un diagnóstico.
+- **Qué se guarda.** Al tocar "Guardar en HC": el **promedio** de cada expresión durante la sesión, cuántas muestras
+  fueron y de cuándo a cuándo se tomaron. No se guarda cada muestra ni ninguna imagen. Va en
+  `SesionClinica.HistorialEmociones`.
+- **Cómo era antes del PR 6.** La pantalla mandaba ese resumen como un texto JSON cualquiera, la API lo guardaba **en
+  claro** sin preguntar nada a nadie, y `GET /pacientes/{id}/sesiones-clinicas` y
+  `GET /profesionales/{id}/sesiones-clinicas` lo devolvían a cualquier rol con acceso clínico, el Configurador incluido
+  (su pantalla nunca lo mostró, pero la API se lo mandaba).
+
+### Lo que decide el PR 6
+
+| Tema | Decisión |
+|---|---|
+| Consentimiento | **Por sesión** (un turno o una entrevista de admisión), explícito y **sin opción premarcada**: sin una aceptación no hay análisis. Decide solo el paciente de esa sesión. Queda registrado con la versión y el hash del texto que leyó y la fecha y hora UTC. |
+| Si no acepta | **La videollamada anda igual**, sin análisis. Puede cambiar de idea después. |
+| Revocar | En cualquier momento, durante la sesión o después. Corta el análisis (la pantalla del profesional se entera en unos segundos), descarta lo acumulado y **anula las emociones ya guardadas de esa sesión**. **Nunca** toca las notas clínicas, la transcripción ni el tipo de cierre. Queda auditado con la cantidad de sesiones anuladas. |
+| Autoridad | **El servidor**: guarda solo con una aceptación vigente y lo vuelve a validar todo (ver "Qué valida el servidor al guardar"). La pantalla pregunta y obedece. |
+| Menores | **Decisión provisoria, a validar legalmente**: a una persona menor de 18 años, con un tutor cargado, o de la que no se conoce la fecha de nacimiento, **no se le ofrece** la lectura. La llamada anda igual. |
+| Quién lo lee | El profesional con acceso clínico al paciente (la API se lo devuelve descifrado, con el formato de siempre). **El Configurador no**: la API no le devuelve `historialEmociones` ni nada que diga qué contenía. |
+| Cifrado | **AES-256-GCM** en la aplicación, antes de escribir en la base, con una clave que va por variable de entorno. Ver "Cifrado". |
+| Retención | `Video__Emociones__RetencionDias` = **3650** (provisorio), con una purga que **arranca deshabilitada**: sin el flag solo dice en el log cuántas filas anularía. |
+| Lo ya guardado en claro | No se toca solo: hay un recifrado manual, en simulación por defecto, que corrés vos después de tu backup. Ver "Recifrar lo que ya estaba guardado". |
+
+### Contrato de la API
+
+Los cuatro endpoints nuevos piden el JWT de la sesión de YoSoy (no sirve el token de sala), nunca se cachean
+(`Cache-Control: no-store`), tienen su propia política de rate limit por IP (`video-consentimiento`,
+`Video__Emociones__LimitePorMinuto`, 240 por minuto) y tratan igual a quien no es parte de la sesión que a una sesión
+que no existe: el mismo `404`, con el mismo cuerpo (como `POST /video/acceso`). `origen` e `id` dicen **de qué sesión**
+se habla; quién es parte lo decide el servidor con la base.
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `GET /video/consentimiento?origen=&id=` | El paciente de la sesión | Su estado y, si se le puede ofrecer, el texto que tiene que leer. |
+| `PUT /video/consentimiento` | El paciente de la sesión | Decide: `{ "origen", "id", "decision": "acepta" \| "rechaza", "version" }`. |
+| `POST /video/consentimiento/revocar` | El paciente de la sesión | Deja de compartir: `{ "origen", "id" }`. Anula lo ya guardado. Anda aunque la sala ya haya cerrado y se puede repetir. |
+| `GET /video/emociones/permiso?origen=&id=` | El profesional del turno, o un Configurador | ¿Se puede analizar ahora? Es lo que pregunta la pantalla cada pocos segundos. |
+
+`GET /video/consentimiento` contesta `200`:
+
+```json
+{
+  "disponible": true,
+  "estado": "sin-decision",
+  "motivo": null,
+  "version": "v0-provisorio",
+  "provisorio": true,
+  "titulo": "Lectura de expresiones faciales durante la videollamada",
+  "texto": ["TEXTO PROVISORIO. Todavía no fue validado por un profesional legal…", "Qué es. …"],
+  "decididoUtc": null,
+  "revocadoUtc": null
+}
+```
+
+- `estado`: `sin-decision` · `acepta` · `rechaza` · `revocado` · `no-disponible`. Con `no-disponible` no hay texto y
+  `motivo` dice por qué: `menor-de-edad`, `edad-desconocida` o `no-configurado` (falta la clave de cifrado).
+- `version` es la del texto **vigente**: es la que hay que repetir al decidir. Si el texto cambió desde que la persona lo
+  leyó, `PUT` contesta `409 version-desactualizada` y la pantalla vuelve a pedirlo.
+- Se puede leer y decidir desde antes de que abra la sala. Con la sesión en otro estado (turno sin confirmar, sala sin
+  generar, sesión ya terminada) contesta los mismos `409` que `POST /video/acceso`. Revocar no depende de la ventana.
+
+`PUT` y `revocar` contestan `200` con el mismo cuerpo (sin `titulo` ni `texto`). Errores de `PUT`: `400
+solicitud-invalida` (decisión que no es `acepta` ni `rechaza`), `404 no-existe`, y `409` con `version-desactualizada`,
+`usar-revocar` (ya aceptó: dejar de compartir es `revocar`, que además anula lo guardado), `menor-de-edad`,
+`edad-desconocida`, `no-configurado`, o los de la sala (`estado-invalido`, `sala-no-generada`, `sala-invalida`,
+`ya-termino`, igual que `/video/acceso`).
+La misma decisión sobre el mismo texto, repetida, no agrega otra fila.
+
+`GET /video/emociones/permiso` contesta `200`:
+
+```json
+{
+  "permitido": true,
+  "estado": "acepta",
+  "motivo": null,
+  "desdeUtc": "2026-10-14T13:02:11Z",
+  "revocadoUtc": null,
+  "ahoraUtc": "2026-10-14T13:05:40Z",
+  "consultarCadaSegundos": 3,
+  "vigenciaSegundos": 10,
+  "version": "v0-provisorio"
+}
+```
+
+`permitido` es `true` solo con `estado: "acepta"` (una aceptación vigente, de alguien a quien se le puede ofrecer).
+`consultarCadaSegundos` y `vigenciaSegundos` son lo que la pantalla tiene que respetar: preguntar cada tanto, y frenar si
+pasa la vigencia sin una respuesta. `desdeUtc` es cuándo aceptó: lo que se guarda no puede empezar antes.
+
+**`POST /sesiones-clinicas` cambió.** El campo `historialEmociones` (el texto libre de antes) se ignora. En su lugar:
+
+```json
+{
+  "idPaciente": 7, "idProfesional": 3, "idTurno": 12, "notasEvolucion": "…", "tipoCierre": "Seguimiento",
+  "emociones": {
+    "origen": "turno", "id": 12,
+    "desdeUtc": "2026-10-14T13:02:11Z", "hastaUtc": "2026-10-14T13:31:40Z",
+    "muestras": 3540,
+    "promedios": { "neutral": 60, "happy": 10, "sad": 20, "angry": 3, "fearful": 3, "surprised": 2, "disgusted": 2 }
+  }
+}
+```
+
+La respuesta `201` trae `emociones: { estado, motivo, mensaje }`: `guardadas`, `descartadas` (con el `motivo` y un
+`mensaje` para mostrar) o `no-enviadas`. **Descartar las emociones nunca impide guardar la sesión**: las notas y el tipo
+de cierre se guardan igual. Motivos de descarte: `formato-viejo`, `sesion-invalida`, `sesion-ajena`,
+`paciente-no-coincide`, `no-configurado`, `menor-de-edad`, `edad-desconocida`, `sin-consentimiento`, `rechazado`,
+`revocado`, `ventana-invalida`, `ventana-anterior-al-consentimiento`, `ventana-futura`, `muestras-invalidas` y
+`promedios-invalidos`.
+
+**Lectura.** `GET /pacientes/{id}/sesiones-clinicas` y `GET /profesionales/{id}/sesiones-clinicas` siguen devolviendo
+`historialEmociones` como `{ "Neutral": 60, "Felicidad": 10, … }` (o `null`), y suman `emociones`:
+`{ muestras, desdeUtc, hastaUtc, textoVersion, anuladasUtc, anuladasMotivo }`. Si se anularon, `historialEmociones` es
+`null` y `emociones` dice cuándo y por qué (`revocacion` o `retencion`). Para el Configurador las dos son `null`, y no hay
+nada en la respuesta que indique si había emociones.
+
+### Cómo lo cumplen las pantallas
+
+`PANTALLAS/shared/emociones.js` (`YS.emociones`) tiene la lógica; las dos `sesion_video.html` ponen la interfaz.
+
+- **Paciente.** Con la sesión en la URL (`?turno=`, `?admision=` o `?sala=`) pide el estado y muestra el texto que sirve
+  la API, con el cartel "Texto provisorio", sin ninguna opción premarcada y con dos botones: "Acepto que se analicen mis
+  expresiones" y "No acepto: la videollamada sigue igual, sin análisis". **"Conectarme" no conecta hasta que decida**
+  (no pide ni el acceso a la sala). Durante la sesión un recuadro dice si se están analizando sus expresiones y ofrece
+  "Dejar de compartir mis expresiones" (o "Permitir…" si no había aceptado). Si no se puede saber el estado, no se
+  ofrece nada y la videollamada sigue. A una persona menor, o si el servidor no tiene configurado el cifrado, el panel
+  ni aparece.
+- **Profesional / Configurador.** Pregunta `GET /video/emociones/permiso` al entrar y cada `consultarCadaSegundos`.
+  - **Sin permiso el modelo ni se llama.** No dibuja, no acumula, y la tarjeta queda apagada diciendo por qué.
+  - **Falla cerrada.** Si pasan `vigenciaSegundos` sin una respuesta válida (sin red, 5xx, 429) el análisis se **pausa**:
+    lo ya medido se conserva y retoma solo cuando la API vuelve a contestar. Un `401` (venció la sesión de YoSoy) también
+    pausa, con su propio mensaje y sin sacar a la persona de la sala. Un `404` frena y descarta.
+  - **Si el paciente rechaza o revoca, o la aceptación vigente es otra** (revocó y volvió a aceptar), lo acumulado se
+    **descarta**: lo medido antes de una revocación no se guarda nunca.
+  - **Guardar y exportar el reporte vuelven a preguntar.** Sin un permiso confirmado en ese momento, la sesión se guarda
+    sin emociones y la pantalla dice por qué.
+  - La ventana se arma con la hora del servidor (calibrada con `ahoraUtc`): el reloj del navegador puede estar corrido.
+
+Con los tiempos de producción (preguntar cada 3 s) y la sala abierta con navegadores reales, el análisis se corta unos
+2 o 3 segundos después de que el paciente toca "Dejar de compartir" (peor caso: 3 s de consulta más el pedido).
+
+### Qué valida el servidor al guardar
+
+Nada de lo que manda la pantalla se guarda tal cual: `GuardiaEmocionesService` lo valida contra la base y, si pasa,
+**arma de nuevo** lo que se guarda. Si algo no cierra, la sesión se guarda **sin** emociones y la respuesta dice por qué.
+
+1. La sesión de video existe y quien guarda la atiende (el profesional del turno, o un Configurador).
+2. El paciente de la sesión es el de la sesión clínica que se está guardando.
+3. A esa persona se le puede ofrecer el análisis (hay clave de cifrado, no es menor, se conoce su edad).
+4. Hay una **aceptación vigente**: ni rechazada ni revocada. Con una revocación posterior no se guarda **nada**, ni
+   siquiera lo medido antes de revocar.
+5. La ventana (`desdeUtc`–`hastaUtc`) dura hasta 12 horas, no empieza antes de la aceptación (con la tolerancia de
+   `ToleranciaSegundos`) ni termina en el futuro.
+6. La cantidad de muestras es posible: entre 1 y `ceil(segundos × MuestrasMaxPorSegundo) + 5`.
+7. Los promedios son solo las siete expresiones del modelo, de 0 a 100, y suman entre 90 y 110 (cada uno viene
+   redondeado).
+
+Lo que se cifra y se guarda es `{ "v": 1, "promedios": {…}, "muestras": n, "desdeUtc", "hastaUtc", "consentimiento": <id>,
+"textoVersion": "…" }`: ninguna cadena libre que haya mandado la pantalla.
+
+### Datos que se guardan
+
+- **`ConsentimientoVideo`** (migración `migrations/add_consentimiento_video.sql`): una fila por **decisión** — `IdUsuario`,
+  `IdPaciente`, `Origen` y `IdOrigen` (la sesión), `VersionTexto`, `HashTexto` (SHA-256 del texto exacto que se mostró),
+  `Decision`, `DecididoUtc` y `RevocadoUtc`. La vigente es la más nueva de esa sesión. Una fila no se edita salvo
+  `RevocadoUtc`; cambiar de idea es otra fila. Las fechas van en UTC (`DATETIME2`).
+- **`SesionClinica`**: `IdConsentimientoVideo` (con qué consentimiento se guardaron las emociones),
+  `EmocionesAnuladasUtc` y `EmocionesAnuladasMotivo` (`revocacion` o `retencion`). Anular pone `HistorialEmociones` en
+  `NULL`; **no se borra la sesión ni se toca ninguna otra columna**.
+
+### Cifrado
+
+- **Mecanismo.** AES-256-GCM (`System.Security.Cryptography.AesGcm`, el que trae .NET: no se agregó ningún paquete),
+  en la aplicación, antes de escribir en la base. Se eligió ese nivel porque SQL Server 2025 Express **no tiene TDE** ni
+  backups cifrados, y Always Encrypted necesita un almacén de claves que este servidor no tiene.
+- **Formato guardado.** `ys1.<idClave>.<base64url(nonce de 12 bytes | etiqueta de 16 | dato cifrado)>`. El nonce es
+  distinto en cada cifrado. El `idClave` (`k1` por defecto) dice con qué clave se cifró, para poder rotarla algún día.
+- **Atado a la fila.** El dato asociado autenticado es `ys1|<idClave>|sesion:<IdSesion>`: un valor copiado a otra fila
+  no se descifra (la etiqueta no cierra), y un valor alterado tampoco.
+- **La clave.** `Video__Emociones__ClaveCifrado`: base64 de 32 bytes, **solo por variable de entorno** (nunca en
+  `appsettings.json`), distinta de `Jwt__Key`, `Video__SignalingSecreto` y `Video__TurnSecreto`. La crea
+  `deploy/video/generar-secretos.sh` **una sola vez** y no la pisa nunca (no hay una opción para rotarla). **Si se
+  pierde, lo guardado no se puede volver a leer: hay que guardar una copia fuera del servidor y fuera del repositorio,
+  nunca en el chat.**
+- **Sin clave** (o con una inválida) la API arranca igual, la lectura de emociones queda "no disponible" y **no se guarda
+  nada en claro**; el log de arranque lo dice, sin valores: `Video: lectura de emociones habilitada…` o `deshabilitada…`.
+- **Lo que no hace.** No cifra la base entera (solo este dato), y la clave vive en el mismo servidor que la API: protege
+  contra una copia de la base o de un backup, no contra quien controle el servidor.
+- **Lo guardado antes del PR 6** (JSON en claro) se sigue leyendo tal cual, y se cifra con el recifrado manual.
+
+### Retención y purga
+
+`Video__Emociones__RetencionDias` (**3650**, provisorio: el plazo lo tiene que definir el equipo legal; `0` = no se
+purga nunca) y `PurgaEmocionesBackgroundService`:
+
+- **Arranca deshabilitada.** Sin `Video__Emociones__PurgaHabilitada=true` solo escribe en el log cuántas sesiones
+  superan el plazo y se anularían: `Video: purga de emociones DESHABILITADA (simulación): N sesión(es)…`.
+- Habilitada, corre 2 minutos después de arrancar y cada `PurgaCadaHoras` (24), anula en lotes de `PurgaLote` (500) y
+  deja una fila de auditoría con la cantidad. Anular es lo mismo que al revocar: `HistorialEmociones` en `NULL`, con
+  fecha y motivo `retencion`. **Las notas clínicas no se tocan jamás.**
+- Corta por `SesionClinica.FechaHora` (la fecha de la sesión).
+
+### Recifrar lo que ya estaba guardado
+
+Las emociones guardadas **antes** del PR 6 están en claro. No se tocan solas. El mismo ejecutable de la API trae una
+herramienta manual:
+
+```bash
+YoSoy --recifrar-emociones             # SIMULACIÓN (por defecto): cuenta y dice qué haría; no modifica nada
+YoSoy --recifrar-emociones --aplicar   # cifra de verdad (después de TU backup de la base)
+```
+
+Usa la misma configuración que la API (`ConnectionStrings__YoSoy` y `Video__Emociones__ClaveCifrado`). **Nunca borra ni
+anula nada**: reemplaza el texto en claro por su versión cifrada, fila por fila, comprobando antes que se vuelve a
+descifrar igual y actualizando solo si la fila no cambió mientras tanto. Se puede repetir (lo ya cifrado se saltea) y no
+imprime la clave, ningún contenido ni ids: solo cantidades. Cómo correrla en el servidor: `docs/DESPLIEGUE_VIDEO.md`.
+
+### Auditoría
+
+Con `LogAuditoria`, como el resto: solo ids y códigos, nunca contenido ni claves. La hora exacta de cada decisión, en
+UTC, está en `ConsentimientoVideo`; `LogAuditoria.FechaHora` es la hora del servidor.
+
+| `Accion` | `Entidad` / `IdEntidad` | `Detalle` |
+|---|---|---|
+| `Consentimiento de video aceptado` / `rechazado` | `Turno` o `InformeAdmision`, y su id | `version: v0-provisorio; consentimiento: <id>` |
+| `Consentimiento de video revocado` | ídem | `version: …; consentimiento: <id>; emociones anuladas: <n>` |
+| `Emociones guardadas` | `SesionClinica`, `IdSesion` | `consentimiento: <id>; muestras: <n>` |
+| `Emociones descartadas` | `Turno` o `InformeAdmision` (o `SesionClinica` si el pedido no dice la sesión de video) | `motivo: <código>; sesion: <IdSesion>` |
+| `Purga de emociones` | `SesionClinica`, sin id (`IdUsuario` vacío: no hay una persona detrás) | `motivo: retencion; cantidad: <n>` |
+
+### Qué hay que verificar con el equipo legal
+
+Esta es la lista de lo que **no está resuelto** y que no se puede decidir desde el código. No es una lista cerrada de
+normas ni una afirmación de que alguna se cumpla; las referencias son las que se identificaron para revisar.
+
+1. **Naturaleza del dato.** Si la expresión facial estimada es un dato de salud o sensible (Ley 25.326, protección de
+   los datos personales) en este contexto, y qué requisitos agrega.
+2. **Forma del consentimiento.** Si un botón en pantalla, con registro de la versión del texto y la fecha, alcanza como
+   consentimiento libre, expreso e informado (Ley 25.326; consentimiento informado de la Ley 26.529), o si hace falta
+   algo más (firma, constancia por escrito). La plataforma ya tiene un consentimiento de telemedicina firmado desde el
+   panel (tabla `Consentimiento`): ver si este lo integra, lo complementa o es independiente.
+3. **Revocación.** La Ley 26.529 prevé la revocación del consentimiento y, para ciertos casos, que conste por escrito
+   (art. 7): ver si el botón "Dejar de compartir", con su fila y su auditoría, alcanza como constancia.
+4. **Historia clínica vs. dato auxiliar.** Si lo guardado forma parte de la historia clínica (que se conserva un mínimo de
+   diez años, Ley 26.529) o es un dato auxiliar de la sesión. De eso depende que revocar pueda **anular** el dato y que
+   se pueda purgar. El diseño anula solo las emociones y nunca las notas: validar que sea lo correcto.
+5. **Plazo de conservación.** 3650 días es un valor provisorio. Definir el plazo y qué pasa al vencer.
+6. **Menores y personas con tutor** (Ley 26.657 y las normas de capacidad y autonomía progresiva de niñas, niños y
+   adolescentes). Hoy no se ofrece a menores de 18, ni a quien tiene un tutor cargado, ni a quien no tiene fecha de
+   nacimiento. Si corresponde ofrecerlo con el consentimiento del representante, o con otro criterio de edad.
+7. **Quién lo ve.** Hoy: los profesionales con acceso clínico al paciente; el Configurador, no. Revisar si el resto del
+   equipo (derivaciones, supervisión) corresponde.
+8. **Derechos de la persona.** Hoy el paciente puede revocar por sesión, pero no tiene una pantalla para ver lo guardado
+   ni para pedir su supresión o rectificación (derechos de acceso, rectificación y supresión de la Ley 25.326).
+9. **Registro y responsable de la base** (inscripción ante la autoridad de datos personales, aviso de privacidad) y las
+   **medidas de seguridad** que se exigen: el cifrado de este dato es una medida técnica, no un cumplimiento.
+10. **El texto.** Hoy es `v0-provisorio`: lleva tres marcas a completar (plazo, datos de contacto de la institución y
+    referencias). Se publica una versión nueva como un archivo nuevo en `Services/Video/Consentimiento/`; **un texto
+    publicado no se edita**.
+11. **El texto del registro de cuenta.** El consentimiento de `crear_cuenta.html` menciona **"grabaciones"**, que no
+    existen (la videollamada no se graba). **No se editó**: queda como pendiente para el abogado.
+12. **La transcripción.** Sigue apagada (ver arriba). Si algún día se prende, necesita su propio consentimiento.
+
+### Límites que conviene tener presentes
+
+- **Ningún servidor puede impedir que un navegador alterado analice el video que recibe**: el análisis corre en la
+  máquina del profesional. Lo que el sistema controla es lo que **se guarda**, y queda auditado.
+- La clave de cifrado y la base viven en el mismo servidor.
+- El consentimiento es **por sesión**: no hay un "recordar mi decisión".
+- La edad se calcula con la fecha de nacimiento de la ficha del paciente; si está mal cargada, la regla se equivoca.
+- Con muchas personas detrás de una misma IP, el tope de `video-consentimiento` (240 por minuto) puede dejar a alguien sin
+  respuesta: la pantalla del profesional lo trata como "no se pudo confirmar" y **pausa** el análisis (falla del lado
+  seguro). Se sube con `Video__Emociones__LimitePorMinuto`.
+
 ## Configuración
 
 Todas viven en la sección `Video` y, como cualquier configuración de .NET, se pisan por variable de entorno con
@@ -310,6 +599,19 @@ secretos nunca van en el archivo**.
 | `Video__Turn__TtlMinutos` | `120` | Vida de las credenciales TURN (1–1440); nunca menos que la ventana de la sesión. |
 | `Video__ZonaHoraria` | vacío (zona del servidor) | Zona en la que están escritas las fechas de los turnos. |
 | `Video__LimitePorMinuto` | `20` | Pedidos por minuto y por IP a `/video/acceso` (1–10000). |
+| `Video__Emociones__ClaveCifrado` | — (sin ella no hay lectura de emociones) | Clave AES-256 en base64 (32 bytes) con la que se cifran las emociones guardadas. **Solo por variable de entorno**, distinta de los otros secretos. La crea `generar-secretos.sh` una vez; si se pierde, lo guardado no se puede leer. |
+| `Video__Emociones__IdClave` | `k1` | Identificador de la clave: va en cada dato cifrado. Solo cambia el día que se rote la clave. |
+| `Video__Emociones__VersionTexto` | `v0-provisorio` | Versión del texto del consentimiento que se muestra (`Services/Video/Consentimiento/<versión>.txt`, incrustado en el ejecutable). Un texto publicado no se edita: uno nuevo es una versión nueva. |
+| `Video__Emociones__RetencionDias` | `3650` | **Provisorio.** Días que se conservan las emociones guardadas; `0` = no se purga nunca. |
+| `Video__Emociones__PurgaHabilitada` | `false` | La purga arranca **deshabilitada**: sin esto solo escribe en el log cuántas sesiones anularía. |
+| `Video__Emociones__PurgaCadaHoras` | `24` | Cada cuánto corre la purga (1–720). |
+| `Video__Emociones__PurgaLote` | `500` | Cuántas sesiones anula por vuelta (1–5000). |
+| `Video__Emociones__ConsultaCadaSegundos` | `3` | Cada cuánto pregunta la pantalla del profesional si sigue el permiso (1–60). |
+| `Video__Emociones__VigenciaSegundos` | `10` | Cuánto vale una respuesta del permiso; pasado ese tiempo sin una nueva, la pantalla frena el análisis (2–300). |
+| `Video__Emociones__ToleranciaSegundos` | `5` | Holgura entre el reloj del navegador y el del servidor al validar la ventana de lo que se guarda (0–120). |
+| `Video__Emociones__MuestrasMaxPorSegundo` | `4` | Tope de muestras por segundo que se acepta al guardar; la pantalla toma unas 2 (1–30). |
+| `Video__Emociones__PermitirEdadDesconocida` | `false` | Con `true`, a quien no tiene fecha de nacimiento (ni tutor) se le ofrece la lectura, tratándolo como adulto. Es para una base de desarrollo; en producción, `false`. |
+| `Video__Emociones__LimitePorMinuto` | `240` | Pedidos por minuto y por IP a los endpoints del consentimiento y del permiso (1–10000). |
 
 Un valor numérico fuera del rango se acota al rango en vez de romper nada.
 
@@ -322,8 +624,8 @@ ejecutó en el servidor**). Lo que sigue es qué hay en cada pieza:
 
 | En el repositorio | En el servidor | Qué es |
 |---|---|---|
-| `deploy/video/generar-secretos.sh` | se corre con `sudo` | Genera con `openssl rand -hex 32` el secreto de la señalización y el de TURN y los escribe, **sin mostrarlos**, en los dos `.env` y en `turnserver.conf`. No pisa lo que ya existe; `--rotar-signaling` y `--rotar-turn` generan uno nuevo, con copia previa del archivo. |
-| *(lo genera el script)* | `/opt/yosoy/config/video.env` (600, `yosoy`) | `Video__SignalingSecreto`, `Video__TurnSecreto`, `Video__Ice__StunUrls__0`, `Video__Ice__TurnUrls__0` y `__1` (UDP y TCP) y `Video__ZonaHoraria=America/Argentina/Buenos_Aires`. Sin comillas ni espacios alrededor del `=`. |
+| `deploy/video/generar-secretos.sh` | se corre con `sudo` | Genera con `openssl rand -hex 32` el secreto de la señalización y el de TURN y los escribe, **sin mostrarlos**, en los dos `.env` y en `turnserver.conf`. Con `openssl rand -base64 32` genera además la **clave de cifrado de las emociones**, una sola vez: **no se rota sola** (no hay opción para eso) y, al crearla, avisa que hay que guardar una copia fuera del servidor y del repositorio. No pisa lo que ya existe; `--rotar-signaling` y `--rotar-turn` generan uno nuevo, con copia previa del archivo. |
+| *(lo genera el script)* | `/opt/yosoy/config/video.env` (600, `yosoy`) | `Video__SignalingSecreto`, `Video__TurnSecreto`, `Video__Emociones__ClaveCifrado`, `Video__Ice__StunUrls__0`, `Video__Ice__TurnUrls__0` y `__1` (UDP y TCP) y `Video__ZonaHoraria=America/Argentina/Buenos_Aires`. Sin comillas ni espacios alrededor del `=`. |
 | `deploy/yosoy-api.service.d/video.conf` | `/etc/systemd/system/yosoy-api.service.d/video.conf` | Drop-in: `EnvironmentFile=-/opt/yosoy/config/video.env`. El `-` es a propósito: si el archivo faltara, la API arranca igual y `/video/acceso` contesta 503 en vez de quedar caída. |
 | *(lo genera el script)* | `/opt/yosoy/config/signaling.env` (600, `yosoy`) | `SIGNALING_SECRETO` (**el mismo valor** que `Video__SignalingSecreto`), `HOST=127.0.0.1` y `PORT=3001`. |
 | `deploy/signaling-server.service` | `/etc/systemd/system/signaling-server.service` | La unit del signaling-server (ver `signaling-server/README.md`, "En el servidor"). |
@@ -356,6 +658,9 @@ aunque por HTTP se conteste el 404 uniforme: así se puede ver quién anda proba
 existe, un pedido mal armado (400) y un 503 no se auditan: no hay a qué atarlos y sería una fila por cada sondeo. Si la
 auditoría falla, el acceso sigue y queda un aviso en el log con el tipo de error.
 
+Las decisiones del consentimiento de la lectura de emociones (acepta, rechaza, revoca), lo que se guarda, lo que se
+descarta y la purga tienen su propia tabla en "Lectura de emociones: consentimiento y datos sensibles" → "Auditoría".
+
 ## Cabeceras de seguridad
 
 Todas las respuestas que pasan por el middleware global de `Program.cs` (páginas incluidas) salen ahora con
@@ -369,7 +674,7 @@ Content-Security-Policy**: hay mucho JS y CSS inline en `PANTALLAS/` y una polí
 Con las variables de entorno de siempre (`ConnectionStrings__YoSoy`, `Email__Password=" "`):
 
 ```bash
-dotnet test --filter "FullyQualifiedName~Video|FullyQualifiedName~AccesoSala|FullyQualifiedName~TurnCredentials|FullyQualifiedName~TokenSala"
+dotnet test --filter "FullyQualifiedName~Video|FullyQualifiedName~AccesoSala|FullyQualifiedName~TurnCredentials|FullyQualifiedName~TokenSala|FullyQualifiedName~Emociones|FullyQualifiedName~ConsentimientoVideo|FullyQualifiedName~Purga|FullyQualifiedName~TextoConsentimiento"
 ```
 
 - `AccesoSalaServiceTests`, `VideoAccesoEndpointsTests`: reglas, matriz 401/404/409, bordes de la ventana, rol y
@@ -388,17 +693,49 @@ dotnet test --filter "FullyQualifiedName~Video|FullyQualifiedName~AccesoSala|Ful
   reinicio de ICE, conexión nueva cuando la otra persona vuelve, renovación del token (una vez), `rol-ocupado`,
   `reemplazado` y `sala-llena`. No prueba WebRTC de verdad: eso necesita navegadores.
 
+Del consentimiento de la lectura de emociones (PR 6):
+
+- `EmocionesCifradoServiceTests`: AES-256-GCM contra el dato atado a la fila (otra fila, otra clave o un byte cambiado no
+  descifran), la validación de la clave (base64, 32 bytes, distinta de los otros secretos) y que ningún mensaje la incluya.
+- `TextoConsentimientoVideoTests`: el texto embebido, su versión y su hash (fijado: si alguien edita un texto publicado, falla).
+- `ConsentimientoVideoServiceTests`: la máquina de estados (sin decisión, acepta, rechaza, revoca, cambia de idea), menores,
+  tutor y edad desconocida, versión del texto, pertenencia (el mismo 404) y la ventana de la sala.
+- `GuardiaEmocionesServiceTests`: cada motivo de descarte, la ventana, las muestras y los promedios, y que lo que se guarda
+  sale armado por el servidor.
+- `PurgaEmocionesTests`: deshabilitada no toca nada, el plazo, los lotes y la auditoría.
+- `ConsentimientoVideoEndpointsTests`: los cuatro endpoints y `POST /sesiones-clinicas` por HTTP, el Configurador sin emociones
+  y `no-store`. Sin base (dobles en memoria).
+- `EmocionesConfiguracionTests`: los valores de `appsettings.json` y que ningún archivo versionado traiga la clave.
+- `RecifrarEmocionesTests`: el recifrado manual, que es lo único que modifica datos ya guardados: la simulación no toca
+  nada, solo cifra lo que está en claro y vuelve igual, no pisa una fila que cambió mientras tanto, no escribe si la ida y
+  vuelta no cierra, repetirlo no hace nada y sin clave no se aplica.
+- `EmocionesBaseRealTests`: contra una base real que **ya tenga la migración** `add_consentimiento_video.sql` (si falta la
+  tabla, o no hay cadena de conexión, **se omiten**): consentimiento, guardado cifrado, revocación, purga y el acceso a la
+  base del recifrado. Marca sus filas `[TEST-PR6]` y las borra; no hace ninguna pasada global sobre filas ajenas.
+- `signaling-server/test/emociones-frontend.test.js` (parte de `npm test`): el `emociones.js` real en un contexto de Node,
+  con relojes y API de mentira: falla cerrada, pausa contra descarte, ventana nueva al volver a aceptar y qué se manda al
+  guardar.
+
+Con navegadores reales (Chromium, cámara falsa, la API y la señalización reales contra una base descartable) el circuito
+completo se probó con un banco local que no se versiona; el modelo de expresiones se reemplazó por un doble de expresiones
+fijas, porque la cámara falsa no tiene rostro.
+
 ## Pendiente / fuera de alcance
 
 - **Despliegue** (PR 5): está preparado (unit del signaling, drop-in de la API, script de secretos, coturn, el snippet de
   Caddy y el runbook [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md)) pero **todavía no se ejecutó en el servidor**. Hasta que
   estén los PR 2, 3 y 4 en producción, `/socket.io/*` no se expone: en el runbook, Caddy es el último paso.
-- **Consentimiento, cifrado y retención** (PR 6): reemplaza el aviso provisorio del paciente y decide qué pasa con la
-  transcripción (apagada) y con la lectura de emociones.
+- **Consentimiento, cifrado y retención** (PR 6): implementado. **Falta la validación legal** del texto, del plazo de
+  conservación y del trato de los menores (lista en "Qué hay que verificar con el equipo legal"), y completar las tres
+  marcas del texto. Antes de desplegar la API hay que aplicar la migración y generar la clave de cifrado (ver
+  [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md), "Paso f0"). La transcripción sigue apagada y sin decisión.
 - **Sin verificar con un despliegue real.** La sala se probó en `http://localhost` con Chromium y Firefox, una máquina y
   cámara y micrófono falsos, con la API y la señalización reales. Falta: cámaras y micrófonos físicos, TURN y el relay
   (la configuración de coturn está escrita pero no se corrió con un coturn real), redes y NAT distintos, Safari y celulares,
   y HTTPS detrás de Caddy (el snippet sí se probó con un Caddy real, por HTTP; ver el final de `DESPLIEGUE_VIDEO.md`).
+  Del PR 6, además: el análisis con un rostro real (en las pruebas el modelo se reemplazó por un doble), la migración
+  sobre la base de producción, la custodia y la restauración de la clave de cifrado, y la comprensión del texto por parte
+  de pacientes reales.
 - **Panel del Configurador.** Sigue abriendo la entrevista con `?sala=ADM-…` (anda porque el código lleva el id) y guarda
   en `localStorage` el id del profesional admisionista (`ADM-001`) para poder usar la pantalla del profesional. El video
   ya no necesita ese truco (el acceso sale del JWT del Configurador); solo lo usa "Guardar en HC". Conviene pasar

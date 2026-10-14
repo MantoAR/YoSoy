@@ -30,6 +30,8 @@ node server.js
 
 Queda escuchando en el puerto 3001 (lo usan las dos `sesion_video.html`, no hace falta abrir nada ahí a mano). Para usar la sala: el profesional genera la sala del turno ("Iniciar sesión" en Inicio) y entra con "Entrar a la sala →"; el paciente entra desde su notificación o con el código. El detalle y los mensajes de error están en `docs/VIDEOLLAMADAS.md`.
 
+**La lectura de emociones pide consentimiento (PR 6).** Para mostrarla en tu máquina hacen falta tres cosas: (1) la migración aplicada (`migrations/add_consentimiento_video.sql`, ver el README), (2) una clave de cifrado en la ventana de la app, antes de `dotnet run`: `$env:Video__Emociones__ClaveCifrado = [Convert]::ToBase64String([byte[]](1..32 | ForEach-Object { Get-Random -Maximum 256 }))` (se genera en el momento y no se guarda en ningún lado), y (3) que el paciente de la demo tenga fecha de nacimiento cargada y sea mayor de edad; en una base de desarrollo sin fechas, `$env:Video__Emociones__PermitirEdadDesconocida = "true"`. Sin eso la videollamada anda igual, sin análisis. El texto que lee el paciente es **provisorio**.
+
 Esto es solo para correr todo en tu máquina (la sala usa el STUN de Google y no hay TURN). El despliegue en el servidor real —la señalización como servicio, coturn y Caddy— tiene su propio paso a paso en `docs/DESPLIEGUE_VIDEO.md`; ahí la sala usa STUN y TURN propios y los secretos los genera `deploy/video/generar-secretos.sh` en el servidor, sin mostrarlos.
 
 **Para cortar todo** al terminar: `Ctrl+C` en cada ventana, o `Get-Process -Name YoSoy,node -ErrorAction SilentlyContinue | Stop-Process -Force`.

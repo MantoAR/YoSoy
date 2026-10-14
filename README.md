@@ -138,14 +138,16 @@ cd YoSoy
    | 12 | `alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` — requiere el 10 | Sí |
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
+   | 15 | `add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 | Sí |
 
-   Las 14 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 15 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\<archivo>.sql
    ```
    (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
+   El 15 (`add_consentimiento_video.sql`) se probó con `-I` (`QUOTED_IDENTIFIER ON`, como lo abre la aplicación): agregalo.
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -242,7 +244,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 ### Pendiente
 
-- `signaling-server` (Node, WebRTC): desde el PR 2 exige un token de sala firmado que emite la API (`POST /video/acceso`, PR 3) y que las pantallas piden y mandan (PR 4); ver `docs/VIDEOLLAMADAS.md`. El despliegue en el servidor (unit de systemd, secretos, coturn y Caddy) está preparado en `deploy/` y se hace a mano con `docs/DESPLIEGUE_VIDEO.md` (PR 5; todavía no se ejecutó en el servidor). Pendiente: el consentimiento y la privacidad de la sala (PR 6).
+- `signaling-server` (Node, WebRTC): desde el PR 2 exige un token de sala firmado que emite la API (`POST /video/acceso`, PR 3) y que las pantallas piden y mandan (PR 4); ver `docs/VIDEOLLAMADAS.md`. El despliegue en el servidor (unit de systemd, secretos, coturn y Caddy) está preparado en `deploy/` y se hace a mano con `docs/DESPLIEGUE_VIDEO.md` (PR 5; todavía no se ejecutó en el servidor). El consentimiento y el manejo de los datos de la lectura de emociones (PR 6) están implementados, pero **el texto legal es provisorio y lo tiene que validar un profesional legal antes de usarse con pacientes reales**; antes de desplegar la API hay que aplicar `migrations/add_consentimiento_video.sql` y generar la clave de cifrado (`Video__Emociones__ClaveCifrado`; ver `docs/DESPLIEGUE_VIDEO.md`, paso f0).
 - Reconciliar con el JWT de `videollamadas-seguras` (`Services/JwtService.cs` ahí): son dos implementaciones distintas (claims, nombre de la clave de configuración, formato de token) hechas sin coordinarse — ver "Parte 2: JWT, Paso J0" en `CAMBIOS_AGUS.md` para el detalle.
 - Cierre de sesión por inactividad: decisión de equipo pendiente, no se tocó.
 - CSP (Content-Security-Policy): no se activa todavía — hay demasiado JS/CSS inline en `PANTALLAS/` y rompería pantallas. Ver `CAMBIOS_AGUS.md` para el detalle de por qué queda como mejora futura.
