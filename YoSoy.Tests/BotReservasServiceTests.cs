@@ -51,17 +51,33 @@ public class BotReservasServiceTests
     {
         await _e.Enviar(Juan, "hola");
         var horarios = await _e.Enviar(Juan, "1");
-        Assert.Contains("1) viernes 25/09 a las 09:00", horarios);
-        Assert.Contains("¿Confirmás?", await _e.Enviar(Juan, "2"));
+        // Sin anticipación mínima: lo primero que se ofrece es hoy, después de la hora actual (09:00).
+        Assert.Contains("1) jueves 24/09 a las 09:30", horarios);
+        Assert.Contains("¿Confirmás?", await _e.Enviar(Juan, "2"));        // 2) jueves 10:00
         var r = await _e.Enviar(Juan, "1");
 
         Assert.Contains("¡Listo!", r);
         var turno = Assert.Single(_e.Db.Turnos);
-        Assert.Equal(Dia(25, 9, 30), turno.Fecha + turno.Hora);
+        Assert.Equal(Dia(24, 10), turno.Fecha + turno.Hora);
         Assert.Equal("Pendiente", _e.Db.EstadoDe(turno.IdTurno));
         Assert.Contains($"TurnoSolicitado:{turno.IdTurno}:True", _e.Notificador.Eventos);
         // Sin consentimiento firmado: igual se crea (RN-02 se exige al confirmar) pero se avisa.
         Assert.Contains("https://yosoy.test/consentimiento", r);
+    }
+
+    [Fact]
+    public async Task Se_puede_pedir_un_turno_para_dentro_de_5_minutos_pero_no_uno_que_ya_paso()
+    {
+        _e.Reloj.Avanzar(TimeSpan.FromMinutes(25));                        // jueves 09:25
+        await _e.Enviar(Juan, "hola");
+        var horarios = await _e.Enviar(Juan, "1");
+        Assert.Contains("1) jueves 24/09 a las 09:30", horarios);          // en 5 minutos
+        Assert.DoesNotContain("a las 09:00", horarios);                    // el de las 09:00 ya pasó
+
+        await _e.Enviar(Juan, "1");
+        Assert.Contains("¡Listo!", await _e.Enviar(Juan, "1"));
+        var turno = Assert.Single(_e.Db.Turnos);
+        Assert.Equal(Dia(24, 9, 30), turno.Fecha + turno.Hora);
     }
 
     [Fact]
@@ -89,11 +105,11 @@ public class BotReservasServiceTests
     public async Task Si_el_horario_se_ocupa_antes_de_confirmar_lo_rechaza_y_ofrece_otros()
     {
         await _e.Enviar(Juan, "quiero pedir un turno");
-        await _e.Enviar(Juan, "1");                                        // elige viernes 09:00
-        _e.Db.AgregarTurno(2, 10, Dia(25, 9), BaseEnMemoria.Pendiente);    // otro paciente se lo gana
+        await _e.Enviar(Juan, "1");                                         // elige jueves 09:30
+        _e.Db.AgregarTurno(2, 10, Dia(24, 9, 30), BaseEnMemoria.Pendiente); // otro paciente se lo gana
         var r = await _e.Enviar(Juan, "1");
         Assert.Contains("ya está ocupado", r);
-        Assert.Contains("1) viernes 25/09 a las 09:30", r);
+        Assert.Contains("1) jueves 24/09 a las 10:00", r);
         Assert.Single(_e.Db.Turnos);
     }
 

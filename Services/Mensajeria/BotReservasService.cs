@@ -399,7 +399,7 @@ public class BotReservasService
             if (resultado.Regla.Link != null) motivo += $" Podés firmarlo en la web: {resultado.Regla.Link}";
             r.Add($"No pude registrar el turno: {motivo}");
             // Si el horario dejó de servir, se ofrecen los que siguen libres.
-            if (resultado.Regla.Codigo is "RN-01" or "RN-05") OfrecerHorarios(c, ctx, idProf, nombre, r);
+            if (resultado.Regla.Codigo is "RN-01") OfrecerHorarios(c, ctx, idProf, nombre, r);
             else IrAlMenu(c, ctx, r);
             return;
         }

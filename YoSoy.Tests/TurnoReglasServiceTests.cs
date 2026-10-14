@@ -4,30 +4,39 @@ public class TurnoReglasServiceTests
     private static DateTime Dia(int d, int h, int m = 0) => new(2026, 9, d, h, m, 0);   // septiembre 2026
 
     [Fact]
-    public void Horarios_libres_empiezan_24_horas_despues_como_minimo()
+    public void Horarios_libres_empiezan_en_el_proximo_horario_posterior_a_ahora_sin_anticipacion_minima()
     {
+        // Reloj fijo: jueves 24/09 09:00. El horario de las 09:00 es "ahora" (ya pasó); el primero libre
+        // es el de las 09:30 de HOY: ya no hay que esperar 24 horas.
         var horarios = _e.Reglas.HorariosLibres(1, 10, 14, 5);
-        Assert.Equal(5, horarios.Count);
-        Assert.Equal(Dia(25, 9), horarios[0]);                                     // viernes 09:00, justo 24 h
-        Assert.All(horarios, h => Assert.True(h >= Escenario.Jueves0900.AddHours(24)));
+        Assert.Equal(new[] { Dia(24, 9, 30), Dia(24, 10), Dia(24, 10, 30), Dia(24, 11), Dia(24, 11, 30) }, horarios);
+        Assert.All(horarios, h => Assert.True(h > Escenario.Jueves0900));
     }
 
     [Fact]
     public void Horarios_libres_saltean_los_ocupados_pero_no_los_cancelados()
     {
-        _e.Db.AgregarTurno(2, 10, Dia(25, 9), BaseEnMemoria.Confirmado);
-        _e.Db.AgregarTurno(2, 10, Dia(25, 9, 30), BaseEnMemoria.Cancelado);
+        _e.Db.AgregarTurno(2, 10, Dia(24, 9, 30), BaseEnMemoria.Confirmado);
+        _e.Db.AgregarTurno(2, 10, Dia(24, 10), BaseEnMemoria.Cancelado);
         var horarios = _e.Reglas.HorariosLibres(1, 10, 14, 3);
-        Assert.Equal(new[] { Dia(25, 9, 30), Dia(25, 10), Dia(25, 10, 30) }, horarios);
+        Assert.Equal(new[] { Dia(24, 10), Dia(24, 10, 30), Dia(24, 11) }, horarios);
     }
 
     [Fact]
     public void RN07_si_ya_tiene_turno_ese_dia_con_el_profesional_no_ofrece_ese_dia()
     {
-        _e.Db.AgregarTurno(1, 10, Dia(25, 11), BaseEnMemoria.Pendiente);
+        _e.Db.AgregarTurno(1, 10, Dia(24, 11), BaseEnMemoria.Pendiente);
         var horarios = _e.Reglas.HorariosLibres(1, 10, 14, 5);
-        Assert.DoesNotContain(horarios, h => h.Date == Dia(25, 0).Date);
-        Assert.Equal(Dia(28, 9), horarios[0]);                                     // lunes siguiente
+        Assert.DoesNotContain(horarios, h => h.Date == Dia(24, 0).Date);
+        Assert.Equal(Dia(25, 9), horarios[0]);                                     // viernes siguiente
+    }
+
+    [Fact]
+    public void Horarios_libres_de_hoy_solo_incluyen_los_posteriores_a_ahora()
+    {
+        _e.Reloj.Avanzar(TimeSpan.FromMinutes(25));                                 // jueves 09:25
+        var horarios = _e.Reglas.HorariosLibres(1, 10, 1, 10);                      // solo hoy
+        Assert.Equal(new[] { Dia(24, 9, 30), Dia(24, 10), Dia(24, 10, 30), Dia(24, 11), Dia(24, 11, 30) }, horarios);
     }
 
     [Theory]
@@ -36,12 +45,54 @@ public class TurnoReglasServiceTests
     [InlineData(2026, 9, 28, 10, 15, "RN-01")]  // no alineado al intervalo de 30 min
     [InlineData(2026, 9, 28, 11, 45, "RN-01")]  // el turno terminaría después de las 12:00
     [InlineData(2026, 9, 24, 15, 0, "RN-01")]   // hoy, fuera de la franja
-    [InlineData(2026, 9, 24, 11, 0, "RN-05")]   // hoy, dentro de la franja pero con menos de 24 h
+    [InlineData(2026, 9, 24, 9, 0, "RN-01")]    // exactamente "ahora": ya pasó
     public void Validar_solicitud_rechaza_con_el_codigo_de_la_regla(int a, int mes, int d, int h, int min, string codigo)
     {
         var r = _e.Reglas.ValidarSolicitud(1, 10, new DateTime(a, mes, d, h, min, 0));
         Assert.False(r.Ok);
         Assert.Equal(codigo, r.Codigo);
+    }
+
+    // ── Sin anticipación mínima para pedir (se conserva la de cancelar) ──────
+
+    [Fact]
+    public void Se_puede_pedir_un_turno_para_dentro_de_5_minutos()
+    {
+        _e.Reloj.Avanzar(TimeSpan.FromMinutes(25));                                 // jueves 09:25
+        var r = _e.Reglas.Solicitar(1, 10, Dia(24, 9, 30), "ya mismo");             // en 5 minutos
+        Assert.True(r.Regla.Ok);
+        Assert.Equal("Pendiente", _e.Db.EstadoDe(r.IdTurno!.Value));
+    }
+
+    [Fact]
+    public void Un_turno_para_hoy_ya_no_se_rechaza_por_anticipacion()
+    {
+        // Antes: "Los turnos se piden con al menos 24 horas de anticipación" (RN-05).
+        var r = _e.Reglas.ValidarSolicitud(1, 10, Dia(24, 11));
+        Assert.True(r.Ok);
+    }
+
+    [Fact]
+    public void Un_horario_de_hoy_que_ya_paso_sigue_rechazado()
+    {
+        _e.Reloj.Avanzar(TimeSpan.FromMinutes(25));                                 // jueves 09:25
+        var r = _e.Reglas.ValidarSolicitud(1, 10, Dia(24, 9));                      // 09:00, hace 25 minutos
+        Assert.False(r.Ok);
+        Assert.Equal("RN-01", r.Codigo);
+        Assert.Equal("Ese horario ya pasó.", r.Mensaje);
+        Assert.Equal("RN-01", _e.Reglas.Solicitar(1, 10, Dia(24, 9), "tarde").Regla.Codigo);
+        Assert.Empty(_e.Db.Turnos);                                                 // y no se creó nada
+    }
+
+    [Fact]
+    public void Sin_minimo_para_pedir_pero_cancelar_con_menos_de_24_horas_sigue_sin_poder()
+    {
+        var pedido = _e.Reglas.Solicitar(1, 10, Dia(24, 9, 30), "pronto");          // dentro de 30 minutos
+        Assert.True(pedido.Regla.Ok);
+
+        var cancelacion = _e.Reglas.Cancelar(pedido.IdTurno!.Value, 1);
+        Assert.Equal("RN-05", cancelacion.Codigo);
+        Assert.Equal("Pendiente", _e.Db.EstadoDe(pedido.IdTurno!.Value));
     }
 
     [Fact]
@@ -204,10 +255,10 @@ public class TurnoReglasServiceTests
     }
 
     [Fact]
-    public void SolicitarUrgente_no_pide_RN01_ni_RN05_crea_pendiente_ahora_mismo()
+    public void SolicitarUrgente_no_pide_RN01_crea_pendiente_ahora_mismo()
     {
         // "Ahora mismo" (jueves 09:00, el reloj fijo del escenario) violaría RN-01 (no está
-        // en el futuro) y RN-05 (0 h de anticipación) si pasara por Solicitar/ValidarSolicitud.
+        // en el futuro) si pasara por Solicitar/ValidarSolicitud.
         var r = _e.Reglas.SolicitarUrgente(1, 10, Escenario.Jueves0900, "Cita urgente");
         Assert.True(r.Regla.Ok);
         Assert.Equal("Pendiente", _e.Db.EstadoDe(r.IdTurno!.Value));
