@@ -136,9 +136,9 @@ la repita (a diferencia de chats, esta parte de la app no tiene actualización e
 | GET | `/eventoscrisis/{id}` | Profesional, Configurador | **Sí — 404** | |
 | GET | `/pacientes/{id}/eventoscrisis` | Profesional, Configurador | **Sí — 404** | **Auditada.** |
 | POST/PUT | `/eventoscrisis[/{id}]` | Profesional, Configurador | **Sí — 403/404** | |
-| POST | `/sesiones-clinicas` | Profesional, Configurador | **Sí — 403** | El `IdProfesional` sale del token si quien crea es Profesional (Paso 3, mismo criterio que turnos) — nunca del cuerpo. |
-| GET | `/pacientes/{id}/sesiones-clinicas` | Profesional, Configurador | **Sí — 404** | **Auditada.** |
-| GET | `/profesionales/{id}/sesiones-clinicas` | Profesional, Configurador | **Propio o Configurador — 403** | No es por paciente: es "mis propias sesiones". |
+| POST | `/sesiones-clinicas` | Profesional, Configurador | **Sí — 403** | El `IdProfesional` sale del token si quien crea es Profesional (Paso 3, mismo criterio que turnos) — nunca del cuerpo. **PR 6:** las emociones llegan en `emociones` (ya no en `historialEmociones`, que se ignora) y solo se guardan, **cifradas**, con una aceptación vigente del paciente de esa sesión de video y si el servidor las valida; si no, la sesión se guarda igual sin emociones y la respuesta dice por qué (`emociones.estado`/`motivo`). Ver `docs/VIDEOLLAMADAS.md`. |
+| GET | `/pacientes/{id}/sesiones-clinicas` | Profesional, Configurador | **Sí — 404** | **Auditada.** **PR 6:** al profesional se le devuelven las emociones descifradas; **al Configurador no** (`historialEmociones` y `emociones` en `null`). |
+| GET | `/profesionales/{id}/sesiones-clinicas` | Profesional, Configurador | **Propio o Configurador — 403** | No es por paciente: es "mis propias sesiones". **PR 6:** igual que la anterior, el Configurador no recibe emociones. |
 | GET | `/interaccionesia` | Configurador | — | Volcado completo. Sin uso real (ver arriba). |
 | GET | `/interaccionesia/{id}` | Profesional, Configurador | **Sí — 404** | |
 | GET | `/pacientes/{id}/interaccionesia` | Profesional, Configurador | **Sí — 404** | |
@@ -351,7 +351,8 @@ con título y mensaje completos.
 
 ## Video: acceso a las salas, token de sala y servidores ICE (`Endpoints/VideoEndpoints.cs`)
 
-`POST /video/acceso` es el único endpoint nuevo. El cliente dice `origen` (`turno` | `admision`) + `id`; la sala y el
+`POST /video/acceso` es el endpoint del PR 3; el PR 6 sumó los cuatro del consentimiento de la lectura de emociones (más abajo).
+El cliente dice `origen` (`turno` | `admision`) + `id`; la sala y el
 rol los decide el servidor con los datos de la base, nunca el cuerpo. A cambio recibe un token de sala de vida corta
 para el signaling y los servidores ICE (STUN y, si está configurado, TURN con credenciales efímeras). Reglas, ventana
 horaria y variables de configuración: `docs/VIDEOLLAMADAS.md`.
@@ -359,6 +360,20 @@ horaria y variables de configuración: `docs/VIDEOLLAMADAS.md`.
 | Método | Ruta | Rol | Pertenencia | Notas |
 |---|---|---|---|---|
 | POST | `/video/acceso` | Cualquier rol autenticado | **Sí — 404** | Turno: el paciente o el profesional del turno, o un Configurador (misma regla que `PUT /turnos/{id}/generar-sala`). Admisión: el paciente del informe o un Configurador. 404 si no existe **o si existe y no sos parte: la misma respuesta, con el mismo status y el mismo cuerpo, para que no se pueda sondear qué ids existen** (el rechazo por pertenencia igual se audita); 409 si el estado, el horario (de 10 min antes a 30 min después del fin) o la sala no lo permiten. La pertenencia se evalúa **antes** que el estado y el horario, así un ajeno no se entera de ninguno de los dos. No crea la sala. Rate limit propio por IP real (política `video`). `Cache-Control: no-store`; el token y las credenciales no se loguean; los accesos y los rechazos van a `LogAuditoria`. 503 si falta un secreto de señalización válido (la API arranca igual). |
+
+### Consentimiento de la lectura de emociones (PR 6, `Endpoints/ConsentimientoVideoEndpoints.cs`)
+
+Mismo criterio que `/video/acceso`: el cliente solo dice **de qué sesión** habla (`origen` + `id`) y el servidor decide quién es
+parte. Los cuatro piden el JWT de la sesión de YoSoy (el token de sala no sirve), nunca se cachean (`Cache-Control: no-store`) y
+tienen su propia política de rate limit por IP (`video-consentimiento`, `Video__Emociones__LimitePorMinuto`). Contrato, estados,
+auditoría y lo que hay que validar legalmente: `docs/VIDEOLLAMADAS.md`, "Lectura de emociones: consentimiento y datos sensibles".
+
+| Método | Ruta | Rol | Pertenencia | Notas |
+|---|---|---|---|---|
+| GET | `/video/consentimiento` | Cualquier rol autenticado | **Solo el paciente de la sesión — 404** | Su estado (`sin-decision`, `acepta`, `rechaza`, `revocado`, `no-disponible`) y, si se le puede ofrecer, el texto vigente y su versión. A un menor, a quien tiene tutor o no tiene fecha de nacimiento, o sin clave de cifrado en el servidor, `no-disponible`. Misma respuesta 404 para "no existe" y "no sos parte". |
+| PUT | `/video/consentimiento` | Cualquier rol autenticado | **Solo el paciente de la sesión — 404** | `{ origen, id, decision: acepta\|rechaza, version }`. Registra una fila de `ConsentimientoVideo` con la versión y el hash del texto y la hora UTC. 409: `version-desactualizada`, `usar-revocar` (ya aceptó), `menor-de-edad`, `edad-desconocida`, `no-configurado` y los de la sala. **Auditada.** |
+| POST | `/video/consentimiento/revocar` | Cualquier rol autenticado | **Solo el paciente de la sesión — 404** | `{ origen, id }`. Revoca la aceptación vigente y **anula las emociones ya guardadas de esa sesión** (nunca las notas). No depende de la ventana de la sala; se puede repetir. **Auditada**, con la cantidad anulada. |
+| GET | `/video/emociones/permiso` | Cualquier rol autenticado | **Solo el profesional del turno o un Configurador — 404** | `permitido` solo con una aceptación vigente de alguien a quien se le puede ofrecer; con `consultarCadaSegundos` y `vigenciaSegundos`. Es lo que la pantalla del profesional pregunta cada pocos segundos y obedece (falla cerrada). Un profesional que no es del turno, o que quiere una entrevista de admisión, recibe el 404 uniforme. |
 
 ## Superficie pública (reserva por link, sin sesión)
 
@@ -386,6 +401,10 @@ slug no existe o si el link está apagado (nunca se revela cuál de las dos cosa
   CB-04 de reportes, cabeceras de seguridad globales.
 - **Modo legacy (Paso 5):** `YoSoy.Tests/ModoLegacyTests.cs` — con el flag en `false`,
   `X-Usuario-Id` solo no identifica a nadie (401); un JWT real sigue andando igual.
+- **Consentimiento de la lectura de emociones (PR 6):** `YoSoy.Tests/ConsentimientoVideoEndpointsTests.cs` (los cuatro
+  endpoints y `POST /sesiones-clinicas` por HTTP: 401, 404 idéntico, 409 con su código, 429, `no-store`, el Configurador sin
+  emociones), `ConsentimientoVideoServiceTests`, `GuardiaEmocionesServiceTests`, `EmocionesCifradoServiceTests`,
+  `PurgaEmocionesTests`, `RecifrarEmocionesTests` y, contra una base real con la migración, `EmocionesBaseRealTests`.
 - **Videollamadas (PR 3):** `YoSoy.Tests/VideoAccesoEndpointsTests.cs` (matriz 401/404/409, respuesta idéntica para "no existe" y "no sos parte", bordes de la
   ventana, rol y `exp` del token desde el servidor, 503, ICE, auditoría, cabeceras, rate limit),
   `AccesoSalaServiceTests`, `TurnCredentialsServiceTests` (vectores HMAC-SHA1 calculados aparte), `TokenSalaServiceTests`,

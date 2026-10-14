@@ -28,6 +28,7 @@ vez del script consolidado, es:
 | 12 | `migrations/alter_casoderivacion_motivo_cerrado.sql` | `CasoDerivacion.Nota` |
 | 13 | `migrations/add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` |
 | 14 | `migrations/add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` |
+| 15 | `migrations/add_consentimiento_video.sql` | Tabla `ConsentimientoVideo`; `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 |
 
 **Dato mínimo obligatorio** (no esquema, pero sin él una funcionalidad entera
 no tiene con qué andar): la fila de `TipoConsentimiento` para telemedicina

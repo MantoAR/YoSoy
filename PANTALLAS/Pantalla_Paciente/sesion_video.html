@@ -32,6 +32,14 @@
         .aviso-medios p { margin: 4px 0 6px; }
         .aviso-provisorio { display: block; font-size: var(--fs-sm); opacity: .9; }
         .medios-activos { font-size: var(--fs-sm); color: var(--text-3); margin: 10px 0 0; }
+        /* Lectura de expresiones faciales (consentimiento, PR 6) */
+        .panel-emociones { margin-top: 14px; }
+        .panel-emociones h4 { margin: 8px 0 8px; font-size: var(--fs-lg); font-weight: 600; }
+        .panel-emociones p { margin: 0 0 8px; line-height: 1.5; }
+        .emo-texto { max-height: 240px; overflow-y: auto; padding: 2px 8px 2px 0; }
+        .emo-botones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .emo-decision { margin: 10px 0 0; font-weight: 500; }
+        .emo-sesion { margin-top: 12px; }
         .videos-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 12px; }
         .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
         .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -69,14 +77,29 @@
                 </button>
             </div>
             <div class="estado-box" id="estado-espera" aria-live="polite"></div>
-            <!-- Aviso de uso de cámara y micrófono. PROVISORIO: no es el consentimiento informado; el texto legal
-                 definitivo va en el PR 6 y reemplaza a este. -->
+            <!-- Aviso de uso de cámara y micrófono. PROVISORIO: no es el consentimiento informado de la atención por
+                 telemedicina (eso es la firma del panel); el texto legal definitivo lo valida el equipo legal. -->
             <div class="ui-alerta ui-alerta--info ui-alerta--bloque aviso-medios" role="note" id="aviso-medios">
                 <strong>Esta sesión usa tu cámara y tu micrófono.</strong>
                 <p>Tu profesional te va a ver y a escuchar en vivo durante la videollamada. Al tocar "Conectarme", el navegador
                    te va a pedir permiso para usarlos, y podés cortar cuando quieras con "Finalizar sesión".</p>
                 <span class="aviso-provisorio"><span class="ui-chip ui-chip--warn ui-chip--sin-punto">Aviso provisorio</span>
-                    El texto legal del consentimiento informado se incorporará más adelante.</span>
+                    El texto legal definitivo lo tiene que validar el equipo legal.</span>
+            </div>
+            <!-- Lectura de expresiones faciales: es OPCIONAL y se decide antes de conectarse, sin opción premarcada. El
+                 texto y su versión los sirve la API (es lo que queda registrado con la decisión). Si la persona es menor de
+                 edad, o el servidor no lo tiene configurado, el panel no aparece y la videollamada anda igual. -->
+            <div class="ui-alerta ui-alerta--marca ui-alerta--bloque panel-emociones oculto" role="region"
+                 aria-labelledby="emo-titulo" id="panel-emociones">
+                <span class="ui-chip ui-chip--warn ui-chip--sin-punto oculto" id="emo-provisorio">Texto provisorio</span>
+                <h4 id="emo-titulo"></h4>
+                <div class="emo-texto" id="emo-texto" tabindex="0"></div>
+                <div class="emo-botones">
+                    <button type="button" class="ui-btn ui-btn--primary" id="btn-emo-acepto">Acepto que se analicen mis expresiones</button>
+                    <button type="button" class="ui-btn" id="btn-emo-rechazo">No acepto: la videollamada sigue igual, sin análisis</button>
+                    <button type="button" class="ui-btn ui-btn--danger oculto" id="btn-emo-dejar">Dejar de compartir mis expresiones</button>
+                </div>
+                <p class="emo-decision" id="emo-decision" aria-live="polite"></p>
             </div>
         </div>
     </div>
@@ -98,6 +121,15 @@
             <span class="estado" id="estado-txt" aria-live="polite">Conectando…</span>
         </div>
         <p class="medios-activos">Tu cámara y tu micrófono están activos durante esta sesión.</p>
+        <!-- Mientras dura la sesión, a la vista: si se están analizando tus expresiones y cómo dejar de compartirlas. -->
+        <div class="ui-alerta ui-alerta--bloque emo-sesion oculto" id="emo-sesion" role="status" aria-live="polite">
+            <strong id="emo-sesion-estado"></strong>
+            <div class="emo-botones">
+                <button type="button" class="ui-btn ui-btn--danger oculto" id="btn-emo-sesion-dejar">Dejar de compartir mis expresiones</button>
+                <button type="button" class="ui-btn oculto" id="btn-emo-sesion-permitir">Permitir la lectura de mis expresiones</button>
+            </div>
+            <p class="estado-box error" id="emo-sesion-error" role="alert"></p>
+        </div>
     </div>
 
 </div>
@@ -108,8 +140,112 @@
 <script>YS.shell.iniciar({ rol: "paciente", activo: "sesion" });</script>
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
+<script src="../shared/emociones.js"></script>
 <script>
 let stream, control;   // control: lo que devuelve YS.video.entrar (cierra la conexión)
+
+// ─── LECTURA DE EXPRESIONES (consentimiento) ───────────────────
+// La API es la autoridad: acá no se guarda nada de la decisión, solo se la pide y se la pinta (YS.emociones).
+let sesionDeVideo = null;   // { origen, id } de la sesión a la que se va a entrar
+let consentimiento = null;  // último estado que dijo la API (null: no se pudo saber → no hay análisis)
+let ocupadoEmociones = false;
+let mensajeEmociones = '';  // el error de la última operación, hasta que se hace otra
+
+const $ = id => document.getElementById(id);
+
+// Pinta el panel de la sala de espera y el aviso de la sesión según el estado que dijo la API.
+function pintarConsentimiento() {
+    const panel = $('panel-emociones');
+    const c = consentimiento;
+    // Sin información, o no disponible (menor de edad, servidor sin configurar): no se ofrece nada y la llamada anda igual.
+    if (!c || !c.disponible) {
+        panel.classList.add('oculto');
+        $('emo-sesion').classList.add('oculto');
+        return;
+    }
+    panel.classList.remove('oculto');
+    $('emo-provisorio').classList.toggle('oculto', !c.provisorio);
+    if (c.titulo) $('emo-titulo').textContent = c.titulo;
+    if (Array.isArray(c.texto) && c.texto.length) {
+        const caja = $('emo-texto');
+        caja.replaceChildren(...c.texto.map(t => { const p = document.createElement('p'); p.textContent = t; return p; }));
+    }
+
+    const estado = c.estado;
+    $('btn-emo-acepto').classList.toggle('oculto', estado === 'acepta');
+    $('btn-emo-rechazo').classList.toggle('oculto', estado !== 'sin-decision');
+    $('btn-emo-dejar').classList.toggle('oculto', estado !== 'acepta');
+    $('btn-emo-acepto').textContent = estado === 'sin-decision'
+        ? 'Acepto que se analicen mis expresiones' : 'Cambié de idea: acepto que se analicen mis expresiones';
+
+    const decision = $('emo-decision');
+    decision.textContent = mensajeEmociones || ({
+        'sin-decision': 'Elegí una opción para poder conectarte. No es obligatorio aceptar.',
+        'acepta': 'Elegiste: aceptar la lectura de tus expresiones. Podés dejar de compartirlas cuando quieras.',
+        'rechaza': 'Elegiste: no aceptar. La videollamada se hace igual, sin análisis.',
+        'revocado': 'Dejaste de compartir tus expresiones. La videollamada sigue igual, sin análisis.'
+    })[estado] || '';
+    decision.classList.toggle('error', !!mensajeEmociones);
+    $('emo-sesion-error').textContent = mensajeEmociones;
+
+    // Durante la sesión: qué pasa con tus expresiones y cómo dejar de compartirlas.
+    const sesion = $('emo-sesion');
+    sesion.classList.remove('oculto');
+    sesion.classList.toggle('ui-alerta--ok', estado === 'acepta');
+    sesion.classList.toggle('ui-alerta--info', estado !== 'acepta');
+    $('emo-sesion-estado').textContent = estado === 'acepta'
+        ? 'Tu profesional está analizando tus expresiones faciales (lo aceptaste).'
+        : estado === 'revocado'
+            ? 'Dejaste de compartir tus expresiones: no se analiza ni se guarda nada más.'
+            : 'No se están analizando tus expresiones.';
+    $('btn-emo-sesion-dejar').classList.toggle('oculto', estado !== 'acepta');
+    $('btn-emo-sesion-permitir').classList.toggle('oculto', estado === 'acepta' || estado === 'sin-decision');
+}
+
+// Pide el estado y el texto de la sesión. Si falla, no se ofrece nada (no hay análisis): no impide la videollamada.
+async function cargarConsentimiento(sesion) {
+    sesionDeVideo = sesion;
+    try {
+        consentimiento = await YS.emociones.obtener(sesion);
+    } catch (err) {
+        consentimiento = null;
+    }
+    pintarConsentimiento();
+    return consentimiento;
+}
+
+// Corre una operación del consentimiento sin permitir dos a la vez, y deja el panel con el estado real de la API.
+async function operarEmociones(operacion) {
+    if (ocupadoEmociones || !sesionDeVideo) return;
+    ocupadoEmociones = true;
+    mensajeEmociones = '';
+    const botones = document.querySelectorAll('#panel-emociones button, #emo-sesion button');
+    botones.forEach(b => { b.disabled = true; });
+    try {
+        await operacion();
+        consentimiento = await YS.emociones.obtener(sesionDeVideo);
+    } catch (err) {
+        // Si el texto cambió mientras lo leía, se vuelve a pedir para que lo lea de nuevo.
+        if (err.codigo === 'version-desactualizada') {
+            try { consentimiento = await YS.emociones.obtener(sesionDeVideo); } catch { /* queda lo que había */ }
+        }
+        mensajeEmociones = err.message;
+    } finally {
+        botones.forEach(b => { b.disabled = false; });
+        ocupadoEmociones = false;
+        pintarConsentimiento();
+    }
+}
+
+const aceptarEmociones = () => operarEmociones(() => YS.emociones.decidir(sesionDeVideo, 'acepta', consentimiento.version));
+const rechazarEmociones = () => operarEmociones(() => YS.emociones.decidir(sesionDeVideo, 'rechaza', consentimiento.version));
+const dejarDeCompartir = () => operarEmociones(() => YS.emociones.revocar(sesionDeVideo));
+
+$('btn-emo-acepto').addEventListener('click', aceptarEmociones);
+$('btn-emo-rechazo').addEventListener('click', rechazarEmociones);
+$('btn-emo-dejar').addEventListener('click', dejarDeCompartir);
+$('btn-emo-sesion-dejar').addEventListener('click', dejarDeCompartir);
+$('btn-emo-sesion-permitir').addEventListener('click', aceptarEmociones);
 
 // La página se abre con ?turno=<id> o ?admision=<id> (desde un panel) o con ?sala=<código> (el link de la
 // notificación). Con la sesión ya en la URL solo falta tocar "Conectarme": la cámara se pide recién ahí. Con
@@ -133,6 +269,8 @@ let stream, control;   // control: lo que devuelve YS.video.entrar (cierra la co
         : 'Tu sesión ya está lista. Tocá "Conectarme" cuando estés listo.';
     estado.className = 'estado-box';
     document.getElementById('btn-conectar').focus();
+    // Con la sesión conocida, el texto del consentimiento se puede leer con calma antes de conectarse.
+    cargarConsentimiento(sesion);
 })();
 
 async function conectarse() {
@@ -151,9 +289,26 @@ async function conectarse() {
         return;
     }
 
+    boton.disabled = true;
+
+    // 0. Lectura de expresiones: tiene que decidir ANTES de conectarse (sin opción premarcada). Rechazar no impide la
+    // llamada. Si no se puede saber (error, menor de edad, servidor sin configurar), no hay análisis y se sigue.
+    if (!consentimiento || sesionDeVideo?.origen !== sesion.origen || sesionDeVideo?.id !== sesion.id) {
+        estadoBox.textContent = 'Preparando tu sesión…';
+        estadoBox.className = 'estado-box';
+        await cargarConsentimiento(sesion);
+    }
+    if (consentimiento && consentimiento.disponible && consentimiento.estado === 'sin-decision') {
+        estadoBox.textContent = 'Antes de conectarte, elegí si aceptás o no la lectura de tus expresiones (más abajo). Después tocá "Conectarme".';
+        estadoBox.className = 'estado-box';
+        $('panel-emociones').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        $('btn-emo-acepto').focus();
+        boton.disabled = false;
+        return;
+    }
+
     estadoBox.textContent = 'Verificando tu acceso a la sala…';
     estadoBox.className = 'estado-box';
-    boton.disabled = true;
 
     // 1. Acceso: la API dice si podés entrar, a qué sala y con qué rol, y da el token y los servidores ICE.
     let acceso;

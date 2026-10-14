@@ -1,0 +1,19 @@
+Lectura de expresiones faciales durante la videollamada
+
+TEXTO PROVISORIO. Todavía no fue validado por un profesional legal y no es el consentimiento definitivo.
+
+Qué es. Durante la videollamada, el sistema puede hacer una estimación automática de tus expresiones faciales (por ejemplo, si tu rostro se parece más a "neutral", "tristeza" o "sorpresa"). El análisis se hace en el navegador de tu profesional, mientras dura la sesión, y tu profesional ve el resultado en vivo. Es una ayuda para su trabajo: no es un diagnóstico, no reemplaza su criterio clínico y puede equivocarse.
+
+Para qué se usa. Solo para tu atención de salud, como un apoyo más para que tu profesional evalúe cómo viene la sesión.
+
+Qué se guarda. Si aceptás, al terminar la sesión tu profesional puede guardar en tu historia clínica un resumen: el promedio de cada expresión durante esa sesión (por ejemplo, "Neutral 60 %, Tristeza 25 %"). No se guarda tu imagen, ni el video, ni cada momento por separado. El resumen se guarda cifrado.
+
+Quién puede verlo. Los profesionales de tu equipo de atención que tienen acceso a tu historia clínica. El equipo de administración de la plataforma no lo ve desde el sistema.
+
+Por cuánto tiempo. [PLAZO DE CONSERVACIÓN: A DEFINIR POR EL EQUIPO LEGAL]
+
+Es tu decisión. Aceptar es voluntario y no cambia tu atención: si no aceptás, la videollamada se hace igual, sin esta lectura. Podés cambiar de idea cuando quieras, también durante la sesión, con el botón "Dejar de compartir mis expresiones": desde ese momento no se analiza ni se guarda nada más de esa sesión y, si ya se había guardado un resumen, se elimina.
+
+Tus derechos. Podés pedir acceso, rectificación o supresión de tus datos personales. [DATOS DE CONTACTO DE LA INSTITUCIÓN: A COMPLETAR]
+
+Marco normativo de referencia: Ley 25.326 (protección de los datos personales), Ley 26.529 (derechos del paciente, historia clínica y consentimiento informado) y Ley 26.657 (salud mental). [REFERENCIAS A VALIDAR POR EL EQUIPO LEGAL]

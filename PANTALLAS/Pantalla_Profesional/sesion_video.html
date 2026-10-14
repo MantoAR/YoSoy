@@ -45,6 +45,12 @@
         #b-angry { background: #E24B4A; } #b-fearful { background: #7F77DD; } #b-surprised { background: #EF9F27; }
         #b-disgusted { background: #D4537E; }
         .emo-val { width: 28px; text-align: right; color: var(--text-4); font-size: var(--fs-xs); }
+        /* Estado del consentimiento del paciente: sin su aceptación no se analiza nada y las barras quedan apagadas. */
+        .emo-estado { font-size: var(--fs-sm); line-height: 1.4; margin: 0 0 10px; padding: 8px 10px; border-radius: var(--r-md);
+                      background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
+        .emo-estado.activa { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
+        .emo-estado.alerta { background: var(--warn-bg, var(--surface-2)); border-color: var(--warn-border, var(--border)); }
+        #emo-bars.apagadas { opacity: .35; }
 
         /* Stats */
         .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -158,7 +164,8 @@
             <div class="panel">
                 <div class="card">
                     <h3>Expresiones del paciente</h3>
-                    <div id="emo-bars">
+                    <p class="emo-estado" id="emo-estado" role="status" aria-live="polite">Consultando si el paciente aceptó la lectura de emociones…</p>
+                    <div id="emo-bars" class="apagadas">
                         <div class="emo-row"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="b-neutral"></div></div><span class="emo-val" id="v-neutral">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Felicidad</span><div class="emo-track"><div class="emo-fill" id="b-happy"></div></div><span class="emo-val" id="v-happy">0%</span></div>
                         <div class="emo-row"><span class="emo-label">Tristeza</span><div class="emo-track"><div class="emo-fill" id="b-sad"></div></div><span class="emo-val" id="v-sad">0%</span></div>
@@ -231,6 +238,7 @@
 <script src="../shared/ui.js"></script>
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
+<script src="../shared/emociones.js"></script>
 <script>
 const EMOCIONES = {
     neutral:   { label:'Neutral',   color:'#888780', emoji:'😐' },
@@ -243,7 +251,11 @@ const EMOCIONES = {
 };
 
 let control, stream, detectionTimer, timerInterval, sessionStart;   // control: lo que devuelve YS.video.entrar
-let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
+// La lectura de emociones solo corre con el consentimiento vigente del paciente, y la autoridad es la API: YS.emociones
+// pregunta cada pocos segundos, frena si no hay permiso (o no contesta) y descarta lo acumulado si el paciente revoca.
+// Las muestras (cuántas, los promedios) viven en `analisis`; acá solo queda la línea de tiempo de la pantalla.
+let analisis = null;
+let historial = [], ultimaEmo = null;
 let modelsListo = false;
 let sala = '';   // código de la sala, solo para mostrarlo en el reporte: lo decide la API (acceso.sala)
 let tipoCierreSeleccionado = null;
@@ -441,6 +453,12 @@ async function entrarASala() {
     estadoTxt.textContent = 'Esperando al paciente...';
     document.getElementById('vid-propio').srcObject = stream;
 
+    // 2b. Consentimiento de la lectura de emociones: desde acá se le pregunta a la API si el paciente la aceptó. Hasta que
+    // diga que sí (y mientras lo siga diciendo) no se analiza ni se acumula nada.
+    analisis?.detener();
+    analisis = YS.emociones.analizar({ sesion: sesionVideo, alCambiar: alCambiarPermiso });
+    analisis.iniciar();
+
     // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
     // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
     // para siempre en "Esperando al paciente...".
@@ -453,7 +471,7 @@ async function entrarASala() {
             // análisis y el reloj de la sesión arrancan una sola vez.
             if (sessionStart) return;
             sessionStart = Date.now();
-            muestras = 0; totales = {}; historial = []; ultimaEmo = null;
+            historial = []; ultimaEmo = null;
             iniciarDeteccion(vidPaciente);
             iniciarTimer();
         },
@@ -472,6 +490,8 @@ async function entrarASala() {
 // No se pudo entrar a la sala: vuelve a la pantalla de conexión diciendo por qué. La sesión sigue elegida, así que una
 // vez resuelto alcanza con tocar "Entrar a la sala" de nuevo.
 function volverAConexion(motivo) {
+    analisis?.detener();
+    analisis = null;
     stream?.getTracks().forEach(t => t.stop());
     control?.cerrar();
     control = null;
@@ -483,11 +503,49 @@ function volverAConexion(motivo) {
     aviso.textContent = motivo;
 }
 
-// ─── DETECCIÓN DE EXPRESIONES ─────────────────────────────
+// ─── CONSENTIMIENTO Y DETECCIÓN DE EXPRESIONES ────────────
+// El paciente decide (acepta, rechaza, revoca) en su pantalla y la API lo registra; acá solo se obedece. Sin una
+// aceptación vigente el modelo ni se corre, y si el paciente revoca lo acumulado se descarta (YS.emociones.analizar).
+
+// Deja la tarjeta de expresiones como si no hubiera pasado nada: sin barras, sin línea de tiempo, sin estadísticas.
+function limpiarPanelEmociones() {
+    for (const k of Object.keys(EMOCIONES)) {
+        document.getElementById(`b-${k}`).style.width = '0%';
+        document.getElementById(`v-${k}`).textContent = '0%';
+    }
+    document.getElementById('emo-live').textContent = '😐 Esperando...';
+    document.getElementById('stat-muestras').textContent = '0';
+    document.getElementById('stat-dom').textContent = '—';
+    document.getElementById('tl').replaceChildren();
+    historial = [];
+    ultimaEmo = null;
+    const canvas = document.getElementById('overlay');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// Cada vez que cambia lo que dice la API (acepta, rechaza, revoca, no contesta…).
+function alCambiarPermiso(v, info) {
+    const cuadro = document.getElementById('emo-estado');
+    cuadro.textContent = YS.emociones.textoDeEstado(v);
+    cuadro.classList.toggle('activa', v.permitido);
+    cuadro.classList.toggle('alerta', !v.permitido && v.estado !== 'consultando');
+    document.getElementById('emo-bars').classList.toggle('apagadas', !v.permitido);
+    // Sin permiso y sin nada acumulado (rechazó, revocó, no disponible): la tarjeta queda limpia. Una pausa por falta de
+    // conexión conserva lo acumulado, así que no se limpia.
+    if (!v.permitido && info.acumuladas === 0) limpiarPanelEmociones();
+    if (!v.permitido && v.estado === 'revocado') toast('El paciente dejó de compartir sus expresiones: se detuvo el análisis.', 6000);
+}
+
 function iniciarDeteccion(video) {
     const canvas = document.getElementById('overlay');
     async function detectar() {
         if (!video || video.readyState < 2) {
+            detectionTimer = setTimeout(detectar, 500); return;
+        }
+        const ctx = canvas.getContext('2d');
+        // Sin el consentimiento vigente del paciente no se corre el modelo ni se dibuja nada.
+        if (!analisis || !analisis.permitido()) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             detectionTimer = setTimeout(detectar, 500); return;
         }
         canvas.width = video.videoWidth;
@@ -496,32 +554,30 @@ function iniciarDeteccion(video) {
         const result = await faceapi.detectSingleFace(video, opts)
             .withFaceLandmarks(true).withFaceExpressions();
 
-        const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (result) {
+        // El modelo tarda: el paciente pudo revocar mientras trabajaba. Se vuelve a mirar antes de usar el resultado.
+        if (result && analisis && analisis.permitido()) {
             const { box } = result.detection;
             ctx.strokeStyle = '#185FA5';
             ctx.lineWidth = 2;
             ctx.strokeRect(box.x, box.y, box.width, box.height);
 
             const exps = result.expressions;
-            muestras++;
-            for (const [k,v] of Object.entries(exps)) totales[k] = (totales[k]||0) + v;
+            analisis.muestra(exps);
 
             for (const k of Object.keys(EMOCIONES)) {
                 const pct = Math.round((exps[k]||0)*100);
                 document.getElementById(`b-${k}`).style.width = pct+'%';
                 document.getElementById(`v-${k}`).textContent = pct+'%';
             }
-            document.getElementById('stat-muestras').textContent = muestras;
+            document.getElementById('stat-muestras').textContent = analisis.cantidad();
 
             const dom = Object.entries(exps).sort((a,b) => b[1]-a[1])[0];
             document.getElementById('emo-live').textContent = `${EMOCIONES[dom[0]].emoji} ${EMOCIONES[dom[0]].label}`;
 
-            let dk='neutral', dv=0;
-            for (const [k,v] of Object.entries(totales)) { if(v>dv){dk=k;dv=v;} }
-            document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
+            const dk = analisis.dominante();
+            if (dk) document.getElementById('stat-dom').textContent = `${EMOCIONES[dk].emoji} ${EMOCIONES[dk].label}`;
 
             if (dom[0] !== ultimaEmo) {
                 ultimaEmo = dom[0];
@@ -657,6 +713,7 @@ function seleccionarCierre(tipo) {
 async function finalizarSesion() {
     clearTimeout(detectionTimer);
     clearInterval(timerInterval);
+    analisis?.detener();   // guardar y exportar vuelven a preguntar antes de usar nada
 
     // Detener micrófonos
     if (micMedicoActivo) { recMedico?.stop(); micMedicoActivo = false; }
@@ -667,59 +724,92 @@ async function finalizarSesion() {
 
     document.getElementById('btn-exportar').disabled = false;
     document.getElementById('btn-guardar-hc').disabled = false;
-    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${muestras} muestras registradas.`;
+    document.getElementById('estado-txt').textContent = `Sesión finalizada. ${analisis ? analisis.cantidad() : 0} muestras registradas.`;
     toast('Sesión finalizada. Podés guardar en HC o exportar el reporte.');
 }
 
 // ─── GUARDAR EN HC ────────────────────────────────────────
+// Por qué una emoción no se guarda, dicho para el profesional.
+function razonSinEmociones(motivo) {
+    switch (motivo) {
+        case 'revocado': return 'el paciente dejó de compartir sus expresiones';
+        case 'rechaza': return 'el paciente no aceptó la lectura de emociones';
+        case 'sin-decision': return 'el paciente no llegó a decidir si la acepta';
+        case 'no-disponible': return 'la lectura de emociones no está disponible para esta persona';
+        case 'sin-muestras': return 'no se llegaron a tomar suficientes muestras';
+        case 'sin-confirmacion': return 'no se pudo confirmar el consentimiento del paciente con el servidor';
+        default: return 'no hay un consentimiento vigente del paciente';
+    }
+}
+
+// Las emociones salen SOLO con un permiso fresco de la API (el paciente pudo revocar hace un instante) y siempre las
+// vuelve a validar el servidor. Si no hay permiso, la sesión se guarda igual (notas, cierre), sin emociones.
+async function emocionesParaGuardar() {
+    if (!analisis) return { emociones: null, motivo: 'no-disponible' };
+    return analisis.paraGuardar();
+}
+
 async function guardarEnHC() {
     const idPaciente = document.getElementById('sel-paciente').value;
     if (!idPaciente) { toast('Seleccioná el paciente antes de guardar.'); return; }
     if (!idProfesional) { toast('No se pudo identificar tu usuario profesional: ingresá de nuevo para guardar en la historia clínica.', 8000); return; }
-
-    const n = muestras || 1;
-    const promedioEmociones = {};
-    for (const [k,v] of Object.entries(totales))
-        promedioEmociones[EMOCIONES[k]?.label || k] = Math.round(v/n*100);
 
     const transcripcionTexto = transcripcionLineas
         .map(l => `[${l.quien === 'medico' ? 'MÉDICO' : 'PACIENTE'}] ${l.texto}`)
         .join('\n');
 
     const notas = document.getElementById('notas-evolucion').value;
+    const btn = document.getElementById('btn-guardar-hc');
+    btn.disabled = true;   // un solo guardado a la vez: el permiso se vuelve a consultar y eso tarda un instante
+
+    const { emociones, motivo } = await emocionesParaGuardar();
 
     const body = {
         idPaciente:         parseInt(idPaciente),
         idProfesional:      idProfesional,
+        idTurno:            sesionVideo && sesionVideo.origen === 'turno' ? sesionVideo.id : null,
         transcripcion:      transcripcionTexto || null,
         notasEvolucion:     notas || null,
-        historialEmociones: JSON.stringify(promedioEmociones),
-        tipoCierre:         tipoCierreSeleccionado || null
+        tipoCierre:         tipoCierreSeleccionado || null,
+        emociones:          emociones
     };
 
     try {
-        await YS.api('/sesiones-clinicas', { method: 'POST', json: body, sinRedireccion: true });
-        toast('✅ Sesión guardada en la Historia Clínica del paciente.');
-        document.getElementById('btn-guardar-hc').disabled = true;
-        document.getElementById('btn-guardar-hc').textContent = '✅ Guardado en HC';
+        const r = await YS.api('/sesiones-clinicas', { method: 'POST', json: body, sinRedireccion: true });
+        btn.textContent = '✅ Guardado en HC';
+        const estado = r && r.emociones && r.emociones.estado;
+        if (estado === 'guardadas') {
+            toast('✅ Sesión guardada en la Historia Clínica del paciente, con las emociones (cifradas).');
+        } else if (estado === 'descartadas' && r.emociones.mensaje) {
+            toast('✅ Sesión guardada. ' + r.emociones.mensaje, 9000);
+        } else if (emociones === null && motivo !== 'sin-muestras' && motivo !== 'no-disponible') {
+            // Hubo (o pudo haber) análisis y no se mandó nada: se dice por qué, también cuando había muestras acumuladas.
+            toast('✅ Sesión guardada en la Historia Clínica, sin emociones: ' + razonSinEmociones(motivo) + '.', 8000);
+        } else {
+            toast('✅ Sesión guardada en la Historia Clínica del paciente.');
+        }
     } catch (err) {
         // El botón sigue habilitado: tras volver a ingresar en otra pestaña se puede reintentar.
+        btn.disabled = false;
         toast(err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : '❌ No se pudo guardar en la HC. ' + err.message, 8000);
     }
 }
 
 // ─── EXPORTAR REPORTE ─────────────────────────────────────
-function exportarReporte() {
-    const n = muestras || 1;
+// Lo que se baja a disco sigue la misma regla que lo que se guarda: sin un consentimiento vigente y confirmado ahora,
+// el reporte sale sin emociones.
+async function exportarReporte() {
+    const { emociones } = await emocionesParaGuardar();
+    const resumen = emociones && analisis ? analisis.resumen() : null;
     const reporte = {
         fecha: new Date().toLocaleDateString('es-AR'),
         sala,
         duracion_segundos: Math.floor((Date.now() - sessionStart) / 1000),
-        total_muestras: muestras,
-        promedio_emociones: Object.fromEntries(
-            Object.entries(totales).map(([k,v]) => [EMOCIONES[k]?.label||k, Math.round(v/n*100)+'%'])
-        ),
-        historial_cambios: historial,
+        total_muestras: resumen ? resumen.muestras : 0,
+        promedio_emociones: resumen
+            ? Object.fromEntries(Object.entries(resumen.promedios).map(([k, v]) => [EMOCIONES[k]?.label || k, v + '%']))
+            : {},
+        historial_cambios: resumen ? historial : [],
         transcripcion: transcripcionLineas,
         notas_evolucion: document.getElementById('notas-evolucion').value,
         tipo_cierre: tipoCierreSeleccionado

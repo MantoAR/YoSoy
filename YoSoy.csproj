@@ -29,6 +29,12 @@
     <None Remove="docs/**;signaling-server/**" />
   </ItemGroup>
 
+  <!-- Textos del consentimiento de la lectura de emociones (PR 6): van adentro del ensamblado, así lo que se muestra y
+       lo que se hashea no depende de ninguna carpeta del servidor. Una versión publicada no se edita. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Video\Consentimiento\*.txt" LogicalName="ConsentimientoVideo.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- PANTALLAS/ es el frontend que sirve la propia API (UseStaticFiles en Program.cs).
        El SDK clasifica la mayoría de los archivos ahí (.html/.js/.css) como None por
        default, y None no se copia al publicar; unos pocos .json ya entraban solos como

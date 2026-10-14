@@ -2,7 +2,7 @@
    01-produccion.sql — Esquema completo de YoSoy para un servidor nuevo.
 
    Qué es: la base [yosoy] tal como la necesita el código hoy — el script base
-   de la rama `DataBase` más las 14 migraciones de migrations/, consolidados
+   de la rama `DataBase` más las 15 migraciones de migrations/, consolidados
    en un solo archivo con la forma FINAL de cada tabla (no un replay histórico
    de cada ALTER). Pensado para correr UNA vez contra un servidor recién
    instalado, sin nada previo.
@@ -292,7 +292,8 @@ CREATE TABLE [dbo].[UsuarioRol](
 GO
 
 -- ── 2) Tablas — admisión y sesión clínica (migración 9: existían en la base
---      real sin una migración propia; esquema tomado tal cual) ─────────────
+--      real sin una migración propia; esquema tomado tal cual) y consentimiento
+--      de la lectura de emociones en la sala de video (migración 15) ────────
 
 CREATE TABLE [dbo].[InformeAdmision](
     [IdInforme] [int] IDENTITY(1,1) NOT NULL PRIMARY KEY,
@@ -338,7 +339,32 @@ CREATE TABLE [dbo].[SesionClinica](
     [Transcripcion] [nvarchar](max) NULL,
     [NotasEvolucion] [nvarchar](max) NULL,
     [HistorialEmociones] [nvarchar](max) NULL,
-    [TipoCierre] [nvarchar](50) NULL
+    [TipoCierre] [nvarchar](50) NULL,
+    -- Migración 15: con qué consentimiento se guardaron las emociones, y cuándo y por qué se anularon.
+    [IdConsentimientoVideo] [int] NULL,
+    [EmocionesAnuladasUtc] [datetime2](3) NULL,
+    [EmocionesAnuladasMotivo] [nvarchar](20) NULL,
+    CONSTRAINT [CK_SesionClinica_EmocionesAnuladasMotivo]
+        CHECK ([EmocionesAnuladasMotivo] IS NULL OR [EmocionesAnuladasMotivo] IN ('revocacion', 'retencion'))
+);
+GO
+
+-- Migración 15. Una fila por DECISIÓN de un paciente sobre una sesión de video (turno o entrevista de admisión);
+-- la vigente es la más nueva de esa sesión. Fechas en UTC a propósito (el resto del esquema usa GETDATE()).
+CREATE TABLE [dbo].[ConsentimientoVideo](
+    [IdConsentimientoVideo] [int] IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ConsentimientoVideo] PRIMARY KEY,
+    [IdUsuario] [int] NOT NULL,
+    [IdPaciente] [int] NOT NULL,
+    [Origen] [nvarchar](10) NOT NULL,
+    [IdOrigen] [int] NOT NULL,
+    [VersionTexto] [nvarchar](40) NOT NULL,
+    [HashTexto] [char](64) NOT NULL,
+    [Decision] [nvarchar](10) NOT NULL,
+    [DecididoUtc] [datetime2](3) NOT NULL CONSTRAINT [DF_ConsentimientoVideo_DecididoUtc] DEFAULT (sysutcdatetime()),
+    [RevocadoUtc] [datetime2](3) NULL,
+    CONSTRAINT [CK_ConsentimientoVideo_Origen] CHECK ([Origen] IN ('turno', 'admision')),
+    CONSTRAINT [CK_ConsentimientoVideo_Decision] CHECK ([Decision] IN ('acepta', 'rechaza')),
+    CONSTRAINT [CK_ConsentimientoVideo_Revocacion] CHECK ([RevocadoUtc] IS NULL OR ([Decision] = 'acepta' AND [RevocadoUtc] >= [DecididoUtc]))
 );
 GO
 
@@ -556,6 +582,8 @@ CREATE UNIQUE INDEX [UQ_EtiquetaConversacion_Nombre] ON [dbo].[EtiquetaConversac
 GO
 CREATE INDEX [IX_RespuestaRapida_Profesional] ON [dbo].[RespuestaRapida]([IdProfesional]);
 GO
+CREATE INDEX [IX_ConsentimientoVideo_Sesion] ON [dbo].[ConsentimientoVideo]([Origen], [IdOrigen], [IdPaciente], [IdConsentimientoVideo]);
+GO
 
 -- ── 7) Claves foráneas (todas al final, mismo criterio que el script base:
 --      ninguna CREATE TABLE de arriba depende del orden de las demás) ──────
@@ -628,6 +656,12 @@ GO
 ALTER TABLE [dbo].[SesionClinica] ADD CONSTRAINT [FK_SesionClinica_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
 GO
 ALTER TABLE [dbo].[SesionClinica] ADD CONSTRAINT [FK_SesionClinica_Profesional] FOREIGN KEY([IdProfesional]) REFERENCES [dbo].[Profesional]([IdProfesional]);
+GO
+ALTER TABLE [dbo].[ConsentimientoVideo] ADD CONSTRAINT [FK_ConsentimientoVideo_Usuario] FOREIGN KEY([IdUsuario]) REFERENCES [dbo].[Usuario]([IdUsuario]);
+GO
+ALTER TABLE [dbo].[ConsentimientoVideo] ADD CONSTRAINT [FK_ConsentimientoVideo_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
+GO
+ALTER TABLE [dbo].[SesionClinica] ADD CONSTRAINT [FK_SesionClinica_ConsentimientoVideo] FOREIGN KEY([IdConsentimientoVideo]) REFERENCES [dbo].[ConsentimientoVideo]([IdConsentimientoVideo]);
 GO
 
 ALTER TABLE [dbo].[ProfesionalGrupo] ADD CONSTRAINT [FK_ProfesionalGrupo_Profesional] FOREIGN KEY([IdProfesional]) REFERENCES [dbo].[Profesional]([IdProfesional]);
