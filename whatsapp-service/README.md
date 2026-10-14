@@ -177,19 +177,47 @@ WhatsApp: loading_screen 100%
 WhatsApp conectado (número 549...).     ← esto es "ready"
 ```
 
-**Caso real ya visto y parcheado** (ver `patches/whatsapp-web.js+1.34.7.patch` y
-`patches/README.md` para las fuentes): `loading_screen 100%` y `authenticated` —
-repetido varias veces— sin que `ready` llegue nunca, y sin ningún error en el medio. Es
-una carrera conocida de whatsapp-web.js (si la sesión sincroniza más rápido de lo que
-tarda en registrarse el listener que espera ese evento, nunca se entera). El parche ya
-corrige esto para 1.34.7 — si de nuevo se ve exactamente este patrón después de aplicado
-el parche, algo cambió del lado de WhatsApp Web otra vez.
+**Caso real ya visto, con un parche aplicado que NO lo resolvió del todo** (ver
+`patches/whatsapp-web.js+1.34.7.patch` y `patches/README.md` para las fuentes):
+`loading_screen 100%` y `authenticated` —repetido 2 a 4 veces— sin que `ready` llegue
+nunca, y sin ningún error en el medio. El parche corrige una carrera real y confirmada
+(si la sesión sincroniza más rápido de lo que tarda en registrarse el listener que
+espera ese evento, nunca se entera) — pero en producción, **con el parche ya puesto, se
+siguió viendo exactamente este mismo patrón**. O sea: esa carrera es real y vale la pena
+tenerla arreglada, pero no es la única causa de este síntoma, o no es la causa en todos
+los casos.
 
-`authenticated` repitiéndose varias veces **no es inofensivo ni está arreglado por este
-parche** — es un síntoma de que `inject()` se ejecutó más de una vez y quedaron
-listeners duplicados (detalle y por qué no se corrigió acá en `patches/README.md`); no
-debería impedir que `ready` dispare una vez aplicado el parche de arriba, pero si se ve
-mucho (más de 2-3 veces seguidas) vale la pena mirarlo con más cuidado.
+`authenticated` repitiéndose varias veces **no es inofensivo** — es un síntoma de que
+`inject()` se ejecutó más de una vez y quedaron listeners duplicados (detalle en
+`patches/README.md`), y de hecho es la hipótesis más fuerte ahora mismo sobre por qué
+`ready` sigue sin llegar incluso con la carrera de `hasSynced` ya corregida: ejecuciones
+concurrentes de la misma cadena de inicialización pueden pisarse entre sí en algún paso
+posterior (detalle completo, con cada paso y de qué depende, en `patches/README.md`,
+"Diagnóstico de la página").
+
+**`WHATSAPP_DEBUG=1`** (variable de entorno, apagada por default): activa diagnóstico
+fino para este caso puntual —
+- Loguea `console`/`pageerror` reales de la página (tipos `error` y `warning`,
+  truncados a 300 caracteres). Importante: ese contenido lo genera WhatsApp Web, no
+  nuestro código — no hay garantía completa de que nunca contenga nada sensible de la
+  cuenta, por eso esto queda apagado por default y conviene prenderlo solo mientras se
+  esté diagnosticando, no dejarlo siempre encendido.
+- Tras `authenticated`, loguea la versión de WhatsApp Web que reporta el cliente
+  (`client.getWWebVersion()`).
+- Si pasan 60s y de nuevo 180s desde `authenticated` sin que llegue `ready`, sondea
+  dentro de la página: estado y `hasSynced` de `AppState`, si `window.Store` y
+  `window.WWebJS` llegaron a existir, y cualquier error al evaluar eso. Pensado para
+  correlacionar con los pasos de `inject()` que podrían haberse colgado — ver
+  `patches/README.md`.
+- Loguea explícito cuando `ready` sí llega (además del log ya existente de "WhatsApp
+  conectado").
+
+Prender solo en el VPS real, mientras se esté mirando este problema puntual:
+```
+WHATSAPP_DEBUG=1
+```
+en `/opt/yosoy/config/whatsapp.env`, `sudo systemctl restart whatsapp-service`, y volver
+a quitarlo cuando ya no haga falta.
 
 Si el log se corta en algún `loading_screen` (sin llegar al 100%) o directamente nunca
 aparece `authenticated`, es una situación distinta a la de arriba — señal más genérica de
