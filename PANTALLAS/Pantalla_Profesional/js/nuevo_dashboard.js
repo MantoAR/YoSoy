@@ -163,7 +163,7 @@ function htmlSesionesHoy(turnosHoy) {
                     <span class="texto-suave">Compartí este código con el paciente:</span>
                     <code class="codigo-sala codigo-sala--grande">${YS.esc(t.codigoSala)}</code>
                     <button class="ui-btn ui-btn--sm" onclick="copiarCodigo('${YS.esc(t.codigoSala)}')">Copiar</button>
-                    <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="activarTab('sesion')">Entrar a la sala →</button>
+                    <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="entrarASesion(${t.idTurno}, ${t.idPaciente})">Entrar a la sala →</button>
                 </div>` : ''}
             </div>`).join('')}
         </div>`;
@@ -244,7 +244,7 @@ async function confirmarCitaUrgente() {
 
         // Ir a sesión con el paciente preseleccionado
         YS.shell.marcar('sesion');
-        sesion(idPac);
+        sesion(idPac, turnoUrgente.idTurno);
         if (sinConsentimiento) bannerSinConsentimiento();
 
     } catch { toast('No se pudo conectar con el servidor.', 'error'); resultado.innerHTML = ''; }
@@ -339,7 +339,7 @@ async function irASala(idTurno, idPaciente) {
 
 
     YS.shell.marcar('sesion');
-    sesion(idPaciente);
+    sesion(idPaciente, idTurno);
     if (sinConsentimiento) bannerSinConsentimiento();
 }
 
@@ -683,6 +683,12 @@ function abrirSesionCon(idPaciente) {
     sesion(idPaciente);
 }
 
+// Sesión de video de un turno que ya tiene sala (desde "Sesiones de hoy")
+function entrarASesion(idTurno, idPaciente) {
+    YS.shell.marcar('sesion');
+    sesion(idPaciente, idTurno);
+}
+
 function renderSesionesClinicas(lista) {
     if (!lista?.length) return YS.vacio({ icono: 'video', texto: 'Todavía no hay sesiones clínicas registradas.' });
     return lista.map(s => {
@@ -762,13 +768,17 @@ function bannerSinConsentimiento() {
     c.prepend(b);
 }
 
-function sesion(idPaciente = null) {
-    const src = idPaciente 
-        ? `sesion_video.html?idPaciente=${idPaciente}` 
-        : 'sesion_video.html';
+// La sala se abre dentro de un iframe. idTurno le dice a qué sesión entrar (la sala la genera el turno) e idPaciente deja
+// elegido al paciente para la historia clínica. Sin idTurno, la sala deja elegir entre los turnos que ya tienen sala.
+function sesion(idPaciente = null, idTurno = null) {
+    const params = new URLSearchParams();
+    if (idTurno) params.set('turno', idTurno);
+    if (idPaciente) params.set('idPaciente', idPaciente);
+    const consulta = params.toString();
+    const src = 'sesion_video.html' + (consulta ? '?' + consulta : '');
     document.getElementById('contenido').innerHTML = `
         <div class="sesion-iframe-wrapper">
-            <iframe src="${src}" allow="camera; microphone; display-capture"></iframe>
+            <iframe src="${YS.esc(src)}" allow="camera; microphone; display-capture"></iframe>
         </div>
     `;
 }

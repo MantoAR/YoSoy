@@ -5,14 +5,13 @@ candidatos ICE entre las dos personas de una sala (un profesional y un paciente)
 no usa la base y no llama a la API. Quién puede entrar a qué sala lo decide la API al emitir un **token firmado**
 (ver "Token de sala").
 
-> **No se expone todavía.** Este servicio **no se publica en Caddy hasta que estén en producción este PR
-> (señalización segura), el que emite el token desde la API (PR 3) y el del frontend que lo manda (PR 4)**. El
-> puerto 3001 **no se abre nunca en UFW**: Caddy llega por loopback. El despliegue (unit de systemd, Caddy) va en
-> el PR 5; nada de eso está en este directorio.
+> **No se expone todavía.** Este servicio **no se publica en Caddy hasta que estén en producción la señalización
+> segura (PR 2), la API que emite el token (PR 3) y el frontend que lo manda (PR 4)**. El puerto 3001 **no se abre
+> nunca en UFW**: Caddy llega por loopback. El despliegue (unit de systemd, Caddy) va en el PR 5; nada de eso está en
+> este directorio.
 >
-> **Cambio incompatible:** desde este PR el servidor exige el token. Las pantallas actuales (`sesion_video.html`)
-> todavía no lo mandan, así que **no conectan hasta el PR 4**. Para probar a mano mientras tanto, ver
-> "Emitir un token para pruebas".
+> **El servidor exige el token** (PR 2). Las pantallas lo piden a la API (`POST /video/acceso`) y lo mandan desde el
+> PR 4: ver `docs/VIDEOLLAMADAS.md`. Para probar a mano sin pasar por las pantallas, ver "Emitir un token para pruebas".
 
 ## Cómo se corre
 
@@ -196,3 +195,8 @@ algoritmos; sala y rol que declara el cliente; sala distinta; tercer participant
 el caso simultáneo); reemplazo del mismo usuario; evento sin `join` previo; mensajes gigantes y mal formados;
 corte por `exp`; límites por IP (con `X-Forwarded-For`) y por socket; CORS; logs sin tokens; y que el proceso no
 arranque sin secreto, con uno débil o con configuración inválida.
+
+`test/video-frontend.test.js` prueba, contra este mismo servidor, la lógica de la sala en el navegador
+(`PANTALLAS/shared/video.js`, cargado en un contexto de Node con un doble de `RTCPeerConnection`): qué sesión se pide,
+los mensajes de error, qué manda la página (nunca sala ni rol), quién ofrece, el reinicio de ICE, la renovación del token
+y los rechazos (`rol-ocupado`, `reemplazado`, `sala-llena`). Ver `docs/VIDEOLLAMADAS.md`. No prueba WebRTC de verdad.

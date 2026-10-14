@@ -1,12 +1,12 @@
 # Videollamadas — acceso a las salas, token de sala y servidores ICE
 
 Cómo entra una persona a una sala de video: qué le pregunta el frontend a la API, qué decide la API, qué
-recibe, y qué hay que configurar en el servidor. Cubre **solo la API** (PR 3 del plan de videollamadas). Lo que
-falta: el frontend que usa esto (PR 4), el despliegue de la señalización, Caddy y coturn (PR 5) y el
-consentimiento y la privacidad (PR 6).
+recibe, qué hace la pantalla con eso, y qué hay que configurar en el servidor. Cubre **la API** (PR 3 del plan de
+videollamadas) y **las pantallas que la usan** (PR 4). Lo que falta: el despliegue de la señalización, Caddy y coturn
+(PR 5) y el consentimiento y la privacidad (PR 6).
 
 El contrato del token con el servidor de señalización está en [`signaling-server/README.md`](../signaling-server/README.md)
-("Token de sala"). Esta página es el lado de la API.
+("Token de sala"). Esta página es el lado de la API y de las pantallas.
 
 ## Cómo encaja
 
@@ -54,17 +54,11 @@ política de rate limit por IP real (`video`, 20 por minuto por defecto).
   `credential`. `turnDisponible` dice si hay una entrada TURN.
 - Siempre sale con `Cache-Control: no-store`. El token y las credenciales **no se loguean nunca**.
 
+Así lo usan las pantallas (en resumen; el detalle está en "El frontend"):
+
 ```js
-// Ejemplo para el frontend (PR 4)
-const r = await fetch(API + '/video/acceso', {
-  method: 'POST',
-  headers: { Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ origen: 'turno', id })
-});
-if (!r.ok) { const e = await r.json(); /* e.codigo y e.mensaje */ return; }
-const { token, iceServers } = await r.json();
-const socket = io(SIGNAL, { auth: { token } });
-const pc = new RTCPeerConnection({ iceServers });
+const acceso = await YS.video.pedirAcceso({ origen: 'turno', id });   // POST /video/acceso con el JWT de la sesión
+const control = YS.video.entrar({ sesion, acceso, stream, ... });     // io(SIGNAL, { auth: token }) + RTCPeerConnection({ iceServers })
 ```
 
 ### Errores
@@ -179,6 +173,122 @@ coturn las valida con el mismo secreto (`static-auth-secret`), sin base de datos
 Del lado de coturn (se arma en el PR 5), el secreto es el mismo: `use-auth-secret` y
 `static-auth-secret=<el valor de Video__TurnSecreto>`.
 
+## El frontend
+
+Las dos pantallas de la sala (`Pantalla_Paciente/sesion_video.html` y `Pantalla_Profesional/sesion_video.html`) usan el
+contrato de arriba a través de `PANTALLAS/shared/video.js` (`window.YS.video`). Ninguna decide la sala, el rol ni los
+servidores ICE: **solo dicen de qué sesión quieren entrar** y usan lo que devuelve la API. Socket.IO sigue
+vendoreado en `PANTALLAS/shared/vendor/`: no hay scripts de terceros.
+
+### Cómo se abre la sala
+
+| Quién | URL | Quién la arma |
+|---|---|---|
+| Paciente | `sesion_video.html?turno=<IdTurno>` o `?admision=<IdInforme>` | (la sesión viene en la URL: no hace falta el código) |
+| Paciente | `sesion_video.html?sala=<código>` | las notificaciones y el campo "Código de sala" del panel del paciente |
+| Profesional | `sesion_video.html?turno=<IdTurno>&idPaciente=<id>` | el panel: "Entrar a la sala →" de las sesiones de hoy, "Ir a sala" y la cita urgente |
+| Profesional | `sesion_video.html` sin parámetros | el menú "Sala de video": un selector con los turnos confirmados que ya tienen sala (de hoy en adelante); con `?idPaciente=` queda elegida la sesión de ese paciente |
+| Configurador | `Pantalla_Profesional/sesion_video.html?sala=ADM-…` (o `?admision=<IdInforme>`) | el panel de admisión, hoy con `?sala=` |
+
+Con `?sala=` solo hay un código, y los códigos que genera la API llevan el id de su origen (`SALA-<IdTurno>-…` y
+`ADM-<IdInforme>-…`): de ahí la pantalla saca **qué sesión pedir**. El código no abre nada por sí mismo: la API verifica
+que la persona sea parte de esa sesión y devuelve la sala vigente (si el código es viejo porque la sala se volvió a
+generar, igual se entra a la actual). Un código con otro formato se rechaza en la pantalla, sin llamar a la API.
+
+La sala **ya no se crea en la pantalla del profesional** (antes inventaba un código con su id y la hora, y ese código
+no tenía que ver con el del turno): la genera el turno (`PUT /turnos/{id}/generar-sala`, "Iniciar sesión" en el panel)
+y la pantalla solo la usa. Tampoco hay ningún id de relleno: si el JWT de la sesión no trae el profesional, la pantalla
+lo dice y no pide su lista de pacientes ni guarda nada en la historia clínica.
+
+### Qué hace `video.js`
+
+1. **Acceso.** `YS.video.pedirAcceso(sesion)` hace `POST /video/acceso` con el JWT de la sesión (`YS.api`, sin
+   redirigir al login ante un 401: sacaría a la persona de la página y perdería lo que ya cargó). Si la API no deja
+   entrar, la pantalla muestra el motivo y **no** pide la cámara ni abre la señalización.
+2. **Cámara y micrófono.** Recién con el acceso en la mano se pide `getUserMedia`.
+3. **Sala.** `YS.video.entrar(...)` abre Socket.IO mandando el token en el handshake (como función: cada reconexión manda
+   el token vigente), emite `join-room` **sin nada** (la sala y el rol salen del token) y arma la `RTCPeerConnection` con
+   los `iceServers` de la respuesta.
+4. **Quién ofrece.** Manda el rol de la API (`acceso.rol`), no el de la pantalla: quien entra como `paciente` arma las
+   ofertas y quien entra como `profesional` (un Configurador incluido) responde. Así no hay ofertas cruzadas.
+5. **Un solo aviso por conexión.** `ontrack` llega una vez por pista (audio y video); el video remoto se avisa una sola
+   vez por conexión. En la pantalla del profesional el análisis de expresiones y el reloj de la sesión arrancan una sola
+   vez (antes arrancaban dos veces, una por pista, y corrían en paralelo).
+6. Los eventos de señalización se atienden de a uno y en orden, y los candidatos ICE que llegan antes de la oferta se
+   guardan hasta que se pueda usar.
+
+### Lo que dice la pantalla cuando la API no deja entrar
+
+La pantalla vuelve a la espera con el mensaje y la persona puede reintentar.
+
+| API | La pantalla dice |
+|---|---|
+| 404 | "No encontramos esa sesión. Revisá que el código sea el correcto y que la sesión sea tuya." (es el mismo texto para "no existe" y "no es tuya") |
+| 409 `aun-no-abre` | "Todavía no se puede entrar a la sala: se abre a las 09:50." (o "el 14/10 a las 09:50"), en la hora de quien mira |
+| 409 `ya-termino` | "Esta sesión ya terminó (la sala cerró a las 11:00)." |
+| 409 `estado-invalido` | el mensaje de la API ("El turno fue cancelado.", "El turno todavía no está confirmado."…) |
+| 409 `sala-no-generada` | al paciente: "Tu profesional todavía no generó la sala de esta sesión. Probá de nuevo en unos minutos."; al profesional: "Este turno todavía no tiene sala. Generala desde Inicio ("Iniciar sesión") y volvé a entrar." |
+| 409 `sala-invalida` | "La sala de esta sesión no está disponible por un problema del sistema. Avisale al equipo de YoSoy." |
+| 429 | "Hiciste demasiados intentos seguidos. Esperá un minuto y probá de nuevo." |
+| 503 | "La videollamada no está disponible por el momento. Probá de nuevo más tarde; si sigue igual, avisale al equipo de YoSoy." (no dice nada de la configuración) |
+| 401, 400, 5xx, sin conexión | cada uno tiene su texto ("Tu sesión de YoSoy venció. Ingresá de nuevo…", etc.) |
+
+### Si algo se corta
+
+- **El token vence.** Si el servidor corta por `sesion-vencida`, o el handshake dice `token-vencido` / `no-autorizado`, la
+  pantalla pide `POST /video/acceso` de nuevo, **una vez** por episodio, y vuelve a entrar sola (con el acceso nuevo
+  también se renuevan las credenciales TURN, que son efímeras). Si la API ya no deja entrar (la sesión terminó) o el
+  segundo token también se rechaza, lo dice y corta; con la llamada andando no la tira: avisa y deja que la persona
+  la termine. Mientras se renueva se frena el reintento automático de Socket.IO, que usaría el token vencido.
+- **ICE.** Con `failed`, quien ofrece (el paciente) reinicia ICE: una oferta nueva con credenciales nuevas, sobre la misma
+  conexión. Con `disconnected` espera 4 segundos (suele ser un bache) y, si sigue, reinicia. Hasta 3 reinicios; si en 30
+  segundos no vuelve a `connected`, da la conexión por perdida, lo dice y vuelve a la espera. Quien no ofrece (el
+  profesional) solo avisa y espera la oferta nueva. Si la otra persona ya salió de la sala no se reinicia nada ni se da la
+  sala por perdida: simplemente se la espera.
+- **La otra persona sale y vuelve** (recargó la página, se le cayó la red): se arma una conexión nueva en los dos
+  lados. Reutilizar una conexión ya usada con alguien distinto depende de cada navegador; una limpia anda en todos.
+- **La señalización se cae.** Con la llamada andando no se muestra nada (el video no depende de ella) y Socket.IO
+  reintenta solo; al volver, las dos páginas vuelven a entrar a la sala. Sin llamada, tras 5 fallos seguidos se da por
+  perdida.
+- **Rechazos de la señalización** (evento `rechazado`): `rol-ocupado` ("Ya hay otra persona conectada en esta sala como
+  profesional. Si fuiste vos desde otra pestaña, otro navegador o otro equipo, cerralo; si es otra persona, esperá a que
+  salga. Después probá de nuevo."), `sala-llena`, `reemplazado` ("Entraste a esta sala desde otro lugar…": la conexión
+  vieja se cierra aunque estuviera andando, para que no haya dos llamadas en paralelo) y `limite-eventos`.
+
+### Aviso al paciente
+
+Antes de conectarse, la pantalla del paciente dice que la sesión usa cámara y micrófono y que el profesional lo va a
+ver y escuchar en vivo; mientras dura la sesión queda un recordatorio. **El texto es provisorio** (lleva el cartel "Aviso
+provisorio"): no es el consentimiento informado, que se incorpora en el PR 6 y reemplaza a este.
+
+### Transcripción (apagada)
+
+`YS.video.FLAGS.transcripcion` es `false` y no se prende desde la URL ni desde el navegador: se cambia en el código, en
+una revisión. Con la bandera apagada la pantalla del profesional ni muestra la tarjeta de transcripción (el
+reconocimiento de voz del navegador manda el audio a servidores externos en Chrome; la decisión es del PR 6). La lectura
+de emociones no se tocó.
+
+### Probar en una máquina
+
+```powershell
+# ventana 1: la app
+$env:Email__Password = " "                       # no manda mails reales
+$env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:Video__SignalingSecreto = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+$env:Video__SignalingSecreto                     # copiá el valor para la otra ventana
+dotnet run
+
+# ventana 2: la señalización, con el MISMO valor
+cd signaling-server
+$env:SIGNALING_SECRETO = "<el mismo valor>"
+$env:SIGNALING_ORIGENES_CORS = "http://localhost:5000"
+npm start
+```
+
+El profesional entra por `http://localhost:5000/pantallas/index.html`, genera la sala del turno ("Iniciar sesión") y entra
+con "Entrar a la sala →"; el paciente entra desde su notificación o escribiendo el código. Para probar sin cámaras ni
+micrófonos, Chrome con `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`. Los pasos con `docs/DEMO.md`.
+
 ## Configuración
 
 Todas viven en la sección `Video` y, como cualquier configuración de .NET, se pisan por variable de entorno con
@@ -291,13 +401,25 @@ dotnet test --filter "FullyQualifiedName~Video|FullyQualifiedName~AccesoSala|Ful
   omitidos, no como aprobados) y el contrato queda cubierto solo por `TokenSalaServiceTests`.
 - `VideoBaseRealTests`: contra la base local real (`OrigenSalaDAO`, la duración desde la agenda y la auditoría en
   `LogAuditoria`). Inserta filas del año 2031 y las borra al terminar.
+- `signaling-server/test/video-frontend.test.js` (parte de `npm test` en `signaling-server/`): carga el `video.js` real
+  en un contexto de Node, con un doble de `RTCPeerConnection`, y lo prueba contra el **servidor de señalización real**:
+  qué sesión se pide, los mensajes, qué manda la página (sin sala ni rol), quién ofrece, un solo aviso por conexión,
+  reinicio de ICE, conexión nueva cuando la otra persona vuelve, renovación del token (una vez), `rol-ocupado`,
+  `reemplazado` y `sala-llena`. No prueba WebRTC de verdad: eso necesita navegadores.
 
 ## Pendiente / fuera de alcance
 
-- **Frontend** (PR 4): pedir el acceso, mandar el token al signaling, usar `iceServers`, mostrar los mensajes de los
-  409. Hasta entonces las pantallas actuales no conectan con el signaling.
-- **Despliegue** (PR 5): unit del signaling, `/socket.io/*` en Caddy, coturn y los puertos de UFW.
-- **Consentimiento, cifrado y retención** (PR 6).
+- **Despliegue** (PR 5): unit del signaling, `/socket.io/*` en Caddy, coturn y los puertos de UFW. Hasta que estén los
+  PR 2, 3 y 4 en producción, `/socket.io/*` no se expone.
+- **Consentimiento, cifrado y retención** (PR 6): reemplaza el aviso provisorio del paciente y decide qué pasa con la
+  transcripción (apagada) y con la lectura de emociones.
+- **Sin verificar con un despliegue real.** La sala se probó en `http://localhost` con Chromium y Firefox, una máquina y
+  cámara y micrófono falsos, con la API y la señalización reales. Falta: cámaras y micrófonos físicos, TURN y el relay
+  (no hay coturn), redes y NAT distintos, Safari y celulares, y HTTPS detrás de Caddy.
+- **Panel del Configurador.** Sigue abriendo la entrevista con `?sala=ADM-…` (anda porque el código lleva el id) y guarda
+  en `localStorage` el id del profesional admisionista (`ADM-001`) para poder usar la pantalla del profesional. El video
+  ya no necesita ese truco (el acceso sale del JWT del Configurador); solo lo usa "Guardar en HC". Conviene pasar
+  `?admision=<IdInforme>` y decidir cómo se guarda la entrevista en la historia clínica. No se tocó en este PR.
 - **coturn real sin probar.** Las credenciales TURN están verificadas contra vectores calculados aparte (RFC 2202,
   OpenSSL y Python), pero no contra un coturn de verdad. Tampoco se sabe si coturn corta una renovación de ICE hecha
   después de vencidas las credenciales (por eso el TTL de 2 horas): conviene probar una llamada relayada larga en el
