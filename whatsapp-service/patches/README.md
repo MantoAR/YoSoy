@@ -4,7 +4,16 @@ Aplicados con [patch-package](https://github.com/ds300/patch-package) — corren
 `postinstall` (`npm install`/`npm ci`, también en producción: `patch-package` está en
 `dependencies`, no en `devDependencies`, porque el deploy real usa `npm ci --omit=dev`).
 
-## `whatsapp-web.js+1.34.7.patch`
+**Carpeta vacía por ahora** (`patch-package` sigue instalado, sin ningún `.patch` que
+aplicar — confirmado que el `postinstall` no falla así, "No patch files found"). El
+parche que había acá (`whatsapp-web.js+1.34.7.patch`) se sacó al cambiar
+`whatsapp-web.js` a un commit puntual de `main` que ya incluye ese arreglo y más — ver
+"`main` ya incluye esto" más abajo y el README principal, "Actualizar whatsapp-web.js".
+Se deja toda la historia de abajo porque documenta el diagnóstico real que llevó hasta
+ahí — si en algún momento hace falta un parche de nuevo (otra versión, otro problema),
+el mismo mecanismo sigue andando.
+
+## `whatsapp-web.js+1.34.7.patch` (histórico — ya no está en el repo)
 
 **Qué corrige:** en `Client.js`, `inject()`, el bloque que espera a que la sesión
 termine de sincronizar (`AppState`/`change:hasSynced`) antes de disparar el evento
@@ -151,3 +160,63 @@ de `LoadUtils` en sí). El propio issue #201919 lo dice explícito: "authenticat
 "ready" disparan normal ahí, el problema es posterior. No hay parche mínimo que
 proponer desde estas fuentes para el síntoma de este diagnóstico — quedan descartadas
 como explicación, no como algo a corregir.
+
+## `main` ya incluye esto — confirmado leyendo el código, no supuesto
+
+Con `WHATSAPP_DEBUG=1` puesto en producción (con el parche de `hasSynced` de arriba ya
+aplicado), las sondas mostraron `AppState` en `CONNECTED` con `hasSynced:true` — o sea,
+exactamente la condición que el parche ya cubría — pero `window.WWebJS` seguía
+`undefined`. El parche de arriba corrige CUÁNDO se llama al callback que lleva a
+"ready"; no corrige qué pasa si ese callback se ejecuta más de una vez a la vez.
+
+Leyendo `node_modules/whatsapp-web.js/src/Client.js` en el commit
+`064a3d5a5a3dce1281a6a12740b5a7051339d154` de `main` (ver README principal, "Actualizar
+whatsapp-web.js"), cuatro cambios, todos verificados por lectura directa del código (no
+por el historial de issues/PRs en GitHub, que ya demostró no ser confiable para saber
+qué hay realmente en una versión dada):
+
+1. **El mismo chequeo inmediato de `hasSynced`** que agregaba nuestro parche
+   (`Client.js:448-454`, comentario propio: *"Atomic hasSynced check in the same
+   synchronous block as listener registration"*) — con un agregado: solo dispara si
+   `!storeInjected` (`window.WWebJS` todavía no existe), para no volver a correr la
+   cadena completa si ya corrió una vez.
+2. **`framenavigated` ya no llama a `inject()` en cada navegación**
+   (`Client.js:562`): `if (!isLogout && storeAvailable) return;` — si no es un logout y
+   `window.WWebJS` ya existe, no hace nada. Esta es la causa real de que hubiera 2 a 4
+   `authenticated` seguidos: antes, CUALQUIER navegación volvía a llamar a `inject()`
+   sin este chequeo.
+3. **Cancelación cooperativa de `inject()`** (`Client.js:114-118`,
+   `this._injectAbort`/`AbortController`): si se llama a `inject()` de nuevo mientras
+   uno anterior sigue corriendo, el anterior se cancela (`abort.signal.aborted` →
+   `return` limpio, comentario propio *"superseded by newer inject"*) en vez de seguir
+   corriendo en paralelo con el nuevo. Esto es justo lo que hacía falta para la
+   hipótesis de "ejecuciones concurrentes se pisan entre sí" de la sección de arriba.
+4. **Limpieza de listeners antes de volver a registrarlos**
+   (`Client.js:436-446`, `window._wwjsListeners`): saca los listeners viejos
+   (`.off(...)`) antes de agregar los nuevos — ya no se acumulan versiones duplicadas de
+   los mismos listeners en cada `inject()` que sí llega a correr.
+
+De paso, también se agregó `_registerFramenavigatedHandler()` con su propia guarda
+(`this._framenavigatedRegistered`) para no registrar el listener de `framenavigated` en
+sí más de una vez, y ahora ignora navegaciones de iframes (`frame.parentFrame() !==
+null`).
+
+**Conclusión:** los cuatro puntos atacan directamente la causa que señalaban los datos
+reales de producción (ejecuciones repetidas/concurrentes de la cadena de
+inicialización) — es un indicio fuerte de que esto resuelve el síntoma, no una
+confirmación. Solo probarlo contra WhatsApp real (vincular o restaurar sesión de
+verdad) lo confirma. También se verificó que el resto de la API que usa
+`whatsapp-service/whatsapp.js` no cambió: mismos nombres de evento
+(`authenticated`/`auth_failure`/`ready`/`qr`/`loading_screen`/`disconnected`/
+`change_state`/`remote_session_saved`), `LocalAuth` (mismo constructor, mismo `logout()`
+que solo borra `dataPath/session/`), `getNumberId(numero)` (misma firma, devuelve el wid
+o `null`), `client.logout()` (misma secuencia: `Socket.logout()` → cerrar el browser →
+`authStrategy.logout()`), `sendMessage(chatId, texto)`, y `msg.fromMe`/`msg.from`/
+`msg.getContact()` en los mensajes entrantes — no hizo falta tocar `whatsapp.js`,
+`index.js` ni `cola.js`.
+
+**Nota aparte, no relacionada con el síntoma:** `window.Store` no se asigna en ningún
+lado de este código (ni en `Client.js` ni en `util/Injected/Utils.js`) — es un nombre
+viejo de versiones muy anteriores de la librería. La sonda de `WHATSAPP_DEBUG` lo va a
+reportar como `"undefined"` siempre, en cualquier corrida, exista o no un problema real
+— no es una señal útil, a diferencia de `window.WWebJS`.

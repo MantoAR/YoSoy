@@ -177,23 +177,32 @@ WhatsApp: loading_screen 100%
 WhatsApp conectado (número 549...).     ← esto es "ready"
 ```
 
-**Caso real ya visto, con un parche aplicado que NO lo resolvió del todo** (ver
-`patches/whatsapp-web.js+1.34.7.patch` y `patches/README.md` para las fuentes):
-`loading_screen 100%` y `authenticated` —repetido 2 a 4 veces— sin que `ready` llegue
-nunca, y sin ningún error en el medio. El parche corrige una carrera real y confirmada
-(si la sesión sincroniza más rápido de lo que tarda en registrarse el listener que
-espera ese evento, nunca se entera) — pero en producción, **con el parche ya puesto, se
-siguió viendo exactamente este mismo patrón**. O sea: esa carrera es real y vale la pena
-tenerla arreglada, pero no es la única causa de este síntoma, o no es la causa en todos
-los casos.
+**Historia de este problema puntual** (detalle completo y las fuentes en
+`patches/README.md`): primero se vio `loading_screen 100%` y `authenticated` —repetido 2
+a 4 veces— sin que `ready` llegue nunca, sin ningún error en el medio. Un primer parche
+(vía `patch-package`, ya no está — ver abajo) corrigió una carrera real confirmada
+(`hasSynced` ya `true` antes de registrar el listener que lo espera) — pero en
+producción, **con ese parche puesto, se siguió viendo el mismo patrón**. Las sondas de
+`WHATSAPP_DEBUG` mostraron `AppState` en `CONNECTED` con `hasSynced:true`, pero
+`window.WWebJS` seguía `undefined` — la carga de `inject()` nunca llegaba a terminar.
 
-`authenticated` repitiéndose varias veces **no es inofensivo** — es un síntoma de que
-`inject()` se ejecutó más de una vez y quedaron listeners duplicados (detalle en
-`patches/README.md`), y de hecho es la hipótesis más fuerte ahora mismo sobre por qué
-`ready` sigue sin llegar incluso con la carrera de `hasSynced` ya corregida: ejecuciones
-concurrentes de la misma cadena de inicialización pueden pisarse entre sí en algún paso
-posterior (detalle completo, con cada paso y de qué depende, en `patches/README.md`,
-"Diagnóstico de la página").
+Causa real, confirmada leyendo el código (no supuesta): `inject()` se re-ejecutaba sin
+ninguna guarda en **cada** navegación de la página, así que con 2 a 4 `authenticated`
+seguidos había 2 a 4 ejecuciones de la misma cadena de inicialización corriendo a la vez,
+pisándose entre sí. Por eso `whatsapp-web.js` pasó a instalarse desde un commit puntual
+de `main` (ver "Actualizar whatsapp-web.js" más abajo) en vez de la última versión de
+npm — ese commit incluye, confirmado leyendo el código instalado:
+- El mismo chequeo inmediato de `hasSynced` que tenía el parche viejo.
+- Que `framenavigated` ya NO llama a `inject()` en cada navegación — solo si es un logout
+  o si `window.WWebJS` todavía no existe.
+- Una cancelación cooperativa (`AbortController`) para cuando `inject()` sí se vuelve a
+  llamar: la ejecución vieja se cancela limpio en vez de seguir corriendo en paralelo con
+  la nueva.
+- Limpieza explícita de listeners viejos antes de registrar los nuevos en cada `inject()`.
+
+Fuerte indicio de que esto resuelve el síntoma real (los cuatro puntos de arriba atacan
+exactamente la causa encontrada), pero **no confirmado contra WhatsApp real todavía** —
+ver "Actualizar whatsapp-web.js".
 
 **`WHATSAPP_DEBUG=1`** (variable de entorno, apagada por default): activa diagnóstico
 fino para este caso puntual —
@@ -208,7 +217,10 @@ fino para este caso puntual —
   dentro de la página: estado y `hasSynced` de `AppState`, si `window.Store` y
   `window.WWebJS` llegaron a existir, y cualquier error al evaluar eso. Pensado para
   correlacionar con los pasos de `inject()` que podrían haberse colgado — ver
-  `patches/README.md`.
+  `patches/README.md`. **`window.Store` no existe en esta librería desde hace tiempo**
+  (confirmado: no se asigna en ningún lado del código fuente instalado) — en la sonda va
+  a aparecer `"undefined"` siempre, no es señal de nada roto; lo único que importa ahí es
+  `window.WWebJS`.
 - Loguea explícito cuando `ready` sí llega (además del log ya existente de "WhatsApp
   conectado").
 
@@ -263,21 +275,33 @@ y `sudo systemctl restart yosoy-api`.
 
 ## Actualizar whatsapp-web.js
 
-La versión queda **fijada exacta** en `package.json` (sin `^`/`~`) a
-propósito: esta librería reversea el frontend de WhatsApp Web, así que se
-rompe seguido cuando WhatsApp cambia algo de su lado — un rango se
-actualizaría solo en el próximo `npm install`, sin que nadie lo decida ni lo
-pruebe antes. Para actualizar: cambiar el número a mano, probar en un
-entorno que no sea el chip de producción si es posible, recién entonces
-`npm install` + redeploy.
+**Ya no viene de npm.** La última versión publicada ahí (`1.34.7`, abril 2026) se quedó
+sin arreglar un problema real en producción (autenticado pero sin llegar nunca a "ready"
+— ver `patches/README.md`), y el repo de la librería tenía el arreglo en `main` sin
+publicar una versión nueva. `package.json` apunta ahora a un commit exacto de `main`,
+bajado como tarball por HTTPS (no un paquete de npm, no una rama flotante):
+```
+"whatsapp-web.js": "https://github.com/wwebjs/whatsapp-web.js/archive/<hash>.tar.gz"
+```
+El `<hash>` es un commit puntual, no `main` en sí — actualizar significa cambiar ese
+hash a mano (nunca apuntar a la rama pelada `main`, que sí seguiría moviéndose solo en
+cada `npm install`/`npm ci`), con el mismo criterio de siempre: probar fuera del chip de
+producción antes de redeploy.
 
-Al actualizar, revisar también `patches/` — el parche que hay ahí (ver
-`patches/README.md`) tiene el número de versión en el nombre del archivo
-(`whatsapp-web.js+1.34.7.patch`) y apunta a líneas puntuales de esa versión
-exacta de `Client.js`. `patch-package` avisa en el `postinstall` si no puede
-aplicarlo (no falla en silencio), pero hay que revisar a mano si ese código
-sigue necesitando el mismo arreglo en la versión nueva, y regenerar el
-archivo con el número de versión que corresponda.
+**Por qué un tarball por HTTPS y no `git+ssh://`/`github:usuario/repo#hash`:** npm
+normaliza esas dos formas a `git+ssh://` en el `package-lock.json` (confirmado:
+pasa incluso pidiendo `git+https://` explícito) — el VPS no tiene ninguna clave SSH
+autorizada contra GitHub, así que `npm ci` ahí fallaría. La URL de tarball
+(`github.com/.../archive/<hash>.tar.gz`, redirige a `codeload.github.com`) es HTTP
+llano, sin git de por medio, y además deja un hash de integridad real en el lockfile
+(cosa que la instalación por git se salta directamente — "skipping integrity check for
+git dependency").
+
+`patches/` queda sin ningún parche por ahora (ver `patches/README.md`, "`main` ya
+incluye..." para el detalle de qué se verificó que sí trae resuelto) — `patch-package`
+sigue instalado y con su `postinstall`, sin tocar, por si hace falta un parche puntual
+de nuevo más adelante: con la carpeta vacía, el `postinstall` no falla
+("No patch files found"), confirmado con `npm ci --omit=dev` real.
 
 ## Fijar la versión de WhatsApp Web
 
