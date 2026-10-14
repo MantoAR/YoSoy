@@ -13,14 +13,17 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 /// Reglas de negocio de turnos (Encuentro 5), en un solo lugar del backend:
 ///  RN-01  Disponibilidad real de agenda: el horario cae dentro de la franja de una
 ///         fila de Agenda disponible para ese día, alineado a los slots de
-///         IntervaloMinutos, en el futuro y sin otro turno que no esté Cancelado
+///         IntervaloMinutos, en el futuro (posterior a "ahora", hora local del
+///         servidor, que se asume Argentina) y sin otro turno que no esté Cancelado
 ///         ni Rechazado.
 ///  RN-02  Consentimiento informado de telemedicina vigente (tipo buscado por
 ///         Descripcion, Consentimiento:TipoRequerido). Se exige al CONFIRMAR un turno
 ///         (PUT /turnos/{id} cuando pasa a Confirmado y PUT /turnos/{id}/confirmar-paciente)
 ///         y al solicitar solo si Mensajeria:ExigirConsentimientoParaSolicitar = true.
 ///         Aplica hacia adelante: un turno que ya estaba Confirmado no se toca.
-///  RN-05  Anticipación mínima de 24 h para pedir y para cancelar.
+///  RN-05  Anticipación mínima de 24 h para CANCELAR. Para pedir un turno ya no hay
+///         anticipación mínima: alcanza con que el horario sea posterior a "ahora"
+///         (RN-01), así que se puede pedir uno para dentro de unos minutos.
 ///  RN-07  Un paciente no puede tener dos turnos Pendientes o Confirmados con el
 ///         mismo profesional el mismo día.
 /// Lo usa el bot entero y, desde la Fase 3a, también los endpoints web de turnos
@@ -28,7 +31,7 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 /// POST /turnos/profesional-solicitar) — antes insertaban/cancelaban directo, sin pasar
 /// por ninguna regla. El único que sigue aparte a propósito es Cita urgente
 /// (SolicitarUrgente): mismo motivo que el bot con la mensajería, no tiene sentido pedirle
-/// RN-01/05 a algo que es "ahora mismo" por definición.
+/// RN-01 a algo que es "ahora mismo" por definición.
 ///
 /// Zona horaria: Turno.Fecha y Turno.Hora se guardan como hora local sin zona.
 /// Se compara contra la hora local del servidor (TimeProvider.GetLocalNow),
@@ -37,6 +40,10 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 /// </summary>
 public class TurnoReglasService
 {
+    /// <summary>
+    /// RN-05: anticipación mínima para CANCELAR un turno por este medio (paciente web y bot).
+    /// Pedir un turno ya no la exige: ver <see cref="ValidarSolicitud"/>.
+    /// </summary>
     public const int HorasMinimasAnticipacion = 24;
 
     private readonly ITurnoRepositorio _repo;
@@ -58,8 +65,9 @@ public class TurnoReglasService
     public DateTime Ahora => _reloj.GetLocalNow().DateTime;
 
     /// <summary>
-    /// Próximos horarios que cumplen RN-01, RN-05 y RN-07 para ese paciente y profesional,
-    /// recorriendo como máximo <paramref name="dias"/> días desde hoy.
+    /// Próximos horarios que cumplen RN-01 y RN-07 para ese paciente y profesional (los de
+    /// hoy que todavía no pasaron incluidos: no hay anticipación mínima), recorriendo como
+    /// máximo <paramref name="dias"/> días desde hoy.
     /// </summary>
     public List<DateTime> HorariosLibres(int idPaciente, int idProfesional, int dias, int maximo) =>
         CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) == 0);
@@ -76,7 +84,6 @@ public class TurnoReglasService
     private List<DateTime> CalcularHorariosLibres(int idProfesional, int dias, int maximo, Func<DateTime, bool> pasaRN07)
     {
         var ahora   = Ahora;
-        var minimo  = ahora.AddHours(HorasMinimasAnticipacion);
         var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible).ToList();
         var result  = new List<DateTime>();
 
@@ -91,7 +98,7 @@ public class TurnoReglasService
             foreach (var slot in Slots(franjas).OrderBy(s => s))
             {
                 var momento = fecha + slot;
-                if (momento < minimo || ocupadas.Contains(slot)) continue;
+                if (momento <= ahora || ocupadas.Contains(slot)) continue;   // mismo criterio que ValidarSolicitud (RN-01)
                 result.Add(momento);
                 if (result.Count == maximo) break;
             }
@@ -110,10 +117,6 @@ public class TurnoReglasService
             .Where(a => a.Disponible && DiaDeLaSemana(a.Dia) == momento.DayOfWeek).ToList();
         if (!Slots(franjas).Contains(momento.TimeOfDay))
             return ResultadoRegla.Falla("RN-01", "Ese horario no está dentro de la agenda del profesional.");
-
-        // RN-05
-        if (momento < ahora.AddHours(HorasMinimasAnticipacion))
-            return ResultadoRegla.Falla("RN-05", $"Los turnos se piden con al menos {HorasMinimasAnticipacion} horas de anticipación.");
 
         // RN-01: libre
         if (_repo.HorasOcupadas(idProfesional, momento.Date).Contains(momento.TimeOfDay))
@@ -151,7 +154,7 @@ public class TurnoReglasService
     /// <summary>
     /// Cita urgente (POST /turnos/profesional-solicitar con esUrgente=true, Fase 3a Paso 1):
     /// el profesional inicia una sesión ahora mismo, así que no tiene sentido pedir RN-01
-    /// (dentro de una franja futura) ni RN-05 (24 h de anticipación) — es la naturaleza de
+    /// (dentro de una franja futura) — es la naturaleza de
     /// "urgente", y así se comportaba antes de esta fase (sin ninguna regla). Lo único que
     /// se suma es la inserción a prueba de doble reserva: si el profesional ya tiene otra
     /// cosa exactamente a esa hora, o el paciente ya tiene otro turno activo ese mismo día

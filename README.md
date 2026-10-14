@@ -352,14 +352,14 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 
 ### Reglas de negocio de turnos
 
-Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasService.cs`, que es el único punto de verdad. Las usa el bot y, para RN-02, también los endpoints web que confirman turnos. RN-01, RN-05 y RN-07 todavía no se aplican en los endpoints web.
+Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasService.cs`, que es el único punto de verdad. Las usa el bot y también los endpoints web de turnos (`POST /turnos/solicitar`, la reserva por link público, `POST /turnos/profesional-solicitar` y la cancelación del paciente); RN-02 además corre en los endpoints que confirman turnos.
 
 | Regla | Bot | Web (hoy) |
 |---|---|---|
-| RN-01 Disponibilidad real de agenda (franja, intervalo, futuro, horario libre) | ✅ Backend | Solo en el frontend (arma los horarios con la agenda y `/turnos/ocupados`) |
+| RN-01 Disponibilidad real de agenda (franja, intervalo, futuro —posterior a "ahora"—, horario libre) | ✅ Backend | ✅ Backend (el frontend además arma los horarios con la agenda y `/turnos/ocupados`) |
 | RN-02 Consentimiento de telemedicina antes de confirmar | Avisa al solicitar con el link para firmar; modo estricto opcional | ✅ Backend al confirmar (ver abajo) |
-| RN-05 Anticipación mínima de 24 h para pedir y cancelar | ✅ Backend | ❌ No se valida |
-| RN-07 Un solo turno Pendiente/Confirmado por paciente, profesional y día | ✅ Backend, versión documentada | Solo en el frontend y distinta: bloquea el día entero con **cualquier** profesional |
+| RN-05 Anticipación mínima de 24 h **para cancelar**. Para pedir un turno ya no hay anticipación mínima: alcanza con que el horario sea posterior a "ahora" (RN-01) | ✅ Backend | ✅ Backend (cancelación del paciente) |
+| RN-07 Un solo turno Pendiente/Confirmado por paciente, profesional y día | ✅ Backend, versión documentada | ✅ Backend (por profesional); el frontend además bloquea el día entero con **cualquier** profesional |
 
 ### RN-02: consentimiento de telemedicina
 
@@ -401,7 +401,6 @@ Configuración (`appsettings.json` → `Consentimiento`):
 - **Pensado para PC.** La pantalla de mensajería se diseña para PC/notebook; el uso desde el celular lo va a cubrir la app mobile aparte. Lo que ya existe para pantallas chicas quedó como está, sin más trabajo.
 - **Identificación por DNI:** quien conozca el DNI de un paciente puede vincular otro teléfono y ver o cancelar sus turnos. El tope de 3 intentos solo evita probar DNIs al azar. Pendiente: verificación adicional (por ejemplo, un código por mail) antes de vincular un teléfono nuevo.
 - Un celular cargado con el `15` delante del número no se reconoce por teléfono y cae en el flujo de DNI.
-- Reglas RN-01, RN-05 y RN-07 en los endpoints web: pendientes.
 - **Consentimiento:** el texto legal es un placeholder (`[COMPLETAR CON TEXTO LEGAL VALIDADO]`) hasta que el equipo lo valide. La firma usa el `idPaciente` del navegador: sin autenticación real cualquiera podría firmar por otro paciente, y eso no tiene validez como consentimiento informado (`TODO(JWT)` en `Endpoints/ConsentimientoEndpoints.cs`). El "Acuerdo de Atención al Paciente" del registro sigue sin guardar ninguna fila, y no hay pantalla para revocar un consentimiento.
 - **Versión del consentimiento:** cada firma guarda `Consentimiento:VersionTexto`, pero la vigencia (`ConsentimientoDAO.ObtenerVigente`, que usan RN-02 y la página de firma) **no compara versiones**: acepta cualquier fila del tipo requerido que no esté `Inactivo`. Por eso, el día que se cargue el texto legal validado y se cambie `VersionTexto`, los consentimientos firmados contra el placeholder (`sin-validar`) van a seguir contando como vigentes hasta que se agregue esa comparación.
 - Las notificaciones internas se ven solo en la campana del configurador; mostrarlas en el panel del profesional queda pendiente. Al administrador no se le manda mail (no hay un mail de administrador configurado).

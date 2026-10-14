@@ -445,6 +445,23 @@ function normalizar(s) {
     return (s ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 }
 
+// Fecha y hora de hoy en Argentina: es contra lo que valida el servidor ("Ese horario ya pasó"). El servidor sigue
+// siendo quien decide; esto solo evita ofrecer en el combo horarios de hoy que ya pasaron.
+function ahoraEnArgentina() {
+    const partes = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+    }).formatToParts(new Date());
+    const v = tipo => partes.find(p => p.type === tipo).value;
+    return { fecha: `${v("year")}-${v("month")}-${v("day")}`, minutos: Number(v("hour")) * 60 + Number(v("minute")) };
+}
+
+// Minutos del día que ya pasaron, si fechaStr (YYYY-MM-DD) es hoy en Argentina; -1 si es otro día (no hay nada pasado).
+function minutosPasadosHoy(fechaStr) {
+    const ahora = ahoraEnArgentina();
+    return fechaStr === ahora.fecha ? ahora.minutos : -1;
+}
+
 async function cargarHorasSolicitud(fechaStr) {
     const idProf = parseInt(document.getElementById("solProf").value);
     const sel    = document.getElementById("solHora");
@@ -470,6 +487,10 @@ async function cargarHorasSolicitud(fechaStr) {
         if (r.ok) turnosOcupados = await r.json();
     } catch {}
 
+    // No hay anticipación mínima: se puede pedir para dentro de unos minutos. Lo único que no se ofrece es lo que ya pasó
+    // (solo cuenta si el día elegido es hoy).
+    const minutosPasados = minutosPasadosHoy(fechaStr);
+
     const opciones = [];
     let cur = hI * 60 + mI;
     while (cur + intervalo <= hF * 60 + mF) {
@@ -477,7 +498,7 @@ async function cargarHorasSolicitud(fechaStr) {
         const mm = String(cur%60).padStart(2,"0");
         const horaStr = `${hh}:${mm}`;
         const ocupado = turnosOcupados.some(t => t.hora?.substring(0,5) === horaStr);
-        if (!ocupado) {
+        if (!ocupado && cur > minutosPasados) {
             opciones.push(`<option value="${horaStr}">${horaStr}</option>`);
         }
         cur += intervalo;
@@ -563,12 +584,17 @@ function seleccionarDiaReprog(dia) {
     if (slot) {
         const [hI, mI] = slot.horaInicio.substring(0,5).split(":").map(Number);
         const [hF, mF] = slot.horaFin.substring(0,5).split(":").map(Number);
+        // Igual que al solicitar: sin anticipación mínima, pero no se ofrece lo que ya pasó hoy (el servidor lo rechaza, y
+        // reprogramar cancela primero el turno anterior).
+        const f = _reprogFechaSeleccionada;
+        const fechaStr = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2,"0")}-${String(f.getDate()).padStart(2,"0")}`;
+        const minutosPasados = minutosPasadosHoy(fechaStr);
         const opciones = [];
         let cur = hI * 60 + mI;
         while (cur + 60 <= hF * 60 + mF) {
             const hh = String(Math.floor(cur/60)).padStart(2,"0");
             const mm = String(cur%60).padStart(2,"0");
-            opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
+            if (cur > minutosPasados) opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
             cur += 60;
         }
         sel.innerHTML = opciones.join("") || `<option value="">Sin horarios</option>`;

@@ -897,7 +897,7 @@ app.MapGet("/profesionales/{id}/turnos", (int id, HttpContext ctx, IdentidadActu
 }).RequireAuthorization();
 
 // Cierre de seguridad, Paso 3: sin uso por ningún frontend (se confirmó buscando en todo
-// PANTALLAS/) y bypasea todas las reglas de TurnoReglasService (RN-01/05/07, inserción a
+// PANTALLAS/) y bypasea todas las reglas de TurnoReglasService (RN-01/07, inserción a
 // prueba de doble reserva) — los caminos reales son /turnos/solicitar (paciente) y
 // /turnos/profesional-solicitar (profesional). Se apaga en vez de protegerlo: dejarlo
 // abierto a cualquier rol autenticado no tendría ningún uso legítimo y solo preservaría un
@@ -905,7 +905,7 @@ app.MapGet("/profesionales/{id}/turnos", (int id, HttpContext ctx, IdentidadActu
 app.MapPost("/turnos", () => Results.StatusCode(StatusCodes.Status410Gone));
 
 // Solicitud de turno desde el paciente — estado siempre Pendiente. Pasa por
-// TurnoReglasService.Solicitar (RN-01/02/05/07 + inserción a prueba de doble reserva),
+// TurnoReglasService.Solicitar (RN-01/02/07 + inserción a prueba de doble reserva),
 // igual que ya hace el bot — antes insertaba directo, sin ninguna regla (Fase 3a, Paso 1).
 app.MapPost("/turnos/solicitar", (Turno t, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -1922,7 +1922,7 @@ app.MapPut("/informes-admision/rechazar", (RechazoRequest req, HttpContext ctx, 
 
 // Turno propuesto por el profesional (queda pendiente de confirmacion del paciente)
 // El profesional propone un turno futuro: pasa por todas las reglas (antes, ninguna).
-// Cita urgente (EsUrgente=true, "ahora mismo") usa SolicitarUrgente, que no le pide RN-01/05
+// Cita urgente (EsUrgente=true, "ahora mismo") usa SolicitarUrgente, que no le pide RN-01
 // pero sí inserta a prueba de doble reserva — ver TurnoReglasService (Fase 3a, Paso 1).
 app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
