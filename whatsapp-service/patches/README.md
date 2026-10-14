@@ -83,3 +83,71 @@ falla en silencio).
   garantía de que una falla ahí sea siempre igual de inofensiva. No se tocó
   `exposeFunctionIfAbsent` en este parche — es compartida por mucho más código que lo
   que pidió este arreglo puntual.
+
+## Diagnóstico de la página: qué pasa entre "authenticated" y "ready"
+
+Para la vuelta de `WHATSAPP_DEBUG=1` (ver el README principal). Esto es lo que corre
+dentro de `Client.js`, `inject()`, en el callback de `onAppStateHasSyncedEvent`
+(líneas ~298-377 de la 1.34.7, **después** de nuestro parche de arriba — nuestro parche
+solo adelanta CUÁNDO se llama a este callback, no cambia nada de lo que sigue acá
+adentro), en orden, con qué depende cada paso y si podría colgarse sin tirar un error
+que lleguemos a ver:
+
+1. `this.emit(Events.AUTHENTICATED, ...)` — síncrono, no puede colgarse.
+2. `await this.pupPage.evaluate(() => typeof window.WWebJS !== 'undefined')` — depende
+   de que el contexto de ejecución de la página responda. `page.evaluate()` no tiene
+   timeout propio en Puppeteer: si la página está trabada, esto espera para siempre,
+   sin ningún error.
+3. Si `window.WWebJS` todavía no existe (caso normal, primera vez):
+   - `await webCache.persist(...)` (solo si `webVersionCache.type === 'local'`, que es
+     nuestro caso por default sin `WHATSAPP_WEB_VERSION`) — depende del disco local.
+   - `await this.pupPage.evaluate(LoadUtils)` — **el candidato más fuerte.** `LoadUtils`
+     (`util/Injected/Utils.js`) es un script grande que arma `window.WWebJS` enganchando
+     un montón de modelos internos de WhatsApp Web (`WAWebChatCollection`,
+     `WAWebMsgKey`, etc.) — exactamente el tipo de código que un cambio interno de
+     WhatsApp Web (como el renombre `_serialized`→`$1` de 2.3000.x, aunque confirmamos
+     que ESE caso puntual no es esto — ver más abajo) podría romper en silencio si algo
+     que `LoadUtils` espera encontrar ya no está donde espera.
+   - Un `while` que sondea `window.WWebJS != undefined` cada 200ms, hasta 30s — **acá sí
+     hay un timeout explícito**, pero el error que tira (`throw 'ready timeout'`) nunca
+     llega a nuestro proceso de Node: esta función corre del lado de Node pero la llama
+     la página con un `window.onAppStateHasSyncedEvent()` sin `await` ni `.catch()` del
+     lado de la página (es un listener de evento tipo Backbone) — un rechazo acá queda
+     como una promesa sin manejar **dentro del contexto del browser**, visible solo por
+     `pageerror`/`console` (de ahí el pedido explícito de escucharlos). Antes de esta
+     vuelta, nada escuchaba esos dos eventos — por eso este timeout, si es lo que está
+     pasando, no dejaba ningún rastro en nuestros logs.
+   - `await this.pupPage.evaluate(() => ...Conn.serialize()...)` para armar
+     `this.info` — depende de `WAWebConnModel`/`WAWebUserPrefsMeUser`.
+   - `await this.attachEventListeners()` — no mostrado acá (está en otra parte del
+     archivo), depende de más modelos internos de la página.
+4. Recién al final, `this.emit(Events.READY)`.
+
+**Cualquier excepción en los pasos 3 (antes de llegar al final) deja a `ready` sin
+disparar — y, por el mismo motivo que el timeout, probablemente sin ningún rastro en
+nuestros logs actuales si la excepción no pasa por un `catch` nuestro.** Esto es
+justamente lo que la sonda de `WHATSAPP_DEBUG` (60s/180s) intenta correlacionar:
+`hasSynced`/`state` de `AppState`, y si `window.Store`/`window.WWebJS` llegaron a
+existir, da una pista de en qué paso del 3 se quedó colgado.
+
+**`authenticated` repetido (2 a 4 veces) hace esto más probable, no menos:** como
+`inject()` se re-ejecuta en cada navegación sin ninguna guarda (ver el hallazgo de
+arriba), es plausible que haya 2 a 4 ejecuciones de esta MISMA cadena corriendo a la
+vez — si dos de ellas pisan el mismo `window.WWebJS` a mitad de camino, o
+`attachEventListeners()` se llama dos veces y la segunda choca con algo que la primera
+ya registró (mismo patrón de `exposeFunctionIfAbsent` del hallazgo de arriba, pero dentro
+de `attachEventListeners`), cualquiera de los pasos 3 podría fallar en silencio. No es
+una prueba, es la hipótesis más fuerte a partir de lo que se puede leer en el código —
+la sonda está pensada para confirmarla o descartarla con datos reales.
+
+### #201919 / #201901 / #201910 (renombre `_serialized`→`$1`): no explica esto
+
+Reverificado con WebFetch, mirando el contenido real de los dos PRs, no solo la
+descripción del issue: los tres tocan exclusivamente código que corre **después** de
+`ready` (`sendMessage`, `getChats`, `getChatById`, `editMessage`, `LoadUtils` — pero
+específicamente la parte de `LoadUtils` que instala un getter de `_serialized` en
+`WAWebMsgKey.prototype` para esas funciones, no nada que corra durante la carga inicial
+de `LoadUtils` en sí). El propio issue #201919 lo dice explícito: "authenticated" y
+"ready" disparan normal ahí, el problema es posterior. No hay parche mínimo que
+proponer desde estas fuentes para el síntoma de este diagnóstico — quedan descartadas
+como explicación, no como algo a corregir.

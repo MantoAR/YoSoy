@@ -17,6 +17,10 @@ const SECRETO = process.env.Mensajeria__WhatsApp__Secreto;
 // Opcional — ver README.md "Fijar la versión de WhatsApp Web". Sin definir, whatsapp-web.js
 // usa la versión que trae pineada por default (comportamiento actual, sin cambios).
 const WEB_VERSION = process.env.WHATSAPP_WEB_VERSION || null;
+// Opcional, apagado por default — ver README.md "Diagnóstico". Loguea console/pageerror de
+// la página real y una sonda del estado interno si "ready" tarda — prender solo mientras se
+// esté diagnosticando un problema puntual, no dejarlo siempre encendido.
+const DEBUG = process.env.WHATSAPP_DEBUG === "1";
 
 if (!API_BASE_URL) { log.error("Falta API_BASE_URL en el entorno."); process.exit(1); }
 if (!SECRETO) { log.error("Falta Mensajeria__WhatsApp__Secreto en el entorno."); process.exit(1); }
@@ -35,6 +39,7 @@ const wa = new ServicioWhatsApp({
     apiBaseUrl: API_BASE_URL,
     secreto: SECRETO,
     webVersion: WEB_VERSION,
+    debug: DEBUG,
     log
 });
 

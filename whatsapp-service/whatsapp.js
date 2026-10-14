@@ -6,11 +6,12 @@ const qrcodeTerminal = require("qrcode-terminal");
 const QRCode = require("qrcode");
 
 class ServicioWhatsApp {
-    constructor({ dataPath, apiBaseUrl, secreto, webVersion, onEntrante, log }) {
+    constructor({ dataPath, apiBaseUrl, secreto, webVersion, debug, onEntrante, log }) {
         this._dataPath = dataPath;
         this._apiBaseUrl = apiBaseUrl;
         this._secreto = secreto;
         this._webVersion = webVersion || null;
+        this._debug = !!debug;
         this._onEntrante = onEntrante;
         this._log = log;
         this._conectado = false;
@@ -47,6 +48,7 @@ class ServicioWhatsApp {
         }
 
         const client = new Client(opciones);
+        if (this._debug) this._engancharDiagnosticoPagina(client);
 
         // Cada handler empieza chequeando que "client" (el cliente que armó ESTE handler)
         // siga siendo this._client — destroy() no garantiza que un cliente reemplazado deje
@@ -67,6 +69,7 @@ class ServicioWhatsApp {
             this._qrActual = null;
             this._numero = client.info?.wid?.user ?? null;
             this._log.info(`WhatsApp conectado (número ${this._numero}).`);
+            if (this._debug) this._log.info("WHATSAPP_DEBUG: ready llegó.");
         });
 
         // Diagnóstico (Problema 2: vinculado en el teléfono pero la web se queda sin
@@ -75,6 +78,7 @@ class ServicioWhatsApp {
         client.on("authenticated", () => {
             if (client !== this._client) return;
             this._log.info("WhatsApp: authenticated");
+            if (this._debug) this._diagnosticoTrasAuthenticated(client);
         });
 
         client.on("loading_screen", (percent) => {
@@ -140,6 +144,86 @@ class ServicioWhatsApp {
         });
 
         return client;
+    }
+
+    // ── WHATSAPP_DEBUG=1 (apagada por defecto, ver README.md "Diagnóstico") ──────
+    // pupPage no existe todavía cuando se crea el Client (whatsapp-web.js recién lo arma
+    // dentro de initialize(), sin emitir ningún evento propio de "ya hay página") — se
+    // sondea un toque hasta que aparece. Sin await desde _crearCliente(): no debe bloquear
+    // la creación del cliente ni que arranque initialize().
+    async _engancharDiagnosticoPagina(client) {
+        for (let i = 0; i < 100 && !client.pupPage; i++) await new Promise(r => setTimeout(r, 100));
+        if (client !== this._client) return;
+        if (!client.pupPage) {
+            this._log.error("WHATSAPP_DEBUG: no apareció pupPage a tiempo, sin diagnóstico de página para este cliente.");
+            return;
+        }
+        // console/pageerror de la página real de WhatsApp Web — contenido que no
+        // controlamos nosotros, no algo que nuestro código construya con datos de la
+        // cuenta. Igual se trunca a 300 caracteres. Por esto WHATSAPP_DEBUG queda apagado
+        // por default: prender solo mientras se esté diagnosticando, no dejarlo siempre
+        // encendido en producción.
+        client.pupPage.on("pageerror", err => {
+            if (client !== this._client) return;
+            this._log.error(`WHATSAPP_DEBUG pageerror: ${String(err?.message || err).slice(0, 300)}`);
+        });
+        client.pupPage.on("console", msg => {
+            if (client !== this._client) return;
+            const tipo = msg.type();
+            if (tipo !== "error" && tipo !== "warning") return;
+            this._log.error(`WHATSAPP_DEBUG console.${tipo}: ${msg.text().slice(0, 300)}`);
+        });
+    }
+
+    // Si "ready" no llega a los 60s y de nuevo a los 180s desde "authenticated", sondea el
+    // estado interno de la página — pensado para correlacionar con los pasos de inject()
+    // (después de onAppStateHasSyncedEvent) que podrían colgarse sin tirar ningún error
+    // visible; ver whatsapp-service/patches/README.md, "Diagnóstico de la página" para el
+    // detalle de qué pasos son esos y de qué depende cada uno.
+    async _diagnosticoTrasAuthenticated(client) {
+        try {
+            const version = await client.getWWebVersion();
+            this._log.info(`WHATSAPP_DEBUG: WWebVersion = ${version}`);
+        } catch (err) {
+            this._log.error(`WHATSAPP_DEBUG: error obteniendo WWebVersion: ${err.message || err}`);
+        }
+
+        let listo = false;
+        const avisarListo = () => { listo = true; };
+        client.once("ready", avisarListo);
+
+        for (const segundos of [60, 180]) {
+            await new Promise(r => setTimeout(r, segundos * 1000));
+            if (listo || client !== this._client) break;
+            await this._sondaPagina(client, segundos);
+        }
+        client.removeListener("ready", avisarListo);
+    }
+
+    async _sondaPagina(client, segundos) {
+        if (!client.pupPage) {
+            this._log.error(`WHATSAPP_DEBUG sonda (${segundos}s sin ready): no hay pupPage.`);
+            return;
+        }
+        try {
+            const resultado = await client.pupPage.evaluate(() => {
+                try {
+                    const AppState = window.require("WAWebSocketModel").Socket;
+                    return {
+                        appStateState: AppState?.state ?? null,
+                        hasSynced: AppState?.hasSynced ?? null,
+                        tipoStore: typeof window.Store,
+                        tipoWWebJS: typeof window.WWebJS,
+                        tipoRequire: typeof window.require
+                    };
+                } catch (err) {
+                    return { errorEnPagina: String(err?.message || err) };
+                }
+            });
+            this._log.info(`WHATSAPP_DEBUG sonda (${segundos}s sin ready): ${JSON.stringify(resultado)}`);
+        } catch (err) {
+            this._log.error(`WHATSAPP_DEBUG sonda (${segundos}s sin ready): error evaluando en la página: ${err.message || err}`);
+        }
     }
 
     // Si initialize() falla (p. ej. Puppeteer no pudo arrancar), no queda como una promesa
