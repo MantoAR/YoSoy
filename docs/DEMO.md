@@ -30,6 +30,8 @@ node server.js
 
 Queda escuchando en el puerto 3001 (lo usan las dos `sesion_video.html`, no hace falta abrir nada ahí a mano). Para usar la sala: el profesional genera la sala del turno ("Iniciar sesión" en Inicio) y entra con "Entrar a la sala →"; el paciente entra desde su notificación o con el código. El detalle y los mensajes de error están en `docs/VIDEOLLAMADAS.md`.
 
+Esto es solo para correr todo en tu máquina (la sala usa el STUN de Google y no hay TURN). El despliegue en el servidor real —la señalización como servicio, coturn y Caddy— tiene su propio paso a paso en `docs/DESPLIEGUE_VIDEO.md`; ahí la sala usa STUN y TURN propios y los secretos los genera `deploy/video/generar-secretos.sh` en el servidor, sin mostrarlos.
+
 **Para cortar todo** al terminar: `Ctrl+C` en cada ventana, o `Get-Process -Name YoSoy,node -ErrorAction SilentlyContinue | Stop-Process -Force`.
 
 ## URLs de cada pantalla

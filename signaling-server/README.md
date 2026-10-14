@@ -5,10 +5,12 @@ candidatos ICE entre las dos personas de una sala (un profesional y un paciente)
 no usa la base y no llama a la API. Quién puede entrar a qué sala lo decide la API al emitir un **token firmado**
 (ver "Token de sala").
 
-> **No se expone todavía.** Este servicio **no se publica en Caddy hasta que estén en producción la señalización
-> segura (PR 2), la API que emite el token (PR 3) y el frontend que lo manda (PR 4)**. El puerto 3001 **no se abre
-> nunca en UFW**: Caddy llega por loopback. El despliegue (unit de systemd, Caddy) va en el PR 5; nada de eso está en
-> este directorio.
+> **No se expone hasta el último paso del despliegue.** Este servicio **no se publica en Caddy hasta que estén en
+> producción la señalización segura (PR 2), la API que emite el token (PR 3) y el frontend que lo manda (PR 4)**. El
+> puerto 3001 **no se abre nunca en UFW**: Caddy llega por loopback. El despliegue (la unit de systemd
+> [`deploy/signaling-server.service`](../deploy/signaling-server.service), los secretos, coturn y el snippet de Caddy)
+> está en [`deploy/`](../deploy/) y se hace a mano con [`docs/DESPLIEGUE_VIDEO.md`](../docs/DESPLIEGUE_VIDEO.md), donde
+> Caddy va al final; nada de eso está en este directorio.
 >
 > **El servidor exige el token** (PR 2). Las pantallas lo piden a la API (`POST /video/acceso`) y lo mandan desde el
 > PR 4: ver `docs/VIDEOLLAMADAS.md`. Para probar a mano sin pasar por las pantallas, ver "Emitir un token para pruebas".
@@ -45,6 +47,19 @@ mismo dominio (Caddy) y no hace falta nada.
 | `SIGNALING_MAX_PAYLOAD_BYTES` | no | `65536` | Tamaño máximo de un mensaje. Si se pasa, se corta la conexión del que lo mandó. |
 | `SIGNALING_MAX_HANDSHAKES_POR_MIN` | no | `60` | Conexiones nuevas por IP real y por minuto. |
 | `SIGNALING_MAX_EVENTOS_POR_10S` | no | `100` | Eventos por socket cada 10 segundos. |
+
+## En el servidor
+
+Corre como el servicio `signaling-server` (`deploy/signaling-server.service`): usuario `yosoy`, en
+`/opt/yosoy/signaling/app`, con las variables en `/opt/yosoy/config/signaling.env` (permisos 600; lo crea
+`deploy/video/generar-secretos.sh` sin mostrar el secreto) y con `HOST=127.0.0.1` y `PORT=3001`. Los logs van al journal:
+`sudo journalctl -u signaling-server`.
+
+Atiende `SIGTERM` y `SIGINT`: loguea `PARADA`, desconecta a todos los clientes y sale con 0 (medido con clientes por
+websocket y por long-polling: menos de 10 ms). No tiene un tope propio de espera, así que la unit pone `TimeoutStopSec=10`:
+si algo lo dejara colgado, systemd lo mata a los 10 segundos, y no se pierde nada porque no guarda estado (las salas viven
+solo en memoria). Reiniciarlo **no corta las llamadas ya armadas** (el video no pasa por acá): las pantallas reconectan solas
+y vuelven a entrar a su sala.
 
 ## Token de sala
 

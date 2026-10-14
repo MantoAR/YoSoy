@@ -242,7 +242,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 ### Pendiente
 
-- `signaling-server` (Node, WebRTC): desde el PR 2 exige un token de sala firmado que emite la API (`POST /video/acceso`, PR 3) y que las pantallas piden y mandan (PR 4); ver `docs/VIDEOLLAMADAS.md`. Pendiente: el despliegue en el servidor (PR 5) y el consentimiento y la privacidad de la sala (PR 6).
+- `signaling-server` (Node, WebRTC): desde el PR 2 exige un token de sala firmado que emite la API (`POST /video/acceso`, PR 3) y que las pantallas piden y mandan (PR 4); ver `docs/VIDEOLLAMADAS.md`. El despliegue en el servidor (unit de systemd, secretos, coturn y Caddy) está preparado en `deploy/` y se hace a mano con `docs/DESPLIEGUE_VIDEO.md` (PR 5; todavía no se ejecutó en el servidor). Pendiente: el consentimiento y la privacidad de la sala (PR 6).
 - Reconciliar con el JWT de `videollamadas-seguras` (`Services/JwtService.cs` ahí): son dos implementaciones distintas (claims, nombre de la clave de configuración, formato de token) hechas sin coordinarse — ver "Parte 2: JWT, Paso J0" en `CAMBIOS_AGUS.md` para el detalle.
 - Cierre de sesión por inactividad: decisión de equipo pendiente, no se tocó.
 - CSP (Content-Security-Policy): no se activa todavía — hay demasiado JS/CSS inline en `PANTALLAS/` y rompería pantallas. Ver `CAMBIOS_AGUS.md` para el detalle de por qué queda como mejora futura.

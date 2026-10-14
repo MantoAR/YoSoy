@@ -1,0 +1,37 @@
+# Videollamadas: lo único que Caddy tiene que sumar. NO es un Caddyfile completo: es un fragmento de
+# directivas que va DENTRO del bloque del sitio (yosoytelemedicina.tech { ... }) del Caddyfile existente.
+# Paso a paso y verificación: docs/DESPLIEGUE_VIDEO.md, paso g.
+#
+# Cómo integrarlo (recomendado): copiar este archivo tal cual a /etc/caddy/video.caddy y agregar UNA línea
+# dentro del bloque del sitio, en cualquier lugar (da igual si va antes o después del reverse_proxy de la API):
+#
+#     yosoytelemedicina.tech {
+#         import /etc/caddy/video.caddy
+#         reverse_proxy localhost:5000
+#     }
+#
+# Alternativa: pegar el bloque "handle" de abajo directamente en el bloque del sitio.
+# Antes de recargar, siempre:  sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#
+# Qué hace: el navegador abre la señalización en el mismo dominio (https://yosoytelemedicina.tech/socket.io/...)
+# y esas rutas van al signaling-server, que escucha solo en loopback. Todo lo demás sigue yendo a la API.
+# Dentro de un bloque de sitio Caddy evalúa "handle" antes que "reverse_proxy" y un "handle" que coincide corta
+# ahí: la API no recibe nunca /socket.io/*. Si el signaling está caído, esas rutas dan 502 (no caen en la API).
+#
+# WebSocket: no hay nada que activar. El reverse_proxy de Caddy 2 reenvía los upgrade (Connection: Upgrade)
+# solo. Se prueba en el paso h: la respuesta tiene que ser "101 Switching Protocols".
+#
+# IP del cliente: Caddy agrega X-Forwarded-For y el signaling toma la ÚLTIMA entrada (la que pone Caddy), así
+# que lo que mande el navegador no cuenta. Ver signaling-server/README.md, "Detrás de Caddy".
+handle /socket.io/* {
+	reverse_proxy 127.0.0.1:3001 {
+		# Cuánto esperar antes de cerrar los WebSocket abiertos cuando se recarga la configuración de Caddy
+		# (`systemctl reload caddy`). Sin esta línea, una recarga los corta en el acto (medido con Caddy
+		# 2.11.7); con 5 minutos no corta de golpe todas las señalizaciones en curso: las deja terminar y las
+		# cierra a los 5 minutos. Las pantallas reconectan solas y vuelven a entrar a su sala, y una llamada ya
+		# armada no depende de la señalización.
+		# Hace falta Caddy 2.7 o más nuevo: con la 2.6.4 `caddy validate` falla con "unrecognized subdirective
+		# stream_close_delay" y no se recarga nada (paso g del runbook). Con 2.7.0, 2.8.4 y 2.11.7 valida bien.
+		stream_close_delay 5m
+	}
+}
