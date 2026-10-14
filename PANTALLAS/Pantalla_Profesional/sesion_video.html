@@ -62,6 +62,7 @@
 
         /* Panel inferior - transcripción y evolución */
         .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .bottom-grid.sin-transcripcion { grid-template-columns: 1fr; }
 
         /* Transcripción */
         .transcripcion-box { height: 180px; overflow-y: auto; background: var(--surface-2); border-radius: var(--r-md); padding: 10px; font-size: var(--fs-sm); line-height: 1.6; border: 1px solid var(--border); }
@@ -100,15 +101,6 @@
         .btn-mic.btn-gris { height: auto; }
         .estado { font-size: var(--fs-sm); color: var(--text-3); }
 
-        /* Pantalla de conexión */
-        .sala-box { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--r-lg); padding: 16px; margin-top: 16px; }
-        .sala-box-titulo { font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 8px; }
-        .sala-codigo-wrap { display: flex; align-items: center; gap: 10px; }
-        .sala-codigo { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--accent-strong); letter-spacing: .1em; }
-        .btn-copiar { background: var(--surface); border: 1px solid var(--accent-border); color: var(--accent-strong); padding: 6px 14px; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); }
-        .btn-copiar:hover { background: var(--accent); color: #fff; }
-        .sala-hint { font-size: var(--fs-sm); color: var(--text-3); margin-top: 8px; }
-
         /* Aviso propio de la página (el YS.toast de shared/ui.js usa otro contenedor y acá no se usa) */
         #toast { position: fixed; bottom: 20px; right: 20px; background: #1F1D2B; color: #fff; padding: 10px 16px; border-radius: var(--r-lg); font-size: var(--fs-md); z-index: 999; box-shadow: var(--shadow-lg); }
         #toast:not(.visible) { display: none; }
@@ -123,10 +115,19 @@
         <div class="card">
             <h3>Iniciar sesión con paciente</h3>
             <p class="texto-ayuda">
-                Creá la sala y compartí el código con tu paciente para que se una.
+                Elegí la sesión a la que querés entrar. La sala la genera el turno (desde Inicio, "Iniciar sesión") y tu
+                paciente se une desde su panel con el código que le llegó en la notificación.
             </p>
 
-            <!-- Selector de paciente -->
+            <!-- Sesión: acá no se crea ninguna sala, se entra a la de un turno -->
+            <div class="campo-sesion">
+                <label for="sel-sesion">Sesión</label>
+                <select id="sel-sesion" class="ui-select" onchange="sesionElegida()">
+                    <option value="">Cargando sesiones...</option>
+                </select>
+            </div>
+
+            <!-- Selector de paciente (para guardar la sesión en su historia clínica) -->
             <div class="campo-sesion">
                 <label for="sel-paciente">Paciente de la sesión</label>
                 <select id="sel-paciente" class="ui-select">
@@ -134,17 +135,8 @@
                 </select>
             </div>
 
-            <button class="btn-verde" id="btn-crear" onclick="crearSala()">📹 Crear sala</button>
+            <button class="btn-verde" id="btn-crear" onclick="entrarASala()">📹 Entrar a la sala</button>
             <div id="estado-conexion" class="estado-conexion" aria-live="polite"></div>
-
-            <div class="sala-box oculto" id="sala-box">
-                <div class="sala-box-titulo">Código de sala — compartilo con tu paciente</div>
-                <div class="sala-codigo-wrap">
-                    <span class="sala-codigo" id="sala-codigo-display">—</span>
-                    <button class="btn-copiar" onclick="copiarCodigo()">📋 Copiar</button>
-                </div>
-                <div class="sala-hint">El paciente debe ingresar este código para unirse a la sesión.</div>
-            </div>
         </div>
     </div>
 
@@ -196,8 +188,8 @@
         <!-- PANEL INFERIOR: TRANSCRIPCIÓN + EVOLUCIÓN -->
         <div class="bottom-grid">
 
-            <!-- TRANSCRIPCIÓN -->
-            <div class="card">
+            <!-- TRANSCRIPCIÓN (apagada: YS.video.FLAGS.transcripcion; con la bandera apagada la tarjeta se saca al cargar) -->
+            <div class="card" id="card-transcripcion">
                 <h3>Transcripción de la sesión</h3>
                 <div class="transcripcion-box" id="transcripcion-box">
                     <div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>
@@ -250,10 +242,10 @@ const EMOCIONES = {
     disgusted: { label:'Disgusto',  color:'#D4537E', emoji:'🤢' }
 };
 
-let pc, stream, socket, detectionTimer, timerInterval, sessionStart;
+let control, stream, detectionTimer, timerInterval, sessionStart;   // control: lo que devuelve YS.video.entrar
 let muestras = 0, totales = {}, historial = [], ultimaEmo = null;
 let modelsListo = false;
-let sala = '';
+let sala = '';   // código de la sala, solo para mostrarlo en el reporte: lo decide la API (acceso.sala)
 let tipoCierreSeleccionado = null;
 
 // Transcripción
@@ -262,7 +254,7 @@ let micMedicoActivo = false, micPacienteActivo = false;
 let transcripcionLineas = [];
 
 // ─── CARGAR PACIENTES ─────────────────────────────────────
-const idProfesional = localStorage.getItem('idProfesional') || '1';
+const idProfesional = YS.sesion.idProfesional();   // null si no hay un profesional en la sesión: nunca un id de relleno
 // Avisos cuando la API contesta 401. Se pide sinRedireccion en cada YS.api de esta página: el
 // redirect a login de YS.fetch sacaría al profesional de la sala y perdería lo que ya cargó
 // (notas, transcripción, emociones).
@@ -270,6 +262,10 @@ const MSG_VENCIDA_AL_ABRIR = 'Tu sesión venció. Ingresá de nuevo y recargá e
 const MSG_VENCIDA_AL_GUARDAR = 'Tu sesión venció. Ingresá de nuevo en otra pestaña y volvé a tocar Guardar: lo que cargaste en esta sala no se pierde.';
 
 async function cargarPacientes() {
+    if (!idProfesional) {
+        document.getElementById('sel-paciente').replaceChildren(new Option('No se pudo identificar tu usuario profesional', ''));
+        return;
+    }
     try {
         const lista = await YS.api(`/profesionales/${idProfesional}/pacientes`, { sinRedireccion: true });
         const sel = document.getElementById('sel-paciente');
@@ -295,7 +291,7 @@ async function cargarPacientes() {
     }
 }
 
-cargarPacientes();
+const pacientesListos = cargarPacientes();
 
 // ─── CARGAR MODELOS ───────────────────────────────────────
 Promise.all([
@@ -304,7 +300,8 @@ Promise.all([
     faceapi.nets.faceExpressionNet.loadFromUri('../models')
 ]).then(() => {
     modelsListo = true;
-    document.getElementById('estado-conexion').textContent = 'Listo. Podés crear la sala.';
+    const aviso = document.getElementById('estado-conexion');
+    if (!aviso.textContent) aviso.textContent = 'Listo. Podés entrar a la sala.';
 }).catch(() => {
     document.getElementById('estado-conexion').textContent = 'Error cargando modelos de IA.';
 });
@@ -318,38 +315,117 @@ function toast(msg, dur = 3000) {
     t._timer = setTimeout(() => t.classList.remove('visible'), dur);
 }
 
-// ─── CREAR SALA ───────────────────────────────────────────
-function crearSala() {
-    const salaURL = new URLSearchParams(window.location.search).get('sala');
-    sala = salaURL ? salaURL : ('SALA-' + idProfesional + '-' + Date.now().toString(36).toUpperCase());
-    document.getElementById('sala-codigo-display').textContent = sala;
-    document.getElementById('sala-box').classList.remove('oculto');
-    document.getElementById('btn-crear').textContent = '▶ Entrar a la sala';
-    document.getElementById('btn-crear').onclick = entrarASala;
-    document.getElementById('estado-conexion').textContent = 'Compartí el código con tu paciente y luego entrá.';
+// ─── ELEGIR LA SESIÓN ─────────────────────────────────────
+// Acá no se crea ninguna sala: la genera el turno (Inicio → "Iniciar sesión") y la API decide quién entra, con qué rol
+// y hasta cuándo. La pantalla solo tiene que saber A QUÉ SESIÓN entrar: viene en la URL (?turno= desde el panel,
+// ?admision= o ?sala= desde una entrevista de admisión) o se elige de la lista de turnos con sala.
+let sesionVideo = null;    // { origen, id }
+let turnosConSala = [];    // turnos confirmados del profesional que ya tienen sala y todavía no pasaron
+
+const fechaDMY = s => { const [d, m, a] = String(s).split('/').map(Number); return new Date(a, m - 1, d); };
+const etiquetaSesion = t => {
+    const esHoy = fechaDMY(t.fecha).toDateString() === new Date().toDateString();
+    return `${esHoy ? 'Hoy' : t.fecha.slice(0, 5)} ${t.hora} hs · ${t.nombrePaciente}`;
+};
+
+function preseleccionarPaciente(idPaciente) {
+    const sel = document.getElementById('sel-paciente');
+    if ([...sel.options].some(o => o.value === String(idPaciente))) sel.value = String(idPaciente);
 }
 
-function copiarCodigo() {
-    navigator.clipboard.writeText(sala).then(() => {
-        const btn = document.querySelector('.btn-copiar');
-        btn.textContent = '✅ Copiado';
-        setTimeout(() => btn.textContent = '📋 Copiar', 2000);
-    });
+function sesionElegida() {
+    const t = turnosConSala.find(x => x.idTurno === parseInt(document.getElementById('sel-sesion').value));
+    sesionVideo = t ? { origen: 'turno', id: t.idTurno } : null;
+    if (t) preseleccionarPaciente(t.idPaciente);
 }
+
+async function cargarSesiones() {
+    const sel = document.getElementById('sel-sesion');
+    const aviso = document.getElementById('estado-conexion');
+    const deLaUrl = YS.video.sesionDeLaUrl();
+    await pacientesListos;   // para poder preseleccionar al paciente de la sesión
+
+    // Sin un profesional en la sesión no hay lista de turnos que pedir (y nunca se inventa uno).
+    if (!idProfesional && !deLaUrl) {
+        sel.replaceChildren(new Option('No se pudo identificar tu usuario profesional', ''));
+        aviso.textContent = 'Ingresá de nuevo para entrar a una sala.';
+        return;
+    }
+
+    // Los turnos del profesional sirven para ponerle nombre a la sesión que vino en la URL y para el selector. En una
+    // entrevista de admisión (la abre el Configurador) no hay turno que buscar.
+    let lista = [];
+    if (idProfesional && !(deLaUrl && deLaUrl.origen === 'admision')) {
+        try {
+            lista = await YS.api(`/profesionales/${idProfesional}/turnos-confirmados`, { sinRedireccion: true });
+        } catch (err) {
+            if (!deLaUrl) {
+                sel.replaceChildren(new Option(err.status === 401 ? 'Sesión vencida: ingresá de nuevo' : 'No se pudieron cargar las sesiones', ''));
+                toast(err.status === 401 ? MSG_VENCIDA_AL_ABRIR : err.message, 8000);
+                return;
+            }
+        }
+    }
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    turnosConSala = lista.filter(x => x.codigoSala && fechaDMY(x.fecha) >= hoy);
+
+    // La sesión ya viene en la URL: no se elige, se muestra.
+    if (deLaUrl) {
+        sesionVideo = deLaUrl;
+        const t = deLaUrl.origen === 'turno' ? lista.find(x => x.idTurno === deLaUrl.id) : null;
+        sel.replaceChildren(new Option(
+            deLaUrl.origen === 'admision' ? `Entrevista de admisión (informe ${deLaUrl.id})`
+                : t ? etiquetaSesion(t) : `Turno ${deLaUrl.id}`,
+            String(deLaUrl.id)));
+        sel.disabled = true;
+        if (t) preseleccionarPaciente(t.idPaciente);
+        return;
+    }
+
+    if (YS.param('sala')) aviso.textContent = 'El código del link no tiene el formato esperado. Elegí la sesión de la lista.';
+    if (!turnosConSala.length) {
+        sel.replaceChildren(new Option('No tenés turnos confirmados con sala', ''));
+        aviso.textContent = 'Para entrar a una sala primero hay que generarla: desde Inicio, "Iniciar sesión" en el turno.';
+        return;
+    }
+    sel.replaceChildren(new Option('-- Elegí la sesión --', ''), ...turnosConSala.map(x => new Option(etiquetaSesion(x), String(x.idTurno))));
+    // Si se llegó desde un paciente (Mis pacientes, historia clínica), se elige su próxima sesión.
+    const idPac = parseInt(YS.param('idPaciente'));
+    if (idPac) {
+        const suya = turnosConSala.find(x => x.idPaciente === idPac);
+        if (suya) { sel.value = String(suya.idTurno); sesionElegida(); }
+        else aviso.textContent = 'Este paciente no tiene un turno confirmado con sala generada. Generala desde Inicio ("Iniciar sesión" en el turno).';
+    }
+}
+
+cargarSesiones();
 
 // ─── ENTRAR A LA SALA ─────────────────────────────────────
 async function entrarASala() {
     if (!modelsListo) { toast('Esperá unos segundos: todavía se están cargando los modelos de análisis.'); return; }
-    if (!sala) { toast('Primero creá la sala.'); return; }
+    if (!sesionVideo) { toast('Elegí la sesión a la que querés entrar.'); return; }
 
     const btn = document.getElementById('btn-crear');
     const aviso = document.getElementById('estado-conexion');
     btn.disabled = true;   // el permiso de cámara puede tardar: sin esto, otro clic abriría una segunda conexión
     aviso.className = 'estado-conexion';
-    aviso.textContent = 'Pidiendo permiso para usar la cámara y el micrófono…';
+    aviso.textContent = 'Verificando el acceso a la sala…';
 
-    // Primero los permisos y recién después se cambia de pantalla: si fallan, el profesional
+    // 1. Acceso: la API dice si podés entrar a esta sala, con qué rol y hasta cuándo, y da el token y los servidores ICE.
+    let acceso;
+    try {
+        acceso = await YS.video.pedirAcceso(sesionVideo, { paraRol: 'profesional' });
+    } catch (err) {
+        aviso.className = 'estado-conexion error';
+        aviso.textContent = err.message;
+        btn.disabled = false;
+        return;
+    }
+    sala = acceso.sala;
+
+    // 2. Cámara y micrófono. Primero los permisos y recién después se cambia de pantalla: si fallan, el profesional
     // se queda donde puede leer el motivo y volver a intentar.
+    aviso.textContent = 'Pidiendo permiso para usar la cámara y el micrófono…';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch (err) {
@@ -365,10 +441,24 @@ async function entrarASala() {
     estadoTxt.textContent = 'Esperando al paciente...';
     document.getElementById('vid-propio').srcObject = stream;
 
-    // YS.video.conectar hace que un problema de conexión (o un rechazo) se vea acá, en vez de
-    // quedar para siempre en "Esperando al paciente...".
-    socket = YS.video.conectar({
-        mediaActiva: () => YS.video.conexionActiva(pc),
+    // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
+    // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
+    // para siempre en "Esperando al paciente...".
+    control = YS.video.entrar({
+        sesion: sesionVideo, acceso, stream, paraRol: 'profesional',
+        alVideoRemoto: s => {
+            const vidPaciente = document.getElementById('vid-paciente');
+            vidPaciente.srcObject = s;
+            // Esto llega una vez por conexión (y de nuevo si el paciente vuelve a entrar): el video cambia, pero el
+            // análisis y el reloj de la sesión arrancan una sola vez.
+            if (sessionStart) return;
+            sessionStart = Date.now();
+            muestras = 0; totales = {}; historial = []; ultimaEmo = null;
+            iniciarDeteccion(vidPaciente);
+            iniciarTimer();
+        },
+        alConectado: () => { estadoTxt.textContent = '🟢 Sesión activa'; },
+        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El paciente se desconectó.'; },
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
         alRecuperar: () => { estadoTxt.textContent = 'Esperando al paciente...'; },
         alFallo: (texto, { llamadaActiva }) => {
@@ -377,49 +467,14 @@ async function entrarASala() {
             else volverAConexion(texto);
         }
     });
-    if (!socket) return;
-    // En cada (re)conexión: el servidor pierde las salas del socket anterior, hay que volver a entrar.
-    socket.on('connect', () => socket.emit('join-room', { roomId: sala, role: 'profesional' }));
-
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-    pc.ontrack = e => {
-        const vidPaciente = document.getElementById('vid-paciente');
-        vidPaciente.srcObject = e.streams[0];
-        document.getElementById('estado-txt').textContent = '🟢 Sesión activa';
-        sessionStart = Date.now();
-        muestras = 0; totales = {}; historial = []; ultimaEmo = null;
-        iniciarDeteccion(vidPaciente);
-        iniciarTimer();
-    };
-
-    pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
-    };
-
-    socket.on('offer', async ({ offer }) => {
-        await pc.setRemoteDescription(offer);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.emit('answer', { roomId: sala, answer });
-    });
-
-    socket.on('ice-candidate', async ({ candidate }) => {
-        try { await pc.addIceCandidate(candidate); } catch {}
-    });
-
-    socket.on('user-left', () => {
-        document.getElementById('estado-txt').textContent = '⚠ El paciente se desconectó.';
-    });
 }
 
-// No se pudo entrar a la sala: vuelve a la pantalla de conexión diciendo por qué. La sala sigue
-// creada, así que una vez resuelto alcanza con tocar "Entrar a la sala" de nuevo.
+// No se pudo entrar a la sala: vuelve a la pantalla de conexión diciendo por qué. La sesión sigue elegida, así que una
+// vez resuelto alcanza con tocar "Entrar a la sala" de nuevo.
 function volverAConexion(motivo) {
     stream?.getTracks().forEach(t => t.stop());
-    pc?.close();
-    socket?.disconnect();
+    control?.cerrar();
+    control = null;
     document.getElementById('pantalla-sesion').classList.add('oculto');
     document.getElementById('pantalla-conexion').classList.remove('oculto');
     document.getElementById('btn-crear').disabled = false;
@@ -497,6 +552,7 @@ function iniciarTimer() {
 
 // ─── TRANSCRIPCIÓN ────────────────────────────────────────
 function crearReconocedor(quien) {
+    if (!YS.video.FLAGS.transcripcion) return null;   // apagada, ver YS.video.FLAGS
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         toast('Tu navegador no soporta reconocimiento de voz. Usá Chrome o Edge.');
         return null;
@@ -552,6 +608,7 @@ function agregarLinea(quien, texto) {
 }
 
 function toggleMic(quien) {
+    if (!YS.video.FLAGS.transcripcion) return;   // apagada, ver YS.video.FLAGS
     if (quien === 'medico') {
         if (!micMedicoActivo) {
             recMedico = crearReconocedor('medico');
@@ -606,8 +663,7 @@ async function finalizarSesion() {
     if (micPacienteActivo) { recPaciente?.stop(); micPacienteActivo = false; }
 
     stream?.getTracks().forEach(t => t.stop());
-    pc?.close();
-    socket?.disconnect();
+    control?.cerrar();
 
     document.getElementById('btn-exportar').disabled = false;
     document.getElementById('btn-guardar-hc').disabled = false;
@@ -619,6 +675,7 @@ async function finalizarSesion() {
 async function guardarEnHC() {
     const idPaciente = document.getElementById('sel-paciente').value;
     if (!idPaciente) { toast('Seleccioná el paciente antes de guardar.'); return; }
+    if (!idProfesional) { toast('No se pudo identificar tu usuario profesional: ingresá de nuevo para guardar en la historia clínica.', 8000); return; }
 
     const n = muestras || 1;
     const promedioEmociones = {};
@@ -633,7 +690,7 @@ async function guardarEnHC() {
 
     const body = {
         idPaciente:         parseInt(idPaciente),
-        idProfesional:      parseInt(idProfesional),
+        idProfesional:      idProfesional,
         transcripcion:      transcripcionTexto || null,
         notasEvolucion:     notas || null,
         historialEmociones: JSON.stringify(promedioEmociones),
@@ -672,6 +729,15 @@ function exportarReporte() {
     a.href = URL.createObjectURL(blob);
     a.download = `sesion_${new Date().toISOString().slice(0,10)}.json`;
     a.click();
+}
+
+// ─── TRANSCRIPCIÓN APAGADA ────────────────────────────────
+// El reconocimiento de voz del navegador (Chrome) manda el audio a servidores externos, así que está detrás de
+// YS.video.FLAGS.transcripcion, apagada. Con la bandera apagada la tarjeta ni se muestra. El código queda para
+// cuando se resuelvan la privacidad y el consentimiento (PR 6).
+if (!YS.video.FLAGS.transcripcion) {
+    document.getElementById('card-transcripcion').remove();
+    document.querySelector('.bottom-grid').classList.add('sin-transcripcion');
 }
 </script>
 </body>

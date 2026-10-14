@@ -28,6 +28,10 @@
         .estado-box { margin-top: 12px; font-size: var(--fs-md); color: var(--text-3); min-height: 1.4em; }
         .estado-box.conectado { color: var(--ok); font-weight: 500; }
         .estado-box.error { color: var(--danger); }
+        .aviso-medios { margin-top: 14px; }
+        .aviso-medios p { margin: 4px 0 6px; }
+        .aviso-provisorio { display: block; font-size: var(--fs-sm); opacity: .9; }
+        .medios-activos { font-size: var(--fs-sm); color: var(--text-3); margin: 10px 0 0; }
         .videos-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 12px; }
         .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
         .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -65,6 +69,15 @@
                 </button>
             </div>
             <div class="estado-box" id="estado-espera" aria-live="polite"></div>
+            <!-- Aviso de uso de cámara y micrófono. PROVISORIO: no es el consentimiento informado; el texto legal
+                 definitivo va en el PR 6 y reemplaza a este. -->
+            <div class="ui-alerta ui-alerta--info ui-alerta--bloque aviso-medios" role="note" id="aviso-medios">
+                <strong>Esta sesión usa tu cámara y tu micrófono.</strong>
+                <p>Tu profesional te va a ver y a escuchar en vivo durante la videollamada. Al tocar "Conectarme", el navegador
+                   te va a pedir permiso para usarlos, y podés cortar cuando quieras con "Finalizar sesión".</p>
+                <span class="aviso-provisorio"><span class="ui-chip ui-chip--warn ui-chip--sin-punto">Aviso provisorio</span>
+                    El texto legal del consentimiento informado se incorporará más adelante.</span>
+            </div>
         </div>
     </div>
 
@@ -84,6 +97,7 @@
             <button class="ui-btn ui-btn--danger-solido" onclick="finalizarSesion()">Finalizar sesión</button>
             <span class="estado" id="estado-txt" aria-live="polite">Conectando…</span>
         </div>
+        <p class="medios-activos">Tu cámara y tu micrófono están activos durante esta sesión.</p>
     </div>
 
 </div>
@@ -95,66 +109,86 @@
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
 <script>
-let pc, stream, socket, sala;
+let stream, control;   // control: lo que devuelve YS.video.entrar (cierra la conexión)
 
-// El link de la notificación (y los botones del panel) traen el código: ?sala=SALA-...
-// Queda cargado y solo falta "Conectarme" (la cámara se pide recién ahí).
-(function codigoDesdeElLink() {
+// La página se abre con ?turno=<id> o ?admision=<id> (desde un panel) o con ?sala=<código> (el link de la
+// notificación). Con la sesión ya en la URL solo falta tocar "Conectarme": la cámara se pide recién ahí. Con
+// ?sala= el código queda cargado en el campo.
+(function sesionDesdeElLink() {
     const codigo = (YS.param('sala') || '').trim().toUpperCase();
-    if (!codigo) return;
-    document.getElementById('input-sala').value = codigo;
+    const sesion = YS.video.sesionDeLaUrl();
     const estado = document.getElementById('estado-espera');
-    estado.textContent = 'El código de tu sala ya está cargado. Tocá "Conectarme" cuando estés listo.';
+    if (codigo) document.getElementById('input-sala').value = codigo;
+    if (!sesion) {
+        if (codigo) {
+            estado.textContent = 'El código del link no tiene el formato esperado. Revisalo con tu profesional.';
+            estado.className = 'estado-box error';
+        }
+        return;
+    }
+    // Si la sesión viene en la URL como turno / admisión no hace falta ningún código.
+    if (!codigo) document.getElementById('input-sala').classList.add('oculto');
+    estado.textContent = codigo
+        ? 'El código de tu sala ya está cargado. Tocá "Conectarme" cuando estés listo.'
+        : 'Tu sesión ya está lista. Tocá "Conectarme" cuando estés listo.';
     estado.className = 'estado-box';
     document.getElementById('btn-conectar').focus();
 })();
 
 async function conectarse() {
-    sala = document.getElementById('input-sala').value.trim().toUpperCase();
     const estadoBox = document.getElementById('estado-espera');
+    const boton = document.getElementById('btn-conectar');
+    const error = texto => { estadoBox.textContent = texto; estadoBox.className = 'estado-box error'; };
 
-    if (!sala) {
-        estadoBox.textContent = 'Ingresá el código de sala.';
-        estadoBox.className = 'estado-box error';
+    // Lo que está escrito en el campo manda; si está vacío, vale la sesión que vino en el link. La pantalla solo dice
+    // DE QUÉ SESIÓN quiere entrar: la sala y el rol los decide la API.
+    const escrito = document.getElementById('input-sala').value.trim().toUpperCase();
+    const sesion = escrito ? YS.video.sesionDeCodigo(escrito) : YS.video.sesionDeLaUrl();
+    if (!sesion) {
+        error(escrito
+            ? 'Ese código no tiene el formato esperado (por ejemplo SALA-12-A1B2C3D4). Revisalo con tu profesional.'
+            : 'Ingresá el código de sala.');
         return;
     }
 
-    estadoBox.textContent = 'Conectando...';
+    estadoBox.textContent = 'Verificando tu acceso a la sala…';
     estadoBox.className = 'estado-box';
-    document.getElementById('btn-conectar').disabled = true;
+    boton.disabled = true;
 
+    // 1. Acceso: la API dice si podés entrar, a qué sala y con qué rol, y da el token y los servidores ICE.
+    let acceso;
+    try {
+        acceso = await YS.video.pedirAcceso(sesion, { paraRol: 'paciente' });
+    } catch (err) {
+        error(err.message);
+        boton.disabled = false;
+        return;
+    }
+
+    // 2. Cámara y micrófono.
+    estadoBox.textContent = 'Pidiendo permiso para usar la cámara y el micrófono…';
     try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     } catch (err) {
-        estadoBox.textContent = YS.video.mensajeMedios(err);
-        estadoBox.className = 'estado-box error';
-        document.getElementById('btn-conectar').disabled = false;
+        error(YS.video.mensajeMedios(err));
+        boton.disabled = false;
         return;
     }
 
     document.getElementById('vid-paciente').srcObject = stream;
     document.getElementById('pantalla-espera').classList.add('oculto');
     document.getElementById('pantalla-sesion').classList.remove('oculto');
-    document.getElementById('estado-txt').textContent = 'Conectando con el profesional...';
-
-    // Configurar WebRTC
-    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-    stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-    pc.ontrack = e => {
-        document.getElementById('vid-profesional').srcObject = e.streams[0];
-        document.getElementById('estado-txt').textContent = '🟢 Sesión en curso';
-    };
-
-    pc.onicecandidate = e => {
-        if (e.candidate) socket.emit('ice-candidate', { roomId: sala, candidate: e.candidate });
-    };
-
-    // Conectar al servidor de señalización. YS.video.conectar hace que un problema de conexión
-    // (o un rechazo) se vea acá, en vez de quedar para siempre en "Conectando…".
     const estadoTxt = document.getElementById('estado-txt');
-    socket = YS.video.conectar({
-        mediaActiva: () => YS.video.conexionActiva(pc),
+    estadoTxt.textContent = 'Conectando con el profesional...';
+
+    // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
+    // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
+    // para siempre en "Conectando…".
+    control = YS.video.entrar({
+        sesion, acceso, stream, paraRol: 'paciente',
+        alVideoRemoto: s => { document.getElementById('vid-profesional').srcObject = s; },
+        alConectado: () => { estadoTxt.textContent = '🟢 Sesión en curso'; },
+        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El profesional se desconectó.'; },
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
         alRecuperar: () => { estadoTxt.textContent = 'Conectando con el profesional...'; },
         alFallo: (texto, { llamadaActiva }) => {
@@ -163,45 +197,13 @@ async function conectarse() {
             else volverAEspera(texto);
         }
     });
-    if (!socket) return;
-
-    // Cuando el socket se conecta, unirse a la sala
-    socket.on('connect', () => {
-        socket.emit('join-room', { roomId: sala, role: 'paciente' });
-    });
-
-    // El servidor confirma que nos unimos → mandar offer inmediatamente
-    socket.on('joined', async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId: sala, offer });
-    });
-
-    // Si el profesional se une después que nosotros → mandar offer
-    socket.on('user-joined', async () => {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('offer', { roomId: sala, offer });
-    });
-
-    socket.on('answer', async ({ answer }) => {
-        await pc.setRemoteDescription(answer);
-    });
-
-    socket.on('ice-candidate', async ({ candidate }) => {
-        try { await pc.addIceCandidate(candidate); } catch {}
-    });
-
-    socket.on('user-left', () => {
-        document.getElementById('estado-txt').textContent = '⚠ El profesional se desconectó.';
-    });
 }
 
 // Corta todo y vuelve a la pantalla de espera, sin tocar el código ni el mensaje de estado.
 function cerrarSesion() {
     stream?.getTracks().forEach(t => t.stop());
-    pc?.close();
-    socket?.disconnect();
+    control?.cerrar();
+    control = null;
     document.getElementById('pantalla-sesion').classList.add('oculto');
     document.getElementById('pantalla-espera').classList.remove('oculto');
     document.getElementById('btn-conectar').disabled = false;

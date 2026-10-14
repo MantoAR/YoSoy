@@ -11,20 +11,24 @@ Dos procesos: la app (.NET, puerto 5000) y el servidor de señalización para vi
 ```powershell
 $env:Email__Password = " "              # un espacio: no manda mails reales, pero no rompe el envío
 $env:ASPNETCORE_ENVIRONMENT = "Development"
+$env:Video__SignalingSecreto = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })   # solo la videollamada lo usa
+$env:Video__SignalingSecreto            # copialo si vas a mostrar la videollamada (ver más abajo)
 dotnet run
 ```
 
 Dejalo corriendo en esa ventana. La app queda en **http://localhost:5000**.
 
-**Para la videollamada (otra ventana de PowerShell), solo si la vas a mostrar:**
+**Para la videollamada (otra ventana de PowerShell), solo si la vas a mostrar.** La señalización exige un token de sala que emite la app, así que los dos procesos comparten un secreto: el que generó el comando de arriba (`Video__SignalingSecreto`, 64 caracteres al azar, distinto de `Jwt__Key`; se genera en el momento y no se guarda en ningún lado):
 
 ```powershell
 cd D:\Claude\YoSoy\YoSoy\signaling-server
 npm install        # solo la primera vez
+$env:SIGNALING_SECRETO = "<el mismo valor que Video__SignalingSecreto>"
+$env:SIGNALING_ORIGENES_CORS = "http://localhost:5000"
 node server.js
 ```
 
-Queda escuchando en el puerto 3001 (lo usa `Pantalla_Paciente/sesion_video.html` y la versión del profesional, no hace falta abrir nada ahí a mano).
+Queda escuchando en el puerto 3001 (lo usan las dos `sesion_video.html`, no hace falta abrir nada ahí a mano). Para usar la sala: el profesional genera la sala del turno ("Iniciar sesión" en Inicio) y entra con "Entrar a la sala →"; el paciente entra desde su notificación o con el código. El detalle y los mensajes de error están en `docs/VIDEOLLAMADAS.md`.
 
 **Para cortar todo** al terminar: `Ctrl+C` en cada ventana, o `Get-Process -Name YoSoy,node -ErrorAction SilentlyContinue | Stop-Process -Force`.
 
@@ -116,5 +120,5 @@ Orden sugerido: administrador → profesional → página pública → paciente 
 
 - **La app no arranca o se cuelga a mitad de demo**: `Ctrl+C` en la ventana de PowerShell, volvé a correr `dotnet run` (los tres comandos del paso "Cómo levantar todo" en una sola tanda si hace falta). Si algo quedó en un estado raro, las capturas de `docs/capturas-cambios-agus/demo/` muestran cada pantalla del guion ya armada — mostralas como respaldo mientras reiniciás.
 - **Una pantalla muestra un error o queda vacía**: pasá a la siguiente del guion y volvé después si da tiempo. El único que de verdad depende de otro es el bloque 4 (necesita el turno que crea el bloque 3) — si el 3 falla, mostrá en el bloque 4 que "Mis turnos" arranca vacío y explicá que ahí se vería el turno recién pedido.
-- **La videollamada no conecta**: confirmá que `node server.js` sigue corriendo en su ventana; si no, es el único bloque que se puede saltar entero sin que se note — no está en el guion de arriba a propósito.
+- **La videollamada no conecta**: confirmá que `node server.js` sigue corriendo en su ventana y que el secreto de las dos ventanas es el mismo (si a la app le falta el suyo, la sala dice "La videollamada no está disponible por el momento"); si no, es el único bloque que se puede saltar entero sin que se note — no está en el guion de arriba a propósito.
 - **Alguien pide ver código**: tené `CAMBIOS_AGUS.md` abierto en otra ventana, tiene el detalle de cada fase.
