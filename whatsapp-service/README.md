@@ -64,6 +64,10 @@ sudo -u yosoy bash -c '
   npm ci --omit=dev --cache /opt/yosoy/whatsapp/cache/npm
 '
 ```
+Este mismo comando aplica solo, en su propio `postinstall`, el parche de
+`patches/` (ver "Diagnóstico" más abajo) — no hace falta ningún paso extra.
+Verificado con `npm ci --omit=dev` real, dos veces seguidas desde cero, en
+una carpeta aparte (no en el VPS).
 
 ### Secreto compartido
 
@@ -172,9 +176,26 @@ WhatsApp: loading_screen 0%
 WhatsApp: loading_screen 100%
 WhatsApp conectado (número 549...).     ← esto es "ready"
 ```
-Si el log se corta en algún `loading_screen` y nunca llega al último, o directamente nunca
-aparece `authenticated`, es señal de que whatsapp-web.js y la versión de WhatsApp Web que
-sirven los servidores en ese momento no se llevan bien — ver la sección siguiente.
+
+**Caso real ya visto y parcheado** (ver `patches/whatsapp-web.js+1.34.7.patch` y
+`patches/README.md` para las fuentes): `loading_screen 100%` y `authenticated` —
+repetido varias veces— sin que `ready` llegue nunca, y sin ningún error en el medio. Es
+una carrera conocida de whatsapp-web.js (si la sesión sincroniza más rápido de lo que
+tarda en registrarse el listener que espera ese evento, nunca se entera). El parche ya
+corrige esto para 1.34.7 — si de nuevo se ve exactamente este patrón después de aplicado
+el parche, algo cambió del lado de WhatsApp Web otra vez.
+
+`authenticated` repitiéndose varias veces **no es inofensivo ni está arreglado por este
+parche** — es un síntoma de que `inject()` se ejecutó más de una vez y quedaron
+listeners duplicados (detalle y por qué no se corrigió acá en `patches/README.md`); no
+debería impedir que `ready` dispare una vez aplicado el parche de arriba, pero si se ve
+mucho (más de 2-3 veces seguidas) vale la pena mirarlo con más cuidado.
+
+Si el log se corta en algún `loading_screen` (sin llegar al 100%) o directamente nunca
+aparece `authenticated`, es una situación distinta a la de arriba — señal más genérica de
+que whatsapp-web.js y la versión de WhatsApp Web que sirven los servidores en ese momento
+no se llevan bien — ver la sección siguiente (`WHATSAPP_WEB_VERSION`).
+
 (`change_state` también se loguea, por completitud; `remote_session_saved` está cableado
 pero no lo usa esta configuración — ver el comentario en el código.)
 
@@ -222,6 +243,14 @@ pruebe antes. Para actualizar: cambiar el número a mano, probar en un
 entorno que no sea el chip de producción si es posible, recién entonces
 `npm install` + redeploy.
 
+Al actualizar, revisar también `patches/` — el parche que hay ahí (ver
+`patches/README.md`) tiene el número de versión en el nombre del archivo
+(`whatsapp-web.js+1.34.7.patch`) y apunta a líneas puntuales de esa versión
+exacta de `Client.js`. `patch-package` avisa en el `postinstall` si no puede
+aplicarlo (no falla en silencio), pero hay que revisar a mano si ese código
+sigue necesitando el mismo arreglo en la versión nueva, y regenerar el
+archivo con el número de versión que corresponda.
+
 ## Fijar la versión de WhatsApp Web
 
 whatsapp-web.js trae pineada una versión de WhatsApp Web por default (la que probó al
@@ -249,15 +278,25 @@ producción, mismo criterio que actualizar whatsapp-web.js en sí (sección de a
 
 ## Vulnerabilidades conocidas en dependencias transitivas
 
-`npm audit` reporta 9 altas, todas en la cadena de descarga de Chromium de
-Puppeteer (`extract-zip`, `basic-ftp` vía `proxy-agent`/`pac-proxy-agent`) —
-no en el código de WhatsApp en sí, solo en la herramienta que baja el
-binario de Chromium la primera vez que se instala. Riesgo real bajo en este
-despliegue: no se usa proxy PAC, y la descarga es HTTPS directo al CDN de
-Google. `npm audit fix --force` "arregla" esto bajando `whatsapp-web.js` a
-una versión anterior (cambio incompatible, deshace el fix del Puppeteer
-viejo sin soporte de la sección de arriba) — no se aplicó a propósito.
-Revisar `npm audit` de nuevo en cada actualización de `whatsapp-web.js`.
+`npm audit` reporta 13 altas (eran 9 antes de agregar `patch-package`):
+
+- 9 en la cadena de descarga de Chromium de Puppeteer (`extract-zip`,
+  `basic-ftp` vía `proxy-agent`/`pac-proxy-agent`) — no en el código de
+  WhatsApp en sí, solo en la herramienta que baja el binario de Chromium la
+  primera vez que se instala. Riesgo real bajo en este despliegue: no se usa
+  proxy PAC, y la descarga es HTTPS directo al CDN de Google.
+- 4 nuevas, de `patch-package` → `find-yarn-workspace-root` → `micromatch` →
+  `braces` (denegación de servicio por "stack exhaustion" con patrones glob
+  anidados). Riesgo real bajo acá también: ese código solo corre durante
+  `npm install`/`npm ci` (el propio `postinstall`), nunca en el proceso ya
+  arrancado — no hay ninguna entrada externa que le llegue a esos patrones
+  glob en este despliegue.
+
+`npm audit fix --force` "arregla" la parte de Puppeteer bajando
+`whatsapp-web.js` a una versión anterior (cambio incompatible, deshace el
+fix del Puppeteer viejo sin soporte de la sección de arriba) — no se aplicó
+a propósito. Revisar `npm audit` de nuevo en cada actualización de
+`whatsapp-web.js` o de `patch-package`.
 
 ## Qué NO hacer
 

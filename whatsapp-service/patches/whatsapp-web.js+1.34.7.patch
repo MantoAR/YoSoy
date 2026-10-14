@@ -1,0 +1,38 @@
+diff --git a/node_modules/whatsapp-web.js/src/Client.js b/node_modules/whatsapp-web.js/src/Client.js
+index 800109e..887dc96 100644
+--- a/node_modules/whatsapp-web.js/src/Client.js
++++ b/node_modules/whatsapp-web.js/src/Client.js
+@@ -398,16 +398,23 @@ class Client extends EventEmitter {
+             },
+         );
+         await this.pupPage.evaluate(() => {
+-            window
+-                .require('WAWebSocketModel')
+-                .Socket.on('change:state', (_AppState, state) => {
+-                    window.onAuthAppStateChangedEvent(state);
+-                });
+-            window
+-                .require('WAWebSocketModel')
+-                .Socket.on('change:hasSynced', () => {
+-                    window.onAppStateHasSyncedEvent();
+-                });
++            const AppState = window.require('WAWebSocketModel').Socket;
++            AppState.on('change:state', (_AppState, state) => {
++                window.onAuthAppStateChangedEvent(state);
++            });
++            // YoSoy patch (whatsapp-service/patches/README.md): AppState.hasSynced puede
++            // ya ser true para cuando se llega a esta línea (restauración de sesión
++            // rápida) — "change:hasSynced" solo reacciona a CAMBIOS futuros, así que si ya
++            // pasó antes de registrar este listener, nunca se vuelve a emitir y
++            // onAppStateHasSyncedEvent() no se llama nunca: "ready" no dispara aunque
++            // "authenticated" sí. Mismo fix que pedroslopez/whatsapp-web.js#5748 (mergeado
++            // río arriba, pero no presente en esta versión 1.34.7 instalada).
++            if (AppState.hasSynced) {
++                window.onAppStateHasSyncedEvent();
++            }
++            AppState.on('change:hasSynced', (_AppState, hasSynced) => {
++                if (hasSynced) window.onAppStateHasSyncedEvent();
++            });
+             const Cmd = window.require('WAWebCmd').Cmd;
+             Cmd.on('offline_progress_update_from_bridge', () => {
+                 window.onOfflineProgressUpdateEvent(
