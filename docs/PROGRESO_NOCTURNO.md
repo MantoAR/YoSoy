@@ -25,7 +25,7 @@ archivo está el orden recomendado para mergear.
 |---|---|---|---|
 | 1 | Registro de profesional: 409 / 400 en vez de 500 | `fix/registro-profesional-409` | Hecha |
 | 2 | Bloqueo del login: el conteo vence y se desbloquea | `fix/admin-lockout-decay` | Hecha |
-| 3 | Crear el usuario de un profesional desde el Configurador | `feat/crear-usuario-profesional-admin` | En curso (diseño escrito) |
+| 3 | Crear el usuario de un profesional desde el Configurador | `feat/crear-usuario-profesional-admin` | Hecha (opción A; la B queda como diseño) |
 
 ---
 
@@ -269,3 +269,67 @@ de un solo uso) e implementar **solo la A**, dejando la B documentada.
 
 **Recomendación:** A ahora (resuelve el bloqueo operativo sin tocar el correo) y B más adelante, reusando la
 misma validación y la misma transacción; el endpoint nuevo de A ya queda con la lógica que B necesita.
+
+### Implementación (opción A)
+
+**Commits:** `be3be23` (backend y pruebas), `a7a6170` (frontend y textos), `47ebb2b` (el diseño de arriba).
+
+**Qué se cambió:**
+
+| Archivo | Cambio |
+|---|---|
+| `Services/CrearUsuarioProfesionalService.cs` (nuevo) | Validación, contraseña temporal, hash (el mismo SHA-256 del resto de la app) y traducción de lo que decide la base a 201 / 400 / 404 / 409. |
+| `DAOs/UsuarioProfesionalDAO.cs` | `CrearUsuarioYVincular`: una transacción que bloquea la fila del profesional (`UPDLOCK`), revalida estado, vínculo, usuario y mail, e inserta `Usuario` y `UsuarioProfesional`; `IdsProfesionalesActivosSinUsuario`. |
+| `Program.cs` | `POST /profesionales/{id}/usuario` y `GET /profesionales/sin-usuario` (solo Configurador). |
+| `Models/CrearUsuarioProfesionalRequest.cs` (nuevo) | Cuerpo del pedido. |
+| `PANTALLAS/Pantalla_Configurador/js/dashboard.js` | Botón y modal "Crear usuario"; aviso "Sin usuario"; al aprobar una solicitud se ofrece crear el usuario ahí mismo. Archivo de finales de línea mixtos: se editó solo en zonas CRLF y no cambió el conteo de líneas LF-solo. |
+| `PANTALLAS/Pantalla_Usuario/Usuario/registro_profesional.html` | Dos frases que prometían un mail que nunca se manda. |
+| `docs/MATRIZ_ENDPOINTS.md` | Los dos endpoints nuevos. |
+| `YoSoy.Tests/CrearUsuarioProfesionalServiceTests.cs`, `.../CrearUsuarioProfesionalEndpointsTests.cs` (nuevos) | 32 pruebas sin base y 12 con base. |
+
+**Contrato de `POST /profesionales/{id}/usuario`** (cuerpo `{ username, mail?, contrasena?, generarContrasena }`):
+
+| Caso | Respuesta |
+|---|---|
+| Creado | **201** `{ idUsuario, idProfesional, username, mail, contrasenaTemporal }` (`contrasenaTemporal` solo si se pidió generarla; header `Cache-Control: no-store`) |
+| Usuario fuera de `^[a-zA-Z0-9_.-]{3,50}$`, mail inválido o ausente, contraseña de menos de 8 o más de 100 | **400** con el motivo |
+| Profesional inexistente | **404** |
+| Profesional que no está `Activo`, que ya tiene usuario, usuario ya usado, mail ya usado | **409** con el motivo (esta pantalla la usa el Configurador: los mensajes son específicos a propósito) |
+| Sin sesión / otro rol | 401 / 403 |
+
+**Auditoría:** "Alta Usuario" (`Entidad = Usuario`, `Detalle = username`) y "Vinculación Usuario-Profesional"
+(`Entidad = Profesional`), a nombre del Configurador. La contraseña no se registra en ningún lado.
+
+**Resultado de las pruebas:**
+
+| Corrida | `main` | Esta rama |
+|---|---|---|
+| Sin base | 551 ok / 79 fallan | 583 ok / 91 fallan: las 79 + las 12 de integración nuevas |
+| Con la copia de esquema en `tempdb` | 608 ok / 40 fallan | **652 ok / 40 fallan** (las mismas 40, **0 fallas nuevas**, 44 tests nuevos) |
+| Navegador real (Chromium, API simulada) | — | 20/20: botón solo donde corresponde, validación sin enviar, 409 con el modal abierto, contraseña temporal una sola vez y fuera del DOM al cerrar, copiar, flujo desde Solicitudes |
+
+Se verificó con una mutación que la prueba de atomicidad detecta el problema: con un `COMMIT` anticipado del
+`Usuario`, la prueba que hace fallar el vínculo con un trigger temporal falla.
+
+**Cómo probarlo a mano** (API levantada contra una base de prueba): Configurador → *Pacientes y profesionales* →
+elegir un profesional activo → **Crear usuario**; o *Solicitudes de registro* → **Aprobar** → "Crear usuario".
+Después entrar con ese usuario por la pantalla de Profesional.
+
+**Riesgos y límites:**
+
+- **La contraseña temporal no se obliga a cambiar:** no hay columna `DebeCambiarPassword`. El profesional puede
+  cambiarla con "Olvidé mi contraseña" (le llega un mail). Pedirla en el primer ingreso requiere esquema.
+- **El hash sigue siendo SHA-256 sin sal**, igual que en el resto de la app (ver Tarea 4).
+- **Un mail por cuenta:** `UQ_Usuario_Mail` hace que si el mail de la ficha ya es de otra cuenta (por ejemplo el
+  profesional también es paciente con el mismo mail) la creación dé 409 y haya que escribir otro mail.
+- **Un usuario dado de baja sigue contando como "ya tiene usuario"**; no hay pantalla para reactivar un usuario.
+- `POST /usuarios` y `POST /usuarioprofesionales` siguen sin validar (usuario o mail repetidos dan 500); se anota
+  en la Tarea 4.
+- La política de contraseña es solo de largo (8); no exige complejidad.
+
+**Qué falta / decisiones:**
+
+- Opción B (invitación por mail): decidir si se hace; el diseño está arriba y la validación y la transacción ya
+  son reutilizables.
+- Pedir el cambio de contraseña en el primer ingreso (columna nueva + migración).
+- Una acción "Restablecer contraseña" del Configurador desde la pantalla (hoy: `PUT /usuarios/{id}` con la nueva).
