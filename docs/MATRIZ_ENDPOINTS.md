@@ -299,6 +299,8 @@ sesión del propio dueño. POST sigue público (es el registro).
 | PUT | `/profesionales/{id}` | Cualquier rol autenticado | **Sí (propio) — 403** | "Mi perfil": antes, sin ningún chequeo, cualquiera reescribía el perfil de cualquier profesional. |
 | DELETE/PUT | `/profesionales/{id}`, `/alta`, `/aprobar`, `/rechazar` | Configurador | — | Sin cambios (ya lo tenían). |
 | GET | `/profesionales/solicitudes` | Configurador | — | Sin cambios. |
+| POST | `/profesionales/{id}/usuario` | Configurador | — | **Nuevo** (Tarea 3 de `docs/PROGRESO_NOCTURNO.md`): crea el `Usuario` de un profesional Activo y su vínculo en UNA transacción (un usuario sin vínculo entra como configurador); valida usuario, mail y contraseña (mínimo 8); si se pide, devuelve una contraseña temporal UNA sola vez (`Cache-Control: no-store`). Audita "Alta Usuario" y "Vinculación Usuario-Profesional". |
+| GET | `/profesionales/sin-usuario` | Configurador | — | **Nuevo**: ids de los profesionales Activos que todavía no tienen usuario. |
 | GET | `/profesionales/activos/especialidad/{idEsp}` | Cualquier rol autenticado | No | Antes, sin ningún chequeo. |
 | PUT | `/profesionales/{id}/link-publico` | Cualquier rol autenticado | **Sí (propio o Configurador) — 403** | Ya tenía el chequeo interno; se agrega `RequireAuthorization()` a nivel de ruta por consistencia (antes, un pedido anónimo ya caía en 403 por el fallback interno). |
 | GET | `/profesionales/{id}/pacientes[-detalle]` | Cualquier rol autenticado | **Sí (propio o Configurador) — 403** | Sin cambios (ya lo tenían). |
