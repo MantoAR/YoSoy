@@ -80,8 +80,9 @@ curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:5000/
 sudo systemctl is-active yosoy-api                    # active
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:5000/capacidades                     # 200
 curl -s -o /dev/null -w '%{http_code}\n' https://yosoytelemedicina.tech/pantallas/index.html   # 200
-sudo journalctl -u yosoy-api --since '10 minutes ago' --no-pager | grep -iE "error|exception|Video:"
-# sin excepciones al arrancar; y "Video: /video/acceso habilitado." si las videollamadas están configuradas
+sudo journalctl -u yosoy-api --since '10 minutes ago' --no-pager | grep -iE "error|exception|Video:|Zona horaria"
+# sin excepciones al arrancar; "Video: /video/acceso habilitado." si las videollamadas están configuradas; y
+# "Zona horaria de la clínica: America/Argentina/Buenos_Aires, ..." (si dice otra, mirar Turnos__ZonaHoraria)
 ```
 
 Y entrá con tu usuario a `https://yosoytelemedicina.tech/pantallas/index.html`: lo de siempre tiene que seguir

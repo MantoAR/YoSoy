@@ -41,18 +41,30 @@ por coturn.
 ## Zona horaria y hora del servidor
 
 El servidor está en **`America/Argentina/Buenos_Aires`**. Importa porque los turnos se guardan como fecha y hora
-**locales, sin zona** (`Turno.Fecha` y `Turno.Hora`), y se comparan con la hora del servidor:
+**locales, sin zona** (`Turno.Fecha` y `Turno.Hora`) y hay que saber qué hora es *en la clínica* para compararlas.
 
-- las reglas de turnos (que el horario no sea pasado, la cancelación con 24 h de anticipación, el recordatorio de
-  24 h antes) y la ventana de las salas de video usan la hora local de la máquina;
-- las salas de video además aceptan `Video__ZonaHoraria=America/Argentina/Buenos_Aires` (en `video.env`), que afecta
-  solo a ellas;
-- el bloqueo del login (15 minutos tras 3 intentos fallidos) y el vencimiento del link de recuperación de contraseña
-  (30 minutos) también toman la hora del servidor.
+**Desde la versión que incluye `Services/RelojDeLaClinica.cs`** (rama `chore/revision-turnos`) las decisiones de
+turnos **no dependen de la zona del sistema**: la API usa un solo reloj con la zona de la clínica explícita. La zona
+sale, en orden, de:
+
+1. `Turnos__ZonaHoraria` (opcional). Si está y la zona no existe en el servidor, la API **no arranca** y dice cuál es
+   la clave.
+2. `Video__ZonaHoraria` (la que ya está en `video.env`): significa lo mismo; si `Turnos__ZonaHoraria` no está,
+   también define la zona de la clínica.
+3. `America/Argentina/Buenos_Aires`.
+
+Con ese reloj deciden que el horario no sea pasado, la cancelación con 24 h de anticipación, el recordatorio de 24 h
+antes, el consentimiento y la ventana de las salas de video. Al arrancar, la API deja en el log la zona que usa
+(`Zona horaria de la clínica: ...`).
+
+Lo que **sigue tomando la hora del sistema o de SQL Server** (son marcas de tiempo, no decisiones de turnos): el
+bloqueo del login (15 minutos tras 3 intentos fallidos), el vencimiento del link de recuperación de contraseña
+(30 minutos) y las fechas de auditoría de altas, derivaciones y asignaciones. Por eso conviene que la zona del sistema
+siga siendo la de Argentina.
 
 Si se **cambia** la zona del sistema, conviene reiniciar `mssql-server` y `yosoy-api` para asegurarse de que la
 tomen. Si el servidor se reconstruye, lo primero es `sudo timedatectl set-timezone America/Argentina/Buenos_Aires`; con otra zona,
-los horarios de los turnos se corren.
+las marcas de tiempo de auditoría y el bloqueo del login se corren (los horarios de los turnos no).
 
 ## Firewall y protección
 
@@ -183,6 +195,7 @@ Solo nombres y para qué sirve cada una; los valores están en `/opt/yosoy/confi
 | `Email__Password` | Contraseña de la cuenta de Gmail que manda los mails reales (recuperación de contraseña, avisos). Si se deja vacía, la app arranca igual pero no manda mails. |
 | `ASPNETCORE_ENVIRONMENT` | `Production` en este servidor (evita páginas de error con detalles internos, entre otras cosas). |
 | `ASPNETCORE_URLS` | `http://localhost:5000` — nunca `0.0.0.0` ni `+`. Caddy es el único camino de entrada desde internet, por el 443. |
+| `Turnos__ZonaHoraria` | **Opcional.** Zona horaria de la clínica para las reglas de turnos y la sala de video (por defecto `America/Argentina/Buenos_Aires`; si falta, usa `Video__ZonaHoraria`). Una zona que no existe en el servidor impide que la API arranque. |
 
 **`/opt/yosoy/config/video.env`** (la API lee las de video; las genera `generar-secretos.sh`; detalle y valores por
 defecto en [`VIDEOLLAMADAS.md`](VIDEOLLAMADAS.md)):
@@ -193,7 +206,7 @@ defecto en [`VIDEOLLAMADAS.md`](VIDEOLLAMADAS.md)):
 | `Video__TurnSecreto` | Credenciales efímeras de TURN. Igual a `static-auth-secret` de coturn. |
 | `Video__Emociones__ClaveCifrado` | Clave AES-256 con la que se cifran las emociones guardadas. **No se rota sola; si se pierde, lo guardado no se puede volver a leer.** Hay que tener una copia fuera del servidor. |
 | `Video__Ice__StunUrls__0`, `Video__Ice__TurnUrls__0` a `__2` | Servidores STUN/TURN que la API entrega a los navegadores. |
-| `Video__ZonaHoraria` | Zona en la que están escritas las fechas de los turnos, para las salas (`America/Argentina/Buenos_Aires`). |
+| `Video__ZonaHoraria` | Zona en la que están escritas las fechas de los turnos (`America/Argentina/Buenos_Aires`). Si `Turnos__ZonaHoraria` no está, también es la zona de la clínica; si está y es distinta, la API avisa en el log. |
 | `Video__Ventana__MinutosAntes`, `Video__Ventana__MinutosDespues`, `Video__DuracionPorDefectoMinutos`, `Video__Admision__DuracionMinutos`, `Video__Token__MaxMinutos`, `Video__Turn__TtlMinutos`, `Video__LimitePorMinuto` | Ventana de la sala, duraciones y límites (opcionales: tienen valor por defecto). |
 | `Video__Emociones__RetencionDias`, `__PurgaHabilitada`, `__PurgaCadaHoras`, `__PurgaLote`, `__IdClave`, `__VersionTexto`, `__LimitePorMinuto`... | Retención y purga de las emociones, y el resto de la lectura de emociones (opcionales). |
 
@@ -220,6 +233,7 @@ sudo stat -c '%a %U:%G %n' /opt/yosoy/config/*        # los .env en 600 yosoy:yo
 sudo ls -la /opt/yosoy                                # app, config, signaling, whatsapp, backups (y app-anterior-*)
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:5000/    # 302 .../pantallas/index.html
 sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Video:'   # "/video/acceso habilitado."
+sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Zona horaria de la clínica'   # America/Argentina/Buenos_Aires, -03:00:00
 ```
 
 ## Pendiente / a verificar
