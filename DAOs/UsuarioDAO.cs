@@ -75,19 +75,34 @@ public class UsuarioDAO
         return reader.Read() ? Mapear(reader) : null;
     }
 
-    public void RegistrarIntentoFallido(int idUsuario)
+    // Suma un intento fallido y, al llegar al umbral, bloquea. Todo en UNA sentencia (atómica: dos intentos
+    // simultáneos no se pisan el conteo) y con la hora de la aplicación en UTC, no con GETDATE() de SQL
+    // Server: ver PoliticaBloqueoLogin, que hace lo mismo en C# y es contra lo que se prueba este UPDATE.
+    // Si el bloqueo anterior ya venció, el conteo arranca de nuevo (este intento es el primero de tres).
+    // Devuelve el estado que quedó, para no tener que volver a leer el usuario.
+    public (int IntentosFallidos, DateTime? BloqueadoHasta) RegistrarIntentoFallido(int idUsuario, DateTime ahoraUtc)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(@"
             UPDATE Usuario
-            SET IntentosFallidos = IntentosFallidos + 1,
-                BloqueadoHasta = CASE WHEN IntentosFallidos + 1 >= 3
-                                      THEN DATEADD(MINUTE, 15, GETDATE())
-                                      ELSE BloqueadoHasta END
+            SET IntentosFallidos = CASE WHEN BloqueadoHasta IS NOT NULL AND BloqueadoHasta <= @Ahora
+                                        THEN 1 ELSE IntentosFallidos + 1 END,
+                BloqueadoHasta   = CASE
+                    WHEN (CASE WHEN BloqueadoHasta IS NOT NULL AND BloqueadoHasta <= @Ahora
+                               THEN 1 ELSE IntentosFallidos + 1 END) >= @Max
+                        THEN DATEADD(MINUTE, @Minutos, @Ahora)
+                    WHEN BloqueadoHasta IS NOT NULL AND BloqueadoHasta <= @Ahora THEN NULL
+                    ELSE BloqueadoHasta END
+            OUTPUT inserted.IntentosFallidos, inserted.BloqueadoHasta
             WHERE IdUsuario = @Id", con);
-        cmd.Parameters.AddWithValue("@Id", idUsuario);
-        cmd.ExecuteNonQuery();
+        cmd.Parameters.AddWithValue("@Id",      idUsuario);
+        cmd.Parameters.AddWithValue("@Ahora",   ahoraUtc);
+        cmd.Parameters.AddWithValue("@Max",     PoliticaBloqueoLogin.MaxIntentos);
+        cmd.Parameters.AddWithValue("@Minutos", PoliticaBloqueoLogin.MinutosBloqueo);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return (0, null);   // el usuario ya no existe
+        return ((int)r["IntentosFallidos"], r["BloqueadoHasta"] == DBNull.Value ? null : (DateTime?)r["BloqueadoHasta"]);
     }
 
     public void ResetearIntentos(int idUsuario)
