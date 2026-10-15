@@ -1,10 +1,11 @@
 using Microsoft.Data.SqlClient;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 
-public class ProfesionalDAO
+public class ProfesionalDAO : IProfesionalRegistroRepositorio
 {
     private const string SELECT_COLUMNAS =
         "IdProfesional, Nombre, Apellido, SegundoNombre, SegundoApellido, Dni, Sexo, FechaNacimiento, Matricula, IdEspecialidad, Provincia, OrigenContacto, Estado, Mail, Telefono, FechaSolicitud, Slug, LinkPublicoActivo";
@@ -94,6 +95,47 @@ public class ProfesionalDAO
         cmd.Parameters.AddWithValue("@Id", id);
         using var reader = cmd.ExecuteReader();
         return reader.Read() ? Mapear(reader) : null;
+    }
+
+    Profesional? IProfesionalRegistroRepositorio.ObtenerPorId(int idProfesional) => ObtenerPorId(idProfesional);
+
+    // ── Chequeos previos del alta y la edición (ver RegistroProfesionalService) ──────────────────
+    // Se comparan con el mismo criterio que la base: Matricula tiene UNIQUE (sin distinguir mayúsculas,
+    // como el resto de la tabla) y Dni se compara sin puntos, espacios ni guiones porque la columna es
+    // texto libre y no tiene UNIQUE.
+
+    public bool ExisteEspecialidad(int idEspecialidad)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand("SELECT COUNT(1) FROM Especialidad WHERE IdEspecialidad = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", idEspecialidad);
+        return (int)cmd.ExecuteScalar()! > 0;
+    }
+
+    public bool ExisteMatricula(string matricula, int? excluirIdProfesional = null)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            "SELECT COUNT(1) FROM Profesional WHERE Matricula = @Matricula AND (@Excluir IS NULL OR IdProfesional <> @Excluir)", con);
+        cmd.Parameters.AddWithValue("@Matricula", matricula);
+        cmd.Parameters.Add("@Excluir", SqlDbType.Int).Value = (object?)excluirIdProfesional ?? DBNull.Value;
+        return (int)cmd.ExecuteScalar()! > 0;
+    }
+
+    public bool ExisteDni(string dniNormalizado, int? excluirIdProfesional = null)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT COUNT(1) FROM Profesional
+            WHERE Dni IS NOT NULL
+              AND REPLACE(REPLACE(REPLACE(Dni, N'.', N''), N' ', N''), N'-', N'') = @Dni
+              AND (@Excluir IS NULL OR IdProfesional <> @Excluir)", con);
+        cmd.Parameters.AddWithValue("@Dni", dniNormalizado);
+        cmd.Parameters.Add("@Excluir", SqlDbType.Int).Value = (object?)excluirIdProfesional ?? DBNull.Value;
+        return (int)cmd.ExecuteScalar()! > 0;
     }
 
     public List<Profesional> ObtenerPorEspecialidad(int idEspecialidad)
