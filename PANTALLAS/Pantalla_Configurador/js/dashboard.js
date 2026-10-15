@@ -55,6 +55,9 @@ function abrirModalCaso(titulo, textoConfirmar, cuerpoHtml, alConfirmar) {
 function cerrarModalCaso() {
     cerrarModalFijo("modalCaso");
     _accionModalCaso = null;
+    // Una contraseña temporal mostrada (data-secreto) no se queda en el DOM del modal ya cerrado
+    const cuerpo = document.getElementById("modalCasoBody");
+    if (cuerpo.querySelector("[data-secreto]")) cuerpo.innerHTML = "";
 }
 
 async function confirmarModalCaso() {
@@ -190,9 +193,11 @@ async function mostrarTab(tab, params = {}) {
 
 // ── USUARIOS ─────────────────────────────────────────────────
 async function renderUsuarios(c, params = {}) {
-    const [pacientes, profesionales] = await Promise.all([
+    const [pacientes, profesionales, sinUsuario] = await Promise.all([
         YS.fetch(`/pacientes`).then(r => r.json()),
         YS.fetch(`/profesionales`).then(r => r.json()),
+        // Profesionales Activos que todavía no pueden ingresar (para ofrecer "Crear usuario"); si falla, no se ofrece
+        YS.fetch(`/profesionales/sin-usuario`).then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
 
     const pacProfs = {};
@@ -210,6 +215,7 @@ async function renderUsuarios(c, params = {}) {
     window._profPacs = profPacs;
     window._pacientes = pacientes;
     window._profesionales = profesionales;
+    window._profSinUsuario = new Set(sinUsuario);
     window._mostrarDadosDeBaja = false;
     window._filtroUsuarios = "";
 
@@ -337,12 +343,17 @@ function seleccionarProfesional(idProf) {
         : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
     const botonLink = prof?.linkPublicoActivo
         ? `<button class="ui-btn ui-btn--sm" onclick="apagarLinkPublicoAdmin(${idProf})">Apagar link público</button>` : "";
+    // Un profesional aprobado no puede ingresar hasta que tiene usuario
+    const sinUsuario = prof?.estado === "Activo" && window._profSinUsuario?.has(idProf);
+    const botonUsuario = sinUsuario
+        ? `<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="abrirModalCrearUsuario(${idProf})">Crear usuario</button>` : "";
     document.getElementById("splitInfo").innerHTML = `
         <div class="split-info-texto"><strong>${YS.esc(YS.nombreCompleto(prof))}</strong> ${relacionados.size
             ? `atiende a: ${YS.esc(nombres.join(", "))}.`
             : "no tiene pacientes asignados."}
+            ${sinUsuario ? ' <span class="ui-chip ui-chip--warn">Sin usuario: todavía no puede ingresar</span>' : ""}
             ${prof?.linkPublicoActivo ? ' <span class="ui-chip ui-chip--ok">Link público activo</span>' : ""}</div>
-        <div class="split-info-acciones">${boton}${botonLink}</div>`;
+        <div class="split-info-acciones">${botonUsuario}${boton}${botonLink}</div>`;
 }
 
 async function apagarLinkPublicoAdmin(idProf) {
@@ -395,9 +406,88 @@ function darDeAltaProfesional(idProf) {
         ok: "Profesional dado de alta.", error: "No se pudo dar de alta al profesional." });
 }
 
+// ── CREAR EL USUARIO DE UN PROFESIONAL ───────────────────────
+// Un profesional aprobado no puede ingresar hasta que tiene usuario. Un solo pedido crea el usuario y lo vincula
+// a su ficha (POST /profesionales/{id}/usuario): en dos pasos sueltos, un usuario sin vínculo entra como
+// configurador. La contraseña temporal se muestra una sola vez y no queda guardada en ningún lado.
+function sugerirUsuario(p) {
+    const base = [p?.nombre, p?.apellido].filter(Boolean).join(".");
+    return YS.normalizar(base).replace(/\s+/g, ".").replace(/[^a-z0-9._-]/g, "").slice(0, 50);
+}
+
+// datos: la ficha del profesional si no está en window._profesionales (por ejemplo, recién aprobado desde Solicitudes)
+function abrirModalCrearUsuario(idProf, datos) {
+    const prof = datos || window._profesionales?.find(p => p.idProfesional === idProf);
+    const nombre = YS.nombreCompleto(prof) || "este profesional";
+    abrirModalCaso("Crear usuario", "Crear usuario", `
+        <p>Se crea el usuario con el que <strong>${YS.esc(nombre)}</strong> ingresa a YoSoy y queda vinculado a su ficha.</p>
+        <div class="ui-form-grid">
+            <div class="ui-campo ui-campo--ancho"><label for="campoUsuarioNombre">Nombre de usuario</label>
+                <input type="text" id="campoUsuarioNombre" class="ui-input" maxlength="50" autocomplete="off" value="${YS.esc(sugerirUsuario(prof))}">
+                <div class="ui-campo-ayuda">De 3 a 50 caracteres: letras, números, punto, guion o guion bajo.</div></div>
+            <div class="ui-campo ui-campo--ancho"><label for="campoUsuarioMail">Mail</label>
+                <input type="email" id="campoUsuarioMail" class="ui-input" maxlength="100" autocomplete="off" value="${YS.esc(prof?.mail || "")}">
+                <div class="ui-campo-ayuda">Tiene que ser único. Con este mail el profesional puede recuperar su contraseña.</div></div>
+            <div class="ui-campo ui-campo--ancho">
+                <label class="ui-check"><input type="checkbox" id="campoUsuarioGenerar" checked onchange="alternarClaveManual()"> Generar una contraseña temporal</label>
+                <div class="ui-campo-ayuda">Se muestra una sola vez, al terminar. Si no, escribí una (al menos 8 caracteres).</div></div>
+            <div class="ui-campo ui-campo--ancho oculto" id="grupoClaveManual"><label for="campoUsuarioClave">Contraseña</label>
+                <input type="password" id="campoUsuarioClave" class="ui-input" maxlength="100" autocomplete="new-password"></div>
+        </div>`, () => confirmarCrearUsuario(idProf, nombre));
+}
+
+function alternarClaveManual() {
+    const generar = document.getElementById("campoUsuarioGenerar").checked;
+    document.getElementById("grupoClaveManual").classList.toggle("oculto", generar);
+    if (!generar) document.getElementById("campoUsuarioClave").focus();
+}
+
+async function confirmarCrearUsuario(idProf, nombre) {
+    const generar = document.getElementById("campoUsuarioGenerar").checked;
+    const reglas = [
+        { id: "campoUsuarioNombre", requerido: "Escribí un nombre de usuario.", patron: /^[a-zA-Z0-9_.-]{3,50}$/,
+          mensajePatron: "De 3 a 50 caracteres: letras, números, punto, guion o guion bajo." },
+        { id: "campoUsuarioMail", requerido: "Escribí el mail.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Escribí un mail válido." }
+    ];
+    if (!generar) reglas.push({ id: "campoUsuarioClave", requerido: "Escribí una contraseña.", minimo: 8, mensajeMinimo: "Tiene que tener al menos 8 caracteres." });
+    if (!YS.form.validar(reglas)) return;
+    try {
+        const res = await YS.fetch(`/profesionales/${idProf}/usuario`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username: document.getElementById("campoUsuarioNombre").value.trim(),
+                mail: document.getElementById("campoUsuarioMail").value.trim(),
+                generarContrasena: generar,
+                contrasena: generar ? null : document.getElementById("campoUsuarioClave").value
+            })
+        });
+        if (res.status === 201) {
+            const d = await res.json();
+            mostrarUsuarioCreado(nombre, d);
+            if (YS.shell.actual === "usuarios") mostrarTab("usuarios");
+        } else toast(await YS.leerMensaje(res, "No se pudo crear el usuario."), "error");
+    } catch { toast("No se pudo conectar con el servidor.", "error"); }
+}
+
+function mostrarUsuarioCreado(nombre, d) {
+    const clave = d.contrasenaTemporal
+        ? `<div class="ui-campo ui-campo--ancho"><label>Contraseña temporal</label>
+              <div class="ui-flex">
+                  <code id="claveTemporal" data-secreto="1" style="font-family: var(--mono); font-size: 1.1em; user-select: all">${YS.esc(d.contrasenaTemporal)}</code>
+                  <button type="button" class="ui-btn ui-btn--sm" onclick="YS.copiar(document.getElementById('claveTemporal').textContent, 'Contraseña copiada')">Copiar</button>
+              </div>
+              <div class="ui-campo-ayuda">Se muestra <strong>una sola vez</strong>: no queda guardada en ningún lado. Pasásela al profesional por un medio seguro. Si la pierde, puede pedir una nueva con "Olvidé mi contraseña" (le llega a su mail).</div>
+           </div>`
+        : `<p class="ui-muted">La contraseña es la que escribiste: no se vuelve a mostrar.</p>`;
+    abrirModalCaso("Usuario creado", "Listo", `
+        <p>El usuario <strong>${YS.esc(d.username)}</strong> quedó creado y vinculado a <strong>${YS.esc(nombre)}</strong>. Ya puede ingresar con el rol de profesional.</p>
+        ${clave}`, () => cerrarModalCaso());
+}
+
 // ── SOLICITUDES DE REGISTRO ──────────────────────────────────
 async function renderSolicitudes(c) {
     const datos = await YS.fetch(`/profesionales/solicitudes`).then(r => r.json());
+    window._solicitudes = datos;
     if (!encabezadoListado("solicitudes", datos.length, "pendientes")) return;
 
     YS.tabla(c, {
@@ -459,11 +549,15 @@ function auditorHeaders() {
 }
 
 async function aprobarSolicitud(id) {
-    if (!await confirmar("¿Aprobar esta solicitud? Al profesional le llega un mail para crear su usuario.")) return;
+    if (!await confirmar("¿Aprobar esta solicitud? El profesional queda activo, pero todavía no puede ingresar: hay que crearle el usuario.")) return;
     const res = await YS.fetch(`/profesionales/${id}/aprobar`, { method: "PUT", headers: auditorHeaders() });
     if (res.ok) toast("Solicitud aprobada.");
     else toast(await YS.leerMensaje(res, "No se pudo aprobar la solicitud."), "error");
     mostrarTab("solicitudes");
+    if (res.ok && await confirmar("¿Querés crearle el usuario ahora para que pueda ingresar? También podés hacerlo después desde Pacientes y profesionales.",
+        { titulo: "Crear usuario", textoConfirmar: "Crear usuario" })) {
+        abrirModalCrearUsuario(id, (window._solicitudes || []).find(p => p.idProfesional === id));
+    }
 }
 
 async function rechazarSolicitud(id) {
