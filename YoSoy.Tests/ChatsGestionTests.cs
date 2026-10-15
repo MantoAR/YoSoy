@@ -11,22 +11,33 @@ using Microsoft.Extensions.DependencyInjection;
 // mano con Playwright (docs/pruebas-ui-cambios-agus/p10_chats_a3.py, no versionado); esto
 // deja los puntos más sensibles (quién puede asignar, quién puede borrar una nota de otro,
 // quién puede tocar una respuesta rápida ajena) como prueba permanente de la batería.
-// Corre contra la base local de desarrollo; crea su propia conversación de prueba
-// (teléfono único) y borra todo lo que crea al final.
+// Corre contra una base de datos; crea sus propios datos (los dos profesionales, sus usuarios y la
+// conversación de prueba con teléfono único) y borra todo lo que crea al final. Antes suponía los
+// profesionales 1 y 2 y los usuarios 1, 2 y 99 de la base de desarrollo.
+[Trait("Categoria", "Integracion")]
 public class ChatsGestionTests : IAsyncLifetime
 {
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _configurador = null!, _profesional = null!, _sinToken = null!;
+    private DatosDePrueba _datos = null!;
+    private int _idProfesional, _idOtroProfesional, _idUsuarioOtroProfesional;
     private int _idConversacion;
     private readonly string _telefono = "1199" + DateTime.Now.Ticks.ToString()[^7..];
 
     public async Task InitializeAsync()
     {
+        _datos = new DatosDePrueba();
+        _idProfesional = _datos.Profesional();
+        _idOtroProfesional = _datos.Profesional();
+        var idUsuarioConfigurador = _datos.Usuario();
+        var idUsuarioProfesional = _datos.UsuarioDeProfesional(_idProfesional);
+        _idUsuarioOtroProfesional = _datos.UsuarioDeProfesional(_idOtroProfesional);
+
         _factory = new WebApplicationFactory<Program>();
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
 
-        _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
-        _profesional = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: 1));
+        _configurador = ClienteCon(emisor.Emitir(idUsuarioConfigurador, Roles.Configurador));
+        _profesional = ClienteCon(emisor.Emitir(idUsuarioProfesional, Roles.Profesional, idProfesional: _idProfesional));
         _sinToken = _factory.CreateClient();
 
         var entrante = await _sinToken.PostAsJsonAsync("/mensajeria/simulado/entrante",
@@ -64,6 +75,7 @@ public class ChatsGestionTests : IAsyncLifetime
             await cmd.ExecuteNonQueryAsync();
         }
         _factory.Dispose();
+        _datos.Dispose();   // los profesionales, los usuarios y lo que cuelga de ellos (notas, respuestas rápidas, auditoría)
     }
 
     private HttpClient ClienteCon(string token)
@@ -77,7 +89,7 @@ public class ChatsGestionTests : IAsyncLifetime
     public async Task Asignar_sin_ser_administrador_responde_403()
     {
         var r = await _profesional.PutAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/asignar",
-            new { idProfesional = 1, motivoCategoria = "Otro" });
+            new { idProfesional = _idProfesional, motivoCategoria = "Otro" });
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
     }
 
@@ -85,7 +97,7 @@ public class ChatsGestionTests : IAsyncLifetime
     public async Task Asignar_sin_token_responde_401()
     {
         var r = await _sinToken.PutAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/asignar",
-            new { idProfesional = 1, motivoCategoria = "Otro" });
+            new { idProfesional = _idProfesional, motivoCategoria = "Otro" });
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
     }
 
@@ -104,7 +116,8 @@ public class ChatsGestionTests : IAsyncLifetime
         var idNota = (await alta.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("idNota").GetInt32();
 
         // Otro profesional (no el autor) no puede borrarla.
-        var otro = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>().Emitir(99, Roles.Profesional, idProfesional: 2));
+        var otro = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>()
+            .Emitir(_idUsuarioOtroProfesional, Roles.Profesional, idProfesional: _idOtroProfesional));
         var negado = await otro.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}");
         Assert.Equal(HttpStatusCode.Forbidden, negado.StatusCode);
 

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
@@ -10,70 +9,53 @@ using Microsoft.Extensions.DependencyInjection;
 // auditoría de apertura de datos clínicos queda con ids, nunca contenido. No repite la
 // matriz completa (eso la corre GuardiaEndpointsTests, por reflexión); esto prueba la
 // pertenencia y la identidad-del-token donde antes no había ningún chequeo.
-// Corre contra la base local de desarrollo, igual que PertenenciaConversacionTests; usa
-// los mismos profesionales reales 1 (Usuario 2, asociado al paciente 1) y 2 (Usuario 4,
-// no asociado). Crea su propia HistoriaClinica para el paciente 1 si no existe y borra
-// solo lo que crea.
+// Corre contra una base de datos y crea sus propios datos (DatosDePrueba): el paciente con su historia
+// clínica, un profesional asociado a él y otro que no, y los usuarios de cada uno. Antes suponía los
+// profesionales reales 1 y 2, el paciente 1 y los usuarios 1 a 4 de la base de desarrollo.
+[Trait("Categoria", "Integracion")]
 public class CierreSeguridadTests : IAsyncLifetime
 {
-    private const int IdProfesionalAsociado = 1;     // ya asociado al paciente 1
-    private const int IdProfesionalAjeno = 2;        // no asociado al paciente 1
-    private const int IdPaciente = 1;
+    private int IdProfesionalAsociado;   // asociado al paciente
+    private int IdProfesionalAjeno;      // no asociado al paciente
+    private int IdPaciente;
+    private int _usuarioAsociado;
 
+    private DatosDePrueba _datos = null!;
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _asociado = null!, _ajeno = null!, _configurador = null!, _sinToken = null!;
-    private int? _idHistoriaCreada;
+    private int _usuarioPaciente;
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
+        _datos = new DatosDePrueba();
+        IdPaciente = _datos.Paciente();
+        IdProfesionalAsociado = _datos.Profesional();
+        IdProfesionalAjeno = _datos.Profesional();
+        _datos.PacienteProfesional(IdPaciente, IdProfesionalAsociado);
+        _datos.HistoriaClinica(IdPaciente);
+
+        _usuarioAsociado = _datos.UsuarioDeProfesional(IdProfesionalAsociado);
+        var usuarioAjeno = _datos.UsuarioDeProfesional(IdProfesionalAjeno);
+        var usuarioConfigurador = _datos.Usuario();
+        _usuarioPaciente = _datos.UsuarioDePaciente(IdPaciente);
+
         _factory = new WebApplicationFactory<Program>();
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
-        _asociado = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: IdProfesionalAsociado));
-        _ajeno = ClienteCon(emisor.Emitir(4, Roles.Profesional, idProfesional: IdProfesionalAjeno));
-        _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
+        _asociado = ClienteCon(emisor.Emitir(_usuarioAsociado, Roles.Profesional, idProfesional: IdProfesionalAsociado));
+        _ajeno = ClienteCon(emisor.Emitir(usuarioAjeno, Roles.Profesional, idProfesional: IdProfesionalAjeno));
+        _configurador = ClienteCon(emisor.Emitir(usuarioConfigurador, Roles.Configurador));
         _sinToken = _factory.CreateClient();
-
-        using var con = Conexion.ObtenerConexion();
-        await con.OpenAsync();
-        using var existe = new SqlCommand("SELECT IdHistoria FROM HistoriaClinica WHERE IdPaciente = @Id", con);
-        existe.Parameters.AddWithValue("@Id", IdPaciente);
-        var idExistente = await existe.ExecuteScalarAsync();
-        if (idExistente is null)
-        {
-            using var crear = new SqlCommand(
-                "INSERT INTO HistoriaClinica (IdPaciente, FechaApertura) OUTPUT INSERTED.IdHistoria VALUES (@Id, GETDATE())", con);
-            crear.Parameters.AddWithValue("@Id", IdPaciente);
-            _idHistoriaCreada = (int)(await crear.ExecuteScalarAsync())!;
-        }
+        return Task.CompletedTask;
     }
 
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
-        if (_idHistoriaCreada is int idHistoria)
-        {
-            using var con = Conexion.ObtenerConexion();
-            await con.OpenAsync();
-            using var borrar = new SqlCommand("DELETE FROM HistoriaClinica WHERE IdHistoria = @Id", con);
-            borrar.Parameters.AddWithValue("@Id", idHistoria);
-            await borrar.ExecuteNonQueryAsync();
-        }
-        using (var con = Conexion.ObtenerConexion())
-        {
-            await con.OpenAsync();
-            using var limpiarAuditoria = new SqlCommand(
-                "DELETE FROM LogAuditoria WHERE Entidad = 'HistoriaClinica' AND IdEntidad = @Id", con);
-            limpiarAuditoria.Parameters.AddWithValue("@Id", IdPaciente);
-            await limpiarAuditoria.ExecuteNonQueryAsync();
-        }
         _factory.Dispose();
+        _datos.Dispose();   // lo propio y, en cascada, la auditoría y los turnos que cuelgan de ello
+        return Task.CompletedTask;
     }
 
-    private HttpClient ClienteCon(string token)
-    {
-        var c = _factory.CreateClient();
-        c.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        return c;
-    }
+    private HttpClient ClienteCon(string token) => DatosDePrueba.Cliente(_factory, token);
 
     [Fact]
     public async Task Historia_clinica_sin_token_da_401() =>
@@ -103,7 +85,7 @@ public class CierreSeguridadTests : IAsyncLifetime
         cmd.Parameters.AddWithValue("@Id", IdPaciente);
         using var r = await cmd.ExecuteReaderAsync();
         Assert.True(await r.ReadAsync());
-        Assert.Equal(2, r.GetInt32(0));                       // Usuario del profesional asociado
+        Assert.Equal(_usuarioAsociado, r.GetInt32(0));        // Usuario del profesional asociado
         Assert.DoesNotContain("Transcripcion", r.GetString(1));
         Assert.DoesNotContain("Observaciones", r.GetString(1));
     }
@@ -111,59 +93,41 @@ public class CierreSeguridadTests : IAsyncLifetime
     [Fact]
     public async Task Agenda_profesional_no_puede_borrar_la_de_otro()
     {
-        using var con = Conexion.ObtenerConexion();
-        await con.OpenAsync();
-        using var crear = new SqlCommand(
-            "INSERT INTO Agenda (IdProfesional, Dia, HoraInicio, HoraFin, Disponible, IntervaloMinutos) " +
-            "OUTPUT INSERTED.IdAgenda VALUES (@IdProf, 'Lunes', '09:00', '10:00', 1, 30)", con);
-        crear.Parameters.AddWithValue("@IdProf", IdProfesionalAsociado);
-        var idAgenda = (int)(await crear.ExecuteScalarAsync())!;
+        var idAgenda = _datos.Agenda(IdProfesionalAsociado, "Lunes", "09:00", "10:00");
 
-        try
-        {
-            var respuesta = await _ajeno.DeleteAsync($"/agendas/{idAgenda}");
-            Assert.Equal(HttpStatusCode.Forbidden, respuesta.StatusCode);
+        var respuesta = await _ajeno.DeleteAsync($"/agendas/{idAgenda}");
+        Assert.Equal(HttpStatusCode.Forbidden, respuesta.StatusCode);
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM Agenda WHERE IdAgenda = @Id", ("@Id", idAgenda)));   // sigue ahí
 
-            var propia = await _asociado.DeleteAsync($"/agendas/{idAgenda}");
-            Assert.Equal(HttpStatusCode.NoContent, propia.StatusCode);
-        }
-        finally
-        {
-            using var borrar = new SqlCommand("DELETE FROM Agenda WHERE IdAgenda = @Id", con);
-            borrar.Parameters.AddWithValue("@Id", idAgenda);
-            await borrar.ExecuteNonQueryAsync();
-        }
+        var propia = await _asociado.DeleteAsync($"/agendas/{idAgenda}");
+        Assert.Equal(HttpStatusCode.NoContent, propia.StatusCode);
     }
 
     [Fact]
     public async Task Turno_solicitar_ignora_el_idPaciente_del_cuerpo_y_usa_el_del_token()
     {
-        var pacienteToken = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>()
-            .Emitir(3, Roles.Paciente, idPaciente: IdPaciente));
+        // El profesional tiene que tener agenda ese día y el estado "Pendiente" tiene que existir: así la
+        // solicitud SE CREA (antes, en una base sin agenda, la regla la rechazaba y la prueba no verificaba nada).
+        var fecha = DateTime.Now.AddDays(10);
+        _datos.Agenda(IdProfesionalAsociado, DatosDePrueba.NombreDelDia(fecha), "09:00", "13:00");
+        _datos.EstadoTurno("Pendiente");
+        _datos.AlLimpiar("Turno", "IdPaciente", IdPaciente);
 
-        // Pide un turno a nombre de OTRO paciente (idPaciente=999 en el cuerpo) - la regla
-        // RN-07/disponibilidad puede rechazarlo por otros motivos, pero lo que se prueba
-        // acá es que si se crea, queda a nombre del paciente del token, nunca del 999.
+        var pacienteToken = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>()
+            .Emitir(_usuarioPaciente, Roles.Paciente, idPaciente: IdPaciente));
+
+        // Pide un turno a nombre de OTRO paciente (idPaciente=999 en el cuerpo): tiene que crearse a nombre
+        // del paciente del token, nunca del 999.
         var respuesta = await pacienteToken.PostAsJsonAsync("/turnos/solicitar", new
         {
             idPaciente = 999, idProfesional = IdProfesionalAsociado,
-            fecha = DateTime.Now.AddDays(10).ToString("yyyy-MM-dd"), hora = "11:00:00", motivo = "Prueba cierre de seguridad"
+            fecha = fecha.ToString("yyyy-MM-dd"), hora = "11:00:00", motivo = "Prueba cierre de seguridad"
         });
 
-        if (respuesta.StatusCode == HttpStatusCode.Created)
-        {
-            var creado = await respuesta.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-            var idTurno = creado.GetProperty("idTurno").GetInt32();
-            Assert.Equal(IdPaciente, creado.GetProperty("idPaciente").GetInt32());
-
-            using var con = Conexion.ObtenerConexion();
-            await con.OpenAsync();
-            using var borrar = new SqlCommand("DELETE FROM Turno WHERE IdTurno = @Id", con);
-            borrar.Parameters.AddWithValue("@Id", idTurno);
-            await borrar.ExecuteNonQueryAsync();
-        }
-        // Un 409 (regla de negocio, ej. doble turno ese día) es un resultado válido para
-        // esta prueba: lo que importa es que nunca haya quedado un Turno con IdPaciente=999.
+        Assert.Equal(HttpStatusCode.Created, respuesta.StatusCode);
+        var creado = await respuesta.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Equal(IdPaciente, creado.GetProperty("idPaciente").GetInt32());
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdPaciente = 999"));
     }
 
     [Fact]

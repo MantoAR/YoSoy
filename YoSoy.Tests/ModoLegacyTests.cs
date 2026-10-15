@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 // appsettings.json desde la Fase JWT), un X-Usuario-Id solo, sin Bearer, no tiene que
 // identificar a nadie. Corre contra appsettings.json real (no pisa el flag): si alguna vez
 // alguien lo vuelve a poner en true sin querer, esta prueba lo nota.
+[Trait("Categoria", "Integracion")]
 public class ModoLegacyTests
 {
     [Fact]

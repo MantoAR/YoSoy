@@ -15,6 +15,10 @@ using Microsoft.Extensions.DependencyInjection;
 // Mensajeria:WhatsAppServiceUrl apunta ahí en vez del puerto 3002 real: confirma que
 // WhatsAppAdminService lee la URL de configuración (a diferencia de CanalWhatsAppWebJs, que
 // la tiene fija en el código) y por lo tanto es testeable sin tocar el puerto real.
+// El usuario Configurador de las pruebas de auditoría es PROPIO de cada prueba (DatosDePrueba): antes se
+// usaba el usuario 1 de la base de desarrollo, y sin él el INSERT de LogAuditoria (clave foránea a Usuario)
+// falla y la auditoría queda vacía.
+[Trait("Categoria", "Integracion")]
 public class WhatsAppAdminEndpointsTests
 {
     private const string SecretoDePrueba = "secreto-admin-de-prueba";
@@ -185,7 +189,8 @@ public class WhatsAppAdminEndpointsTests
             req.HttpMethod == "POST" ? (200, """{"exito":true}""") : (200, """{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null}""") };
         using var factory = Factory(servidor.BaseUrl);
         var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
-        const int idAdmin = 1;
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
         try
@@ -196,7 +201,8 @@ public class WhatsAppAdminEndpointsTests
             using var con = Conexion.ObtenerConexion();
             await con.OpenAsync();
             using var cmd = new SqlCommand(
-                "SELECT TOP 1 IdUsuario, Detalle FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = 'Desvinculación de WhatsApp' ORDER BY FechaHora DESC", con);
+                "SELECT TOP 1 IdUsuario, Detalle FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = 'Desvinculación de WhatsApp' AND IdUsuario = @Id ORDER BY FechaHora DESC", con);
+            cmd.Parameters.AddWithValue("@Id", idAdmin);
             using var reader = await cmd.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(idAdmin, reader.GetInt32(0));
@@ -214,7 +220,8 @@ public class WhatsAppAdminEndpointsTests
         var puerto = ServidorFalso.PuertoLibre();
         using var factory = Factory($"http://127.0.0.1:{puerto}/");
         var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
-        const int idAdmin = 1;
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
         var r = await cliente.PostAsync("/mensajeria/whatsapp/desvincular", null);
@@ -235,7 +242,8 @@ public class WhatsAppAdminEndpointsTests
             (200, """{"conectado":false,"numero":null,"qrPendiente":true,"qr":"data:image/png;base64,xx"}""") };
         using var factory = Factory(servidor.BaseUrl);
         var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
-        const int idAdmin = 1;
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
         var r = await cliente.PostAsync("/mensajeria/whatsapp/confirmar-vinculacion", null);
@@ -256,7 +264,8 @@ public class WhatsAppAdminEndpointsTests
             (200, """{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null}""") };
         using var factory = Factory(servidor.BaseUrl);
         var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
-        const int idAdmin = 1;
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
         try
@@ -267,7 +276,8 @@ public class WhatsAppAdminEndpointsTests
             using var con = Conexion.ObtenerConexion();
             await con.OpenAsync();
             using var cmd = new SqlCommand(
-                "SELECT TOP 1 IdUsuario, Detalle FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = 'Vinculación de WhatsApp' ORDER BY FechaHora DESC", con);
+                "SELECT TOP 1 IdUsuario, Detalle FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = 'Vinculación de WhatsApp' AND IdUsuario = @Id ORDER BY FechaHora DESC", con);
+            cmd.Parameters.AddWithValue("@Id", idAdmin);
             using var reader = await cmd.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
             Assert.Equal(idAdmin, reader.GetInt32(0));
@@ -290,7 +300,8 @@ public class WhatsAppAdminEndpointsTests
         using var servidor = new ServidorFalso { Responder = _ => (200, """{"exito":true}""") };
         using var factory = Factory(servidor.BaseUrl);
         var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
-        const int idAdmin = 1;
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
         var token = emisor.Emitir(idAdmin, Roles.Configurador);
 
         try
