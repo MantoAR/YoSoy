@@ -16,6 +16,9 @@ archivo está el orden recomendado para mergear.
   catálogo) con la cadena de conexión apuntando solo a `tempdb`. Con eso, `main` tiene **40 fallas**, todas de
   tests que suponen filas que existen en la base de desarrollo (ver Tarea 5). Las tablas de `tempdb` se sueltan
   al terminar.
+- **Pantallas:** los cambios de frontend se verificaron en navegadores reales (Playwright, Chromium) con un servidor
+  estático de solo lectura y la API simulada, con el reloj y la zona del navegador fijados (Argentina y UTC). Esos
+  scripts no se versionan.
 - **Finales de línea:** los archivos nuevos y editados quedan en CRLF en el árbol de trabajo, como el resto del
   repo; se verificó con `git ls-files --eol` antes de editar.
 
@@ -29,6 +32,7 @@ archivo está el orden recomendado para mergear.
 | 4 | Mensajes que permiten enumerar, política de contraseña y hallazgos | `chore/hardening-mensajes` | Hecha (parte aplicada; hallazgos para decidir) |
 | 5 | Tests legacy independientes de la base de desarrollo | `test/legacy-independientes` | Hecha |
 | 6 | Documentación del servidor y del despliegue | `docs/servidor-y-despliegue` | Hecha (sin verificar contra el VPS) |
+| 7 | Revisión del flujo de turnos: zona horaria explícita y restos de la regla de 24 h | `chore/revision-turnos` | Hecha |
 
 ---
 
@@ -594,3 +598,228 @@ claves ni IPs sensibles más allá de lo que ya figura en el repo.
 - Correr la "Verificación rápida" en el VPS y ajustar lo que difiera.
 - Versionar `migrations/seed_catalogos.sql`.
 - Decidir si el `README.md` raíz tiene que apuntar a `docs/DEPLOY.md`.
+
+---
+
+## Tarea 7 — `chore/revision-turnos`
+
+**Pedido:** revisar el flujo de turnos tras eliminar la regla de 24 h para **pedir**: que no queden restos de esa
+regla en backend, frontend, textos ni tests; que el rechazo de horarios pasados use la zona horaria de Argentina de
+forma consistente **sin depender de la zona del servidor** (una zona explícita o `TimeZoneInfo` configurable, como
+`Video__ZonaHoraria`); y que el cálculo de la ventana de video use la misma convención. Corregir solo lo que sea
+seguro y esté cubierto con tests; documentar el resto.
+
+**Commits:** `739662a` (reloj de la clínica, DAO, endpoint y pruebas), `c4fb6a1` (pantallas), `ecaa216` (README y
+`VIDEOLLAMADAS.md`).
+
+### 1. Restos de la regla de 24 h para pedir turno
+
+Se buscó en backend, pantallas, textos del bot, preguntas frecuentes, scripts SQL, tests y documentos (`24 h`,
+`24 horas`, `anticip…`, `HorasMinimasAnticipacion`, `AddHours(24)`): **no queda ningún resto vivo**. Lo que sigue
+diciendo "24" es otra cosa y es correcto:
+
+| Dónde | Qué es |
+|---|---|
+| `TurnoReglasService.HorasMinimasAnticipacion`, `BotReservasService` ("Faltan menos de 24 horas…"), pruebas `Cancelar_con_menos_de_24_horas…` | **Cancelación** (RN-05): se conserva a propósito |
+| Pregunta frecuente "Las cancelaciones se aceptan hasta 24 horas antes del turno" (`01-produccion.sql`, `add_mensajeria.sql`) | La misma regla de cancelación: sigue siendo cierta |
+| `Turno24h`, `EnviarRecordatorio24h`, `Mensajeria:RecordatorioHorasAntes` | El recordatorio, no una restricción para pedir |
+| "Ventana de 24 h" de WhatsApp (`CanalWhatsAppCloud`, README) | Regla del proveedor de mensajería |
+| `CAMBIOS_AGUS.md` (línea 938) | Historial de la Fase 3a: cuenta cómo era; no se reescribe |
+
+El texto del recordatorio usa el día y la hora del turno ("jueves 24/09 a las 10:00", `Formato.FechaHora`), así que un
+turno pedido para dentro de una hora no dice "mañana". Los comentarios de las pruebas que mencionan "antes se exigían 24 h" son
+históricos y están marcados como tales.
+
+### 2. Quién decide "qué hora es" (antes y ahora)
+
+Casi todo el flujo ya pasaba por `TimeProvider.GetLocalNow()`, que en `main` es la zona del **sistema operativo**
+del servidor (`TimeProvider.System`). Eso es lo que había que volver explícito.
+
+| Dónde | Antes | Ahora |
+|---|---|---|
+| `TurnoReglasService` ("ese horario ya pasó", horarios libres, cancelación de 24 h) | zona del sistema operativo | **reloj de la clínica** |
+| Bot, notificador y recordatorios, "próximos turnos" del chat, firma del consentimiento, edad para el consentimiento de video, purga | zona del sistema operativo | **el mismo reloj** (reciben el mismo `TimeProvider`) |
+| Ventana de la sala (`AccesoSalaService`) | `Video:ZonaHoraria` o la del sistema | `Video:ZonaHoraria` si existe, y si no **la del reloj de la clínica**; avisa una vez si no coinciden |
+| "Próximo turno" del paciente (`TurnoDetalleDAO`) | `GETDATE()` de SQL Server | `@Hoy` = fecha del reloj de la clínica |
+| `POST /turnos/profesional-solicitar`: la fecha | `DateTime.Parse` (con una "Z" o un offset la **convierte a la zona del servidor**) | el día tal como está escrito (`MomentoDeTurno`) |
+| `POST /turnos/profesional-solicitar`: cita urgente | la hora de la **PC del profesional** (con la PC mal de hora, la sala no abría) | la hora del reloj de la clínica |
+| Combo de horas del profesional | ofrecía horarios de hoy que ya pasaron | no los ofrece (hora de Argentina) |
+| Reprogramar (paciente) | cancelaba y *después* el servidor podía rechazar el horario | comprueba que el horario no haya pasado *antes* de cancelar |
+
+### 3. Lo que se cambió
+
+- **`Services/RelojDeLaClinica.cs` (nuevo).** `RelojDeLaClinica` es un `TimeProvider` con el instante real del
+  servidor y la zona de la clínica como "local". La zona sale de `Turnos__ZonaHoraria`, después de
+  `Video__ZonaHoraria` (significa lo mismo y `generar-secretos.sh` ya la deja escrita en `video.env`: quien la
+  tiene no cambia nada) y por defecto `America/Argentina/Buenos_Aires` (con el identificador de Windows como
+  alternativa en máquinas sin ICU). Una `Turnos__ZonaHoraria` que no existe **frena el arranque** con un mensaje que
+  nombra la clave; una `Video__ZonaHoraria` mal escrita se ignora, como siempre. La zona se resuelve al crear el
+  reloj y `Program.cs` lo pide apenas arranca.
+- **`Program.cs`:** `AddRelojDeLaClinica` antes de `AddMensajeria`/`AddVideo` (que pasan a `TryAdd`) y una línea de
+  log: `Zona horaria de la clínica: <zona>, diferencia con UTC ahora: <±hh:mm:ss>`.
+- **`Services/MomentoDeTurno.cs` (nuevo)** y `POST /turnos/profesional-solicitar`: fecha y hora se leen sin
+  convertir a la zona del servidor; una fecha o una hora ilegible da **400** (antes 500); la cita urgente toma la
+  hora del servidor.
+- **`TurnoDetalleDAO`:** `ObtenerProximoPorPaciente(id, hoy)` y `ObtenerProfesionalesPorPaciente(id, hoy)` reciben
+  el "hoy" (el único llamador es `GET /pacientes/{id}/proximo-turno`).
+- **`AccesoSalaService`, `VideoOptions`, `TurnoReglasService`:** zona de la ventana tomada del reloj de la clínica y
+  comentarios al día.
+- **Pantallas:** `nuevo_dashboard.js` (combo del profesional filtra lo pasado y muestra el motivo del rechazo) y
+  `Pantalla_Paciente/js/dashboard.js` (Reprogramar comprueba el horario antes de cancelar).
+- **Documentos:** `README.md` y `docs/VIDEOLLAMADAS.md` ("La zona horaria").
+
+### 4. Pruebas
+
+78 pruebas nuevas, todas pasan:
+
+| Clase | Pruebas | Necesita base | Qué cubre |
+|---|---|---|---|
+| `RelojDeLaClinicaTests` | 18 | No | La hora local es la de la clínica y no la del origen (incluida la noche, cuando en UTC ya es "mañana"); de dónde sale la zona (por defecto, `Turnos`, `Video`, mal escrita, inexistente); el registro y que ningún otro `TimeProvider` lo pise |
+| `TurnosZonaHorariaTests` | 9 | No | `TurnoReglasService` con un servidor en UTC: el horario de hoy que todavía no pasó se acepta, el que pasó se rechaza, el borde exacto, la noche, la cancelación de 24 h medida en la clínica y otra zona configurada |
+| `TurnosZonaHorariaEndpointsTests` | 13 | No | La aplicación real (`Program.cs`, JWT, endpoints) con repositorio y notificador falsos: lo mismo por HTTP, la fecha ISO que manda el navegador, 400 ante lo ilegible y la cita urgente con la hora del servidor |
+| `RelojDeLaAplicacionTests` | 4 | No | El reloj que arma `Program.cs` de verdad: Argentina por defecto, `Turnos__ZonaHoraria`, `Video__ZonaHoraria` heredada y que una zona inexistente impide arrancar |
+| `MomentoDeTurnoTests` | 23 | No | El día tal como está escrito (con "Z", con offset, a secas), lo ilegible, y la cita urgente truncada a segundos |
+| `AccesoSalaServiceTests` | +4 | No | La ventana de la sala con el reloj de la clínica sobre un servidor en UTC, que abre en la misma hora de pared que ven las reglas, y el aviso de zonas distintas (una sola vez) |
+| `ProximoTurnoZonaHorariaIntegrationTests` | 7 | **Sí** (`Integracion`) | `ObtenerProximoPorPaciente`/`ObtenerProfesionalesPorPaciente` con el "hoy" que se les pasa y el endpoint con el reloj de la clínica |
+
+| Corrida | `main` | Esta rama |
+|---|---|---|
+| Sin base | 551 ok / 79 fallan | 622 ok / 86 fallan: las 79 de siempre + las 7 de integración nuevas, que necesitan base |
+| Con la copia de esquema en `tempdb` | 608 ok / 40 fallan | **686 ok / 40 fallan** (las mismas 40, **0 fallas nuevas**) |
+
+**Mutaciones** (cada una se revirtió y se verificó): `Ahora` en UTC (12 pruebas fallan), leer la fecha con
+`DateTime.Parse` (fallan los casos con "Z" y con offset), sin `AddRelojDeLaClinica` en `Program.cs` (fallan las 4 de la
+aplicación), la cita urgente con `DateTime.Now` (fallan las 2 de urgente), el DAO otra vez con `GETDATE()` y el
+endpoint con la fecha UTC (fallan las de base).
+
+**Pantallas, en navegador real** (Argentina y UTC): combo del profesional 30/30 (antes de la rama: falla en todos los
+casos de "hoy"); combo y reprogramación del paciente 66/66, con el caso nuevo de "el horario pasó mientras decidía"
+(antes de la rama: cancelaba y recién después pedía).
+
+**Cómo probarlo:**
+
+```
+# Sin base de datos (71 de las nuevas):
+dotnet test YoSoy.Tests --filter "FullyQualifiedName~RelojDeLaClinicaTests|FullyQualifiedName~MomentoDeTurnoTests|FullyQualifiedName~TurnosZonaHorariaTests|FullyQualifiedName~TurnosZonaHorariaEndpointsTests|FullyQualifiedName~RelojDeLaAplicacionTests|FullyQualifiedName~AccesoSalaServiceTests"
+
+# Con una base DESCARTABLE (nunca la real): las 7 de "próximo turno"
+ConnectionStrings__YoSoy="..." dotnet test YoSoy.Tests --filter "FullyQualifiedName~ProximoTurnoZonaHorariaIntegrationTests"
+```
+
+A mano: arrancar la API y mirar el log (`Zona horaria de la clínica: America/Argentina/Buenos_Aires, diferencia con UTC
+ahora: -03:00:00`); arrancarla con `Turnos__ZonaHoraria=UTC` y ver que cambia; con `Turnos__ZonaHoraria=Marte/X` no
+arranca.
+
+### 5. Lo que se encontró y NO se cambió
+
+1. **Marcas de tiempo con la hora del servidor o de la base** (no deciden nada de turnos, pero dependen de la zona
+   del sistema): `DateTime.Now` en `CasoDAO`, `CasoDerivacionDAO`, `HistorialAsignacionDAO`, `PacienteDAO`
+   (fecha de vinculación del usuario con el paciente), `AsignacionService`, `RecuperacionPasswordDAO` (token y ventana de pedidos),
+   `ReporteHtmlBuilder` y varios lugares de `Program.cs` (derivaciones, auditoría, nombre del reporte); y
+   `GETDATE()` en `CasoDerivacionDAO`, `RecuperacionPasswordDAO`, `UsuarioDAO` (bloqueo del login en `main`; la
+   Tarea 2 lo pasa a UTC) y en las altas/asignaciones de `Program.cs`. El día que se quiera unificarlo, el camino es
+   inyectar `TimeProvider` en esos DAO. Mientras la VPS siga en Argentina no hay diferencia; si la zona del sistema
+   cambia, las fechas ya guardadas quedan en la zona vieja (como pasó al corregir la zona del VPS).
+2. **Los calendarios de las pantallas usan la hora del navegador** (`new Date()` y `YS.fecha.esHoy`): "hoy", los
+   días pasados y la semana. Los combos de horas usan la hora de Argentina fija (`ahoraEnArgentina`), una constante
+   que está **repetida** en `Pantalla_Paciente/js/dashboard.js` y `Pantalla_Profesional/js/nuevo_dashboard.js`: si algún
+   día se configura otra zona hay que cambiarla en los dos. No se llevó a `shared/ui.js` a propósito: una pantalla
+   con el JS nuevo y el `ui.js` viejo en la caché del navegador se rompería.
+3. **Reprogramar (paciente) sigue siendo "cancelar y pedir"** (dos pedidos, no atómico): se comprueba antes que el
+   horario no haya pasado, pero si el pedido falla por otro motivo (alguien ocupó el horario en el medio, el modo
+   estricto del consentimiento, la red) el paciente se queda sin turno. Lo correcto es un endpoint de
+   reprogramación transaccional (`PUT /turnos/{id}/reprogramar`); requiere decidir qué pasa con el estado, la
+   confirmación y los avisos, así que no se hizo.
+4. **Reprogramar desde el profesional** (`PUT /turnos/{id}` con el turno entero) no pasa por `RN-01`: puede dejar un
+   turno en un horario pasado o fuera de la agenda. Es el "modo legacy" que ya figura en `CAMBIOS_AGUS.md`.
+5. **Pasos de 60 minutos fijos** en el combo del profesional y en Reprogramar (el servidor usa `IntervaloMinutos`):
+   ya estaba en las limitaciones del `README.md`.
+6. **"Próximo turno"** incluye los turnos de hoy cuya hora ya pasó (hasta la medianoche); es el comportamiento de
+   siempre y no se tocó.
+7. `Program.cs` arma los códigos de sala con `DateTime.Now.Ticks`: solo busca un valor único, la zona no influye.
+
+### 6. Riesgos
+
+- **Una `Turnos__ZonaHoraria` mal escrita frena el arranque** (a propósito). Vuelta atrás: sacar la variable. La
+  `Video__ZonaHoraria` que deja `generar-secretos.sh` es la misma que el valor por defecto, así que en producción no
+  hace falta definir nada.
+- **Cambió la firma de `TurnoDetalleDAO.ObtenerProximoPorPaciente`** (recibe el "hoy"); el único llamador es
+  `Program.cs`.
+- **La cita urgente cambió de comportamiento a propósito:** la hora la pone el servidor. Si algún cliente mandaba
+  una hora distinta de "ahora" con `esUrgente`, se ignora.
+- **`POST /turnos/profesional-solicitar` contesta 400** donde antes daba 500 ante una fecha u hora ilegible.
+- **La hora de Argentina de los combos está fija en el JavaScript** (ver 5.2).
+
+### 7. Qué falta
+
+- Unificar las marcas de tiempo de auditoría con el reloj de la clínica (5.1).
+- Decidir si Reprogramar pasa a un endpoint atómico (5.3).
+- Cuando se mergee esta rama con `docs/servidor-y-despliegue`, que `SERVIDOR.md` y `DEPLOY.md` mencionen
+  `Turnos__ZonaHoraria` y el mensaje de log (ya está hecho en esa rama).
+
+---
+
+## Resumen final y orden para mergear
+
+### Ramas
+
+Todas salen de `main` (`27ad47f`); ninguna se empujó ni se mergeó. Cada una termina con un commit de este archivo.
+
+| # | Rama | Commits de código | Qué entrega |
+|---|---|---|---|
+| 1 | `fix/registro-profesional-409` | `3bc896a` | `POST`/`PUT /profesionales`: 409 por matrícula o DNI repetidos y 400 por especialidad inexistente (antes 500) y límite por IP |
+| 2 | `fix/admin-lockout-decay` | `1a7cf0d` | El conteo de intentos fallidos del login vence con el bloqueo; el bloqueo pasa a UTC |
+| 3 | `feat/crear-usuario-profesional-admin` | `be3be23`, `a7a6170` (diseño en `47ebb2b`) | El Configurador crea el usuario de un profesional (opción A, atómica) y se quitan las promesas de mail |
+| 4 | `chore/hardening-mensajes` | `a4c9999` | Alta de paciente con mensaje único, política de contraseña centralizada y 13 hallazgos de seguridad documentados |
+| 5 | `test/legacy-independientes` | `e7d93ef` | Las pruebas de integración crean y borran sus propios datos: 649/649 sobre una base vacía |
+| 6 | `docs/servidor-y-despliegue` | `d66b87d` | `SERVIDOR.md` al día y `DEPLOY.md` nuevo |
+| 7 | `chore/revision-turnos` | `739662a`, `c4fb6a1`, `ecaa216` | Reloj de la clínica con zona explícita para turnos y sala de video, y pantallas |
+
+### Qué quedó hecho y qué quedó pendiente
+
+**Hecho y probado** (sin fallas nuevas en ninguna rama, con y sin base): las 7 tareas. Lo único que no se pudo
+verificar es lo que depende del VPS (Tarea 6: se escribió desde los runbooks del repositorio) y de la base real
+(nada se ejecutó contra `yosoy`).
+
+**Pendiente, por decidir o por hacer** (cada uno está explicado en su tarea):
+
+| Tema | De dónde viene | Qué hace falta |
+|---|---|---|
+| Mínimo de contraseña (hoy 6 en el alta de paciente y 8 en la Tarea 3) | 3, 4 | Elegir el mínimo y unificar `CrearUsuarioProfesionalService` con `PoliticaContrasena` |
+| Hallazgos de seguridad H1 a H13 (credenciales en `appsettings.json`, reserva pública sin autenticar, baja que no quita acceso…) | 4 | Decidir; H1 (rotar la clave del correo) es operativo y no espera |
+| Índice único de DNI de profesional | 1 | Limpiar duplicados y aplicar el índice |
+| Columna de último intento del login | 2 | Migración previa al despliegue |
+| Botón "Desbloquear" en el Configurador | 2 | Hacerlo |
+| Opción B (invitación por mail) y cambio obligatorio de contraseña | 3 | Decidir |
+| `migrations/seed_catalogos.sql` no está versionado | 6 | Decidir si se commitea |
+| Verificar `SERVIDOR.md` contra el VPS (ufw, servicios, SQL en `0.0.0.0:1433`) | 6 | Correr la "Verificación rápida" |
+| Filtro `Categoria!=Integracion` por defecto en `dotnet test` | 5 | Decidir |
+| Reprogramación atómica y marcas de tiempo con el reloj de la clínica | 7 | Hacerlo cuando se priorice |
+
+### Orden recomendado para mergear
+
+1. **`test/legacy-independientes`**: solo pruebas; deja la suite independiente de la base de desarrollo, así cada
+   merge siguiente se puede verificar con `dotnet test` sobre una base vacía.
+2. **`fix/registro-profesional-409`**: corrige un 500 en un endpoint público.
+3. **`fix/admin-lockout-decay`**: corrige el bloqueo del login (ojo: durante hasta 15 minutos después de
+   desplegarlo, un bloqueo vigente puede verse ya vencido; ver Tarea 2).
+4. **`chore/hardening-mensajes`**: después de la 1, porque el alta de profesional ya quedó con mensaje neutral y así
+   los dos altas son coherentes.
+5. **`feat/crear-usuario-profesional-admin`**: después de la 4, para unificar la política de contraseña al mergear.
+6. **`chore/revision-turnos`**: cambia el reloj que usa todo el sistema; conviene que entre con las correcciones
+   anteriores ya probadas.
+7. **`docs/servidor-y-despliegue`**: al final, porque describe el estado final (incluida la zona horaria de la 7).
+
+**Conflictos:** se probó la fusión de las siete ramas de a pares y en ese orden sobre una copia aparte del
+repositorio: **no hay conflictos de código** (ni en `Program.cs`, ni en `dashboard.js`, ni en las pruebas). El único
+archivo que difiere entre ramas era este `PROGRESO_NOCTURNO.md`; por eso cada rama termina con **el mismo contenido**
+de este archivo (un commit final) y los merges no lo tocan. Las siete ramas juntas, fusionadas en ese orden en esa
+copia, **compilan** y la suite completa pasa contra una copia descartable del esquema: **844 correctas, 8 omitidas
+(las de interoperabilidad con Node) y 0 fallas** de 852.
+
+**Después de mergear todo:**
+
+- Unificar la política de contraseña (Tarea 3 con Tarea 4).
+- Revisar que la suite pase sobre una base de prueba vacía: `ConnectionStrings__YoSoy=<base descartable> dotnet test`.
+- En el VPS, nada nuevo que configurar: `Turnos__ZonaHoraria` es opcional y `Video__ZonaHoraria` ya está. Mirar en
+  el log la línea `Zona horaria de la clínica: …` después del despliegue.
