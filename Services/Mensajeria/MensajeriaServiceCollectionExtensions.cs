@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 public static class MensajeriaServiceCollectionExtensions
@@ -12,7 +13,9 @@ public static class MensajeriaServiceCollectionExtensions
                 "Mensajeria:PalabrasRiesgo no puede estar vacía.")
             .ValidateOnStart();
 
-        services.AddSingleton(TimeProvider.System);
+        // TryAdd: el reloj de la aplicación es RelojDeLaClinica (AddRelojDeLaClinica, que va primero en Program.cs).
+        // Esta línea solo cubre a quien use AddMensajeria sin él.
+        services.TryAddSingleton(TimeProvider.System);
 
         // Canal activo elegido por configuración. CanalWhatsAppCloud existe pero
         // todavía no se registra (ver el TODO en esa clase).

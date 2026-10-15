@@ -11,6 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 builder.Services.AddSingleton<EmailService>();
+// El reloj de TODA la aplicación, con la zona horaria de la clínica explícita (Turnos:ZonaHoraria, por defecto
+// America/Argentina/Buenos_Aires): ya no depende de la zona del sistema operativo del servidor. Tiene que ir antes de
+// AddMensajeria y AddVideo, que lo reciben por inyección. Ver Services/RelojDeLaClinica.cs.
+builder.Services.AddRelojDeLaClinica(builder.Configuration);
 builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
@@ -111,6 +115,11 @@ builder.Services.AddRateLimiter(opt =>
 });
 
 var app = builder.Build();
+
+// Queda en el journal qué zona está usando la API para decidir qué hora es en la clínica.
+var relojDeLaClinica = app.Services.GetRequiredService<TimeProvider>();
+app.Logger.LogInformation("Zona horaria de la clínica: {Zona}, diferencia con UTC ahora: {Diferencia}.",
+    relojDeLaClinica.LocalTimeZone.Id, relojDeLaClinica.GetLocalNow().Offset);
 
 // Falla rápido y claro al arrancar si falta la clave, en vez de un 500 confuso en el
 // primer login — se resuelve el singleton una vez ahora mismo para forzar el chequeo.
@@ -819,12 +828,13 @@ app.MapGet("/pacientes/{id}/turnos-detalle", (int id, HttpContext ctx, Identidad
     return Results.Ok(new TurnoDetalleDAO().ObtenerPorPaciente(id));
 }).RequireAuthorization();
 
-app.MapGet("/pacientes/{id}/proximo-turno", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapGet("/pacientes/{id}/proximo-turno", (int id, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (yo is { EsPaciente: true } && yo.IdPaciente != id)
         return Results.Json(new { mensaje = "Solo podés ver tu propio turno." }, statusCode: 403);
-    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id);
+    // "Hoy" es el de la clínica (el reloj de la aplicación), no el GETDATE() del servidor de base de datos.
+    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id, reloj.GetLocalNow().DateTime);
     return t is null ? Results.NotFound() : Results.Ok(t);
 }).RequireAuthorization();
 
@@ -1932,7 +1942,13 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INoti
     var yo = identidad.Resolver(ctx)!;
     var idProfesional = yo.EsConfigurador ? req.IdProfesional : yo.IdProfesional!.Value;
 
-    var momento = DateTime.Parse(req.Fecha).Date + TimeSpan.Parse(req.Hora);
+    // Cita urgente = "ahora mismo": la hora la pone el reloj de la clínica, no la PC del profesional (con la PC mal de
+    // hora o en otra zona, el turno quedaba a una hora que no era y la sala no abría). Un turno futuro trae su fecha y
+    // su hora, que se leen tal como están escritas (MomentoDeTurno).
+    DateTime momento;
+    if (req.EsUrgente) momento = MomentoDeTurno.DeCitaUrgente(reglas.Ahora);
+    else if (!MomentoDeTurno.TryParsear(req.Fecha, req.Hora, out momento))
+        return Results.BadRequest(new { mensaje = "La fecha o la hora del turno no tienen un formato válido." });
     var resultado = req.EsUrgente
         ? reglas.SolicitarUrgente(req.IdPaciente, idProfesional, momento, req.Motivo)
         : reglas.Solicitar(req.IdPaciente, idProfesional, momento, req.Motivo, creadoPor: "profesional");

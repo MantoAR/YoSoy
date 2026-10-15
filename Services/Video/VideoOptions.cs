@@ -29,8 +29,10 @@ public class VideoOptions
     public int DuracionPorDefectoMinutos { get; set; } = 30;
 
     // Zona horaria en la que están escritas Turno.Fecha / Turno.Hora y InformeAdmision.FechaEntrevista.
-    // Vacía = la del servidor, que es lo que asume el resto del sistema (DateTime.Now). Si la VPS corre en
-    // UTC y la clínica en Argentina, poner America/Argentina/Buenos_Aires (o fijar la zona del servidor).
+    // Vacía = la de la clínica, la MISMA que usan las reglas de turnos: Turnos:ZonaHoraria o, si tampoco está,
+    // America/Argentina/Buenos_Aires. Ya no depende de la zona del servidor, así que no hace falta completarla.
+    // Si se completa y existe, manda para la ventana de la sala y, cuando Turnos:ZonaHoraria no está, también define
+    // la zona de la clínica (es el valor de siempre: no cambia nada para quien ya lo tiene). Si no existe, se ignora.
     public string? ZonaHoraria { get; set; }
 
     // Pedidos por minuto y por IP real a /video/acceso (política "video").
