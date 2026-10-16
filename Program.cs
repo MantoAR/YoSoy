@@ -171,30 +171,34 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
 
-// Login
-app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor) =>
+// Login. Un solo login para los tres roles, así que el bloqueo por intentos fallidos es el mismo para todos
+// (PoliticaBloqueoLogin: 3 intentos, 15 minutos; BloqueadoHasta en UTC; vencido el bloqueo el conteo arranca de
+// nuevo; un login exitoso lo pone en cero).
+app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, TimeProvider reloj) =>
 {
+    var ahoraUtc = reloj.GetUtcNow().UtcDateTime;
     var dao = new UsuarioDAO();
     var usuario = dao.ObtenerPorUsername(req.Username);
 
     if (usuario == null || usuario.Estado != "Activo")
         return Results.Unauthorized();
 
-    if (usuario.BloqueadoHasta.HasValue && usuario.BloqueadoHasta.Value > DateTime.Now)
-        return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+    if (PoliticaBloqueoLogin.EstaBloqueado(usuario.BloqueadoHasta, ahoraUtc))
+        return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(usuario.BloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
 
     var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
 
     if (usuario.PasswordHash.ToUpper() != hash)
     {
-        dao.RegistrarIntentoFallido(usuario.IdUsuario);
-        var actualizado = dao.ObtenerPorUsername(req.Username);
-        if (actualizado?.BloqueadoHasta.HasValue == true && actualizado.BloqueadoHasta.Value > DateTime.Now)
-            return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+        var (_, bloqueadoHasta) = dao.RegistrarIntentoFallido(usuario.IdUsuario, ahoraUtc);
+        if (PoliticaBloqueoLogin.EstaBloqueado(bloqueadoHasta, ahoraUtc))
+            return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(bloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
         return Results.Unauthorized();
     }
 
-    dao.ResetearIntentos(usuario.IdUsuario);
+    // Login exitoso: el conteo vuelve a cero (si hay algo que limpiar; así un login normal no escribe).
+    if (usuario.IntentosFallidos > 0 || usuario.BloqueadoHasta.HasValue)
+        dao.ResetearIntentos(usuario.IdUsuario);
 
     // El token lleva el mismo idUsuario/idPaciente/idProfesional que ya devolvía esta
     // respuesta (contrato existente, solo se agrega el campo "token" — nada se quita).
@@ -417,11 +421,16 @@ app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
 {
     u.IdUsuario = id;
-    if (!string.IsNullOrEmpty(u.PasswordHash))
+    var cambiaPassword = !string.IsNullOrEmpty(u.PasswordHash);
+    if (cambiaPassword)
         u.PasswordHash = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
-    new UsuarioDAO().Modificar(u);
+    var dao = new UsuarioDAO();
+    dao.Modificar(u);
+    // Si el Configurador le pone una contraseña nueva a alguien, es para que pueda entrar: se desbloquea
+    // (igual que hace la recuperación por mail).
+    if (cambiaPassword) dao.ResetearIntentos(id);
     return Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
