@@ -4,6 +4,7 @@
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcodeTerminal = require("qrcode-terminal");
 const QRCode = require("qrcode");
+const { ocultarNumeros } = require("./privacidad");
 
 class ServicioWhatsApp {
     constructor({ dataPath, apiBaseUrl, secreto, webVersion, debug, onEntrante, log }) {
@@ -365,7 +366,7 @@ class ServicioWhatsApp {
             const contacto = await msg.getContact();
             const telefono = contacto?.number;
             if (!telefono) {
-                this._log.error(`Mensaje entrante sin número de contacto resoluble (from=${msg.from}), se ignora.`);
+                this._log.error(`Mensaje entrante sin número de contacto resoluble (from=${ocultarNumeros(msg.from)}), se ignora.`);
                 return;
             }
 
