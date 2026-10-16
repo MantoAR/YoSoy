@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 // TipoConsentimiento y ObraSocial devuelven el id en 0 porque sus DAOs.Insertar son void y
 // nunca leen el id generado. Cada prueba crea una fila marcada, confirma el id real en la
 // respuesta y la borra al final (verifica 0 filas colgadas).
+[Trait("Categoria", "Integracion")]
 public class IdsCeroCatalogosTests
 {
     private static HttpClient ClienteConfigurador(WebApplicationFactory<Program> factory)

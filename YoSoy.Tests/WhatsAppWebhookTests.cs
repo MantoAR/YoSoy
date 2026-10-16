@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 // pedido local (EsLocal, mismo criterio ya probado en AccesoMensajeriaTests para
 // /capacidades). Las dos fallas devuelven 404, nunca 401/403, para no confirmar que el
 // endpoint existe ni cuál de las dos cosas falló.
+[Trait("Categoria", "Integracion")]
 public class WhatsAppWebhookTests
 {
     private const string SecretoDePrueba = "secreto-de-prueba-123";

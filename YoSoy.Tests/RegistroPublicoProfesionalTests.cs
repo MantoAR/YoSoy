@@ -7,8 +7,9 @@ using Microsoft.Extensions.Configuration;
 // Antes de este arreglo, POST /profesionales sin X-Usuario-Id (como lo llama registro_profesional.html,
 // que todavía no tiene sesión) respondía 500: el log de auditoría intentaba guardar IdUsuario = 0 y
 // chocaba con la clave foránea a Usuario. Ver migrations/alter_logauditoria_idusuario_nullable.sql.
-// Corre contra la base local de desarrollo (la misma que usa la app, Conexion.cs); borra sus propias
-// filas al final.
+// Corre contra una base de datos (la misma que usa la app, Conexion.cs); crea su propia especialidad y
+// borra sus propias filas al final.
+[Trait("Categoria", "Integracion")]
 public class RegistroPublicoProfesionalTests
 {
     [Fact]
@@ -21,7 +22,8 @@ public class RegistroPublicoProfesionalTests
                 config.AddInMemoryCollection(new Dictionary<string, string?> { ["Email:Password"] = " " })));
         using var client = factory.CreateClient();
 
-        var idEspecialidad = ObtenerPrimeraEspecialidad();
+        using var datos = new DatosDePrueba();   // la especialidad es propia de la prueba
+        var idEspecialidad = datos.Especialidad();
 
         // Sin X-Usuario-Id a propósito: así llega la solicitud pública, sin sesión.
         var respuesta = await client.PostAsJsonAsync("/profesionales", new
@@ -93,7 +95,8 @@ public class RegistroPublicoProfesionalTests
                 config.AddInMemoryCollection(new Dictionary<string, string?> { ["Email:Password"] = " " })));
         using var client = factory.CreateClient();
 
-        var idEspecialidad = ObtenerPrimeraEspecialidad();
+        using var datos = new DatosDePrueba();   // la especialidad es propia de la prueba
+        var idEspecialidad = datos.Especialidad();
 
         var respuesta = await client.PostAsJsonAsync("/profesionales", new
         {
@@ -143,13 +146,5 @@ public class RegistroPublicoProfesionalTests
             cmdCheck.Parameters.AddWithValue("@m", marca);
             Assert.Equal(0, (int)(await cmdCheck.ExecuteScalarAsync())!);
         }
-    }
-
-    private static int ObtenerPrimeraEspecialidad()
-    {
-        using var con = Conexion.ObtenerConexion();
-        con.Open();
-        using var cmd = new SqlCommand("SELECT TOP 1 IdEspecialidad FROM Especialidad", con);
-        return (int)cmd.ExecuteScalar()!;
     }
 }

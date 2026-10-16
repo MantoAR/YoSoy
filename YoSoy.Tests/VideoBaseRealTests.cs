@@ -2,19 +2,38 @@ using System.Net;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
-// Con la base local real (la misma que usan los demás tests de integración): lo que VideoAccesoEndpointsTests
+// Con una base de datos (la misma que usan los demás tests de integración): lo que VideoAccesoEndpointsTests
 // prueba con dobles en memoria, acá contra SQL Server de verdad: la lectura de turnos e informes (OrigenSalaDAO),
 // la duración sacada de la agenda y la auditoría en LogAuditoria.
 //
-// Los datos reales de la base de desarrollo NO se modifican: se usan el paciente 1, el profesional 1 y el 2 y el
-// Configurador (usuario 1), y los usuarios que les corresponden se buscan en la base. Todo lo que se inserta es de
-// 2031 (nada real cae ahí), lleva la marca "[TEST]" y se borra al terminar, incluso si el test falla.
-public class VideoBaseRealTests
+// Los datos son PROPIOS de cada prueba (DatosDePrueba): un paciente, dos profesionales con su usuario, un usuario
+// Configurador y la agenda del primer profesional (lunes a viernes de 09:00 a 18:00). Antes se usaban el paciente 1,
+// los profesionales 1 y 2 y el usuario 1 de la base de desarrollo, y los usuarios que les correspondían se buscaban
+// ahí. Todo lo que se inserta es de 2031, lleva la marca "[TEST]" y se borra al terminar, incluso si el test falla.
+[Trait("Categoria", "Integracion")]
+public class VideoBaseRealTests : IDisposable
 {
-    private const int IdPacienteReal = 1, IdProfesionalReal = 1, IdOtroProfesionalReal = 2;
-    private const int UsuarioConfiguradorReal = 1;
-    private static readonly DateTime FechaDePrueba = new(2031, 3, 4);   // martes: el profesional 1 atiende de lunes a viernes
+    private readonly DatosDePrueba _datos = new();
+    private readonly int IdPacienteReal, IdProfesionalReal, IdOtroProfesionalReal, UsuarioConfiguradorReal;
+    private static readonly DateTime FechaDePrueba = new(2031, 3, 4);   // martes: el profesional atiende de lunes a viernes
     private static readonly TimeSpan HoraDePrueba = new(10, 0, 0);      // coincide con VideoApp.Inicio
+
+    public VideoBaseRealTests()
+    {
+        IdPacienteReal = _datos.Paciente();
+        IdProfesionalReal = _datos.Profesional();
+        IdOtroProfesionalReal = _datos.Profesional();
+        UsuarioConfiguradorReal = _datos.Usuario();
+        _datos.UsuarioDePaciente(IdPacienteReal);
+        _datos.UsuarioDeProfesional(IdProfesionalReal);
+        _datos.UsuarioDeProfesional(IdOtroProfesionalReal);
+        foreach (var dia in new[] { "Lunes", "Martes", "Miércoles", "Jueves", "Viernes" })
+            _datos.Agenda(IdProfesionalReal, dia, "09:00", "18:00", 30);
+        // Los estados que insertan las pruebas: si el catálogo de la base no los tiene, se crean (y se borran).
+        foreach (var estado in new[] { "Pendiente", "Confirmado", "Cancelado", "Completado" }) _datos.EstadoTurno(estado);
+    }
+
+    public void Dispose() => _datos.Dispose();
 
     // ---------- Acceso a la base ----------
 
@@ -44,7 +63,7 @@ public class VideoBaseRealTests
         using var con = Abrir();
         using var cmd = Comando(con, sql, parametros);
         var r = cmd.ExecuteScalar();
-        Assert.True(r is not null and not DBNull, "La base de desarrollo no tiene lo que este test necesita: " + sql);
+        Assert.True(r is not null and not DBNull, "La base no tiene lo que este test necesita: " + sql);
         return Convert.ToInt32(r);
     }
 
@@ -61,7 +80,7 @@ public class VideoBaseRealTests
 
     private static string CodigoDePrueba(string prefijo) => prefijo + "-" + Guid.NewGuid().ToString("N")[..12].ToUpperInvariant();
 
-    private static int InsertarTurno(string estado, DateTime fecha, TimeSpan hora, string? sala)
+    private int InsertarTurno(string estado, DateTime fecha, TimeSpan hora, string? sala)
     {
         using var con = Abrir();
         using var cmd = Comando(con, @"
@@ -73,7 +92,7 @@ public class VideoBaseRealTests
         return (int)cmd.ExecuteScalar()!;
     }
 
-    private static int InsertarAdmision(string estado, DateTime? fechaEntrevista, string? sala)
+    private int InsertarAdmision(string estado, DateTime? fechaEntrevista, string? sala)
     {
         using var con = Abrir();
         using var cmd = Comando(con, @"

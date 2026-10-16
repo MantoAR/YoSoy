@@ -7,6 +7,7 @@ using Microsoft.Data.SqlClient;
 // Registro público de paciente con acceso: POST /pacientes pasa a crear Paciente + Usuario +
 // UsuarioPaciente en una sola transacción (PacienteDAO.RegistrarConAcceso), en vez de solo
 // Paciente como antes. Corre contra la base local real; cada prueba borra sus propias filas.
+[Trait("Categoria", "Integracion")]
 public class RegistroPacienteConAccesoTests
 {
     private static object Pedido(string dni, string usuario, string mail, string contrasena = "ClaveDePrueba123") =>

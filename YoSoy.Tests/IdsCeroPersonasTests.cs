@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 // fix-ids-cero-endpoints, Grupo 2 (personas): los altas de Tutor, Paciente y Usuario
 // devuelven el id en 0 porque sus DAOs.Insertar son void y nunca leen el id generado.
+// El usuario Configurador es PROPIO de cada prueba (DatosDePrueba): antes se usaba el usuario 1 de la
+// base de desarrollo, y sin él la auditoría del alta ("Alta Usuario", con FK a Usuario) daba 500.
+[Trait("Categoria", "Integracion")]
 public class IdsCeroPersonasTests
 {
     private static HttpClient ClienteCon(WebApplicationFactory<Program> factory, int idUsuario, string rol)
@@ -21,8 +24,9 @@ public class IdsCeroPersonasTests
     public async Task Tutor_alta_devuelve_id_real_no_cero()
     {
         var marca = "XTEST-" + Guid.NewGuid().ToString("N")[..10];
+        using var datos = new DatosDePrueba();
         using var factory = new WebApplicationFactory<Program>();
-        using var client = ClienteCon(factory, 1, Roles.Configurador);
+        using var client = ClienteCon(factory, datos.Usuario(), Roles.Configurador);
 
         var respuesta = await client.PostAsJsonAsync("/tutores", new { nombre = marca, dni = marca, vinculo = "Padre", contacto = "1100000000" });
         try
@@ -97,8 +101,9 @@ public class IdsCeroPersonasTests
     public async Task Usuario_alta_devuelve_id_real_no_cero()
     {
         var marca = "xtest" + Guid.NewGuid().ToString("N")[..10];
+        using var datos = new DatosDePrueba();
         using var factory = new WebApplicationFactory<Program>();
-        using var client = ClienteCon(factory, 1, Roles.Configurador);
+        using var client = ClienteCon(factory, datos.Usuario(), Roles.Configurador);
 
         var respuesta = await client.PostAsJsonAsync("/usuarios", new { username = marca, passwordHash = "ClaveTemporal123", mail = marca + "@example.com" });
         try

@@ -75,12 +75,10 @@ public sealed class DatosEmociones : IDisposable
             ("@N", Marca + " Paciente"), ("@D", Random.Shared.NextInt64(10_000_000_000, 99_999_999_999).ToString()),
             ("@F", nacimiento ?? new DateTime(1990, 5, 5)));
 
-        var especialidad = Escalar("SELECT TOP 1 IdEspecialidad FROM Especialidad ORDER BY IdEspecialidad");
-        if (especialidad is null)
-        {
-            _idEspecialidadCreada = Insertar("INSERT INTO Especialidad (Nombre) OUTPUT INSERTED.IdEspecialidad VALUES (@N)", ("@N", Marca + sufijo));
-            especialidad = _idEspecialidadCreada;
-        }
+        // Una especialidad PROPIA: tomar "la primera que haya" la compartía con otras pruebas que corren en paralelo
+        // (y que la borran al terminar), y dejaba filas huérfanas.
+        _idEspecialidadCreada = Insertar("INSERT INTO Especialidad (Nombre) OUTPUT INSERTED.IdEspecialidad VALUES (@N)", ("@N", Marca + sufijo));
+        var especialidad = _idEspecialidadCreada;
         IdProfesional = Insertar("INSERT INTO Profesional (Nombre, Matricula, IdEspecialidad, Estado) OUTPUT INSERTED.IdProfesional VALUES (@N, @M, @E, 'Activo')",
             ("@N", Marca + " Profesional"), ("@M", "T6-" + sufijo), ("@E", especialidad));
 
@@ -188,6 +186,11 @@ public sealed class DatosEmociones : IDisposable
         Intentar("DELETE FROM PacienteTutor WHERE IdPaciente = @P", ("@P", IdPaciente));
         if (_idTutor is int t) Intentar("DELETE FROM Tutor WHERE IdTutor = @T", ("@T", t));
         Intentar("DELETE FROM PacienteProfesional WHERE IdPaciente = @P", ("@P", IdPaciente));
+        // Lo que apunta a ESTE profesional desde otros pacientes (cuando una prueba lo asocia o le hace guardar una
+        // sesión del paciente de otra instancia): sin esto, el profesional quedaba sin borrar.
+        Intentar("DELETE FROM SesionClinica WHERE IdProfesional = @M", ("@M", IdProfesional));
+        Intentar("DELETE FROM PacienteProfesional WHERE IdProfesional = @M", ("@M", IdProfesional));
+        Intentar("DELETE FROM Turno WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Profesional WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Paciente WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM Usuario WHERE IdUsuario IN (@A, @B, @C)", ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
@@ -201,6 +204,7 @@ public sealed class DatosEmociones : IDisposable
     }
 }
 
+[Trait("Categoria", "Integracion")]
 public class EmocionesBaseRealTests
 {
     private static readonly Dictionary<string, string?> ConClave = new()
