@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 3 (vinculación por QR).
+- **Última actualización:** 2026-10-16, tras la etapa 4 (reconexión con backoff).
 
 ## Estado de las etapas
 
@@ -23,8 +23,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | `4928d2f` |
 | 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | `bf0c4bd` |
 | 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | `7e95b94` |
-| 3 | Vinculación por QR (comando y endpoint local) | **hecho** | (este commit) |
-| 4 | Reconexión con backoff y manejo de `loggedOut` | pendiente | — |
+| 3 | Vinculación por QR (comando y endpoint local) | **hecho** | `a5001e0` |
+| 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | (este commit) |
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | pendiente | — |
 | 6 | Privacidad en logs | pendiente | — |
 | 7 | Salud y apagado ordenado | pendiente | — |
@@ -266,6 +266,52 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   visible es el mismo. Una mutación dejó una carpeta vacía dentro del repo; las pruebas que apuntan una sesión adentro del repo ahora la
   borran si el código la llegara a crear.
 
+## Etapa 4: reconexión con backoff
+
+### Qué quedó hecho
+
+- **`baileys/reconexion.js` (nuevo):** `PlanDeReconexion` y `clasificarDesconexion`, lógica pura.
+  - **Backoff exponencial:** 2 s, 4 s, 8 s ... tope de 5 minutos, con ±20 % al azar (nunca pasa del tope). Reemplaza los 5 s fijos
+    de la etapa 1, también para los errores al crear el socket y para `recuperar()`.
+  - **Cuándo vuelve a empezar:** cuando una conexión se sostiene un minuto, o cuando una persona actúa (arranque, `vincular`,
+    `desvincular`). Una conexión que abre y se cae enseguida **no** reinicia la espera (si el servidor la acepta y la tira, sigue
+    espaciándose).
+  - **Qué cortes se reintentan y cuáles no** (tabla completa en el README, "Baileys: si se desconecta sola"): 401 (`loggedOut`) →
+    `requiere_vincular` y borra la sesión muerta, **sin reintentar** (era el pedido); 403, 440 y 405 → estado nuevo
+    **`requiere_atencion`**, sin reintentar y sin borrar nada; 500 → se reintenta y a la tercera seguida pide atención, sin
+    borrar; 515 → se atiende enseguida hasta 3 veces por minuto; el resto, backoff.
+- **Estado nuevo `requiere_atencion`** (motivos `cuenta_restringida`, `sesion_reemplazada`, `version_rechazada`,
+  `sesion_invalida`): `/salud` lo informa con `requiereAtencion: true` y 503. `vincular()` se niega ahí; `desvincular()` sirve
+  para cambiar de número. El proceso **sigue vivo** (no sale con error): si saliera, systemd lo reiniciaría cada pocos segundos y
+  volvería a golpear la puerta de WhatsApp.
+- **`/salud` ahora informa** `requiereAtencion` e `intentosDeReconexion`.
+- `clasificarDesconexion` ignora lo que no sea un código numérico (un `undefined` que coincidiera con un motivo que la librería
+  no trae habría clasificado mal).
+
+### Decisiones y límites
+
+- **El 405 (versión rechazada) no figura en `DisconnectReason`** de Baileys 6.7.24; se define en el módulo. Por la lectura de la
+  librería, un `<failure>` sin `reason` se toma como 500: por eso el 500 se reintenta y solo pide atención si se repite.
+- **No se borra la sesión salvo en `loggedOut`.** Un 403, un 440 o un 500 no prueban que las credenciales estén muertas; borrarlas
+  obligaría a vincular de nuevo y, con un número bloqueado, no arregla nada. Esa decisión queda en una persona.
+- **La espera no se configura por variable de entorno** (base, factor, tope y azar son parámetros del módulo): no vi motivo para
+  que alguien los cambie en producción, y menos opciones son menos formas de equivocarse.
+- **No pude probar contra WhatsApp real** qué códigos manda de verdad ante cada situación (límite de la tarea). La tabla sale de
+  la lectura de Baileys 6.7.24 y de su documentación; si WhatsApp usara otro código para algo, cae en "corte común" (backoff), que
+  es el lado seguro.
+
+### Pruebas de esta etapa
+
+- `test/reconexion.test.js` (nuevo, 15) y 18 pruebas nuevas en `baileys-servicio.test.js`: secuencia exacta de esperas (2 s ... 300 s),
+  tope, azar en los extremos, reinicio por conexión estable y no por una que dura 59 s, cada código terminal (sin reintento, sin
+  borrar la sesión, `recuperar()` y `enviar` no lo pisan), los 500 seguidos, los 515, `vincular`/`desvincular` desde
+  `requiere_atencion`, y la forma completa de `salud()`.
+- **`npm test`: 246 pruebas, 241 pasan, 5 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 50 cambios a propósito; **49 detectados** y 1 equivalente (sacar `plan.reiniciar()` de `iniciar()`, que solo corre
+  con el plan recién creado). Cuatro se escaparon primero y llevaron a pruebas nuevas: que un 403/500 no borre la sesión
+  (había que esperar al borrado asíncrono antes de mirar), que `recuperar()` no pise `requiere_atencion` y que `desvincular` y
+  `vincular` reinicien la espera.
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -292,9 +338,8 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 4 a 8 (ver la tabla). Lo que las etapas 1 a 3 dejan a propósito para después: backoff y trato fino de cada motivo de
-  desconexión (4), cola con ritmo/tope y consentimiento (5), revisión de privacidad de todo el log (6), `/salud` más completo y
-  apagado ordenado (7), unidad systemd y docs de despliegue (8).
+- Etapas 5 a 8 (ver la tabla). Lo que las etapas 1 a 4 dejan a propósito para después: cola con ritmo/tope y consentimiento (5),
+  revisión de privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de despliegue (8).
 - **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
   se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
   mezclar un cambio de API/UI en esta tarea.

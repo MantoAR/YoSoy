@@ -30,6 +30,7 @@ function crearEntorno({ registrada = false, opcionesFachada, opcionesServicio = 
         log,
         reenviar: (telefono, texto) => { reenviados.push({ telefono, texto }); },
         reloj,
+        reconexion: { aleatorio: () => 0.5 },       // sin azar en las esperas, para que las pruebas sean exactas
         ...opcionesServicio
     });
 

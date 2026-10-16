@@ -4,10 +4,13 @@
 //   detenido           todavía no se llamó a iniciar(), o ya se apagó
 //   iniciando          abriendo la sesión y creando el socket
 //   conectado          listo para enviar y recibir
-//   reconectando       se cortó y se reintenta solo (con espera creciente)
+//   reconectando       se cortó y se reintenta solo (con espera creciente: baileys/reconexion.js)
 //   requiere_vincular  no hay sesión válida: hace falta escanear un QR (motivo dice por qué). NO se reintenta en bucle.
 //                      motivos: esperando_escaneo (hay un QR para escanear), qr_vencido (la ventana de QR terminó sin
 //                      escanearse), sesion_cerrada (WhatsApp cerró la sesión), error_borrando_sesion
+//   requiere_atencion  WhatsApp cortó por un motivo que reintentar no arregla y que no se arregla escaneando un QR: cuenta_restringida
+//                      (403), sesion_reemplazada (440), version_rechazada (405), sesion_invalida (500 repetido). NO se reintenta:
+//                      hace falta que una persona mire el log y reinicie el servicio.
 //
 // Reglas que este archivo respeta:
 //   - Baileys llega por la "fachada" que se le inyecta (nunca se importa acá): los tests le pasan una falsa.
@@ -21,13 +24,15 @@ const { ocultarNumeros } = require("../privacidad");
 const { candidatos, ultimosDiez, numeroDeJid } = require("./numeros");
 const { interpretarEntrante } = require("./mensajes");
 const { crearLoggerBaileys } = require("./logger");
+const { PlanDeReconexion, clasificarDesconexion, TIPOS } = require("./reconexion");
 
 const ESTADOS = Object.freeze({
     DETENIDO: "detenido",
     INICIANDO: "iniciando",
     CONECTADO: "conectado",
     RECONECTANDO: "reconectando",
-    REQUIERE_VINCULAR: "requiere_vincular"
+    REQUIERE_VINCULAR: "requiere_vincular",
+    REQUIERE_ATENCION: "requiere_atencion"
 });
 
 const RELOJ_REAL = Object.freeze({
@@ -41,8 +46,11 @@ const TIMEOUT_CONSULTA_MS = 15000;
 const TIMEOUT_LOGOUT_MS = 15000;
 const VIGENCIA_JID_MS = 24 * 60 * 60 * 1000;      // un número que existe en WhatsApp se recuerda un día
 const VIGENCIA_SIN_WHATSAPP_MS = 60 * 60 * 1000;  // uno que no existe, una hora (menos consultas a los servidores de WhatsApp)
+const FALLAS_DE_SESION_INVALIDA = 3;               // cuántos 500 seguidos hacen falta para dejar de reintentar
 const MAX_VISTOS = 1000;
 const VIGENCIA_VISTOS_MS = 60 * 60 * 1000;
+
+const segundos = ms => `${Math.round(ms / 1000)} s`;
 
 // Baileys cierra con un Boom: el código HTTP está en error.output.statusCode.
 function codigoDeError(error) {
@@ -51,7 +59,7 @@ function codigoDeError(error) {
 }
 
 class ServicioBaileys {
-    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy", maxVentanasQr = 2 }) {
+    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy", maxVentanasQr = 2, reconexion = {} }) {
         this._f = fachada;
         this._sesion = sesion;
         this._log = log;
@@ -61,6 +69,7 @@ class ServicioBaileys {
         this._buscarVersionWa = buscarVersionWa;
         this._navegador = navegador;
         this._maxVentanasQr = maxVentanasQr;       // ventanas de QR que se abren solas antes de esperar a que una persona lo pida
+        this._plan = new PlanDeReconexion(reconexion);
         this._loggerBaileys = crearLoggerBaileys(log, { ahora: () => reloj.ahora() });
 
         this._estado = ESTADOS.DETENIDO;
@@ -87,6 +96,7 @@ class ServicioBaileys {
         if (this._estado !== ESTADOS.DETENIDO) return;
         this._cerrando = false;
         this._ventanasQr = 0;
+        this._plan.reiniciar();
         this._cambiarEstado(ESTADOS.INICIANDO, null);
         this._conectar().catch(err => this._falloAlConectar(err));
     }
@@ -107,9 +117,9 @@ class ServicioBaileys {
     // Red de seguridad ante un error sin capturar del proceso (ver index.js): no asume que la sesión esté muerta, pero tampoco
     // fuerza una reconexión si ya hay una en marcha o si el estado pide intervención humana.
     recuperar() {
-        if (this._cerrando || this._estado === ESTADOS.DETENIDO || this._estado === ESTADOS.REQUIERE_VINCULAR) return;
+        if (this._cerrando || this._estado === ESTADOS.DETENIDO || this._estado === ESTADOS.REQUIERE_VINCULAR || this._estado === ESTADOS.REQUIERE_ATENCION) return;
         if (this._sock || this._temporizadorReconexion) return;
-        this._programarReconexion(5000);
+        this._programarReconexion(this._plan.siguiente());
     }
 
     salud() {
@@ -121,7 +131,9 @@ class ServicioBaileys {
             motivo: this._motivo,
             conectado,
             requiereVincular: this._estado === ESTADOS.REQUIERE_VINCULAR,
-            reconectando: this._estado === ESTADOS.RECONECTANDO
+            requiereAtencion: this._estado === ESTADOS.REQUIERE_ATENCION,
+            reconectando: this._estado === ESTADOS.RECONECTANDO,
+            intentosDeReconexion: this._plan.intentos
         };
     }
 
@@ -152,6 +164,9 @@ class ServicioBaileys {
         if (this._estado === ESTADOS.CONECTADO) {
             return { exito: false, codigo: "ya_vinculado", error: "Ya hay un número vinculado. Para cambiarlo hay que desvincular primero.", ...resumen() };
         }
+        if (this._estado === ESTADOS.REQUIERE_ATENCION) {
+            return { exito: false, codigo: "requiere_atencion", error: `El servicio necesita atención antes de vincular (${this._motivo}): ver el log.`, ...resumen() };
+        }
         if (this._estado !== ESTADOS.REQUIERE_VINCULAR) {
             return { exito: false, codigo: "en_curso", error: `Todavía no se puede: el servicio está ${this._estado}.`, ...resumen() };
         }
@@ -161,6 +176,7 @@ class ServicioBaileys {
         }
         // qr_vencido o sesion_cerrada: se abre una ventana nueva.
         this._ventanasQr = 0;
+        this._plan.reiniciar();
         this._cambiarEstado(ESTADOS.INICIANDO, null);
         this._conectar().catch(err => this._falloAlConectar(err));
         return { exito: true, yaAbierta: false, ...resumen() };
@@ -193,6 +209,7 @@ class ServicioBaileys {
         }
         if (this._cerrando) return;
         this._ventanasQr = 0;
+        this._plan.reiniciar();
         this._cambiarEstado(ESTADOS.INICIANDO, null);
         try { await this._conectar(); }
         catch (err) { this._falloAlConectar(err); }
@@ -295,6 +312,7 @@ class ServicioBaileys {
         this._qr = null;
         this._qrAvisado = false;
         this._numero = numeroDeJid(sock.user?.id);
+        this._plan.alAbrir(this._reloj.ahora());
         this._cambiarEstado(ESTADOS.CONECTADO, null);
         this._log.info(`WhatsApp conectado (número ${ocultarNumeros(this._numero ?? "desconocido")}).`);
     }
@@ -308,8 +326,11 @@ class ServicioBaileys {
         this._soltar(sock);
         if (this._cerrando || this._desvinculando) return;
 
-        const DR = this._f.DisconnectReason;
-        if (codigo === DR.loggedOut) {
+        const tipo = clasificarDesconexion(codigo, this._f.DisconnectReason);
+        this._plan.alCerrar(this._reloj.ahora());
+        const seguidas = this._plan.registrarFalla(tipo);
+
+        if (tipo === TIPOS.SESION_CERRADA) {
             // La sesión ya no vale (se desvinculó desde el teléfono o WhatsApp la cerró): reintentar solo repetiría el rechazo.
             this._log.error("WhatsApp cerró la sesión (loggedOut): hay que volver a vincular el número.");
             this._cambiarEstado(ESTADOS.REQUIERE_VINCULAR, "sesion_cerrada");
@@ -317,6 +338,23 @@ class ServicioBaileys {
             this._guardado = this._guardado
                 .then(() => this._sesion.limpiar())
                 .catch(err => this._log.error(`No se pudo borrar la sesión cerrada: ${err?.message || err}`));
+            return;
+        }
+        // Cortes que reintentar no arregla (y que escanear un QR tampoco): se deja de intentar y se avisa. Seguir golpeando la
+        // puerta de WhatsApp en estos casos es lo que más se parece a un abuso.
+        if (tipo === TIPOS.CUENTA_RESTRINGIDA) {
+            this._requiereAtencion("cuenta_restringida", "WhatsApp rechazó la cuenta (403): el número puede estar restringido o bloqueado. No se reintenta. " +
+                "Revisar el teléfono del número de la clínica y, cuando se resuelva, reiniciar el servicio.");
+            return;
+        }
+        if (tipo === TIPOS.SESION_REEMPLAZADA) {
+            this._requiereAtencion("sesion_reemplazada", "Otra conexión está usando la misma sesión de WhatsApp (440). No se reintenta, para no pelear con ella: " +
+                "verificar que no haya otra copia del servicio ni el comando de vinculación corriendo, y reiniciar el servicio.");
+            return;
+        }
+        if (tipo === TIPOS.VERSION_RECHAZADA) {
+            this._requiereAtencion("version_rechazada", "WhatsApp rechazó la versión de WhatsApp Web que usa la librería (405). No se reintenta. " +
+                "Actualizar Baileys, o fijar WHATSAPP_BAILEYS_VERSION_WA / WHATSAPP_BAILEYS_BUSCAR_VERSION=1, y reiniciar el servicio.");
             return;
         }
         // Una ventana de vinculación terminó sin que nadie escaneara el QR (Baileys la cierra a los ~2,7 minutos). No se sigue
@@ -331,15 +369,33 @@ class ServicioBaileys {
             }
             return;
         }
-        const demoraMs = codigo === DR.restartRequired ? 0 : 5000;
-        this._log.info(`WhatsApp desconectado (código ${codigo ?? "?"}); se reintenta${demoraMs ? ` en ${demoraMs / 1000} s` : " ya"}.`);
+        // Un 500 suelto puede ser un tropiezo de los servidores; varios seguidos, una sesión rechazada. No se borra nada: esa
+        // decisión es de una persona ("Desvincular y cambiar número").
+        if (tipo === TIPOS.SESION_INVALIDA && seguidas >= FALLAS_DE_SESION_INVALIDA) {
+            this._requiereAtencion("sesion_invalida", `WhatsApp rechazó la sesión guardada ${seguidas} veces seguidas (500). No se reintenta ni se borra nada: ` +
+                "si se confirma que está dañada, usar \"Desvincular y cambiar número\" y vincular de nuevo; si no, reiniciar el servicio.");
+            return;
+        }
+        if (tipo === TIPOS.REINICIO) {
+            const demora = this._plan.reinicioPedido(this._reloj.ahora());
+            this._log.info(`WhatsApp pidió reiniciar la conexión; se reabre ${demora ? `en ${segundos(demora)}` : "ya"}.`);
+            this._programarReconexion(demora);
+            return;
+        }
+        const demoraMs = this._plan.siguiente();
+        this._log.info(`WhatsApp desconectado (código ${codigo ?? "?"}); se reintenta en ${segundos(demoraMs)} (intento ${this._plan.intentos}).`);
         this._programarReconexion(demoraMs);
+    }
+
+    _requiereAtencion(motivo, mensaje) {
+        this._log.error(mensaje);
+        this._cambiarEstado(ESTADOS.REQUIERE_ATENCION, motivo);
     }
 
     _falloAlConectar(err) {
         this._log.error(ocultarNumeros(`Error conectando con WhatsApp: ${err?.message || err}`));
         if (this._cerrando || this._desvinculando) return;
-        this._programarReconexion(5000);
+        this._programarReconexion(this._plan.siguiente());
     }
 
     _programarReconexion(demoraMs) {

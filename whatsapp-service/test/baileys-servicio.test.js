@@ -538,6 +538,236 @@ conEntorno("si crear el socket falla, se reintenta solo (no queda muerto) y el e
     assert.doesNotMatch(e.logCompleto(), /5491122334455/);
 });
 
+// ---------- Reconexión: espera creciente y cortes que no se reintentan ----------
+
+const VERSION_RECHAZADA = 405;
+
+// Corta el socket actual con un código, deja pasar exactamente la espera que programó el servicio y espera al socket nuevo.
+// Devuelve esa espera, para comprobar el backoff.
+async function cortarYEsperar(e, codigo = DisconnectReason.connectionClosed) {
+    const antes = e.falso.sockets.length;
+    e.falso.ultimo.cerrar(codigo);
+    const espera = e.reloj.proximo();
+    await e.reloj.avanzar(espera);
+    await esperarHasta(() => e.falso.sockets.length === antes + 1, { descripcion: "el socket del reintento" });
+    await e.reloj.avanzar(0);
+    return espera;
+}
+
+conEntorno("un corte transitorio se reintenta con espera creciente (2, 4, 8 ... s) hasta un tope de 5 minutos", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    const esperas = [];
+    for (let i = 0; i < 10; i++) esperas.push(await cortarYEsperar(e));
+    assert.deepEqual(esperas, [2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000, 300000, 300000]);
+    assert.equal(e.servicio.salud().intentosDeReconexion, 10);
+});
+
+conEntorno("la espera avisa en el log cuántos intentos lleva, sin números de teléfono", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await cortarYEsperar(e);
+    await cortarYEsperar(e);
+    assert.match(e.logCompleto(), /WhatsApp desconectado \(código 428\); se reintenta en 2 s \(intento 1\)/);
+    assert.match(e.logCompleto(), /se reintenta en 4 s \(intento 2\)/);
+});
+
+conEntorno("una conexión que se sostiene un minuto vuelve la espera a 2 s", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    assert.equal(await cortarYEsperar(e), 2000);
+    assert.equal(await cortarYEsperar(e), 4000);
+    e.falso.ultimo.abrir();
+    await e.reloj.avanzar(60 * 1000);
+    assert.equal(await cortarYEsperar(e), 2000, "volvió a empezar");
+    assert.equal(e.servicio.salud().intentosDeReconexion, 1);
+});
+
+conEntorno("una conexión que abre y se cae enseguida NO reinicia la espera: sigue creciendo", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    assert.equal(await cortarYEsperar(e), 2000);
+    e.falso.ultimo.abrir();
+    await e.reloj.avanzar(59 * 1000);
+    assert.equal(await cortarYEsperar(e), 4000);
+});
+
+conEntorno("si crear el socket falla varias veces seguidas, la espera también crece", {
+    registrada: true,
+    opcionesFachada: { errorAlCrear: new Error("no se pudo abrir") }
+}, async e => {
+    const fallos = () => e.lineas.filter(l => /Error conectando con WhatsApp/.test(l)).length;
+    e.servicio.iniciar();
+    await esperarHasta(() => fallos() === 1, { descripcion: "el primer fallo" });
+    assert.equal(e.reloj.proximo(), 2000);
+    await e.reloj.avanzar(2000);
+    await esperarHasta(() => fallos() === 2, { descripcion: "el segundo fallo" });
+    assert.equal(e.reloj.proximo(), 4000);
+});
+
+conEntorno("recuperar() espacia el reintento con la misma espera creciente", async e => {
+    e.servicio.iniciar();                       // todavía sin socket ni reintento programado
+    e.servicio.recuperar();
+    assert.equal(e.reloj.proximo(), 2000);
+});
+
+for (const [codigo, motivo, aviso] of [
+    [DisconnectReason.forbidden, "cuenta_restringida", /rechazó la cuenta \(403\).*restringido o bloqueado/],
+    [DisconnectReason.connectionReplaced, "sesion_reemplazada", /Otra conexión está usando la misma sesión de WhatsApp \(440\)/],
+    [VERSION_RECHAZADA, "version_rechazada", /versión de WhatsApp Web.*\(405\).*WHATSAPP_BAILEYS_VERSION_WA/]
+]) {
+    conEntorno(`código ${codigo}: queda en requiere_atencion (${motivo}), no reintenta, avisa por /salud y no toca la sesión`, { registrada: true }, async e => {
+        const sock = await e.iniciar();
+        sock.abrir();
+
+        sock.cerrar(codigo);
+
+        const salud = e.servicio.salud();
+        assert.equal(salud.estado, "requiere_atencion");
+        assert.equal(salud.motivo, motivo);
+        assert.equal(salud.requiereAtencion, true);
+        assert.equal(salud.requiereVincular, false);
+        assert.equal(salud.reconectando, false);
+        assert.equal(salud.ok, false);
+        assert.equal(e.reloj.pendientes(), 0, "no queda ningún reintento programado");
+        await e.reloj.avanzar(60 * 60 * 1000);
+        assert.equal(e.falso.sockets.length, 1, "ni una conexión más en una hora");
+        assert.match(e.logCompleto(), aviso);
+
+        await assert.rejects(() => e.servicio.enviar("1122334455", "hola"), /WhatsApp no está conectado/);
+        e.servicio.recuperar();
+        assert.equal(e.servicio.salud().estado, "requiere_atencion", "recuperar() no pasa por encima de un corte que pide atención");
+        assert.equal(e.reloj.pendientes(), 0);
+        await e.reloj.avanzar(60 * 1000);
+        assert.equal(e.falso.sockets.length, 1);
+
+        await e.servicio.cerrar();                  // espera lo que hubiera quedado pendiente (un borrado, por ejemplo)
+        assert.ok(fs.existsSync(path.join(e.dirSesion, "creds.json")), "la sesión sigue ahí: reintentar no la arregla, pero borrarla tampoco");
+    });
+}
+
+conEntorno("desde requiere_atencion, vincular() se niega y dice por qué", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.cerrar(DisconnectReason.forbidden);
+    const r = await e.servicio.vincular();
+    assert.equal(r.exito, false);
+    assert.equal(r.codigo, "requiere_atencion");
+    assert.match(r.error, /cuenta_restringida/);
+    assert.equal(e.falso.sockets.length, 1);
+});
+
+conEntorno("desde requiere_atencion, desvincular deja una ventana de QR nueva (cambiar de número)", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.cerrar(DisconnectReason.forbidden);
+
+    await e.servicio.desvincular();
+    await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "la ventana nueva" });
+    e.falso.ultimo.emitirQr(QR);
+
+    assert.equal((await e.servicio.estado()).qrPendiente, true);
+    assert.equal(e.servicio.salud().estado, "requiere_vincular");
+    assert.equal(e.servicio.salud().requiereAtencion, false);
+});
+
+conEntorno("un 500 suelto se reintenta; tres seguidos dejan de reintentar y piden atención, sin borrar nada", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    assert.equal(e.servicio.salud().estado, "reconectando", "dos 500 seguidos todavía se reintentan");
+
+    e.falso.ultimo.cerrar(DisconnectReason.badSession);
+
+    const salud = e.servicio.salud();
+    assert.equal(salud.estado, "requiere_atencion");
+    assert.equal(salud.motivo, "sesion_invalida");
+    assert.equal(e.reloj.pendientes(), 0);
+    assert.match(e.logCompleto(), /rechazó la sesión guardada 3 veces seguidas \(500\)/);
+    await e.reloj.avanzar(60 * 60 * 1000);
+    assert.equal(e.falso.sockets.length, 3);
+    await e.servicio.cerrar();                      // espera lo que hubiera quedado pendiente (un borrado, por ejemplo)
+    assert.ok(fs.existsSync(path.join(e.dirSesion, "creds.json")), "no se borró la sesión");
+});
+
+conEntorno("los 500 tienen que ser seguidos: otro tipo de corte en el medio, o una conexión que abre, los vuelve a contar", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    await cortarYEsperar(e, DisconnectReason.connectionClosed);       // otro tipo de corte en el medio
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    e.falso.ultimo.abrir();                                           // y una conexión que llega a abrir
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    await cortarYEsperar(e, DisconnectReason.badSession);
+    assert.equal(e.servicio.salud().estado, "reconectando", "nunca llegaron tres seguidos");
+});
+
+conEntorno("un pedido de reinicio (515) se atiende enseguida, hasta 3 por minuto; el cuarto se espacia", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    for (let i = 0; i < 3; i++) {
+        assert.equal(await cortarYEsperar(e, DisconnectReason.restartRequired), 0);
+    }
+    e.falso.ultimo.cerrar(DisconnectReason.restartRequired);
+    assert.equal(e.reloj.proximo(), 2000, "el cuarto en un minuto ya se espacia como cualquier corte");
+});
+
+conEntorno("desvincular empieza la espera de cero", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    for (let i = 0; i < 3; i++) await cortarYEsperar(e);        // 2, 4 y 8 s: ya van 3 intentos
+    e.falso.ultimo.abrir();
+
+    await e.servicio.desvincular();
+    await esperarHasta(() => e.falso.sockets.length === 5, { descripcion: "la ventana nueva" });
+    await e.reloj.avanzar(0);
+    e.falso.ultimo.cerrar(DisconnectReason.connectionClosed);   // un corte común, sin QR de por medio
+
+    assert.equal(e.reloj.proximo(), 2000, "no sigue por donde iba (16 s)");
+});
+
+conEntorno("vincular empieza la espera de cero", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await cortarYEsperar(e);
+    await cortarYEsperar(e);
+    e.falso.ultimo.abrir();
+    e.falso.ultimo.cerrar(DisconnectReason.loggedOut);          // WhatsApp cerró la sesión
+    await esperarHasta(() => !fs.existsSync(path.join(e.dirSesion, "creds.json")), { descripcion: "el borrado de la sesión muerta" });
+
+    await e.servicio.vincular();
+    await esperarHasta(() => e.falso.sockets.length === 4, { descripcion: "la ventana nueva" });
+    await e.reloj.avanzar(0);
+    e.falso.ultimo.cerrar(DisconnectReason.connectionClosed);
+
+    assert.equal(e.reloj.proximo(), 2000, "no sigue por donde iba (8 s)");
+});
+
+conEntorno("con la espera real (con azar) nunca se pasa del tope ni baja de cero", {
+    registrada: true,
+    opcionesServicio: { reconexion: { aleatorio: () => 1 } }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    const esperas = [];
+    for (let i = 0; i < 10; i++) esperas.push(await cortarYEsperar(e));
+    assert.equal(esperas[0], 2400, "el azar suma hasta 20 %");
+    assert.ok(esperas.every(ms => ms <= 300000), "y nunca pasa de 5 minutos");
+    assert.equal(esperas.at(-1), 300000);
+});
+
+conEntorno("salud() informa la forma completa", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    assert.deepEqual(e.servicio.salud(), {
+        ok: true, canal: "baileys", estado: "conectado", motivo: null, conectado: true,
+        requiereVincular: false, requiereAtencion: false, reconectando: false, intentosDeReconexion: 0
+    });
+});
+
 // ---------- Guardado de credenciales ----------
 
 conEntorno("creds.update guarda las credenciales; si falla, se loguea y el servicio sigue", { registrada: true }, async e => {

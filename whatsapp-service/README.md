@@ -98,6 +98,31 @@ Para escanear: en el teléfono del número de la clínica, WhatsApp → Ajustes 
 Al terminar, WhatsApp pide reiniciar la conexión y el servicio la reabre solo con la sesión ya guardada (en el log aparece
 "WhatsApp conectado (número ***1234)").
 
+### Baileys: si se desconecta sola
+
+El servicio mira el código con el que WhatsApp cortó la conexión (`baileys/reconexion.js`) y decide. Hay cortes que se arreglan
+reintentando y cortes que **no**: reintentar estos últimos en bucle no los arregla y, contra WhatsApp, es justo lo que puede
+terminar en un bloqueo del número.
+
+| Código | Qué significa | Qué hace el servicio |
+|---|---|---|
+| 428, 408, 503, sin código... | Corte común: la red, el ping, los servidores de WhatsApp | **Reintenta con espera creciente**: 2 s, 4 s, 8 s ... hasta 5 minutos, con ±20 % al azar. La espera vuelve a 2 s cuando una conexión se sostiene un minuto; una que abre y se cae enseguida sigue espaciándose. |
+| 515 | WhatsApp pide abrir la conexión de nuevo (pasa al terminar de vincular) | Reabre enseguida, hasta 3 veces por minuto; después espacia como un corte común. |
+| 401 (`loggedOut`) | Se desvinculó desde el teléfono, o WhatsApp cerró la sesión | **No reintenta.** Borra las credenciales muertas, queda en `requiere_vincular` (motivo `sesion_cerrada`) y lo avisa por `/salud`. |
+| 403 | El número está restringido o bloqueado | **No reintenta.** `requiere_atencion` (motivo `cuenta_restringida`). No borra nada. |
+| 440 | Otra conexión usa la misma sesión | **No reintenta**, para no pelear con la otra. `requiere_atencion` (`sesion_reemplazada`). Buscar otra copia del servicio o el comando de vinculación corriendo. |
+| 405 | WhatsApp rechaza la versión de WhatsApp Web de la librería | **No reintenta.** `requiere_atencion` (`version_rechazada`). Actualizar Baileys, o fijar `WHATSAPP_BAILEYS_VERSION_WA` / `WHATSAPP_BAILEYS_BUSCAR_VERSION=1`. |
+| 500 | WhatsApp rechaza la sesión guardada | Reintenta; a la tercera vez seguida, `requiere_atencion` (`sesion_invalida`), **sin borrar nada**. |
+
+- **El proceso no se cae** en los casos que "no reintentan": sigue vivo y contesta `/salud`. Si saliera con error, systemd
+  (`Restart=on-failure`) lo reiniciaría cada pocos segundos y volvería a golpear la puerta de WhatsApp: justo lo que se evita.
+- **`GET /salud`** contesta 200 solo si está `conectado`; si no, 503 con `estado` (`iniciando`, `reconectando`,
+  `requiere_vincular`, `requiere_atencion`), `motivo` y las banderas `requiereVincular`, `requiereAtencion` y `reconectando`
+  (más `intentosDeReconexion`). Con `loggedOut`: `requiere_vincular` + `sesion_cerrada`.
+- **Para salir de `requiere_atencion`:** resolver lo que dice el log y `sudo systemctl restart whatsapp-service`. Para cambiar de
+  número (por ejemplo, si el bloqueado es definitivo): "Desvincular y cambiar número" en el Configurador y vincular el nuevo.
+- Los mensajes del log dicen el código, el intento y la espera (`se reintenta en 8 s (intento 3)`), nunca un teléfono.
+
 Más variables (reconexión, ritmo de envío, tope diario, consentimiento) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
 
