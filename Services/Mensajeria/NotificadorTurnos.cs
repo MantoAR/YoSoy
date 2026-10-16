@@ -244,18 +244,17 @@ public class NotificadorTurnos : INotificadorTurnos
         return ("Enviado", null);
     }
 
-    // EmailService es opcional: si la sección Email no está completa, se omite.
+    // EmailService es opcional: si el correo no está configurado (falta Email:Host, Email:From o Email:Password) el aviso
+    // se omite. EmailService deja en el log el aviso "Correo no configurado" con las claves que faltan.
     private (string, string?) EnviarMail(string destinatario, string asunto, string texto)
     {
-        var email = _config.GetSection("Email");
-        if (string.IsNullOrWhiteSpace(email["Host"]) || string.IsNullOrWhiteSpace(email["Password"]))
-            return ("Omitido", "EmailService no está configurado.");
         var servicio = _servicios.GetService<EmailService>();
         if (servicio is null) return ("Omitido", "EmailService no está registrado.");
         try
         {
-            servicio.EnviarAviso(destinatario, asunto, texto);
-            return ("Enviado", null);
+            return servicio.EnviarAviso(destinatario, asunto, texto)
+                ? ("Enviado", null)
+                : ("Omitido", "EmailService no está configurado.");
         }
         catch (Exception ex)
         {
