@@ -625,6 +625,34 @@ app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
     return Results.Ok(p);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
+// Crear el usuario de un profesional aprobado (opción A de docs/PROGRESO_NOCTURNO.md, Tarea 3). El Configurador
+// lo hace desde "Pacientes y profesionales" o al aprobar una solicitud. El Usuario y su vínculo se crean en UNA
+// transacción (CrearUsuarioProfesionalService): un usuario sin vínculo entra como configurador, así que la
+// pantalla no arma esto con POST /usuarios + POST /usuarioprofesionales sueltos. Si se pide una contraseña
+// generada, vuelve en la respuesta UNA sola vez (sin caché) y no se guarda en ningún lado en claro.
+app.MapPost("/profesionales/{id}/usuario", (int id, CrearUsuarioProfesionalRequest req, HttpContext ctx, TimeProvider reloj) =>
+{
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+    var servicio = new CrearUsuarioProfesionalService(new UsuarioProfesionalDAO(), reloj);
+    var r = servicio.Crear(id, new SolicitudCrearUsuarioProfesional(req.Username, req.Mail, req.Contrasena, req.GenerarContrasena));
+    if (!r.Ok) return Results.Json(new { mensaje = r.Mensaje }, statusCode: r.StatusCode);
+
+    var auditoria = new LogAuditoriaDAO();
+    auditoria.Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", IdEntidad = r.IdUsuario, Detalle = r.Username });
+    auditoria.Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Vinculación Usuario-Profesional", Entidad = "Profesional", IdEntidad = id,
+        Detalle = $"usuario {r.Username} (id {r.IdUsuario})" });
+
+    ctx.Response.Headers.CacheControl = "no-store";
+    return Results.Json(new
+    {
+        idUsuario = r.IdUsuario, idProfesional = id, username = r.Username, mail = r.Mail, contrasenaTemporal = r.ContrasenaTemporal
+    }, statusCode: 201);
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+
+// Ids de los profesionales Activos que todavía no tienen usuario (para mostrar "Crear usuario" solo donde corresponde).
+app.MapGet("/profesionales/sin-usuario", () => new UsuarioProfesionalDAO().IdsProfesionalesActivosSinUsuario())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+
 // Link público de reserva (Fase 3a, Paso 3): el profesional prende/apaga el suyo; el
 // administrador puede apagar el de cualquiera. Mismo patrón de identidad que Casos/Grupos
 // (X-Usuario-Id sin firmar — TODO(JWT)). Auditado solo con ids, sin texto libre.
