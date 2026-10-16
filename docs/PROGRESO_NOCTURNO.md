@@ -863,3 +863,302 @@ copia, **compilan** y la suite completa pasa contra una copia descartable del es
 - Revisar que la suite pase sobre una base de prueba vacía: `ConnectionStrings__YoSoy=<base descartable> dotnet test`.
 - En el VPS, nada nuevo que configurar: `Turnos__ZonaHoraria` es opcional y `Video__ZonaHoraria` ya está. Mirar en
   el log la línea `Zona horaria de la clínica: …` después del despliegue.
+
+---
+
+## Segunda tanda — 2026-10-16
+
+Seis tareas, cada una en su rama. Las mismas reglas que la primera tanda: commits **solo locales**, con el trailer
+`Co-Authored-By`; sin push, sin merge, sin tocar `main` ni producción; sin leer ni imprimir ningún secreto (`.env`,
+`*.env`, valores de `appsettings.json`: solo se mostraron nombres); sin ejecutar SQL contra una base real: lo que
+necesitó base se corrió contra la copia descartable del esquema en `tempdb`, que se soltó al terminar (0 tablas,
+confirmado). No hubo errores de lock de git, así que no hizo falta reintentar ningún comando.
+
+**`main` sigue en `27ad47f`: las siete ramas de la primera tanda todavía no están mergeadas.**
+
+### Cómo se armaron las ramas (decisión que dejé anotada)
+
+La consigna pedía una rama por tarea "desde `main` actualizado". Pero `main` todavía no tiene `PoliticaContrasena` (está en
+`chore/hardening-mensajes`), `PoliticaBloqueoLogin` (en `fix/admin-lockout-decay`), este `PROGRESO_NOCTURNO.md` (en las siete
+ramas de la primera tanda) ni `docs/DEPLOY.md` (en `docs/servidor-y-despliegue`). En vez de dejar esas tareas sin hacer, las
+que lo necesitan **salen de la rama que tiene lo que falta**, sin mergear nada y sin modificar esas ramas. Las otras dos salen
+de `main`, como se pedía. Para ver solo lo de cada tarea hay que comparar contra su base:
+
+| Rama | Sale de | Solo lo de esta tarea | Contra `main` |
+|---|---|---|---|
+| `fix/sacar-secretos-appsettings` | `main` | `git diff main...fix/sacar-secretos-appsettings` | el mismo |
+| `test/cobertura-politica-contrasena` | `chore/hardening-mensajes` | `git diff chore/hardening-mensajes...test/cobertura-politica-contrasena` | `git diff main...test/cobertura-politica-contrasena` (trae también la Tarea 4 de ayer) |
+| `test/cobertura-login-bloqueo` | `fix/admin-lockout-decay` | `git diff fix/admin-lockout-decay...test/cobertura-login-bloqueo` | `git diff main...test/cobertura-login-bloqueo` (trae también la Tarea 2 de ayer) |
+| `docs/revision-hallazgos-seguridad` | `chore/hardening-mensajes` | `git diff chore/hardening-mensajes...docs/revision-hallazgos-seguridad` | `git diff main...docs/revision-hallazgos-seguridad` |
+| `chore/limpieza-logs-sensibles` | `main` | `git diff main...chore/limpieza-logs-sensibles` | el mismo |
+| `docs/progreso-nocturno-final` | `chore/hardening-mensajes` | `git diff chore/hardening-mensajes...docs/progreso-nocturno-final` | `git diff main...docs/progreso-nocturno-final` |
+
+Cuando se mergee la base, cada una se mergea después sin más. Si se prefiere tenerlas "desde `main`" literalmente, después de
+mergear la base: `git rebase --onto main <base> <rama>` (mueve solo el commit de la tarea). Si se mergea una rama apilada
+**antes** que su base, trae los commits de la base con ella.
+
+### Estado
+
+| # | Tarea | Rama | Commit | Estado |
+|---|---|---|---|---|
+| 1 | Sacar los secretos de `appsettings.json` | `fix/sacar-secretos-appsettings` | `33a1cd0` | Hecha |
+| 2 | Cubrir `PoliticaContrasena` con pruebas | `test/cobertura-politica-contrasena` | `c3ce019` | Hecha |
+| 3 | Cubrir el bloqueo del login con pruebas | `test/cobertura-login-bloqueo` | `6cfe59a` | Hecha (con un límite documentado) |
+| 4 | Estado de los hallazgos de seguridad H1 a H13 | `docs/revision-hallazgos-seguridad` | `2ad5aa5` | Hecha |
+| 5 | No loguear datos personales | `chore/limpieza-logs-sensibles` | `b70afbb` | Hecha (parte aplicada; el resto, propuesto) |
+| 6 | Este registro | `docs/progreso-nocturno-final` | el de este archivo | Hecha |
+
+### Tarea 1 — `fix/sacar-secretos-appsettings`
+
+**Pedido:** que ninguna credencial de correo quede versionada en `appsettings*.json`: ubicar las claves sensibles (solo
+nombres), dejar sus valores vacíos sin cambiar la estructura, verificar que el código tolere el valor vacío (con un aviso
+"Correo no configurado" al mandar un mail) y documentar cada secreto en `docs/DESARROLLO_LOCAL.md` y `docs/DEPLOY.md`.
+
+**Commit:** `33a1cd0` ("fix: sacar secretos de appsettings"). Sale de `main`.
+
+**Qué se encontró (nombres, nunca valores):**
+
+- El único `appsettings*.json` versionado es `appsettings.json`. Su sección `Email` tiene `Host`, `Port`, `From`, `Password` y
+  `AppUrl`. **No hay** claves JWT, secretos de video, contraseñas de base ni tokens de WhatsApp: nunca estuvieron ahí. Se leen
+  de user-secrets o de variables de entorno: `Jwt:Key`, `Video:SignalingSecreto`, `Video:TurnSecreto`,
+  `Video:Emociones:ClaveCifrado`, `Mensajeria:WhatsApp:Secreto` y `ConnectionStrings__YoSoy` (esta última, solo variable de entorno).
+- `Email:Password` **ya estaba vacío** en `main` desde `160a716` (2026-10-07). Lo único con valor era `Email:From`: la cuenta, que
+  además es el usuario del SMTP (`smtp.Authenticate(_from, _pass)`; no hay una propiedad `User` aparte).
+- **La contraseña vieja (16 caracteres) sigue en el historial de git**, en 11 versiones del archivo (2026-06-02 a 2026-10-06),
+  dentro de `main` y `origin/main`. Vaciar el archivo no la invalida: hay que revocarla en Google (ver H1 en la Tarea 4).
+
+**Qué cambió:**
+
+| Archivo | Cambio |
+|---|---|
+| `appsettings.json` | `Email:From` pasa a `""`. Una sola línea; la estructura (69 propiedades) y los fines de línea no cambian. |
+| `Services/EmailService.cs` | El constructor ya no tira por una configuración vacía o incompleta (antes `int.Parse(Port)` rompía; un puerto inválido ahora usa el 587). Expone `Configurado` (hacen falta `Email:Host`, `Email:From` y `Email:Password`; un espacio cuenta como vacío). Si falta algo, cada `Enviar*` deja `Correo no configurado: no se envió … Falta Email:From, … ` en el log, **sin abrir ninguna conexión**, y devuelve `false`; sin valores ni destinatarios. Con todo configurado, el fallo del SMTP sigue subiendo como antes. |
+| `Services/Mensajeria/NotificadorTurnos.cs` | El canal Email queda `Omitido` (no `Enviado`) cuando `EmailService` no está configurado. Antes lo decidía mirando `Host` y `Password` por su cuenta y en silencio. |
+| `docs/DESARROLLO_LOCAL.md` (nuevo) | Tabla de **todos** los secretos: clave, comando de `dotnet user-secrets`, variable de entorno, si hace falta y qué pasa si falta; reglas de los valores. |
+| `docs/DEPLOY.md` (nuevo) | La misma tabla para producción (variable, archivo del servidor, qué pasa si falta), "Si faltan", "Al pasar a esta versión" y "Rotar una credencial expuesta". Sin valores reales. |
+| `YoSoy.Tests/CorreoNoConfiguradoTests.cs`, `ArranqueSinSecretosTests.cs` (nuevos) | 19 + 6 pruebas: el servicio con cualquier configuración, el aviso por nombre sin valores, el notificador, y que la app **arranca y responde con todos los secretos opcionales vacíos** (solo `Jwt:Key` es obligatoria: sin ella no arranca, a propósito). Incluye una prueba que falla si algún `appsettings*.json` trae un valor en una propiedad con nombre de secreto. |
+
+**Pruebas:** sin base, 575 ok y 80 fallan: las 79 de siempre de `main` más una intermitente conocida
+(`EmocionesCifradoServiceTests.El_valor_guardado_tiene_el_formato_y_no_deja_ver_el_contenido`, ~3 de cada 100, la arregla
+`test/legacy-independientes`; en seis corridas seguidas pasó). Con la copia del esquema en `tempdb`: las 30 pruebas
+relacionadas con el correo pasan, y la corrida completa dio 627 ok / 40 fallan (las 40 de `main`) antes de sumar el archivo
+de arranque. Se verificó con 5 mutaciones (sin la guardia, notificador siempre "Enviado", sin pedir la cuenta, un valor en el
+log y un valor en `appsettings.json`): todas hacen fallar las pruebas.
+
+**Cómo probarlo:**
+
+```
+dotnet test YoSoy.Tests --filter "FullyQualifiedName~CorreoNoConfigurado|FullyQualifiedName~ArranqueSinSecretos"
+```
+
+A mano: levantar la API sin secretos de correo, pedir "Olvidé mi contraseña" con un usuario que tenga mail y mirar la consola:
+tiene que decir `Correo no configurado: … Falta Email:From, Email:Password`.
+
+**Riesgos:**
+
+- **Antes de publicar hay que cargar `Email__From`** (y `Email__Password` y `Email__AppUrl`) en `/opt/yosoy/config/.env`: hasta
+  ahora la cuenta venía en `appsettings.json`. Sin eso los mails salen como `Omitido`, con el aviso en el log, y **un
+  recordatorio omitido no se reenvía** cuando después se configura el correo.
+- Con la cuenta vacía y la contraseña cargada, el envío antes daba `Error` (y se reintentaba hasta 3 veces); ahora da `Omitido`,
+  igual que con la contraseña vacía.
+- **Conflicto al mergear con `docs/servidor-y-despliegue`:** las dos agregan `docs/DEPLOY.md`. Receta (verificada en una copia
+  aparte): quedarse con el `DEPLOY.md` del flujo y agregarle las secciones nuevas. Con `docs/servidor-y-despliegue` ya mergeada:
+  `git checkout --ours docs/DEPLOY.md && git show fix/sacar-secretos-appsettings:docs/DEPLOY.md | sed -n '/^## Secretos/,$p' >> docs/DEPLOY.md`
+  y `git add docs/DEPLOY.md`.
+- `publish-vps/appsettings.json` (sin versionar) conserva la cuenta vieja; se regenera al publicar.
+
+**Qué falta:**
+
+- **Revocar la contraseña de aplicación de Gmail y crear otra** (hoy mismo; es lo único que invalida la que está en el historial).
+- `README.md` (líneas ~192-203 y 313), `docs/SERVIDOR.md` y `docs/PR_INTEGRACION.md` siguen mencionando solo `Email:Password` y
+  describen el comportamiento viejo ("intenta conectarse igual y el envío falla"). No se tocaron en esta tarea.
+
+### Tarea 2 — `test/cobertura-politica-contrasena`
+
+**Pedido:** pruebas unitarias de `PoliticaContrasena` (largo mínimo, mayúsculas, minúsculas y números según lo que defina el
+código, casos límite, `null` y vacío) **sin cambiar la regla**.
+
+**Commit:** `c3ce019` ("test: cubrir PoliticaContrasena"). Sale de `chore/hardening-mensajes`: la clase no existe en `main`.
+
+**Qué se encontró:** la regla es solo de largo, entre 6 y 100 caracteres. **El código no define ninguna exigencia de
+mayúsculas, minúsculas, números ni símbolos**: las pruebas lo dejan asentado. Ya había 7 casos (`PoliticaContrasenaTests`).
+
+**Qué se agregó:** `YoSoy.Tests/PoliticaContrasenaLimitesTests.cs`, 49 casos sin base:
+
+- los bordes exactos (0, 1, 5, 6, 100, 101 y un millón de caracteres) y todos los largos de 0 a 150;
+- `null`, vacío y solo espacios (también tabulaciones, saltos de línea y espacios de no separación), incluido el **orden de los
+  chequeos**: 101 espacios dicen "mínimo" y no "máximo";
+- que no exige mayúsculas, minúsculas, números ni símbolos y acepta las comunes (`password`, `qwerty`, `12345678`);
+- que los espacios **cuentan y no se recortan** (`"abcde "` pasa con cinco letras);
+- letras con acento y de otros alfabetos, y las rarezas de contar con `string.Length`: **un emoji cuenta como dos** (tres emojis ya
+  alcanzan el mínimo) y un acento combinado, como un carácter más.
+
+**Pruebas:** los 49 casos pasan; sin base, la corrida completa da 615 ok / 81 fallan: las 79 de `main` y 2 pruebas de integración
+de la Tarea 4 de ayer que necesitan base. Se verificó con 6 mutaciones de la regla (mínimo 8, `<=`, `>=`, sin blancos, recortar
+y exigir un número): cada una hace fallar entre 4 y 43 casos.
+
+**Cómo probarlo:** `dotnet test YoSoy.Tests --filter "FullyQualifiedName~PoliticaContrasena"`
+
+**Riesgos:** las pruebas fijan la regla actual: subir el mínimo a 8 o pedir composición las hace fallar, a propósito.
+
+**Qué falta:** la decisión de producto sobre la política (mínimo, composición, lista de contraseñas comunes; ver la Tarea 4 de ayer
+y H6).
+
+### Tarea 3 — `test/cobertura-login-bloqueo`
+
+**Pedido:** pruebas unitarias de la lógica de `IntentosFallidos` y `BloqueadoHasta` (bloqueo tras N intentos, reseteo tras un login
+exitoso, vencimiento en UTC) con dobles o datos en memoria, sin tocar la base.
+
+**Commit:** `6cfe59a` ("test: cubrir bloqueo de login"). Sale de `fix/admin-lockout-decay`: `PoliticaBloqueoLogin` no existe en `main`.
+
+**Qué se encontró:** la política es una clase pura (`PoliticaBloqueoLogin`) y ya tenía 18 pruebas; el flujo de `POST /login` **no se
+puede probar con dobles**, porque el handler crea `new UsuarioDAO()` adentro. El "reseteo tras un login exitoso" es un renglón del
+handler (`IntentosFallidos > 0 || BloqueadoHasta.HasValue`), no una función.
+
+**Qué se agregó:** `YoSoy.Tests/BloqueoLoginCoberturaTests.cs`, 29 casos sin base ni cambios de código:
+
+- **La política:** los primeros N−1 errores suman y el N bloquea (N sale de la constante), el bloqueo dura exactamente 15 minutos
+  desde el error que lo dispara, un error con el bloqueo vigente lo renueva, vence **exactamente** en `BloqueadoHasta` (±1 tick),
+  y los minutos y el mensaje en los bordes.
+- **UTC:** la hora local de Argentina hay que pasarla a UTC antes de comparar (el error que había), el `Kind` de las fechas no cambia
+  el resultado y, con un reloj en memoria (`RelojConZona`), el vencimiento sigue al instante UTC con el servidor en UTC, UTC−3 o UTC+9.
+- **Un modelo en memoria de `POST /login`** (`CuentaEnMemoria`, con la política real y el mismo orden que `Program.cs`): tres
+  errores dan 401, 401 y 423; con el bloqueo vigente la clave correcta tampoco entra y no limpia nada; vencido, la correcta entra y
+  deja todo en cero; un login exitoso entre errores reinicia la cuenta; un login normal no escribe; vencido el bloqueo, un error
+  cuenta como el primero de tres; y 1 o 2 errores sin bloqueo no vencen por tiempo (límite que ya documentaba la política).
+
+**Pruebas:** los 29 casos pasan; sin base, 598 ok / 91 fallan: las 79 de `main` y las 12 pruebas de integración de la Tarea 2 de
+ayer, que necesitan base. Se verificó con 9 mutaciones de la política (N=4, 30 minutos, `>=`, `<`, sin reinicio del conteo, `Floor`,
+singular, sin limpiar el bloqueo vencido y reloj local): cada una hace fallar entre 2 y 12 de estas pruebas.
+
+**Cómo probarlo:** `dotnet test YoSoy.Tests --filter "FullyQualifiedName~BloqueoLoginCoberturaTests"`
+
+**Riesgos:** **el modelo no es el endpoint**: si `/login` cambia el orden de sus decisiones, hay que cambiarlo también en la prueba.
+El flujo real solo lo cubren las 12 pruebas de integración de la Tarea 2 (con base).
+
+**Qué falta / decisión:** extraer la decisión del login a un servicio con un repositorio (`LoginService` + `IUsuarioLoginRepositorio`,
+unas 40 líneas) para que el reseteo y el orden se prueben con dobles de verdad. No se hizo: es tocar el flujo de autenticación,
+y la consigna era solo cubrirlo.
+
+### Tarea 4 — `docs/revision-hallazgos-seguridad`
+
+**Pedido:** releer los hallazgos H1 a H13 y marcar, para cada uno, si ya quedó resuelto en `main` o en una rama local (sin
+modificar esas ramas) y cuál es el siguiente paso concreto.
+
+**Commit:** `2ad5aa5` ("docs: estado de hallazgos de seguridad"). Sale de `chore/hardening-mensajes`, que es donde está el documento.
+
+**Qué cambió:** en la Tarea 4 de la primera tanda, cada fila de la tabla (c) lleva ahora su estado, y hay una sección **(d)** nueva
+con, para cada hallazgo, dónde se verificó y el siguiente paso concreto, el orden sugerido actualizado y los comandos para
+repetir la verificación sin mostrar valores.
+
+**Resultado:** se contrastó el código de `main` y de todas las ramas locales con commits propios. **Ninguno de los 13 está resuelto**
+en `main` ni en una rama. H1 avanzó a medias (la contraseña ya no está en el archivo, y la cuenta tampoco en
+`fix/sacar-secretos-appsettings`, pero el valor viejo sigue en el historial); H4 está mitigado solo al crear usuarios
+(`feat/crear-usuario-profesional-admin`); los otros once son idénticos en todas las ramas. Se corrigió además el texto de H1, que
+describía el estado anterior al 2026-10-07. `qa-exploratorio` es un informe de QA de interfaz, sin hallazgos de seguridad.
+
+**Cómo probarlo:** leer la sección (d); los comandos de verificación están al final de esa sección.
+
+**Riesgos:** ninguno (solo documentación).
+
+**Qué falta:** aplicar los arreglos. El orden: H1 (operativo), H3 y H2, H5, H6, H4/H7/H8, H10/H11, H12/H13; H9 cuando lo decidas.
+
+### Tarea 5 — `chore/limpieza-logs-sensibles`
+
+**Pedido:** buscar logs o mensajes que impriman mails completos, DNI, matrícula o el contenido de mensajes de pacientes
+(`Console.WriteLine`, `ILogger`), proponer el cambio y aplicarlo solo si es un reemplazo mecánico y seguro, y cubrirlo con pruebas.
+
+**Commit:** `b70afbb` ("chore: no loguear datos personales"). Sale de `main`.
+
+**Qué se revisó:** las 36 llamadas a `ILogger` y `Console` de la API (16 archivos), las 43 de los procesos Node
+(`whatsapp-service` y `signaling-server`) y las 4 de `console.*` de las pantallas.
+
+**Qué se encontró y se corrigió:** en el C# **no hay ningún log que imprima un mail, DNI, matrícula o el texto de un mensaje de un
+paciente**. Lo que sí había eran **teléfonos de pacientes completos en el log del `whatsapp-service`**:
+
+| Archivo | Antes | Ahora |
+|---|---|---|
+| `whatsapp-service/cola.js` | `Error enviando <id> a <teléfono completo>: <error>` (y el error de la librería puede repetir el número) | el teléfono sale enmascarado (`***1234`), también dentro del mensaje de error |
+| `whatsapp-service/whatsapp.js` | un mensaje entrante sin número resoluble logueaba `from=<remitente>` (el teléfono del paciente) | `from=***1234` |
+| `whatsapp-service/privacidad.js` (nuevo) | — | `ocultarNumeros()`: 7 dígitos o más, con o sin `+`, espacios, guiones o `@c.us`/`@lid`; deja los últimos 4 |
+
+**Pruebas:** `whatsapp-service/test/privacidad.test.js` (12, con `npm test`, que se agregó a `package.json` como en el servidor de
+señalización): la función, el log de la cola con un envío que falla y una guardia que lee los `.js` del servicio y falla si una
+llamada de log interpola un teléfono sin enmascarar. `YoSoy.Tests/LogsSinDatosPersonalesTests.cs` (26): lee el código de la API y
+falla si una llamada a `ILogger` o `Console` interpola un dato personal (mail, DNI, matrícula, teléfono, texto, contraseña,
+token…) en la plantilla, en una cadena interpolada o en un argumento; las palabras comunes dentro del texto no cuentan, y una
+función `Enmascarar*`/`Ocultar*` la deja pasar. Sin base, la corrida completa da 577 ok / 79 fallan (las de `main`, 0 nuevas).
+Se verificó con una mutación en C# (un log con mail y DNI: la prueba falla con `archivo:renglón`) y 4 en Node.
+
+**Cómo probarlo:**
+
+```
+dotnet test YoSoy.Tests --filter "FullyQualifiedName~LogsSinDatosPersonalesTests"
+cd whatsapp-service && npm test
+```
+
+**Riesgos:** el `whatsapp-service` es **otro proceso**: hay que volver a publicarlo para que tome el cambio (el `tar` del README ya
+lleva el archivo nuevo). Enmascarar deja menos para investigar un envío puntual (queda el id de la cola y los últimos 4 dígitos).
+La guardia de C# es una red de contención por nombres, no un análisis completo.
+
+**Propuesto y no aplicado** (no es un reemplazo mecánico, o se pisaría con otra rama):
+
+1. **El log de pedidos del framework** (`Microsoft.AspNetCore.Hosting.Diagnostics`, nivel Information, activo porque no hay sección
+   `Logging`) escribe la URL **con su query string**: los **tokens** de `reset-password.html?token=…` y
+   `crear-cuenta-profesional.html?token=…`, y `telefono=` en `GET /mensajeria/simulado/conversacion`. Propuesta: poner
+   `"Microsoft.AspNetCore.Hosting.Diagnostics": "Warning"` en `Logging:LogLevel` de `appsettings.json` (y revisar el log de acceso de
+   Caddy, que está fuera del repositorio). No se aplicó: cambia lo que ve `journalctl` y toca `appsettings.json`, que también toca la
+   Tarea 1 de hoy.
+2. **Mails dentro de los errores del SMTP**: `NotificadorTurnos` loguea `ex` y `ex.Message` de MailKit, y un servidor SMTP puede
+   repetir la dirección del destinatario en su respuesta (Gmail no, Postfix sí). Propuesta: una función `OcultarMails()` sobre esos
+   textos (también se guardan en `Recordatorio.Error`). No se aplicó: `EnviarMail` es justo lo que cambia la Tarea 1 de hoy.
+3. **Valores de claves únicas en excepciones sin atrapar**: un `SqlException` 2627/2601 trae `The duplicate key value is (…)`, que
+   puede ser un DNI, un mail o una matrícula, y el framework lo escribe al loguear la excepción. Las Tareas 1 y 4 de ayer
+   (`fix/registro-profesional-409` y `chore/hardening-mensajes`) ya lo atrapan en `POST /profesionales` y `POST /pacientes`;
+   queda `POST /usuarios` (H10). Propuesta: un manejador global que loguee
+   solo el tipo y el número de error SQL.
+4. `whatsapp.js` loguea el número del chip **de la propia clínica** al vincularlo (no es de un paciente: se dejó) y el modo
+   `WHATSAPP_DEBUG` (apagado por defecto) puede volcar contenido de la página de WhatsApp Web.
+5. El servidor de señalización loguea `ip`, `rol`, `sub` y `sala` de cada conexión: son identificadores operativos, pero la IP es un
+   dato personal según la ley de protección de datos; queda para que decidas si se trunca.
+
+**Qué falta:** volver a publicar el `whatsapp-service` y decidir las propuestas.
+
+### Tarea 6 — `docs/progreso-nocturno-final`
+
+Esta sección. Sale de `chore/hardening-mensajes`. El commit es el que agrega estas líneas (`git log -1 docs/progreso-nocturno-final`).
+
+### Decisiones y dudas para vos
+
+1. **Ramas apiladas** (arriba): las Tareas 2, 3, 4 y 6 salen de una rama de ayer y no de `main`, porque lo que necesitan todavía no
+   está en `main`. Si preferís otra cosa (esperar al merge, o rehacerlas), es un `git rebase --onto`.
+2. **`Email:From` tratado como credencial** (es el usuario del SMTP, y la consigna hablaba de contraseñas y usuario). Si preferís
+   dejarla a la vista, es revertir una línea de `appsettings.json` y ajustar el aviso y las tablas de las dos documentaciones.
+3. **Los secretos de JWT, video, WhatsApp y base no están en `appsettings.json`**: no había nada que vaciar; solo se documentaron.
+4. **Política de contraseña** (Tarea 2): la regla es solo de largo, 6 a 100; falta decidir el mínimo, la composición y la lista de
+   comunes.
+5. **Login** (Tarea 3): ¿se extrae un `LoginService`? Hasta entonces el reseteo y el orden solo los cubre un modelo y las pruebas con
+   base de la Tarea 2.
+6. **Hallazgos** (Tarea 4): H2 (¿se quiere reservar sin cuenta?), H3 (¿se acorta el JWT o se revalida?) y H9 (¿423 o 401?).
+7. **Logs** (Tarea 5): las cinco propuestas de arriba, sobre todo la primera.
+8. **Documentos desactualizados** (Tarea 1): `README.md`, `docs/SERVIDOR.md` y `docs/PR_INTEGRACION.md` hablan solo de `Email:Password`.
+
+### Orden recomendado para revisar y mergear
+
+0. **Hoy, sin código:** revocar la contraseña de aplicación de Gmail y crear otra (H1).
+1. **La primera tanda, en el orden ya recomendado:** `test/legacy-independientes`, `fix/registro-profesional-409`,
+   `fix/admin-lockout-decay`, `chore/hardening-mensajes`, `feat/crear-usuario-profesional-admin`, `chore/revision-turnos` y
+   `docs/servidor-y-despliegue`.
+2. `fix/sacar-secretos-appsettings`, **después de cargar `Email__From`, `Email__Password` y `Email__AppUrl` en el servidor**.
+   Conflicto esperado: `docs/DEPLOY.md` (receta en la Tarea 1).
+3. `chore/limpieza-logs-sensibles` (y volver a publicar el `whatsapp-service`).
+4. `test/cobertura-politica-contrasena` y `test/cobertura-login-bloqueo`: solo agregan pruebas, y van después de sus bases.
+5. `docs/revision-hallazgos-seguridad` y `docs/progreso-nocturno-final`: al final. Si se mergean antes que las ramas de la primera
+   tanda, estas dan conflicto de archivo agregado en `docs/PROGRESO_NOCTURNO.md` (en ese caso:
+   `git checkout --ours docs/PROGRESO_NOCTURNO.md`).
+
+**Verificado:** las trece ramas, mergeadas en ese orden en una copia aparte del repositorio, dan **un solo conflicto**
+(`docs/DEPLOY.md`, resuelto con la receta). Las doce que traen código, juntas, **compilan** y la suite completa contra la copia
+descartable del esquema da **973 correctas, 8 omitidas (las de interoperabilidad con Node) y 0 fallas** de 981; y `npm test` del
+`whatsapp-service`, 12 de 12 (la decimotercera, esta, es solo documentación). Con la primera tanda sola eran 844: la segunda suma
+129 pruebas.
