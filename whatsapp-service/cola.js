@@ -5,6 +5,8 @@
 // (MaxIntentosEnvio=3) y termine mandando el mismo mensaje dos veces de verdad.
 // Con esto, "encolado" (Exito:true) y "entregado" son cosas distintas — mismo
 // criterio laxo que ya usa el canal Simulado del lado .NET (tampoco confirma lectura).
+const { ocultarNumeros } = require("./privacidad");
+
 const CAPACIDAD_MAXIMA = 50;
 const ESPACIADO_MIN_MS = 3000;
 const ESPACIADO_JITTER_MS = 2000;
@@ -55,7 +57,9 @@ class ColaEnvios {
                 } catch (err) {
                     // Ya no hay a quién devolverle el error: la respuesta HTTP de /enviar
                     // ya salió hace rato. Queda solo en el log de este proceso.
-                    this._log.error(`Error enviando ${item.idExterno} a ${item.telefono}: ${err.message || err}`);
+                    // El teléfono es de un paciente: en el log va enmascarado (los últimos 4 dígitos), también si el
+                    // mensaje de error de la librería lo repite.
+                    this._log.error(ocultarNumeros(`Error enviando ${item.idExterno} a ${item.telefono}: ${err.message || err}`));
                 }
                 if (this._pendientes.length > 0) {
                     const espera = ESPACIADO_MIN_MS + Math.floor(Math.random() * ESPACIADO_JITTER_MS);
