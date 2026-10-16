@@ -161,7 +161,7 @@ Ninguna contraseña de ninguno de los dos está en este archivo ni en el repo.
 |---|---|---|
 | `docs/produccion/01-produccion.sql` | El esquema completo (44 tablas). Siembra `TipoConsentimiento` (telemedicina) y, aparte y opcional, preguntas frecuentes y respuestas rápidas del chat. | Aplicado al crear la base |
 | `migrations/add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y tres columnas de `SesionClinica` (consentimiento de la lectura de emociones, PR 6). Solo agrega; idempotente. | **Aplicada.** (En un servidor nuevo, `01-produccion.sql` ya la incluye) |
-| `migrations/seed_catalogos.sql` | Catálogos iniciales que la base nacida de `01-produccion.sql` no traía: especialidades, estados de turno con ids fijos (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado) y el tipo de consentimiento de telemedicina. Idempotente. | **Aplicada.** El archivo **no está versionado** en el repositorio (ver "Pendiente") |
+| `migrations/seed_catalogos.sql` | Catálogos iniciales que la base nacida de `01-produccion.sql` no traía: especialidades, estados de turno con ids fijos (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado) y el tipo de consentimiento de telemedicina. Idempotente. | **Aplicada.** Versionada en el repo; para un servidor nuevo, ver [`DEPLOY.md`](DEPLOY.md), "Servidor nuevo: base y catálogos" |
 
 Cómo se aplican (`-I` es obligatorio, `-f 65001` por los acentos): [`DEPLOY.md`](DEPLOY.md), sección "Migraciones".
 
@@ -238,8 +238,6 @@ sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Zona ho
 
 ## Pendiente / a verificar
 
-- **`migrations/seed_catalogos.sql` no está en el repositorio.** Se aplicó en producción, pero el archivo sigue sin
-  versionar: si hay que reconstruir el servidor, falta. Conviene commitearlo.
 - **Contraseña SMTP** (`Email__Password`): verificar que esté cargada. Sin ella la app funciona pero no manda ningún
   mail real (recuperación de contraseña, avisos).
 - **Reinicio por el kernel:** la actualización del sistema dejó un kernel nuevo instalado; verificar si ya se aplicó
