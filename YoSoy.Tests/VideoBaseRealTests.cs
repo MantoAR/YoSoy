@@ -103,8 +103,11 @@ public class VideoBaseRealTests : IDisposable
         return (int)cmd.ExecuteScalar()!;
     }
 
+    // Los recordatorios del turno (Recordatorio.IdTurno) los puede haber creado el servicio de recordatorios de una aplicación
+    // de prueba: van antes que el turno, o el DELETE choca con FK_Recordatorio_Turno y la prueba falla a veces.
     private static void BorrarTurno(int idTurno) => Ejecutar(@"
         DELETE FROM LogAuditoria WHERE Entidad = 'Turno' AND IdEntidad = @Id AND Accion LIKE 'Acceso a sala de video%';
+        DELETE FROM Recordatorio WHERE IdTurno = @Id;
         DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", idTurno));
 
     private static void BorrarAdmision(int idInforme) => Ejecutar(@"
@@ -360,6 +363,30 @@ public class VideoBaseRealTests : IDisposable
         finally
         {
             Ejecutar("DELETE FROM LogAuditoria WHERE Entidad = 'Turno' AND IdEntidad = @Id AND Accion LIKE 'Acceso a sala de video%'", ("@Id", idQueNoExiste));
+        }
+    }
+
+    // El servicio de recordatorios de una aplicación de prueba puede crearle recordatorios a cualquier turno confirmado de la
+    // base. Antes, borrar el turno sin borrarlos fallaba con FK_Recordatorio_Turno, a veces (según cuándo corriera esa pasada).
+    [Fact]
+    public void BorrarTurno_se_lleva_tambien_los_recordatorios_que_le_creo_el_servicio_de_recordatorios()
+    {
+        var id = InsertarTurno("Confirmado", FechaDePrueba, HoraDePrueba, null);
+        try
+        {
+            Ejecutar(@"INSERT INTO Recordatorio (IdTurno, Tipo, Canal, FechaProgramada)
+                       VALUES (@Id, 'Turno24h', 'Chat', @F), (@Id, 'Turno24h', 'Email', @F), (@Id, 'Turno24h', 'App', @F)",
+                ("@Id", id), ("@F", FechaDePrueba));
+
+            var error = Record.Exception(() => BorrarTurno(id));
+
+            Assert.Null(error);   // antes: SqlException 547 por FK_Recordatorio_Turno
+            Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdTurno = @Id", ("@Id", id)));
+            Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Recordatorio WHERE IdTurno = @Id", ("@Id", id)));
+        }
+        finally
+        {
+            Ejecutar("DELETE FROM Recordatorio WHERE IdTurno = @Id; DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", id));
         }
     }
 }
