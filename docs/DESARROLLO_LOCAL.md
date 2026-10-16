@@ -39,7 +39,9 @@ Reglas de los valores (el código las valida, y ningún mensaje ni log incluye e
   `Mensajeria:WhatsApp:Secreto` lo mismo que `Mensajeria__WhatsApp__Secreto` del servicio de WhatsApp: son otros procesos
   (Node), cada uno con su variable de entorno.
 
-Para que la app arranque con todo vacío alcanza con `Jwt:Key` y, para tocar la base, `ConnectionStrings__YoSoy`.
+Para que la app arranque con todo vacío alcanza con `Jwt:Key` y, para tocar la base, `ConnectionStrings__YoSoy`. Para
+correr los tests de integración hace falta además una base propia: ver
+[Correr los tests de integración](#correr-los-tests-de-integración).
 
 ## Correo
 
@@ -77,3 +79,80 @@ cargado y mirá la consola: si dice `Correo no configurado`, falta algo (el avis
 Borrarla del archivo no alcanza: queda en el historial de git. Hay que **revocarla en el proveedor** (en Gmail, revocar la
 contraseña de aplicación y crear otra) y cargar la nueva solo como secreto de usuario o variable de entorno. Para
 producción, ver [`DEPLOY.md`](DEPLOY.md).
+
+## Correr los tests de integración
+
+La mayoría de los tests de `YoSoy.Tests` no necesitan nada. Los de categoría `Integracion` (la API real contra SQL Server)
+necesitan una base propia, y ninguno la crea. Sin ella fallan más de cien tests, con `Falta la variable de entorno
+ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the login`.
+
+> **Nunca apuntes los tests a una base con datos reales ni a producción.** Los tests de integración **escriben y borran filas**
+> en la base a la que apuntan. Usá siempre una base de pruebas propia (`yosoy_test`), nunca `yosoy` (la de desarrollo) ni una
+> copia de datos reales.
+
+### Qué necesitan
+
+- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 44 tablas, con
+  el resultado de las 15 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
+  el tipo de consentimiento y el contenido de arranque del chat.
+- **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
+  falta `migrations/seed_catalogos.sql`: ese es para servidores reales (ver [`DEPLOY.md`](DEPLOY.md)).
+- La cadena de conexión en la variable de entorno **`ConnectionStrings__YoSoy`**, en el proceso que corre `dotnet test`.
+  **Un secreto de usuario no sirve para esto:** `Conexion.cs` lee la cadena directo del entorno (primera fila de la tabla de
+  secretos de arriba).
+
+### Crear la base de pruebas (una vez)
+
+```powershell
+.\Scripts\crear-base-de-pruebas.ps1                    # crea yosoy_test en la instancia local .\SQLEXPRESS
+.\Scripts\crear-base-de-pruebas.ps1 -Servidor 'MIPC\SQLEXPRESS' -Base yosoy_test2     # otra instancia u otro nombre
+```
+
+El script arma una copia temporal de `01-produccion.sql` con el nombre de la base cambiado, la ejecuta con `sqlcmd` (autenticación
+de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 44 tablas. El original no se toca: dice
+`[yosoy]` fijo en tres lugares y, corrido tal cual en una instancia donde `yosoy` ya existe, apuntaría a la base de desarrollo.
+Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.
+
+### Correr los tests
+
+```powershell
+.\Scripts\correr-tests.ps1                                    # todos, contra yosoy_test
+.\Scripts\correr-tests.ps1 -Filtro 'Categoria!=Integracion'   # solo los que no necesitan base (no hace falta crearla)
+.\Scripts\correr-tests.ps1 -Base yosoy_test2 -Filtro 'FullyQualifiedName~Turno'
+```
+
+El script define `ConnectionStrings__YoSoy` y `Email__Password` con un espacio (así ningún test manda mails reales, aunque tengas
+credenciales en tus user-secrets), corre `dotnet test` y, al terminar, deja las dos variables como estaban. Se niega a usar la
+base `yosoy`. La suite completa tarda unos 2 minutos. Los argumentos que sobren se le pasan a `dotnet test`
+(por ejemplo `--logger trx`). Hecho a mano sería:
+
+```powershell
+$env:ConnectionStrings__YoSoy = 'Server=.\SQLEXPRESS;Database=yosoy_test;Trusted_Connection=True;TrustServerCertificate=True;'
+$env:Email__Password = ' '
+dotnet test YoSoy.Tests\YoSoy.Tests.csproj
+```
+
+Esas variables quedan en esa ventana de PowerShell: cerrala o devolvelas a como estaban, para que la API no siga apuntando a la
+base de pruebas.
+
+### Borrar la base de pruebas
+
+```powershell
+sqlcmd -S .\SQLEXPRESS -d master -E -C -Q "ALTER DATABASE [yosoy_test] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [yosoy_test];"
+```
+
+Fijate bien en el nombre: borra la base entera. Los tests limpian lo que crean, pero algunos dejan filas sueltas de prueba
+(marcadas `[TEST-PR6]`); no molestan, y la suite se puede repetir sobre la misma base. Si querés una base limpia, borrala y
+volvé a crearla.
+
+### Si falla
+
+| Síntoma | Causa |
+|---|---|
+| `Falta la variable de entorno ConnectionStrings__YoSoy` | La variable no está en el proceso que corre `dotnet test` (un secreto de usuario no cuenta). |
+| `Cannot open database "..." requested by the login` | La base no existe o el nombre de la cadena no coincide: creala con el script. |
+| `No encuentro sqlcmd` | Instalá las herramientas de línea de comandos de SQL Server (o SSMS). |
+| "La ejecución de scripts está deshabilitada en este sistema" | Corré el script con `powershell -NoProfile -ExecutionPolicy Bypass -File ...` |
+| El script dice que la base ya existe | Es a propósito: nunca toca una base existente. Borrala (arriba) o elegí otro `-Base`. |
+| `VideoBaseRealTests.De_punta_a_punta_...` falla a veces con `FK_Recordatorio_Turno` | Falla intermitente conocida del propio test, no de tu base: borra su turno sin borrar antes los recordatorios que el servicio de recordatorios pudo crearle. Repetí la corrida. |
