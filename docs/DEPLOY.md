@@ -238,6 +238,37 @@ sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT COUNT(*
 **Registrar:** anotá qué migración se aplicó, cuándo y sobre qué commit en la tabla "Migraciones aplicadas" de
 [`SERVIDOR.md`](SERVIDOR.md). Si la migración es un archivo nuevo, tiene que estar versionado en `migrations/`.
 
+### Servidor nuevo: base y catálogos
+
+Una base que todavía no existe (servidor nuevo o reconstruido) se arma en este orden, siempre con el login administrador de
+SQL Server (no `yosoy_app`) y con `-I -b -f 65001`:
+
+1. **`docs/produccion/01-produccion.sql`**, contra `master`: crea la base `yosoy` (el nombre va fijo en el script) y las 44
+   tablas, con el resultado de todas las migraciones. Se corre **una sola vez**, en un servidor donde `yosoy` no exista.
+2. **`migrations/seed_catalogos.sql`**, contra `yosoy`: los catálogos que el esquema no trae y sin los cuales la app no sirve.
+   Son 15 especialidades (sin ellas el combo del registro de profesional queda vacío), los 4 estados de turno con id fijo
+   (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado: el código usa los números) y el tipo de consentimiento de
+   telemedicina. Es **idempotente**: solo agrega lo que falta, así que se puede correr dos veces. Se niega a correr en `master`,
+   `tempdb`, `model` y `msdb`: hay que pararse en la base de YoSoy con `-d yosoy`.
+3. `docs/produccion/02-usuario-app.sql` (el login `yosoy_app` de la API; la contraseña se pasa por la línea de comandos, nunca
+   en el archivo) y `docs/produccion/03-usuario-admin.sql` (el primer Configurador). Detalle en [`SERVIDOR.md`](SERVIDOR.md),
+   sección "Base de datos".
+
+```powershell
+# En la PC: subir el archivo
+scp migrations\seed_catalogos.sql agustin@179.199.155.50:/home/agustin/
+```
+
+```bash
+# En el VPS. Te pide la contraseña: no la escribas con -P.
+sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -b -f 65001 -i ~/seed_catalogos.sql
+# Verificar: 15 especialidades (o más, si la base ya tenía las suyas), 4 estados y 1 tipo de consentimiento
+sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT (SELECT COUNT(*) FROM Especialidad) AS especialidades, (SELECT COUNT(*) FROM EstadoTurno) AS estados, (SELECT COUNT(*) FROM TipoConsentimiento) AS tipos"
+```
+
+El seed **no** va en la base de pruebas de los tests de integración: ahí los tests crean sus propios datos (ver
+[`DESARROLLO_LOCAL.md`](DESARROLLO_LOCAL.md), "Correr los tests de integración").
+
 ## Cambios de configuración
 
 - Las variables están en `/opt/yosoy/config/` (`.env`, `video.env`, `signaling.env`, `whatsapp.env`), con permisos
