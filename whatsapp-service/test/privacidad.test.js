@@ -2,6 +2,7 @@
 // Se corre con `npm test` (node --test), igual que el servidor de señalización.
 'use strict';
 
+require('./helpers/sin-red');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

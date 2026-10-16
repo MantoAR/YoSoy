@@ -6,17 +6,21 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --require ./test/helpers/sin-red.js --test \"test/*.test.js\"",
     "postinstall": "patch-package"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
     "express": "^4.19.2",
     "patch-package": "8.0.1",
     "qrcode": "1.5.4",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "https://github.com/wwebjs/whatsapp-web.js/archive/064a3d5a5a3dce1281a6a12740b5a7051339d154.tar.gz"
+  },
+  "overrides": {
+    "libsignal": "6.0.0"
   }
 }

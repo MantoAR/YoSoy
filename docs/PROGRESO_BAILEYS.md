@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras el arranque (antes de la primera etapa de código).
+- **Última actualización:** 2026-10-16, tras la etapa 9 (dependencia).
 
 ## Estado de las etapas
 
@@ -19,8 +19,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 |---|---|---|---|
 | previo | Frase de `DESARROLLO_LOCAL.md` (base de pruebas), pedida aparte | hecho | `6e846be` |
 | previo | Línea suelta ` main` al final de `DEPLOY.md` (resto de un conflicto de merge) | hecho | `c384e1c` |
-| — | Este archivo | en curso | — |
-| 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | pendiente | — |
+| — | Este archivo | hecho | `892ae1e` |
+| 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | (este commit) |
 | 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | pendiente | — |
 | 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | pendiente | — |
 | 3 | Vinculación por QR (comando y endpoint local) | pendiente | — |
@@ -89,6 +89,31 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   tiene su `postinstall` conocido. `prepare` (que compila) no corre al instalar desde el registro.
 - **Para pasar a la 7.x** alcanza con cambiar la versión exacta y sacar el `override`; la capa de integración (`baileys/cargar.js`)
   usa solo un subconjunto chico de la librería y una prueba de contrato lo vigila.
+
+### Qué quedó hecho en la etapa 9
+
+- `whatsapp-service/package.json`: `"@whiskeysockets/baileys": "6.7.24"` (**exacta, sin `^`**) y
+  `"overrides": {"libsignal": "6.0.0"}`. Instalado con `npm install --save-exact --ignore-scripts`.
+- `package-lock.json`: solo **altas** (99 paquetes), ningún paquete existente cambió de versión, origen ni hash; `libsignal` y
+  Baileys salen de `registry.npmjs.org` y **todo paquete con origen trae `integrity`** (sin dependencias por git).
+- **Instalación como en el VPS reproducida** en una carpeta aparte: `npm ci --omit=dev` desde el lock → 405 paquetes, 147 MB,
+  sin errores (con `--ignore-scripts` y `PUPPETEER_SKIP_DOWNLOAD=1`, para no bajar Chromium).
+- **`npm audit` del servicio: 13 altas, exactamente las mismas de antes** (9 de la cadena de descarga de Chromium de
+  `puppeteer`/`whatsapp-web.js` y 4 de `patch-package`); **ninguna viene de Baileys ni de sus dependencias**. Si algún día se
+  saca `whatsapp-web.js`, quedan solo las 4 de `patch-package`.
+- **Costo de memoria medido:** importar Baileys suma ~48 MB de RSS (31 → 79 MB) y tarda ~0,5 s; una conexión activa suma lo que
+  use la sesión, pero no hay navegador. `whatsapp-web.js` lleva Chromium (el README del servicio ya documentaba que llegó a
+  `MemoryMax=2G`).
+- `baileys/cargar.js`: **único lugar** que importa la librería (con `import()` dinámico: es ESM y el servicio es CommonJS) y
+  devuelve una "fachada" con lo que se usa; si la versión instalada no expone algo, el servicio no arranca y lo dice.
+- **Red de seguridad de los tests** (`test/helpers/sin-red.js`): `npm test` ahora carga con `--require` un bloqueo que hace
+  fallar cualquier conexión o consulta DNS que no sea loopback (`ERR_RED_BLOQUEADA`), en cada archivo de test. Así ningún test
+  puede hablar con WhatsApp ni con internet, ni por error. Sus pruebas usan direcciones de documentación (RFC 5737), que
+  no existen en internet.
+- **Pruebas** (`npm test`, 29 en total, 17 nuevas): contrato con la librería real (carga el paquete **sin conectar**), versión
+  exacta, `override` y lock sin git, bloqueo de red, y una guardia que verifica que ningún test importa el paquete real ni
+  llama a `makeWASocket`. Verificadas con mutaciones (`^` en la versión, sin `override`, `libsignal` por git, un test que importa
+  el paquete real): cada una hace fallar la prueba correspondiente.
 
 ## Decisiones tomadas (para revisar)
 
