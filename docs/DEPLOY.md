@@ -306,4 +306,3 @@ El seed **no** va en la base de pruebas de los tests de integración: ahí los t
   días).
 - Si la versión cambió algo del servidor (puertos, servicios, carpetas, variables), actualizar
   [`SERVIDOR.md`](SERVIDOR.md).
- main
