@@ -20,12 +20,17 @@ public class AccesoSalaServiceTests
         public readonly LogsCapturados Logs = new();
         public readonly AccesoSalaService Servicio;
 
-        public Entorno(RelojFijo? reloj = null)
+        public Entorno(RelojFijo? reloj = null) : this(reloj, null) { }
+
+        // Con un reloj de la clínica: el servidor de prueba (RelojFijo, en UTC) queda adentro y se lo mueve igual.
+        public Entorno(TimeProvider clinica) : this(null, clinica) { }
+
+        private Entorno(RelojFijo? reloj, TimeProvider? clinica)
         {
             Reloj = reloj ?? new RelojFijo(Inicio);
             Origen.Turnos[1] = new TurnoParaSala(1, 301, 201, "Confirmado", Inicio.Date, Inicio.TimeOfDay, "sala-1", 30);
             Origen.Admisiones[5] = new AdmisionParaSala(5, 301, "En entrevista", Inicio, "sala-adm-5");
-            Servicio = new AccesoSalaService(Origen, Reloj, Opciones, Logs.CreateLogger<AccesoSalaService>());
+            Servicio = new AccesoSalaService(Origen, clinica ?? Reloj, Opciones, Logs.CreateLogger<AccesoSalaService>());
         }
 
         public ResultadoAcceso Turno(Identidad yo, int id = 1) => Servicio.Evaluar(yo, OrigenSala.Turno, id);
@@ -350,8 +355,9 @@ public class AccesoSalaServiceTests
 
     // ---------- Zona horaria ----------
 
-    // Turno.Fecha y Turno.Hora no llevan zona: son la hora de la clínica, que el sistema asume igual a la del
-    // servidor. Con un servidor en Argentina (UTC-3), el turno de las 10:00 es a las 13:00 UTC.
+    // Turno.Fecha y Turno.Hora no llevan zona: son la hora de la clínica, y el servicio la toma de la zona de su reloj
+    // (en producción, RelojDeLaClinica: ver más abajo). Con la clínica en Argentina (UTC-3), el turno de las 10:00 es a
+    // las 13:00 UTC.
     [Fact]
     public void La_fecha_y_la_hora_del_turno_se_leen_en_la_zona_del_servidor()
     {
@@ -364,6 +370,46 @@ public class AccesoSalaServiceTests
         Assert.Equal(VideoApp.Utc(new DateTime(2031, 3, 4, 12, 50, 0)), antes.Desde!.Value);
 
         reloj.Ahora = new DateTime(2031, 3, 4, 12, 50, 0);
+        Assert.True(e.Turno(Paciente).Ok);
+    }
+
+    // El cableado de producción: el reloj es RelojDeLaClinica, con la zona EXPLÍCITA, aunque el servidor esté en UTC y
+    // nadie haya completado Video:ZonaHoraria. La sala del turno de las 10:00 (hora de la clínica) abre a las 09:50 de
+    // la clínica = 12:50 UTC, y no a las 09:50 UTC (que es lo que daba una VPS en UTC con la zona del sistema).
+    [Fact]
+    public void Sin_Video_ZonaHoraria_la_ventana_usa_la_zona_de_la_clinica_y_no_la_del_servidor()
+    {
+        var servidorEnUtc = new RelojFijo(new DateTime(2031, 3, 4, 12, 49, 59));
+        var clinica = new RelojDeLaClinica(ZonaHorariaDeLaClinica.Elegir(null), servidorEnUtc);
+        var e = new Entorno(clinica);
+
+        var antes = e.Turno(Paciente);
+        Assert.Equal(EstadoAcceso.AunNoAbre, antes.Estado);
+        Assert.Equal(VideoApp.Utc(new DateTime(2031, 3, 4, 12, 50, 0)), antes.Desde!.Value);
+        Assert.Equal(VideoApp.Utc(new DateTime(2031, 3, 4, 14, 0, 0)), antes.Hasta!.Value);   // 10:00 + 30 min + 30 min = 11:00 en la clínica
+
+        servidorEnUtc.Ahora = new DateTime(2031, 3, 4, 12, 50, 0);
+        Assert.True(e.Turno(Paciente).Ok);
+
+        servidorEnUtc.Ahora = new DateTime(2031, 3, 4, 13, 59, 59);
+        Assert.True(e.Turno(Paciente).Ok);
+        servidorEnUtc.Ahora = new DateTime(2031, 3, 4, 14, 0, 0);
+        Assert.Equal(EstadoAcceso.YaTermino, e.Turno(Paciente).Estado);
+    }
+
+    // La misma hora de pared tiene que dar el mismo instante para "la sala abre" y para "ese horario ya pasó": el
+    // instante en que abre la sala, visto con el reloj que usan las reglas de turnos, es 09:50 de la clínica.
+    [Fact]
+    public void La_apertura_de_la_sala_cae_en_la_hora_de_pared_de_la_clinica_que_ven_las_reglas()
+    {
+        var servidorEnUtc = new RelojFijo(new DateTime(2031, 3, 4, 8, 0, 0));              // bien antes de abrir
+        var clinica = new RelojDeLaClinica(ZonaHorariaDeLaClinica.Elegir(null), servidorEnUtc);
+        var e = new Entorno(clinica);
+
+        var apertura = e.Turno(Paciente).Desde!.Value;                                      // el instante en que abre la sala
+
+        servidorEnUtc.Ahora = apertura.UtcDateTime;
+        Assert.Equal(Inicio.AddMinutes(-10), clinica.GetLocalNow().DateTime);               // 09:50 en la clínica
         Assert.True(e.Turno(Paciente).Ok);
     }
 
@@ -389,8 +435,41 @@ public class AccesoSalaServiceTests
         e.Opciones.CurrentValue.ZonaHoraria = "Marte/Olympus_Mons";
         e.A(-600);
 
-        Assert.True(e.Turno(Paciente).Ok);   // como si no hubiera zona configurada (UTC)
+        Assert.True(e.Turno(Paciente).Ok);   // como si no hubiera zona configurada: la del reloj (acá UTC; en producción, la de la clínica)
         Assert.Contains(e.Logs.Lineas, l => l.StartsWith("Warning|") && l.Contains("Video:ZonaHoraria"));
+    }
+
+    // Dos zonas distintas para la misma hora de pared es una configuración equivocada: la sala y las reglas de turnos
+    // hablarían de instantes distintos. No se rompe nada (Video:ZonaHoraria manda para la sala, como siempre) pero se
+    // avisa, una sola vez.
+    [Fact]
+    public void Si_Video_ZonaHoraria_no_coincide_con_la_zona_de_la_clinica_se_avisa_una_sola_vez()
+    {
+        var servidorEnUtc = new RelojFijo(new DateTime(2031, 3, 4, 12, 40, 0));
+        var clinicaEnUtc = new RelojDeLaClinica(TimeZoneInfo.Utc, servidorEnUtc);
+        var e = new Entorno(clinicaEnUtc);
+        e.Opciones.CurrentValue.ZonaHoraria = ZonaArgentina();            // distinta de la de la clínica (UTC)
+
+        e.Turno(Paciente);
+        e.Turno(Paciente);
+        e.Turno(Profesional);
+
+        var avisos = e.Logs.Lineas.Where(l => l.StartsWith("Warning|") && l.Contains("no coincide")).ToList();
+        Assert.Single(avisos);
+        Assert.Contains("Video:ZonaHoraria", avisos[0]);
+    }
+
+    [Fact]
+    public void Si_Video_ZonaHoraria_coincide_con_la_zona_de_la_clinica_no_se_avisa()
+    {
+        var servidorEnUtc = new RelojFijo(new DateTime(2031, 3, 4, 12, 40, 0));
+        var clinica = new RelojDeLaClinica(ZonaHorariaDeLaClinica.Elegir(ZonaArgentina()), servidorEnUtc);
+        var e = new Entorno(clinica);
+        e.Opciones.CurrentValue.ZonaHoraria = ZonaArgentina();
+
+        e.Turno(Paciente);
+
+        Assert.DoesNotContain(e.Logs.Lineas, l => l.StartsWith("Warning|"));
     }
 
     internal static string ZonaArgentina()

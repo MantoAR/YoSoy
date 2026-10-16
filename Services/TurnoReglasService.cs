@@ -13,9 +13,8 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 /// Reglas de negocio de turnos (Encuentro 5), en un solo lugar del backend:
 ///  RN-01  Disponibilidad real de agenda: el horario cae dentro de la franja de una
 ///         fila de Agenda disponible para ese día, alineado a los slots de
-///         IntervaloMinutos, en el futuro (posterior a "ahora", hora local del
-///         servidor, que se asume Argentina) y sin otro turno que no esté Cancelado
-///         ni Rechazado.
+///         IntervaloMinutos, en el futuro (posterior a "ahora" en la zona horaria de
+///         la clínica) y sin otro turno que no esté Cancelado ni Rechazado.
 ///  RN-02  Consentimiento informado de telemedicina vigente (tipo buscado por
 ///         Descripcion, Consentimiento:TipoRequerido). Se exige al CONFIRMAR un turno
 ///         (PUT /turnos/{id} cuando pasa a Confirmado y PUT /turnos/{id}/confirmar-paciente)
@@ -33,10 +32,11 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 /// (SolicitarUrgente): mismo motivo que el bot con la mensajería, no tiene sentido pedirle
 /// RN-01 a algo que es "ahora mismo" por definición.
 ///
-/// Zona horaria: Turno.Fecha y Turno.Hora se guardan como hora local sin zona.
-/// Se compara contra la hora local del servidor (TimeProvider.GetLocalNow),
-/// que se asume en Argentina (UTC-3). Si el servidor corriera en otra zona,
-/// hay que fijar TZ o convertir explícitamente.
+/// Zona horaria: Turno.Fecha y Turno.Hora se guardan como hora local sin zona: la de
+/// la clínica. "Ahora" sale de TimeProvider.GetLocalNow() y el TimeProvider de la
+/// aplicación es RelojDeLaClinica (Services/RelojDeLaClinica.cs), con la zona EXPLÍCITA
+/// (Turnos:ZonaHoraria, por defecto America/Argentina/Buenos_Aires): no depende de la
+/// zona del sistema operativo del servidor.
 /// </summary>
 public class TurnoReglasService
 {

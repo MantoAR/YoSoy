@@ -14,6 +14,9 @@ using Microsoft.Extensions.Options;
 //  Ventana:   desde N minutos antes del inicio (10) hasta M minutos después del FIN (30), con el inicio y
 //             la duración reales del turno. Incluye el instante de apertura y excluye el de cierre
 //             ([desde, hasta)): en el cierre el token ya nacería vencido.
+//  Zona:      Turno.Fecha y Turno.Hora no llevan zona: son la hora de la clínica, la del reloj de la aplicación
+//             (RelojDeLaClinica, la misma que usan las reglas de turnos). Así "ese horario ya pasó" y "la sala abre"
+//             hablan del mismo instante, y no dependen de la zona del servidor.
 //
 // El orden de los chequeos importa: primero existencia y pertenencia, así quien no tiene nada que ver con un
 // turno nunca se entera de su estado, su horario ni si ya tiene sala. Y "no existe" y "existe pero no sos parte"
@@ -135,17 +138,38 @@ public class AccesoSalaService
 
     public static int Acotar(int valor, int min, int max) => Math.Clamp(valor, min, max);
 
+    // La zona en la que están escritos Turno.Fecha / Turno.Hora: la de la clínica, que es la del reloj de la aplicación
+    // (Turnos:ZonaHoraria, por defecto America/Argentina/Buenos_Aires), no la del sistema operativo. Video:ZonaHoraria
+    // es lo que había antes: si está y existe, manda para la ventana; si no existe, se usa la de la clínica.
     private TimeZoneInfo Zona(VideoOptions o)
     {
+        var clinica = _reloj.LocalTimeZone;
         if (!string.IsNullOrWhiteSpace(o.ZonaHoraria))
         {
-            try { return TimeZoneInfo.FindSystemTimeZoneById(o.ZonaHoraria.Trim()); }
-            catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+            var propia = ZonaHorariaDeLaClinica.Buscar(o.ZonaHoraria.Trim());
+            if (propia is not null)
             {
-                _log.LogWarning("Video:ZonaHoraria \"{Zona}\" no existe en este servidor: se usa la zona local.", o.ZonaHoraria);
+                AvisarSiNoCoincide(propia, clinica);
+                return propia;
             }
+            _log.LogWarning("Video:ZonaHoraria \"{Zona}\" no existe en este servidor: se usa la zona horaria de la clínica ({Clinica}).",
+                o.ZonaHoraria, clinica.Id);
         }
-        return _reloj.LocalTimeZone;
+        return clinica;
+    }
+
+    // Dos zonas distintas para la misma hora de pared es una configuración equivocada: la ventana de la sala y las
+    // reglas de turnos hablarían de instantes distintos. Se avisa una sola vez, no en cada pedido.
+    private int _avisoZonasDistintas;
+
+    private void AvisarSiNoCoincide(TimeZoneInfo video, TimeZoneInfo clinica)
+    {
+        var ahora = _reloj.GetUtcNow();
+        if (video.GetUtcOffset(ahora) == clinica.GetUtcOffset(ahora)) return;
+        if (Interlocked.Exchange(ref _avisoZonasDistintas, 1) == 0)
+            _log.LogWarning("Video:ZonaHoraria ({Video}) no coincide con la zona horaria de la clínica ({Clinica}): la ventana " +
+                "de la sala usa la de Video y las reglas de turnos la de la clínica. Dejá Video:ZonaHoraria vacía o igualala " +
+                "a Turnos:ZonaHoraria.", video.Id, clinica.Id);
     }
 
     // La base guarda la hora tal cual la clínica la escribió (sin zona): se la interpreta en la zona de la
