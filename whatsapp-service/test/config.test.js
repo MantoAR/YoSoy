@@ -3,7 +3,7 @@ require("./helpers/sin-red");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { leerConfig, leerConfigBaileys, leerPuerto, ErrorDeConfiguracion, validarApiBaseUrl } = require("../config");
+const { leerConfig, leerConfigBaileys, leerConfigEnvio, leerPuerto, ErrorDeConfiguracion, validarApiBaseUrl } = require("../config");
 
 const SECRETO = "secreto-de-prueba-que-no-se-puede-filtrar";
 const base = (extra = {}) => ({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, ...extra });
@@ -86,6 +86,35 @@ test("las ventanas de QR que se abren solas son entre 1 y 5 (por defecto 2)", ()
     falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "0" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que estar entre 1 y 5/);
     falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "6" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que estar entre 1 y 5/);
     falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "muchas" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que ser un número entero/);
+});
+
+test("las protecciones de envío tienen valores prudentes por defecto", () => {
+    assert.deepEqual(leerConfigEnvio({}), {
+        topeDiario: 100, topePorHora: 40, topePorPersona: 3, diasDeConsentimiento: 365,
+        zonaHoraria: "America/Argentina/Buenos_Aires", pausaMinSeg: 4, pausaMaxSeg: 9, simularEscritura: true
+    });
+    const c = leerConfig(base({ WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA }));
+    assert.deepEqual(c.baileys.envio, leerConfigEnvio({}), "con baileys vienen en la configuración");
+    assert.equal(leerConfig(base()).baileys, null, "con webjs no hay nada de esto");
+});
+
+test("los topes, la vigencia, la zona horaria y las pausas se configuran y se validan", () => {
+    const e = leerConfigEnvio({
+        WHATSAPP_TOPE_DIARIO: "30", WHATSAPP_TOPE_POR_HORA: "10", WHATSAPP_TOPE_POR_PERSONA: "1", WHATSAPP_CONSENTIMIENTO_DIAS: "90",
+        WHATSAPP_ZONA_HORARIA: "America/Argentina/Cordoba", WHATSAPP_PAUSA_MIN_S: "6", WHATSAPP_PAUSA_MAX_S: "6", WHATSAPP_SIMULAR_ESCRITURA: "0"
+    });
+    assert.deepEqual(e, { topeDiario: 30, topePorHora: 10, topePorPersona: 1, diasDeConsentimiento: 90, zonaHoraria: "America/Argentina/Cordoba", pausaMinSeg: 6, pausaMaxSeg: 6, simularEscritura: false });
+
+    const envio = extra => base({ WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA, ...extra });
+    falla(envio({ WHATSAPP_TOPE_DIARIO: "0" }), /WHATSAPP_TOPE_DIARIO tiene que estar entre 1 y 1000/);
+    falla(envio({ WHATSAPP_TOPE_DIARIO: "1001" }), /WHATSAPP_TOPE_DIARIO tiene que estar entre 1 y 1000/);
+    falla(envio({ WHATSAPP_TOPE_POR_HORA: "mucho" }), /WHATSAPP_TOPE_POR_HORA tiene que ser un número entero/);
+    falla(envio({ WHATSAPP_TOPE_POR_PERSONA: "21" }), /WHATSAPP_TOPE_POR_PERSONA tiene que estar entre 1 y 20/);
+    falla(envio({ WHATSAPP_CONSENTIMIENTO_DIAS: "0" }), /WHATSAPP_CONSENTIMIENTO_DIAS tiene que estar entre 1 y 3650/);
+    falla(envio({ WHATSAPP_ZONA_HORARIA: "Marte/Olimpo" }), /WHATSAPP_ZONA_HORARIA no es una zona horaria válida/);
+    falla(envio({ WHATSAPP_PAUSA_MIN_S: "10", WHATSAPP_PAUSA_MAX_S: "5" }), /WHATSAPP_PAUSA_MAX_S \(5\) no puede ser menor que WHATSAPP_PAUSA_MIN_S \(10\)/);
+    assert.equal(leerConfigEnvio({ WHATSAPP_SIMULAR_ESCRITURA: "1" }).simularEscritura, true);
+    assert.equal(leerConfigEnvio({ WHATSAPP_SIMULAR_ESCRITURA: "" }).simularEscritura, true, "solo '0' lo apaga");
 });
 
 test("el comando de vinculación lee solo lo de Baileys: no pide la API ni el secreto", () => {

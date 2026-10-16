@@ -55,6 +55,8 @@ class SocketFalso {
         this.errorAlEnviar = null;
         this.envioColgado = false;
         this.logoutColgado = false;
+        this.errorEnPresencia = null;      // sendPresenceUpdate("composing") y presenceSubscribe fallan con este error
+        this.presenciaColgada = false;     // ...o no contestan nunca
         this._cerrado = false;
     }
 
@@ -71,8 +73,17 @@ class SocketFalso {
         return numeros.filter(n => this.todosExisten || this.existentes.has(n)).map(n => ({ jid: `${n}@s.whatsapp.net`, exists: true }));
     }
 
-    async presenceSubscribe(jid) { this.presencias.push({ tipo: "suscripcion", jid }); }
-    async sendPresenceUpdate(tipo, jid) { this.presencias.push({ tipo, jid }); }
+    async presenceSubscribe(jid) {
+        if (this.errorEnPresencia) throw this.errorEnPresencia;
+        if (this.presenciaColgada) return new Promise(() => {});
+        this.presencias.push({ tipo: "suscripcion", jid });
+    }
+
+    async sendPresenceUpdate(tipo, jid) {
+        if (this.errorEnPresencia) throw this.errorEnPresencia;
+        if (this.presenciaColgada) return new Promise(() => {});
+        this.presencias.push({ tipo, jid });
+    }
 
     async logout() {
         this.cerroSesion = true;

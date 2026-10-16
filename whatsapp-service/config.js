@@ -81,6 +81,35 @@ function leerConfigBaileys(env = process.env) {
     };
 }
 
+function zonaHoraria(env, nombre, porDefecto) {
+    const zona = texto(env, nombre) ?? porDefecto;
+    try {
+        new Intl.DateTimeFormat("en-CA", { timeZone: zona });
+    } catch {
+        throw new ErrorDeConfiguracion(`${nombre} no es una zona horaria válida (y es "${zona}"). Ejemplo: America/Argentina/Buenos_Aires.`);
+    }
+    return zona;
+}
+
+// Protecciones contra el bloqueo del número (etapa 5): topes, ritmo y consentimiento. Todo opcional, con valores prudentes.
+function leerConfigEnvio(env = process.env) {
+    const pausaMinSeg = entero(env, "WHATSAPP_PAUSA_MIN_S", 4, { min: 1, max: 300 });
+    const pausaMaxSeg = entero(env, "WHATSAPP_PAUSA_MAX_S", 9, { min: 1, max: 600 });
+    if (pausaMaxSeg < pausaMinSeg) {
+        throw new ErrorDeConfiguracion(`WHATSAPP_PAUSA_MAX_S (${pausaMaxSeg}) no puede ser menor que WHATSAPP_PAUSA_MIN_S (${pausaMinSeg}).`);
+    }
+    return {
+        topeDiario: entero(env, "WHATSAPP_TOPE_DIARIO", 100, { min: 1, max: 1000 }),
+        topePorHora: entero(env, "WHATSAPP_TOPE_POR_HORA", 40, { min: 1, max: 500 }),
+        topePorPersona: entero(env, "WHATSAPP_TOPE_POR_PERSONA", 3, { min: 1, max: 20 }),
+        diasDeConsentimiento: entero(env, "WHATSAPP_CONSENTIMIENTO_DIAS", 365, { min: 1, max: 3650 }),
+        zonaHoraria: zonaHoraria(env, "WHATSAPP_ZONA_HORARIA", "America/Argentina/Buenos_Aires"),
+        pausaMinSeg,
+        pausaMaxSeg,
+        simularEscritura: env.WHATSAPP_SIMULAR_ESCRITURA !== "0"
+    };
+}
+
 function leerPuerto(env = process.env) {
     return entero(env, "WHATSAPP_SERVICE_PORT", 3002, { min: 1, max: 65535 });
 }
@@ -111,10 +140,10 @@ function leerConfig(env = process.env) {
 
     if (backend === "baileys") {
         config.apiBaseUrl = validarApiBaseUrl(apiBaseUrl);
-        config.baileys = leerConfigBaileys(env);
+        config.baileys = { ...leerConfigBaileys(env), envio: leerConfigEnvio(env) };
     }
 
     return config;
 }
 
-module.exports = { leerConfig, leerConfigBaileys, leerPuerto, ErrorDeConfiguracion, BACKENDS, validarApiBaseUrl };
+module.exports = { leerConfig, leerConfigBaileys, leerConfigEnvio, leerPuerto, ErrorDeConfiguracion, BACKENDS, validarApiBaseUrl };

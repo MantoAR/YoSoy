@@ -140,7 +140,7 @@ conCli("vincula con éxito: dibuja cada QR una sola vez, guarda la sesión, term
 
     const guardada = JSON.parse(fs.readFileSync(path.join(c.dir, "creds.json"), "utf8"));
     assert.equal(guardada.me.id, `${NUMERO}:7@s.whatsapp.net`);
-    assert.deepEqual(fs.readdirSync(c.dir).filter(n => n !== "creds.json" && n !== "creds.json.bak"), [], "no quedó ningún otro archivo (ni el QR)");
+    assert.deepEqual(fs.readdirSync(c.dir).filter(n => n !== "creds.json" && n !== "creds.json.bak" && n !== "datos"), [], "no quedó ningún otro archivo (ni el QR)");
     assert.ok(c.falso.ultimo.vecesQueSeCerro >= 1, "al terminar, el socket queda cerrado");
 });
 

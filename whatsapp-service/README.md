@@ -123,7 +123,60 @@ terminar en un bloqueo del número.
   número (por ejemplo, si el bloqueado es definitivo): "Desvincular y cambiar número" en el Configurador y vincular el nuevo.
 - Los mensajes del log dicen el código, el intento y la espera (`se reintenta en 8 s (intento 3)`), nunca un teléfono.
 
-Más variables (reconexión, ritmo de envío, tope diario, consentimiento) se documentan a medida que cada etapa las agrega;
+### Baileys: protecciones contra el bloqueo del número
+
+WhatsApp bloquea los números que parecen un bot o que le escriben a quien no quiere recibir mensajes. Con Baileys (no con
+whatsapp-web.js, que sigue como siempre) el servicio se protege solo.
+
+**Solo a quien aceptó** (`consentimiento.js`; las reglas, en `privacidad.js`). A una persona se le puede escribir si:
+- ella **le escribió primero** al número de la clínica (vale 365 días desde su último mensaje, que lo renueva), o
+- la API afirma que aceptó, mandando `"optIn": true` en el `POST /enviar` (solo cuenta el valor `true` exacto, y en cada pedido);
+
+y **nunca** si escribió `BAJA` (o `STOP`, `NO MOLESTAR`, `DAR DE BAJA`...): eso pesa más que todo, aunque la API mande `optIn`,
+hasta que escriba `ALTA`. Tiene que ser el mensaje entero: "cancelar" no es una baja (en el bot es cancelar un turno). Sin
+constancia no se envía: `403 sin_consentimiento`. El registro (`datos/consentimientos.json`) guarda la **huella** del teléfono, no
+el teléfono, y fechas; nunca el texto de un mensaje. Un mensaje de grupo, uno propio o uno que no es texto no cuenta como
+constancia.
+
+**Ritmo humano:** una pausa al azar de 4 a 9 segundos entre mensajes, una pausa larga de 30 a 75 segundos cada 8 a 14 mensajes, y
+"escribiendo..." antes de cada uno (hasta 4 segundos, según el largo del texto).
+
+**Topes.** Se guardan en disco (`datos/envios.json`): reiniciar el servicio no devuelve el cupo del día.
+
+| Tope | Por defecto | Variable | Al llegar |
+|---|---|---|---|
+| Mensajes por día (en la zona horaria de la clínica) | 100 | `WHATSAPP_TOPE_DIARIO` (1 a 1000) | `429 tope_diario`, hasta mañana |
+| Mensajes por persona y por día | 3 | `WHATSAPP_TOPE_POR_PERSONA` (1 a 20) | `429 limite_destinatario` |
+| Mensajes por hora | 40 | `WHATSAPP_TOPE_POR_HORA` (1 a 500) | los aceptados esperan en la cola hasta que se libere lugar |
+| Cola | 50 pendientes | — | `503 cola_llena` |
+
+Los mensajes que esperan en la cola ya cuentan contra el tope del día, así que todo lo que se acepta se puede mandar hoy. Un envío
+que falla devuelve su lugar. **Para un número nuevo conviene empezar bajo** (por ejemplo `WHATSAPP_TOPE_DIARIO=30`) y subir de a
+poco durante varias semanas: un número que de golpe manda cien mensajes por día es justo lo que WhatsApp bloquea.
+
+Otras variables: `WHATSAPP_CONSENTIMIENTO_DIAS` (cuánto vale haber escrito primero; 365), `WHATSAPP_ZONA_HORARIA`
+(`America/Argentina/Buenos_Aires`), `WHATSAPP_PAUSA_MIN_S` y `WHATSAPP_PAUSA_MAX_S` (4 y 9), `WHATSAPP_SIMULAR_ESCRITURA=0`
+(apaga el "escribiendo...").
+
+**Con WhatsApp sin conexión:** si está reconectando, los mensajes esperan y salen cuando vuelve; si hace falta una persona
+(`requiere_vincular`, `requiere_atencion`), no se acepta nada (`503 no_conectado`); y uno que lleva más de 3 horas esperando se
+descarta (un recordatorio tan tarde ya no sirve).
+
+Lo que ve la API cuando se rechaza (`POST /enviar` → `{ "exito": false, "error": "...", "codigo": "..." }`):
+
+| HTTP | `codigo` | Significa |
+|---|---|---|
+| 400 | `telefono_invalido` | el teléfono no puede ser un teléfono |
+| 403 | `sin_consentimiento` | no hay constancia de que la persona acepte (ni escribió primero ni vino `optIn:true`) |
+| 403 | `baja` | la persona pidió no recibir más mensajes |
+| 429 | `tope_diario`, `limite_destinatario` | se llegó a un tope |
+| 503 | `no_conectado`, `cola_llena`, `reiniciando` | el servicio no puede aceptarlo ahora |
+
+> **Ojo con el despliegue:** la API todavía **no manda `optIn`**. Con Baileys, entonces, los avisos y recordatorios solo salen
+> a quien le escribió primero al número de la clínica; al resto se le rechaza con `403 sin_consentimiento` (queda en el log de la
+> API). Cómo se resuelve es una decisión de producto: ver `docs/PROGRESO_BAILEYS.md`, "Pasos manuales".
+
+Más variables (el `/salud` completo, el apagado) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
 
 ## Qué necesita el VPS

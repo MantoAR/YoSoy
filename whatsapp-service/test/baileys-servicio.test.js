@@ -130,6 +130,97 @@ conEntorno("enviar recuerda el JID: al mismo paciente no se le vuelve a consulta
     assert.equal(sock.enviados.length, 3);
 });
 
+// "Escribiendo..." como una persona: suscribe la presencia, muestra "composing", espera según el largo del texto, manda y deja "paused".
+const JID_PACIENTE = "5491122334455@s.whatsapp.net";
+
+conEntorno("con 'escribiendo...' activado: muestra que escribe, espera según el largo del texto, manda y deja de escribir", {
+    registrada: true,
+    opcionesServicio: { simularEscritura: true, aleatorio: () => 0.5 }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    const texto = "Hola, tenés turno mañana a las 10";               // 33 caracteres → 800 + 33 · 20 = 1460 ms
+    const envio = e.servicio.enviar("1122334455", texto);
+
+    await esperarHasta(() => sock.presencias.length === 2, { descripcion: "la presencia" });
+    assert.deepEqual(sock.presencias, [{ tipo: "suscripcion", jid: JID_PACIENTE }, { tipo: "composing", jid: JID_PACIENTE }]);
+    assert.equal(sock.enviados.length, 0, "todavía está 'escribiendo'");
+    await e.reloj.avanzar(1459);
+    assert.equal(sock.enviados.length, 0);
+    await e.reloj.avanzar(1);
+    await envio;
+
+    assert.equal(sock.enviados.length, 1);
+    assert.deepEqual(sock.presencias.at(-1), { tipo: "paused", jid: JID_PACIENTE });
+});
+
+test("lo que 'escribe' tiene tope (4 s) y el azar lo mueve entre 80 % y 120 %", async () => {
+    const medir = async aleatorio => {
+        const e = crearEntorno({ registrada: true, opcionesServicio: { simularEscritura: true, aleatorio } });
+        try {
+            const sock = await e.iniciar();
+            sock.abrir();
+            const envio = e.servicio.enviar("1122334455", "x".repeat(1000));
+            await esperarHasta(() => sock.presencias.length === 2, { descripcion: "la presencia" });
+            await drenar();
+            const espera = e.reloj.proximo();
+            await e.reloj.avanzar(espera);
+            await envio;
+            return espera;
+        } finally {
+            await e.servicio.cerrar().catch(() => {});
+            e.limpiar();
+        }
+    };
+    assert.equal(await medir(() => 0), 3200, "4000 · 0,8");
+    assert.equal(await medir(() => 1), 4800, "4000 · 1,2");
+});
+
+conEntorno("sin activarlo (lo que pasa en las pruebas y con whatsapp-web.js) no hay 'escribiendo...' ni espera", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await e.servicio.enviar("1122334455", "hola");
+    assert.deepEqual(sock.presencias, []);
+    assert.equal(sock.enviados.length, 1);
+});
+
+conEntorno("si no se puede mostrar 'escribiendo', se manda igual y queda anotado", {
+    registrada: true,
+    opcionesServicio: { simularEscritura: true }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.errorEnPresencia = new Error("sin presencia");
+    await e.servicio.enviar("1122334455", "hola");
+    assert.equal(sock.enviados.length, 1);
+    assert.match(e.logCompleto(), /No se pudo mostrar "escribiendo" \(sin presencia\); se manda igual/);
+});
+
+conEntorno("si la presencia no contesta, a los 5 segundos se manda igual", {
+    registrada: true,
+    opcionesServicio: { simularEscritura: true }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.presenciaColgada = true;
+    const envio = e.servicio.enviar("1122334455", "hola");
+    await esperarHasta(() => e.reloj.proximo() === 5000, { descripcion: "el límite de espera de la presencia" });
+    await e.reloj.avanzar(5000);
+    await envio;
+    assert.equal(sock.enviados.length, 1);
+});
+
+conEntorno("un error de 'escribiendo' no incluye el teléfono completo en el log", {
+    registrada: true,
+    opcionesServicio: { simularEscritura: true }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.errorEnPresencia = new Error("no se pudo con 5491122334455");
+    await e.servicio.enviar("1122334455", "hola");
+    assert.doesNotMatch(e.logCompleto(), /5491122334455/);
+});
+
 conEntorno("un número sin WhatsApp da un error claro y se recuerda un rato para no insistir", { registrada: true }, async e => {
     const sock = await e.iniciar();
     sock.abrir();

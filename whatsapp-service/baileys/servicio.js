@@ -44,6 +44,8 @@ const RELOJ_REAL = Object.freeze({
 const TIMEOUT_ENVIO_MS = 20000;
 const TIMEOUT_CONSULTA_MS = 15000;
 const TIMEOUT_LOGOUT_MS = 15000;
+const TIMEOUT_PRESENCIA_MS = 5000;
+const MAX_ESCRIBIENDO_MS = 4000;                  // lo más que "escribe" antes de mandar un mensaje, por largo que sea
 const VIGENCIA_JID_MS = 24 * 60 * 60 * 1000;      // un número que existe en WhatsApp se recuerda un día
 const VIGENCIA_SIN_WHATSAPP_MS = 60 * 60 * 1000;  // uno que no existe, una hora (menos consultas a los servidores de WhatsApp)
 const FALLAS_DE_SESION_INVALIDA = 3;               // cuántos 500 seguidos hacen falta para dejar de reintentar
@@ -59,7 +61,7 @@ function codigoDeError(error) {
 }
 
 class ServicioBaileys {
-    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy", maxVentanasQr = 2, reconexion = {} }) {
+    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy", maxVentanasQr = 2, reconexion = {}, simularEscritura = false, aleatorio = Math.random }) {
         this._f = fachada;
         this._sesion = sesion;
         this._log = log;
@@ -70,6 +72,8 @@ class ServicioBaileys {
         this._navegador = navegador;
         this._maxVentanasQr = maxVentanasQr;       // ventanas de QR que se abren solas antes de esperar a que una persona lo pida
         this._plan = new PlanDeReconexion(reconexion);
+        this._simularEscritura = simularEscritura; // "escribiendo..." antes de cada mensaje, como una persona
+        this._aleatorio = aleatorio;
         this._loggerBaileys = crearLoggerBaileys(log, { ahora: () => reloj.ahora() });
 
         this._estado = ESTADOS.DETENIDO;
@@ -436,7 +440,28 @@ class ServicioBaileys {
         if (this._estado !== ESTADOS.CONECTADO || !sock) throw new Error("WhatsApp no está conectado.");
         const jid = await this._resolverJid(sock, telefono);
         if (!jid) throw new Error("Ese número no tiene WhatsApp.");
+        if (this._simularEscritura) await this._mostrarEscribiendo(sock, jid, texto);
         await this._conTimeout(sock.sendMessage(jid, { text: texto }), TIMEOUT_ENVIO_MS, "enviando mensaje");
+        if (this._simularEscritura) this._dejarDeEscribir(sock, jid);        // el mensaje ya salió: no se espera por esto
+    }
+
+    // "Escribiendo..." mientras pasa un rato proporcional al largo del texto, como una persona. Es un detalle de buena educación con
+    // WhatsApp: si falla, se manda el mensaje igual.
+    async _mostrarEscribiendo(sock, jid, texto) {
+        const ms = Math.round(Math.min(MAX_ESCRIBIENDO_MS, 800 + String(texto).length * 20) * (0.8 + this._aleatorio() * 0.4));
+        try {
+            await this._conTimeout(sock.presenceSubscribe(jid), TIMEOUT_PRESENCIA_MS, "suscribiendo la presencia");
+            await this._conTimeout(sock.sendPresenceUpdate("composing", jid), TIMEOUT_PRESENCIA_MS, "mostrando que escribe");
+        } catch (err) {
+            this._log.info(ocultarNumeros(`No se pudo mostrar "escribiendo" (${err?.message || err}); se manda igual.`));
+            return;
+        }
+        await new Promise(resolver => this._reloj.setTimeout(resolver, ms));
+    }
+
+    async _dejarDeEscribir(sock, jid) {
+        try { await this._conTimeout(sock.sendPresenceUpdate("paused", jid), TIMEOUT_PRESENCIA_MS, "dejando de escribir"); }
+        catch { /* el mensaje ya salió: no importa */ }
     }
 
     // Pregunta a WhatsApp cuál de las formas del número existe (con y sin el "9" de celular, en Argentina) y recuerda la respuesta,

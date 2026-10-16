@@ -3,7 +3,9 @@
 //
 //   GET  /salud        sin secreto, solo loopback. Con Baileys dice en qué estado está (ver servicio.salud()).
 //   GET  /estado       { conectado, numero, qrPendiente, qr } (más campos extra según el backend). Pide secreto.
-//   POST /enviar       { telefono, texto } → { exito, idExterno } o { exito:false, error }. Pide secreto.
+//   POST /enviar       { telefono, texto, optIn? } → { exito, idExterno } o { exito:false, error, codigo }. Pide secreto.
+//                      Con Baileys puede rechazar el pedido: 400 telefono_invalido · 403 sin_consentimiento / baja ·
+//                      429 tope_diario / limite_destinatario · 503 no_conectado / cola_llena / reiniciando.
 //   POST /desvincular  Pide secreto. Responde apenas valida, sin esperar al reinicio.
 //   POST /vincular     Solo Baileys: abre una ventana de vinculación por QR (el QR se ve en GET /estado). Pide secreto.
 //                      409 si no corresponde (ya hay un número vinculado, todavía se está conectando...).

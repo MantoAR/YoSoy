@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 4 (reconexión con backoff).
+- **Última actualización:** 2026-10-16, tras la etapa 5 (anti-bloqueo y consentimiento).
 
 ## Estado de las etapas
 
@@ -24,8 +24,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | `bf0c4bd` |
 | 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | `7e95b94` |
 | 3 | Vinculación por QR (comando y endpoint local) | **hecho** | `a5001e0` |
-| 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | (este commit) |
-| 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | pendiente | — |
+| 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | `d5039bf` |
+| 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | (este commit) |
 | 6 | Privacidad en logs | pendiente | — |
 | 7 | Salud y apagado ordenado | pendiente | — |
 | 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | pendiente | — |
@@ -312,6 +312,64 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   (había que esperar al borrado asíncrono antes de mirar), que `recuperar()` no pise `requiere_atencion` y que `desvincular` y
   `vincular` reinicien la espera.
 
+## Etapa 5: anti-bloqueo y consentimiento
+
+### Qué quedó hecho
+
+- **Solo se escribe a quien aceptó** (`consentimiento.js`, con las reglas en `privacidad.js`, como pedía el encargo). Una persona
+  acepta si **le escribió primero** al número de la clínica (vale 365 días desde su último mensaje) o si la API manda
+  `optIn: true` en ese pedido. Si escribió **BAJA** (o STOP, NO MOLESTAR...) no se le manda nada, ni con `optIn`, hasta que escriba
+  **ALTA**. Sin constancia: **`403 sin_consentimiento`** (el valor por defecto es no enviar). "Cancelar" no es una baja, porque
+  en el bot es cancelar un turno; el comando tiene que ser el mensaje entero.
+- **Qué se guarda de cada persona:** la **huella** de su teléfono (HMAC-SHA256 con una clave derivada del secreto compartido,
+  que no está en ningún archivo de datos) y tres fechas. Ni el teléfono ni el texto de un mensaje.
+- **Topes** (`limites.js`, guardados en disco: reiniciar no devuelve el cupo): por día en la zona horaria de la clínica (100), por
+  persona y por día (3), por hora (40, los que se pasan esperan en la cola) y capacidad de la cola (50). Lo que espera en la cola
+  ya cuenta contra el tope del día; un envío que falla devuelve su lugar. Se rechaza con `429 tope_diario` o
+  `429 limite_destinatario`.
+- **Ritmo humano** (`cola.js`): pausa al azar de 4 a 9 s entre mensajes, una pausa larga de 30 a 75 s cada 8 a 14, y "escribiendo..."
+  antes de cada mensaje (hasta 4 s según el largo; si falla, el mensaje sale igual).
+- **Conexión:** si WhatsApp está reconectando los mensajes esperan; si hace falta una persona, `503 no_conectado`; lo que lleva más
+  de 3 horas esperando se descarta.
+- **`datos/`** (subcarpeta de la carpeta de la sesión, 700): ahí viven `consentimientos.json` y `envios.json`. Es la única subcarpeta
+  que `sesion.js` acepta, sobrevive a "desvincular" y a un cierre de sesión (el número y sus pacientes son los mismos) y se
+  respalda/borra a mano. Para empezar de cero con otro número: borrar `datos/`.
+- **Arreglo de un riesgo de la etapa 2:** `preparar()` le cambiaba los permisos (700) a la carpeta **antes** de comprobar que fuera
+  propia; si alguien apuntaba la variable a, digamos, `/opt/yosoy`, le habría hecho `chmod 700`. Ahora primero mira que sea propia.
+- **Nada cambia con whatsapp-web.js:** la cola de siempre (3 a 5 s entre mensajes, sin consentimiento ni topes) sigue igual; las
+  protecciones llegan solo con el backend Baileys (`crearColaParaBackend`).
+- Módulos nuevos: `limites.js`, `consentimiento.js`, `almacen.js` (JSON atómico que se junta y se guarda), `archivos.js` (escritura
+  atómica compartida con la sesión). Variables nuevas: `WHATSAPP_TOPE_DIARIO`, `_TOPE_POR_HORA`, `_TOPE_POR_PERSONA`,
+  `_CONSENTIMIENTO_DIAS`, `_ZONA_HORARIA`, `_PAUSA_MIN_S`, `_PAUSA_MAX_S`, `_SIMULAR_ESCRITURA` (todas opcionales; README).
+
+### Decisiones y límites
+
+- **La API todavía no manda `optIn`.** Hoy `CanalWhatsAppWebJs` manda solo `{telefono, texto}` y la API no sabe si un paciente aceptó
+  recibir WhatsApp (el "consentimiento" que existe es el informado de telemedicina, otra cosa). Consecuencia, **con Baileys**: los
+  avisos y recordatorios **solo salen a quien le escribió primero al número de la clínica**; al resto se le rechaza con 403 y
+  queda en el log de la API. Es el lado seguro, pero hay que decidir cómo se resuelve: ver "Pasos manuales".
+- **El consentimiento por "escribió primero" lo juzga el servicio, no la API:** funciona aunque la API esté caída, y el pedido de BAJA
+  se respeta siempre. A cambio, una baja no llega a la base de la API: el bot seguirá viendo el mensaje "BAJA" (se sigue reenviando
+  como cualquier otro) y sus respuestas se rechazarán con `403 baja`.
+- **Las bajas se recuerdan para siempre** (no vencen con el año); lo demás se olvida a los 365 días. Si se rota el secreto
+  compartido, las huellas dejan de coincidir y el registro "se olvida" (se vuelve a no enviar a nadie hasta que escriban de nuevo).
+- **Los valores por defecto son una opinión, no un dato de WhatsApp.** WhatsApp no publica sus umbrales. Los topes (100/día, 40/hora,
+  3 por persona) y las pausas son prudentes para un consultorio, no una garantía: lo que más pesa es que **las personas esperen los
+  mensajes** (el consentimiento) y arrancar bajo con un número nuevo.
+- **Las pausas y los topes no se probaron contra WhatsApp** (límite de la tarea); se probaron con reloj falso, exactos al milisegundo.
+
+### Pruebas de esta etapa
+
+- Nuevas: `consentimiento.test.js` (36: reglas, almacén, registro, límites), `cola.test.js` (23) y ampliaciones en
+  `baileys-servicio.test.js` ("escribiendo..."), `config.test.js`, `backend.test.js` (de punta a punta: quien escribe primero queda
+  anotado antes de reenviar a la API; la baja; sin teléfono ni texto en el log ni en los archivos) y `sesion.test.js` (`datos/`).
+- **`npm test`: 322 pruebas, 316 pasan, 6 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 87 cambios a propósito (reglas de consentimiento, huellas, topes, cola, configuración, cableado, "escribiendo..."):
+  **todos detectados.** Cuatro se escaparon primero: el `optIn` estricto en la cola, que el apagado espere a los dos archivos, que
+  la cola mire el estado real del servicio (las tres llevaron a pruebas nuevas) y un filtro redundante de `limites.cargar()` que se
+  sacó del código. Otras (el orden "primero ver si hay lugar en la cola, después reservar cupo", o que un recordatorio no se
+  descarte antes de las 3 horas) se reforzaron antes de correr las mutaciones.
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -328,6 +386,17 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 - **Correr `npm test` una vez en Linux** (por ejemplo en una copia aparte, o en el VPS tras `npm ci`): en Windows se saltean 5
   pruebas de permisos y enlaces simbólicos. Las pruebas usan carpetas temporales y no tocan la sesión real.
+- **DECISIÓN TUYA, importante antes de usar Baileys en producción: cómo llega el consentimiento al servicio.** Con la API como está, solo
+  reciben WhatsApp los pacientes que le escribieron primero al número de la clínica. Tres caminos (se pueden combinar):
+  (A) **Guardar la aceptación en la API**: un campo en `Paciente` (por ejemplo `AceptaWhatsApp`) que se tilda al registrarse, en el
+  perfil o en recepción, y que `NotificadorTurnos`/`CanalWhatsAppWebJs` manden como `"optIn": true`. Es un cambio de API + base +
+  pantallas y de texto legal; no lo hice porque requiere tu decisión sobre dónde y con qué leyenda se acepta.
+  (B) **Que el primer contacto sea del paciente**: un link `wa.me/<número>?text=Hola` en la web y en el mail de confirmación; al
+  escribir, queda con constancia por 365 días y recibe respuestas y recordatorios. Sin cambios de código.
+  (C) **Nada de recordatorios por WhatsApp a quien no haya escrito** y usar mail para el resto.
+  Mientras no se elija, `NotificadorTurnos` va a registrar fallos de envío para los pacientes sin constancia.
+- **Arrancar el número nuevo con topes bajos** (por ejemplo `WHATSAPP_TOPE_DIARIO=30` y `WHATSAPP_TOPE_POR_HORA=10`) y subirlos de a poco
+  durante semanas; es lo que más baja el riesgo de bloqueo.
 - **Vincular el número dedicado (yo no lo hago nunca):** tener el chip del número dedicado de la clínica con WhatsApp ya activo en un
   teléfono, y escanear el QR vos, por la forma que prefieras (README, "Baileys: vincular el número (QR)"). Después de escanear,
   no usar ese WhatsApp en otro teléfono al mismo tiempo: invalida la sesión.
@@ -338,8 +407,9 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 5 a 8 (ver la tabla). Lo que las etapas 1 a 4 dejan a propósito para después: cola con ritmo/tope y consentimiento (5),
-  revisión de privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de despliegue (8).
+- Etapas 6 a 8 (ver la tabla). Lo que las etapas 1 a 5 dejan a propósito para después: revisión de privacidad de todo el log (6),
+  `/salud` más completo (con los contadores de la cola y los topes, que ya existen en `cola.resumen()`) y apagado ordenado
+  (extraer y probar el cierre de `index.js`, incluido `datos.cerrar()`) (7), unidad systemd y docs de despliegue (8).
 - **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
   se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
   mezclar un cambio de API/UI en esta tarea.

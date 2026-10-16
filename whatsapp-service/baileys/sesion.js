@@ -3,7 +3,9 @@
 //   - la ruta sale de una variable de entorno y se exige FUERA del repositorio y de la carpeta de la aplicación (si no, un
 //     "git add" la subiría y cada despliegue la pisaría);
 //   - la carpeta es 700 y los archivos 600: solo del usuario que corre el servicio;
-//   - tiene que ser DEDICADA: si tiene otros archivos, la ruta está mal elegida; no se arranca y nunca se borra nada ajeno;
+//   - tiene que ser DEDICADA: si tiene otros archivos, la ruta está mal elegida; no se arranca y nunca se borra nada ajeno. La
+//     única subcarpeta que se acepta es "datos/", que es de este servicio: los consentimientos de los pacientes y los contadores
+//     de envío. Sobrevive a "desvincular" y a un cierre de sesión (el número y sus pacientes son los mismos) y no se borra sola;
 //   - al arrancar se comprueba que se puede escribir: si no, las credenciales no se guardarían y habría que volver a vincular;
 //   - creds.json tiene respaldo: la librería lo escribe sin cuidado (useMultiFileAuthState "no es para producción") y, si lo
 //     encuentra cortado, lo da por inexistente y arma una identidad nueva EN SILENCIO: habría que volver a escanear el QR.
@@ -12,6 +14,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { leerValido, escribirAtomico } = require("../archivos");
 
 // Lo que Baileys escribe con useMultiFileAuthState: creds.json y un archivo .json por clave ("pre-key-12.json", "session-...").
 // Más los respaldos y temporales de este módulo. Cualquier otra cosa en la carpeta significa que NO es una carpeta dedicada.
@@ -19,6 +22,7 @@ const ARCHIVO_DE_SESION = /\.(json|bak|tmp)$/i;
 const CREDS = "creds.json";
 const RESPALDO = "creds.json.bak";
 const PRUEBA = "escritura-prueba.tmp";
+const CARPETA_DE_DATOS = "datos";
 const MODO_CARPETA = 0o700;
 const MODO_ARCHIVO = 0o600;
 const POSIX = process.platform !== "win32";
@@ -89,13 +93,15 @@ async function validarUbicacion(dir, appDir) {
     }
 }
 
-// Separa lo que es de la sesión de lo que no. Un symlink o una subcarpeta cuentan como ajenos (nunca se los sigue).
+// Separa lo que es de la sesión de lo que no. Un symlink o una subcarpeta (salvo "datos/") cuentan como ajenos: nunca se los sigue.
 async function listar(dir) {
     const entradas = await fs.promises.readdir(dir, { withFileTypes: true });
     const esPropia = e => e.isFile() && ARCHIVO_DE_SESION.test(e.name);
+    const esDatos = e => e.isDirectory() && e.name === CARPETA_DE_DATOS;
     return {
         propias: entradas.filter(esPropia).map(e => e.name),
-        ajenas: entradas.filter(e => !esPropia(e)).map(e => e.name)
+        datos: entradas.some(esDatos),
+        ajenas: entradas.filter(e => !esPropia(e) && !esDatos(e)).map(e => e.name)
     };
 }
 
@@ -123,6 +129,17 @@ async function endurecerPermisos(dir, log) {
                 corregidos++;
             }
         }
+        const datos = path.join(dir, CARPETA_DE_DATOS);
+        if ((await listar(dir)).datos) {
+            if (((await fs.promises.stat(datos)).mode & 0o777) !== MODO_CARPETA) await fs.promises.chmod(datos, MODO_CARPETA);
+            for (const nombre of (await listar(datos).catch(() => ({ propias: [] }))).propias) {
+                const archivo = path.join(datos, nombre);
+                if (((await fs.promises.stat(archivo)).mode & 0o777) !== MODO_ARCHIVO) {
+                    await fs.promises.chmod(archivo, MODO_ARCHIVO);
+                    corregidos++;
+                }
+            }
+        }
         if (corregidos > 0) log?.info(`Permisos de ${corregidos} archivo(s) de la sesión de WhatsApp ajustados a 600.`);
     } catch (err) {
         throw new ErrorDeSesion(
@@ -145,31 +162,6 @@ async function probarEscritura(dir) {
 }
 
 // ── Respaldo de creds.json ───────────────────────────────────────────────────────────
-
-// El texto del archivo si es un objeto JSON válido; null si no existe, está vacío o quedó cortado.
-async function leerValido(archivo) {
-    let texto;
-    try { texto = await fs.promises.readFile(archivo, "utf8"); } catch { return null; }
-    try {
-        const valor = JSON.parse(texto);
-        return valor && typeof valor === "object" && !Array.isArray(valor) ? texto : null;
-    } catch {
-        return null;
-    }
-}
-
-// Escribe en un temporal, lo baja a disco y lo renombra: el destino queda entero o como estaba, nunca a medias.
-async function escribirAtomico(destino, texto) {
-    const temporal = `${destino}.tmp`;
-    try {
-        const f = await fs.promises.open(temporal, "w", MODO_ARCHIVO);
-        try { await f.writeFile(texto, "utf8"); await f.sync(); } finally { await f.close(); }
-        await fs.promises.rename(temporal, destino);
-    } catch (err) {
-        await fs.promises.unlink(temporal).catch(() => {});
-        throw err;
-    }
-}
 
 // Al abrir la sesión: si creds.json falta o está cortado y hay un respaldo válido, se vuelve a él. Sin esto, la librería arma
 // una identidad nueva sin avisar y el número queda desvinculado.
@@ -222,6 +214,7 @@ async function guardarConRespaldo(dir, guardar, log) {
 function crearSesion({ dir, log, appDir }) {
     return {
         dir,
+        dirDatos: path.join(dir, CARPETA_DE_DATOS),
 
         // Al arrancar, antes de abrir el puerto y de cargar la librería: valida la ubicación, crea la carpeta (700), corrige
         // permisos, exige que sea dedicada y que se pueda escribir. Cualquier problema corta el arranque con un mensaje claro.
@@ -234,10 +227,19 @@ function crearSesion({ dir, log, appDir }) {
             if (info && !info.isDirectory()) throw new ErrorDeSesion(`${VARIABLE} apunta a algo que no es una carpeta (${dir}).`);
             try { await fs.promises.mkdir(dir, { recursive: true, mode: MODO_CARPETA }); }
             catch (err) { throw new ErrorDeSesion(`No se pudo crear la carpeta de la sesión de WhatsApp (${dir}): ${err.code || err.message}.`); }
-            await endurecerPermisos(dir, log);
+            // Primero se mira que sea una carpeta PROPIA y recién después se le tocan los permisos o se le crea algo: en una carpeta
+            // mal elegida (como /opt), un chmod 700 le rompería el acceso a otros.
             const { ajenas } = await listar(dir);
             if (ajenas.length > 0) throw errorPorAjenas(ajenas);
+            const rutaDatos = path.join(dir, CARPETA_DE_DATOS);
+            try { await fs.promises.mkdir(rutaDatos, { recursive: true, mode: MODO_CARPETA }); }
+            catch (err) { throw new ErrorDeSesion(`No se pudo crear la carpeta de datos del servicio (${rutaDatos}): ${err.code || err.message}.`); }
+            const interior = await listar(rutaDatos);
+            const ajenasDeDatos = [...interior.ajenas, ...(interior.datos ? [CARPETA_DE_DATOS] : [])];
+            if (ajenasDeDatos.length > 0) throw errorPorAjenas(ajenasDeDatos);
+            await endurecerPermisos(dir, log);
             await probarEscritura(dir);
+            await probarEscritura(rutaDatos);
             log?.info(`Carpeta de la sesión de WhatsApp lista: ${dir}${POSIX ? " (carpeta 700, archivos 600)" : ""}.`);
         },
 
@@ -263,4 +265,4 @@ function crearSesion({ dir, log, appDir }) {
     };
 }
 
-module.exports = { crearSesion, ErrorDeSesion, ARCHIVO_DE_SESION, CREDS, RESPALDO };
+module.exports = { crearSesion, ErrorDeSesion, ARCHIVO_DE_SESION, CREDS, RESPALDO, CARPETA_DE_DATOS };

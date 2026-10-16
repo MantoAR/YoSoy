@@ -143,7 +143,61 @@ test("preparar acepta una carpeta con solo archivos de la sesión, y se puede re
     const sesion = crearSesion({ dir });
     await sesion.preparar();
     await sesion.preparar();
-    assert.equal(fs.readdirSync(dir).length, 3, "la prueba de escritura no deja rastros");
+    assert.deepEqual(fs.readdirSync(dir).sort(), ["creds.json", "datos", "pre-key-12.json", "session-5491122334455.0.json"], "la prueba de escritura no deja rastros");
+    assert.deepEqual(fs.readdirSync(path.join(dir, "datos")), []);
+}));
+
+// ---------- La carpeta de datos del servicio (datos/) ----------
+
+test("preparar crea datos/ (para los consentimientos y los contadores) y la sesión sabe dónde está", conRaiz(async raiz => {
+    const dir = path.join(raiz, "sesion");
+    const sesion = crearSesion({ dir });
+    await sesion.preparar();
+    assert.equal(sesion.dirDatos, path.join(dir, "datos"));
+    assert.ok(fs.statSync(sesion.dirDatos).isDirectory());
+}));
+
+test("datos/ sobrevive a limpiar(): cerrar la sesión no borra los consentimientos de los pacientes", conRaiz(async raiz => {
+    const dir = path.join(raiz, "sesion");
+    const sesion = crearSesion({ dir });
+    await sesion.preparar();
+    fs.writeFileSync(path.join(dir, CREDS), V1);
+    fs.writeFileSync(path.join(sesion.dirDatos, "consentimientos.json"), "{}");
+
+    assert.equal(await sesion.limpiar(), 1, "solo se borró creds.json");
+
+    assert.deepEqual(fs.readdirSync(dir), ["datos"]);
+    assert.deepEqual(fs.readdirSync(sesion.dirDatos), ["consentimientos.json"]);
+}));
+
+test("preparar rechaza datos/ con archivos que no son del servicio, y datos como archivo, enlace o anidado", conRaiz(async raiz => {
+    const adentro = path.join(raiz, "uno");
+    fs.mkdirSync(path.join(adentro, "datos"), { recursive: true });
+    fs.writeFileSync(path.join(adentro, "datos", "notas.txt"), "ajeno");
+    await assert.rejects(() => crearSesion({ dir: adentro }).preparar(), /no son de la sesión.*notas\.txt/);
+
+    const anidado = path.join(raiz, "dos");
+    fs.mkdirSync(path.join(anidado, "datos", "datos"), { recursive: true });
+    await assert.rejects(() => crearSesion({ dir: anidado }).preparar(), /no son de la sesión.*datos/);
+
+    const comoArchivo = path.join(raiz, "tres");
+    fs.mkdirSync(comoArchivo);
+    fs.writeFileSync(path.join(comoArchivo, "datos"), "soy un archivo");
+    await assert.rejects(() => crearSesion({ dir: comoArchivo }).preparar(), /no son de la sesión.*datos/);
+}));
+
+test("una carpeta que no es de la sesión se rechaza ANTES de tocarle los permisos o de crearle nada", conRaiz(async raiz => {
+    const dir = path.join(raiz, "ajena");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "importante.conf"), "otra cosa");
+    const permisos = mock.method(fs.promises, "chmod", async () => {});
+    try {
+        await assert.rejects(() => crearSesion({ dir }).preparar(), /no son de la sesión/);
+        assert.equal(permisos.mock.callCount(), 0, "no se hizo ningún chmod");
+    } finally {
+        permisos.mock.restore();
+    }
+    assert.deepEqual(fs.readdirSync(dir), ["importante.conf"], "ni se creó datos/");
 }));
 
 // ---------- Permisos ----------
@@ -161,6 +215,19 @@ test("preparar crea la carpeta en 700 y lo que escriba la librería después que
     assert.equal(modo(path.join(dir, CREDS)), 0o600);
     assert.equal(modo(path.join(dir, RESPALDO)), 0o600);
     assert.deepEqual(fs.readdirSync(dir).sort(), [CREDS, RESPALDO].sort(), "ni temporales sueltos");
+}));
+
+test("preparar deja datos/ en 700 y sus archivos en 600", { skip: SOLO_POSIX }, conRaiz(async raiz => {
+    const dir = path.join(raiz, "sesion");
+    fs.mkdirSync(path.join(dir, "datos"), { recursive: true });
+    fs.chmodSync(path.join(dir, "datos"), 0o755);
+    fs.writeFileSync(path.join(dir, "datos", "consentimientos.json"), "{}");
+    fs.chmodSync(path.join(dir, "datos", "consentimientos.json"), 0o644);
+
+    await crearSesion({ dir }).preparar();
+
+    assert.equal(modo(path.join(dir, "datos")), 0o700);
+    assert.equal(modo(path.join(dir, "datos", "consentimientos.json")), 0o600);
 }));
 
 test("preparar corrige una carpeta y archivos que tenían permisos de más", { skip: SOLO_POSIX }, conRaiz(async (raiz, { log, texto }) => {

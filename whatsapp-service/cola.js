@@ -5,20 +5,60 @@
 // (MaxIntentosEnvio=3) y termine mandando el mismo mensaje dos veces de verdad.
 // Con esto, "encolado" (Exito:true) y "entregado" son cosas distintas — mismo
 // criterio laxo que ya usa el canal Simulado del lado .NET (tampoco confirma lectura).
+//
+// Con whatsapp-web.js la cola es la de siempre: un mensaje cada 3 a 5 segundos. Con Baileys (WhatsApp puede bloquear el número si
+// parece un bot) se le agregan, por opciones, las protecciones de la etapa 5:
+//   - consentimiento: solo se acepta el envío a quien aceptó recibir mensajes (consentimiento.js); si no, 403;
+//   - topes de envío: por día, por persona y por hora (limites.js); al pasarse del día o de la persona, 429;
+//   - ritmo humano: pausa al azar entre mensajes y, cada tanto, una pausa larga;
+//   - conexión: si WhatsApp está reconectando, los mensajes esperan; si hace falta una persona (vincular, atención), se rechazan con 503.
 const { ocultarNumeros } = require("./privacidad");
 
 const CAPACIDAD_MAXIMA = 50;
 const ESPACIADO_MIN_MS = 3000;
 const ESPACIADO_JITTER_MS = 2000;
+const MAX_ANTIGUEDAD_MS = 3 * 60 * 60 * 1000;      // un recordatorio que lleva más de 3 horas esperando ya no sirve: se descarta
+const ESPERA_DE_CONEXION_MS = 1000;
+const NO_DISPONIBLES = new Set(["requiere_vincular", "requiere_atencion", "detenido"]);
+
+const RELOJ_REAL = Object.freeze({
+    setTimeout: (...a) => setTimeout(...a),
+    clearTimeout: (...a) => clearTimeout(...a),
+    ahora: () => Date.now()
+});
 
 class ColaEnvios {
-    constructor(enviarAhora, log) {
+    constructor(enviarAhora, log, opciones = {}) {
+        const {
+            reloj = RELOJ_REAL,
+            aleatorio = Math.random,
+            espaciado = { minMs: ESPACIADO_MIN_MS, maxMs: ESPACIADO_MIN_MS + ESPACIADO_JITTER_MS },
+            pausaLarga = null,                     // { cada: [minimo, maximo] mensajes, ms: [minimo, maximo] }
+            capacidad = CAPACIDAD_MAXIMA,
+            consentimiento = null,                 // { permite(telefono, { optIn }) }
+            limites = null,                        // LimiteDeEnvios
+            estadoDeConexion = null,               // () => "conectado" | "reconectando" | "requiere_vincular" ...
+            maxAntiguedadMs = MAX_ANTIGUEDAD_MS
+        } = opciones;
         this._enviarAhora = enviarAhora; // (telefono, texto, meta) => Promise<void>
         this._log = log;
+        this._reloj = reloj;
+        this._aleatorio = aleatorio;
+        this._espaciado = espaciado;
+        this._pausaLarga = pausaLarga;
+        this._capacidad = capacidad;
+        this._consentimiento = consentimiento;
+        this._limites = limites;
+        this._estadoDeConexion = estadoDeConexion;
+        this._maxAntiguedadMs = maxAntiguedadMs;
+
         this._pendientes = [];
         this._procesando = false;
         this._siguienteId = 1;
         this._detenida = false;
+        this._espera = null;                       // { temporizador, despertar } mientras el loop duerme
+        this._desdeLaPausaLarga = 0;
+        this._hastaLaPausaLarga = pausaLarga ? this._entero(...pausaLarga.cada) : Infinity;
     }
 
     // Apagado limpio (ver apagar() en index.js): deja de aceptar pedidos nuevos y hace que
@@ -26,19 +66,37 @@ class ColaEnvios {
     // vaciando la cola — el proceso se está yendo, no hace falta terminarla entera.
     detener() {
         this._detenida = true;
+        if (this._espera) {                        // no hay por qué esperar una pausa si el proceso se está yendo
+            this._reloj.clearTimeout(this._espera.temporizador);
+            this._espera.despertar();
+        }
     }
 
-    // Devuelve { ok: true, idExterno } o { ok: false, error } — nunca espera al envío real. `meta` viaja con el pedido hasta
-    // el envío (por ejemplo, optIn: la API asegura que el paciente aceptó recibir WhatsApp).
+    // Devuelve { ok: true, idExterno } o { ok: false, estado, codigo, error } — nunca espera al envío real. `meta` viaja con el
+    // pedido hasta el envío (por ejemplo, optIn: la API asegura que el paciente aceptó recibir WhatsApp).
     encolar(telefono, texto, meta = {}) {
         if (this._detenida) {
-            return { ok: false, error: "El servicio se está reiniciando, probá de nuevo en un momento." };
+            return { ok: false, estado: 503, codigo: "reiniciando", error: "El servicio se está reiniciando, probá de nuevo en un momento." };
         }
-        if (this._pendientes.length >= CAPACIDAD_MAXIMA) {
-            return { ok: false, error: "Cola llena, probá de nuevo en unos minutos." };
+        const conexion = this._estadoDeConexion?.();
+        if (conexion && NO_DISPONIBLES.has(conexion)) {
+            return { ok: false, estado: 503, codigo: "no_conectado", error: `WhatsApp no está disponible en este momento (${conexion}).` };
+        }
+        if (this._consentimiento) {
+            const permiso = this._consentimiento.permite(telefono, { optIn: meta.optIn === true });
+            if (!permiso.ok) return this._rechazar(telefono, permiso);
+        }
+        if (this._pendientes.length >= this._capacidad) {
+            return { ok: false, estado: 503, codigo: "cola_llena", error: "Cola llena, probá de nuevo en unos minutos." };
+        }
+        let huella = null;
+        if (this._limites) {
+            const lugar = this._limites.reservar(telefono);
+            if (!lugar.ok) return this._rechazar(telefono, lugar);
+            huella = lugar.huella;
         }
         const idExterno = `cola-${this._siguienteId++}`;
-        this._pendientes.push({ idExterno, telefono, texto, meta });
+        this._pendientes.push({ idExterno, telefono, texto, meta, huella, encoladoEn: this._reloj.ahora() });
         this._procesarEnSegundoPlano();
         return { ok: true, idExterno };
     }
@@ -47,14 +105,33 @@ class ColaEnvios {
         return this._pendientes.length;
     }
 
+    resumen() {
+        return { pendientes: this._pendientes.length, ...(this._limites ? this._limites.resumen() : {}) };
+    }
+
+    _rechazar(telefono, motivo) {
+        this._log.info(ocultarNumeros(`Envío rechazado (${motivo.codigo}) a ${telefono}.`));
+        return { ok: false, estado: motivo.estado, codigo: motivo.codigo, error: motivo.error };
+    }
+
     async _procesarEnSegundoPlano() {
         if (this._procesando) return;
         this._procesando = true;
         try {
             while (this._pendientes.length > 0 && !this._detenida) {
-                const item = this._pendientes.shift();
+                const item = this._pendientes[0];          // se mira, y se saca recién cuando le toca
+                const descarte = await this._esperarQueSePuedaEnviar(item);
+                if (this._detenida) break;
+                this._pendientes.shift();
+                if (descarte) {
+                    if (item.huella) this._limites.liberar(item.huella);
+                    this._log.error(ocultarNumeros(`Se descartó ${item.idExterno} a ${item.telefono}: ${descarte}.`));
+                    continue;
+                }
+                let salio = false;
                 try {
                     await this._enviarAhora(item.telefono, item.texto, item.meta);
+                    salio = true;
                 } catch (err) {
                     // Ya no hay a quién devolverle el error: la respuesta HTTP de /enviar
                     // ya salió hace rato. Queda solo en el log de este proceso.
@@ -62,15 +139,65 @@ class ColaEnvios {
                     // mensaje de error de la librería lo repite.
                     this._log.error(ocultarNumeros(`Error enviando ${item.idExterno} a ${item.telefono}: ${err.message || err}`));
                 }
-                if (this._pendientes.length > 0) {
-                    const espera = ESPACIADO_MIN_MS + Math.floor(Math.random() * ESPACIADO_JITTER_MS);
-                    await new Promise(resolve => setTimeout(resolve, espera));
-                }
+                // Lo que salió gasta cupo; lo que no, lo devuelve.
+                if (item.huella) { if (salio) this._limites.confirmar(item.huella); else this._limites.liberar(item.huella); }
+                if (this._pendientes.length > 0) await this._dormir(this._pausaDespuesDeEnviar());
             }
         } finally {
             this._procesando = false;
         }
     }
+
+    // Espera a que se pueda mandar el mensaje: WhatsApp conectado y sin pasarse del tope por hora. Devuelve null si ya se puede, o el
+    // motivo por el que hay que descartarlo (vencido de viejo, o WhatsApp pide una persona).
+    async _esperarQueSePuedaEnviar(item) {
+        for (;;) {
+            if (this._detenida) return null;
+            if (this._reloj.ahora() - item.encoladoEn > this._maxAntiguedadMs) return "lleva demasiado tiempo esperando";
+
+            const conexion = this._estadoDeConexion?.();
+            if (conexion && conexion !== "conectado") {
+                if (NO_DISPONIBLES.has(conexion)) return `WhatsApp no está disponible (${conexion})`;
+                await this._dormir(ESPERA_DE_CONEXION_MS);       // reconectando: se espera
+                continue;
+            }
+            const hora = this._limites?.puedeEnviarYa();
+            if (hora && !hora.ok) {
+                await this._dormir(Math.min(hora.esperarMs, 60 * 1000));
+                continue;
+            }
+            return null;
+        }
+    }
+
+    // Pausa al azar después de cada mensaje; cada tanto (al azar también), una larga, como una persona que se levanta un rato.
+    _pausaDespuesDeEnviar() {
+        this._desdeLaPausaLarga++;
+        if (this._pausaLarga && this._desdeLaPausaLarga >= this._hastaLaPausaLarga) {
+            this._desdeLaPausaLarga = 0;
+            this._hastaLaPausaLarga = this._entero(...this._pausaLarga.cada);
+            return this._entero(...this._pausaLarga.ms);
+        }
+        return this._entero(this._espaciado.minMs, this._espaciado.maxMs - 1);
+    }
+
+    // Un entero al azar entre minimo y maximo, ambos incluidos.
+    _entero(minimo, maximo) {
+        return minimo + Math.floor(this._aleatorio() * (maximo - minimo + 1));
+    }
+
+    _dormir(ms) {
+        return new Promise(resolver => {
+            const despertar = () => { this._espera = null; resolver(); };
+            this._espera = { despertar, temporizador: this._reloj.setTimeout(despertar, ms) };
+        });
+    }
 }
 
-module.exports = { ColaEnvios, CAPACIDAD_MAXIMA };
+// La cola de un backend: con Baileys lleva el consentimiento, los topes y el ritmo (las opciones las arma backend.js); con
+// whatsapp-web.js, que no trae opciones, es la de siempre.
+function crearColaParaBackend(backend, log) {
+    return new ColaEnvios((telefono, texto, meta) => backend.enviar(telefono, texto, meta), log, backend.opcionesDeCola ?? {});
+}
+
+module.exports = { ColaEnvios, crearColaParaBackend, CAPACIDAD_MAXIMA, MAX_ANTIGUEDAD_MS };

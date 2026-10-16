@@ -10,7 +10,7 @@
 const { leerConfig, ErrorDeConfiguracion } = require("./config");
 const { crearBackend } = require("./backend");
 const { crearApp, escuchar } = require("./servidor");
-const { ColaEnvios } = require("./cola");
+const { crearColaParaBackend } = require("./cola");
 
 const log = {
     info: msg => console.log(`[${new Date().toISOString()}] ${msg}`),
@@ -35,7 +35,7 @@ async function main() {
         process.exit(1);
     }
 
-    const cola = new ColaEnvios((telefono, texto, meta) => wa.enviar(telefono, texto, meta), log);
+    const cola = crearColaParaBackend(wa, log);
     const app = crearApp({ servicio: wa, cola, secreto: config.secreto, log });
 
     const servidor = escuchar(app, config.puerto, () => {
@@ -71,7 +71,7 @@ async function main() {
         servidor.close();
         try {
             await Promise.race([
-                wa.cerrar(),
+                Promise.all([wa.cerrar(), wa.datos?.cerrar()]),
                 new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de espera agotado cerrando el cliente de WhatsApp.")), 10000))
             ]);
         } catch (err) {
