@@ -1389,6 +1389,24 @@ async function cargarPacientesSolicitudProf(fechaStr) {
     sel.disabled = !pacientes.length;
 }
 
+// Fecha y hora de hoy en Argentina (la zona de la clínica), no la del navegador: es contra lo que valida el servidor
+// ("Ese horario ya pasó."). El servidor sigue siendo quien decide; esto solo evita ofrecer en el combo horarios de hoy que
+// ya pasaron. Es la misma cuenta que usa Pantalla_Paciente/js/dashboard.js.
+function ahoraEnArgentina() {
+    const partes = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date());
+    const v = tipo => partes.find(p => p.type === tipo).value;
+    return { fecha: `${v('year')}-${v('month')}-${v('day')}`, minutos: Number(v('hour')) * 60 + Number(v('minute')) };
+}
+
+// Minutos del día que ya pasaron, si fechaStr (YYYY-MM-DD) es hoy en Argentina; -1 si es otro día (no hay nada pasado).
+function minutosPasadosHoy(fechaStr) {
+    const ahora = ahoraEnArgentina();
+    return fechaStr === ahora.fecha ? ahora.minutos : -1;
+}
+
 async function cargarHorasSolicitudProf(fechaStr) {
     const sel  = document.getElementById('solProfHora');
     if (!sel) return;
@@ -1403,12 +1421,14 @@ async function cargarHorasSolicitudProf(fechaStr) {
 
     const [hI, mI] = slot.horaInicio.substring(0,5).split(':').map(Number);
     const [hF, mF] = slot.horaFin.substring(0,5).split(':').map(Number);
+    // Sin anticipación mínima: lo único que no se ofrece es lo que ya pasó (solo cuenta si el día elegido es hoy).
+    const minutosPasados = minutosPasadosHoy(fechaStr);
     const opciones = [];
     let cur = hI * 60 + mI;
     while (cur + 60 <= hF * 60 + mF) {
         const hh = String(Math.floor(cur/60)).padStart(2,'0');
         const mm = String(cur%60).padStart(2,'0');
-        opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
+        if (cur > minutosPasados) opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
         cur += 60;
     }
     sel.innerHTML  = opciones.length ? opciones.join('') : `<option value="">Sin horarios</option>`;
@@ -1439,7 +1459,7 @@ async function confirmarSolicitudDiaProf(fechaStr) {
         toast('Turno enviado. El paciente deberá confirmarlo.');
         await renderCalendario();
         mostrarPanelDiaProfesional(_diaSeleccionadoProf);
-    } else toast('Error al solicitar el turno.', 'error');
+    } else toast(await YS.leerMensaje(res, 'Error al solicitar el turno.'), 'error');
 }
 
 async function cancelarTurnoProf(id) {

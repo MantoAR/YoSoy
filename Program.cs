@@ -11,6 +11,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
     opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 builder.Services.AddSingleton<EmailService>();
+// El reloj de TODA la aplicación, con la zona horaria de la clínica explícita (Turnos:ZonaHoraria, por defecto
+// America/Argentina/Buenos_Aires): ya no depende de la zona del sistema operativo del servidor. Tiene que ir antes de
+// AddMensajeria y AddVideo, que lo reciben por inyección. Ver Services/RelojDeLaClinica.cs.
+builder.Services.AddRelojDeLaClinica(builder.Configuration);
 builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
@@ -112,6 +116,11 @@ builder.Services.AddRateLimiter(opt =>
 
 var app = builder.Build();
 
+// Queda en el journal qué zona está usando la API para decidir qué hora es en la clínica.
+var relojDeLaClinica = app.Services.GetRequiredService<TimeProvider>();
+app.Logger.LogInformation("Zona horaria de la clínica: {Zona}, diferencia con UTC ahora: {Diferencia}.",
+    relojDeLaClinica.LocalTimeZone.Id, relojDeLaClinica.GetLocalNow().Offset);
+
 // Falla rápido y claro al arrancar si falta la clave, en vez de un 500 confuso en el
 // primer login — se resuelve el singleton una vez ahora mismo para forzar el chequeo.
 app.Services.GetRequiredService<JwtEmisorService>();
@@ -171,30 +180,34 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
 
-// Login
-app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor) =>
+// Login. Un solo login para los tres roles, así que el bloqueo por intentos fallidos es el mismo para todos
+// (PoliticaBloqueoLogin: 3 intentos, 15 minutos; BloqueadoHasta en UTC; vencido el bloqueo el conteo arranca de
+// nuevo; un login exitoso lo pone en cero).
+app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, TimeProvider reloj) =>
 {
+    var ahoraUtc = reloj.GetUtcNow().UtcDateTime;
     var dao = new UsuarioDAO();
     var usuario = dao.ObtenerPorUsername(req.Username);
 
     if (usuario == null || usuario.Estado != "Activo")
         return Results.Unauthorized();
 
-    if (usuario.BloqueadoHasta.HasValue && usuario.BloqueadoHasta.Value > DateTime.Now)
-        return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+    if (PoliticaBloqueoLogin.EstaBloqueado(usuario.BloqueadoHasta, ahoraUtc))
+        return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(usuario.BloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
 
     var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
 
     if (usuario.PasswordHash.ToUpper() != hash)
     {
-        dao.RegistrarIntentoFallido(usuario.IdUsuario);
-        var actualizado = dao.ObtenerPorUsername(req.Username);
-        if (actualizado?.BloqueadoHasta.HasValue == true && actualizado.BloqueadoHasta.Value > DateTime.Now)
-            return Results.Json(new { mensaje = "Cuenta bloqueada temporalmente. Intentá en 15 minutos." }, statusCode: 423);
+        var (_, bloqueadoHasta) = dao.RegistrarIntentoFallido(usuario.IdUsuario, ahoraUtc);
+        if (PoliticaBloqueoLogin.EstaBloqueado(bloqueadoHasta, ahoraUtc))
+            return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(bloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
         return Results.Unauthorized();
     }
 
-    dao.ResetearIntentos(usuario.IdUsuario);
+    // Login exitoso: el conteo vuelve a cero (si hay algo que limpiar; así un login normal no escribe).
+    if (usuario.IntentosFallidos > 0 || usuario.BloqueadoHasta.HasValue)
+        dao.ResetearIntentos(usuario.IdUsuario);
 
     // El token lleva el mismo idUsuario/idPaciente/idProfesional que ya devolvía esta
     // respuesta (contrato existente, solo se agrega el campo "token" — nada se quita).
@@ -417,11 +430,16 @@ app.MapPost("/usuarios", (Usuario u, HttpContext ctx) =>
 app.MapPut("/usuarios/{id}", (int id, Usuario u) =>
 {
     u.IdUsuario = id;
-    if (!string.IsNullOrEmpty(u.PasswordHash))
+    var cambiaPassword = !string.IsNullOrEmpty(u.PasswordHash);
+    if (cambiaPassword)
         u.PasswordHash = Convert.ToHexString(
             System.Security.Cryptography.SHA256.HashData(
                 System.Text.Encoding.UTF8.GetBytes(u.PasswordHash)));
-    new UsuarioDAO().Modificar(u);
+    var dao = new UsuarioDAO();
+    dao.Modificar(u);
+    // Si el Configurador le pone una contraseña nueva a alguien, es para que pueda entrar: se desbloquea
+    // (igual que hace la recuperación por mail).
+    if (cambiaPassword) dao.ResetearIntentos(id);
     return Results.Ok(new { u.IdUsuario, u.Username, u.Estado, u.Mail });
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -452,8 +470,8 @@ app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService i
 
 // Registro público de paciente, con acceso: Usuario + Paciente + UsuarioPaciente juntos
 // (PacienteDAO.RegistrarConAcceso), para que nunca quede un paciente sin login ni un login
-// a medias. A diferencia de /recuperacion-password, acá la respuesta de conflicto SÍ dice
-// cuál campo está repetido: la persona está registrando su propio dato, no el de un tercero.
+// a medias. La respuesta de conflicto dice si el NOMBRE DE USUARIO está en uso (lo elige la persona) pero
+// ya no cuál de los datos personales (DNI, mail) coincidió: ver MensajesConflictoRegistro.
 var EsMailValido = (string mail) =>
 {
     try { return new System.Net.Mail.MailAddress(mail).Address == mail; }
@@ -467,8 +485,9 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
         return Results.BadRequest(new { mensaje = "El DNI es obligatorio." });
     if (string.IsNullOrWhiteSpace(req.Usuario) || !System.Text.RegularExpressions.Regex.IsMatch(req.Usuario, "^[a-zA-Z0-9_.-]{3,50}$"))
         return Results.BadRequest(new { mensaje = "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." });
-    if (string.IsNullOrWhiteSpace(req.Contrasena) || req.Contrasena.Length < 6)
-        return Results.BadRequest(new { mensaje = "La contraseña debe tener al menos 6 caracteres." });
+    var errorContrasena = PoliticaContrasena.Validar(req.Contrasena);
+    if (errorContrasena != null)
+        return Results.BadRequest(new { mensaje = errorContrasena });
     if (string.IsNullOrWhiteSpace(req.Mail) || !EsMailValido(req.Mail))
         return Results.BadRequest(new { mensaje = "El mail es obligatorio y tiene que tener un formato válido." });
 
@@ -485,16 +504,7 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
 
     var (campoConflicto, idPacienteNuevo, idUsuarioNuevo) = new PacienteDAO().RegistrarConAcceso(paciente, req.Usuario, passwordHash);
     if (campoConflicto != null)
-    {
-        var mensaje = campoConflicto switch
-        {
-            "usuario" => "Ese nombre de usuario ya está en uso.",
-            "mail"    => "Ya existe una cuenta registrada con ese mail.",
-            "dni"     => "Ya existe un paciente registrado con ese DNI.",
-            _         => "No se pudo completar el registro porque alguno de estos datos ya existe. Probá de nuevo."
-        };
-        return Results.Json(new { mensaje }, statusCode: 409);
-    }
+        return Results.Json(new { mensaje = MensajesConflictoRegistro.Paciente(campoConflicto) }, statusCode: 409);
 
     paciente.IdPaciente = idPacienteNuevo;
     paciente.Estado = "Activo";
@@ -552,22 +562,27 @@ app.MapGet("/profesionales/{id}", (int id) =>
     return p is null ? Results.NotFound() : Results.Ok(p);
 }).RequireAuthorization();
 
+// Matrícula o DNI ya registrados → 409 con un mensaje neutral; especialidad inexistente → 400; antes
+// salía todo como 500 (RegistroProfesionalService). Con el mismo límite por IP que el registro de
+// paciente: el 409 es una pista de "esto ya existe" y no tiene que poder barrerse a ritmo libre.
 app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     p.Estado = "Pendiente";
-    p.IdProfesional = new ProfesionalDAO().Insertar(p);
+    var resultado = new RegistroProfesionalService(new ProfesionalDAO()).Registrar(p);
+    if (!resultado.Ok) return Results.Json(new { mensaje = resultado.Mensaje }, statusCode: resultado.StatusCode);
+    p.IdProfesional = resultado.IdProfesional;
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
     return Results.Created("/profesionales", p);
-});
+}).RequireRateLimiting("registro");
 
 app.MapPut("/profesionales/{id}", (int id, Profesional p, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador && yo.IdProfesional != id)
         return Results.Json(new { mensaje = "Solo podés editar tu propio perfil." }, statusCode: 403);
-    p.IdProfesional = id;
-    new ProfesionalDAO().Modificar(p);
+    var resultado = new RegistroProfesionalService(new ProfesionalDAO()).Modificar(id, p);
+    if (!resultado.Ok) return Results.Json(new { mensaje = resultado.Mensaje }, statusCode: resultado.StatusCode);
     return Results.Ok(p);
 }).RequireAuthorization();
 
@@ -618,6 +633,34 @@ app.MapPut("/profesionales/{id}/rechazar", (int id, HttpContext ctx) =>
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Solicitud Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+
+// Crear el usuario de un profesional aprobado (opción A de docs/PROGRESO_NOCTURNO.md, Tarea 3). El Configurador
+// lo hace desde "Pacientes y profesionales" o al aprobar una solicitud. El Usuario y su vínculo se crean en UNA
+// transacción (CrearUsuarioProfesionalService): un usuario sin vínculo entra como configurador, así que la
+// pantalla no arma esto con POST /usuarios + POST /usuarioprofesionales sueltos. Si se pide una contraseña
+// generada, vuelve en la respuesta UNA sola vez (sin caché) y no se guarda en ningún lado en claro.
+app.MapPost("/profesionales/{id}/usuario", (int id, CrearUsuarioProfesionalRequest req, HttpContext ctx, TimeProvider reloj) =>
+{
+    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+    var servicio = new CrearUsuarioProfesionalService(new UsuarioProfesionalDAO(), reloj);
+    var r = servicio.Crear(id, new SolicitudCrearUsuarioProfesional(req.Username, req.Mail, req.Contrasena, req.GenerarContrasena));
+    if (!r.Ok) return Results.Json(new { mensaje = r.Mensaje }, statusCode: r.StatusCode);
+
+    var auditoria = new LogAuditoriaDAO();
+    auditoria.Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Usuario", Entidad = "Usuario", IdEntidad = r.IdUsuario, Detalle = r.Username });
+    auditoria.Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Vinculación Usuario-Profesional", Entidad = "Profesional", IdEntidad = id,
+        Detalle = $"usuario {r.Username} (id {r.IdUsuario})" });
+
+    ctx.Response.Headers.CacheControl = "no-store";
+    return Results.Json(new
+    {
+        idUsuario = r.IdUsuario, idProfesional = id, username = r.Username, mail = r.Mail, contrasenaTemporal = r.ContrasenaTemporal
+    }, statusCode: 201);
+}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+
+// Ids de los profesionales Activos que todavía no tienen usuario (para mostrar "Crear usuario" solo donde corresponde).
+app.MapGet("/profesionales/sin-usuario", () => new UsuarioProfesionalDAO().IdsProfesionalesActivosSinUsuario())
+    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Link público de reserva (Fase 3a, Paso 3): el profesional prende/apaga el suyo; el
 // administrador puede apagar el de cualquiera. Mismo patrón de identidad que Casos/Grupos
@@ -819,12 +862,13 @@ app.MapGet("/pacientes/{id}/turnos-detalle", (int id, HttpContext ctx, Identidad
     return Results.Ok(new TurnoDetalleDAO().ObtenerPorPaciente(id));
 }).RequireAuthorization();
 
-app.MapGet("/pacientes/{id}/proximo-turno", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapGet("/pacientes/{id}/proximo-turno", (int id, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (yo is { EsPaciente: true } && yo.IdPaciente != id)
         return Results.Json(new { mensaje = "Solo podés ver tu propio turno." }, statusCode: 403);
-    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id);
+    // "Hoy" es el de la clínica (el reloj de la aplicación), no el GETDATE() del servidor de base de datos.
+    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id, reloj.GetLocalNow().DateTime);
     return t is null ? Results.NotFound() : Results.Ok(t);
 }).RequireAuthorization();
 
@@ -1401,6 +1445,11 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req, EmailSer
 
 app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 {
+    // Antes no se comprobaba nada acá (solo la pantalla): con un token válido se podía dejar una contraseña
+    // vacía. Se valida primero, así una contraseña inválida no consume el token.
+    var errorContrasena = PoliticaContrasena.Validar(req.NuevaPassword);
+    if (errorContrasena != null) return Results.BadRequest(new { mensaje = errorContrasena });
+
     var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Token ?? "")));
     var dao = new RecuperacionPasswordDAO();
     var idUsuario = dao.ObtenerIdUsuarioPorTokenVigente(tokenHash);
@@ -1932,7 +1981,13 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INoti
     var yo = identidad.Resolver(ctx)!;
     var idProfesional = yo.EsConfigurador ? req.IdProfesional : yo.IdProfesional!.Value;
 
-    var momento = DateTime.Parse(req.Fecha).Date + TimeSpan.Parse(req.Hora);
+    // Cita urgente = "ahora mismo": la hora la pone el reloj de la clínica, no la PC del profesional (con la PC mal de
+    // hora o en otra zona, el turno quedaba a una hora que no era y la sala no abría). Un turno futuro trae su fecha y
+    // su hora, que se leen tal como están escritas (MomentoDeTurno).
+    DateTime momento;
+    if (req.EsUrgente) momento = MomentoDeTurno.DeCitaUrgente(reglas.Ahora);
+    else if (!MomentoDeTurno.TryParsear(req.Fecha, req.Hora, out momento))
+        return Results.BadRequest(new { mensaje = "La fecha o la hora del turno no tienen un formato válido." });
     var resultado = req.EsUrgente
         ? reglas.SolicitarUrgente(req.IdPaciente, idProfesional, momento, req.Motivo)
         : reglas.Solicitar(req.IdPaciente, idProfesional, momento, req.Motivo, creadoPor: "profesional");

@@ -122,15 +122,21 @@ Los 10 y los 30 son configurables (`Video:Ventana:MinutosAntes` y `MinutosDespue
 
 ### La zona horaria
 
-La base guarda fecha y hora **sin zona**: es la hora de la clínica. El sistema asume que es la misma que la del
-servidor (lo mismo supone el recordatorio de turnos). Si el VPS corre en UTC y la clínica está en Argentina, hay dos
-caminos:
+La base guarda fecha y hora **sin zona**: es la hora de la clínica. Toda la API (las reglas de turnos —"ese horario ya
+pasó"—, el bot, los recordatorios, la firma del consentimiento y esta ventana de la sala) toma "qué hora es" de **un solo
+reloj**, que tiene la zona de la clínica **explícita**: ya no depende de la zona del sistema operativo del servidor, así
+que una VPS en UTC no corre las horas. La zona sale, por orden, de:
 
-- poner la zona del servidor (`sudo timedatectl set-timezone America/Argentina/Buenos_Aires`), que afecta a todo el
-  sistema (recordatorios incluidos), o
-- poner `Video__ZonaHoraria=America/Argentina/Buenos_Aires`, que afecta **solo** a las salas de video.
+1. `Turnos__ZonaHoraria` (`Turnos:ZonaHoraria`): identificador IANA (`America/Argentina/Buenos_Aires`) o de Windows. Si
+   está y no existe en el servidor, la API **no arranca** y dice cuál es la clave: es preferible enterarse al desplegar.
+2. `Video__ZonaHoraria`: es lo que ya existía y significa lo mismo, así que si `Turnos__ZonaHoraria` no está también
+   define la zona de la clínica (quien ya la tenía no cambia nada). Si además está y es **distinta** de la anterior, manda
+   para la ventana de la sala y la API lo avisa en el log (una vez); conviene dejarla vacía o igual.
+3. `America/Argentina/Buenos_Aires`.
 
-Si el valor no existe en el servidor, la API usa la zona del servidor y deja un aviso en el log.
+Al arrancar, la API deja en el log `Zona horaria de la clínica: <zona>, diferencia con UTC ahora: <±hh:mm:ss>`.
+(Las pantallas, por su lado, filtran los horarios de hoy que ya pasaron con la hora de Argentina fija; el servidor es
+quien decide.)
 
 ## El token de sala
 
@@ -597,7 +603,7 @@ secretos nunca van en el archivo**.
 | `Video__Admision__DuracionMinutos` | `30` | Duración que se asume para la entrevista de admisión (1–480). |
 | `Video__Token__MaxMinutos` | `120` | Techo de vida del token de sala (1–720). |
 | `Video__Turn__TtlMinutos` | `120` | Vida de las credenciales TURN (1–1440); nunca menos que la ventana de la sesión. |
-| `Video__ZonaHoraria` | vacío (zona del servidor) | Zona en la que están escritas las fechas de los turnos. |
+| `Video__ZonaHoraria` | vacío (la de la clínica: `Turnos__ZonaHoraria` o `America/Argentina/Buenos_Aires`) | Zona en la que están escritas las fechas de los turnos. Ver "La zona horaria". |
 | `Video__LimitePorMinuto` | `20` | Pedidos por minuto y por IP a `/video/acceso` (1–10000). |
 | `Video__Emociones__ClaveCifrado` | — (sin ella no hay lectura de emociones) | Clave AES-256 en base64 (32 bytes) con la que se cifran las emociones guardadas. **Solo por variable de entorno**, distinta de los otros secretos. La crea `generar-secretos.sh` una vez; si se pierde, lo guardado no se puede leer. |
 | `Video__Emociones__IdClave` | `k1` | Identificador de la clave: va en cada dato cifrado. Solo cambia el día que se rote la clave. |

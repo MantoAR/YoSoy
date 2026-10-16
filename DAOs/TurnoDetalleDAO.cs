@@ -28,22 +28,25 @@ public class TurnoDetalleDAO
         return lista;
     }
 
-    public TurnoDetalle? ObtenerProximoPorPaciente(int idPaciente)
+    // "Hoy" lo pone la aplicación (el reloj de la clínica) y no GETDATE(): la hora del servidor de base de datos no tiene
+    // por qué estar en la zona de la clínica. Solo cuenta la fecha de <paramref name="hoy"/>.
+    public TurnoDetalle? ObtenerProximoPorPaciente(int idPaciente, DateTime hoy)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(SELECT_BASE + @"
             WHERE t.IdPaciente = @Id
-              AND t.Fecha >= CAST(GETDATE() AS DATE)
+              AND t.Fecha >= @Hoy
               AND et.Descripcion != 'Cancelado'
             ORDER BY t.Fecha ASC, t.Hora ASC
             OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
+        cmd.Parameters.Add("@Hoy", System.Data.SqlDbType.Date).Value = hoy.Date;
         using var r = cmd.ExecuteReader();
         return r.Read() ? Mapear(r) : null;
     }
 
-    public List<ProfesionalResumen> ObtenerProfesionalesPorPaciente(int idPaciente)
+    public List<ProfesionalResumen> ObtenerProfesionalesPorPaciente(int idPaciente, DateTime hoy)
     {
         var lista = new List<ProfesionalResumen>();
         using var con = Conexion.ObtenerConexion();
@@ -58,9 +61,10 @@ public class TurnoDetalleDAO
             JOIN Especialidad e ON p.IdEspecialidad = e.IdEspecialidad
             JOIN EstadoTurno et ON t.IdEstadoTurno  = et.IdEstadoTurno
             WHERE t.IdPaciente = @Id
-              AND t.Fecha >= CAST(GETDATE() AS DATE)
+              AND t.Fecha >= @Hoy
               AND et.Descripcion NOT IN ('Cancelado', 'Realizado')", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
+        cmd.Parameters.Add("@Hoy", System.Data.SqlDbType.Date).Value = hoy.Date;
         using var r = cmd.ExecuteReader();
         while (r.Read())
             lista.Add(new ProfesionalResumen

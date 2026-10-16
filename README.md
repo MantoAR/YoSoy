@@ -356,7 +356,7 @@ Las reglas del Encuentro 5 quedaron en el backend en `Services/TurnoReglasServic
 
 | Regla | Bot | Web (hoy) |
 |---|---|---|
-| RN-01 Disponibilidad real de agenda (franja, intervalo, futuro —posterior a "ahora"—, horario libre) | ✅ Backend | ✅ Backend (el frontend además arma los horarios con la agenda y `/turnos/ocupados`) |
+| RN-01 Disponibilidad real de agenda (franja, intervalo, futuro —posterior a "ahora" en la zona horaria de la clínica—, horario libre) | ✅ Backend | ✅ Backend (el frontend además arma los horarios con la agenda y `/turnos/ocupados`) |
 | RN-02 Consentimiento de telemedicina antes de confirmar | Avisa al solicitar con el link para firmar; modo estricto opcional | ✅ Backend al confirmar (ver abajo) |
 | RN-05 Anticipación mínima de 24 h **para cancelar**. Para pedir un turno ya no hay anticipación mínima: alcanza con que el horario sea posterior a "ahora" (RN-01) | ✅ Backend | ✅ Backend (cancelación del paciente) |
 | RN-07 Un solo turno Pendiente/Confirmado por paciente, profesional y día | ✅ Backend, versión documentada | ✅ Backend (por profesional); el frontend además bloquea el día entero con **cualquier** profesional |
@@ -408,7 +408,8 @@ Configuración (`appsettings.json` → `Consentimiento`):
 - La reprogramación y el modal de turno de la web arman horarios de 60 minutos fijos en lugar de usar `IntervaloMinutos`.
 - Actualización por polling (incremental y adaptativo); sin WebSockets. No hay indicador de "escribiendo…": el canal no informa cuándo el paciente está escribiendo.
 - La marca de leído es compartida por todo el equipo (como una bandeja de WhatsApp Business): si alguien abre la conversación, deja de figurar como no leída para todos.
-- Zona horaria: los turnos se guardan sin zona y se comparan con la hora local del servidor, que se asume en Argentina (UTC-3).
+- Zona horaria: los turnos se guardan sin zona y se comparan con la hora de la clínica, que es una zona **explícita** (`Turnos__ZonaHoraria`; por defecto `America/Argentina/Buenos_Aires`) y no depende de la zona del sistema operativo del servidor (`Services/RelojDeLaClinica.cs`). Ver `docs/VIDEOLLAMADAS.md`, "La zona horaria". Las pantallas filtran los horarios de hoy que ya pasaron con la hora de Argentina fija; si algún día se configura otra zona, hay que cambiarla también en `PANTALLAS/Pantalla_Paciente/js/dashboard.js` y `PANTALLAS/Pantalla_Profesional/js/nuevo_dashboard.js` (`ahoraEnArgentina`).
+- Fechas y horas de auditoría (`DateTime.Now` / `GETDATE()` en altas, derivaciones, recuperación de contraseña y bloqueo de cuenta): todavía usan la hora del servidor (o de la base), no el reloj de la clínica. No cambian ninguna decisión de turnos; quedaron anotadas para unificarlas.
 - Recordatorios de pago: fuera de alcance (no existe una entidad de pagos). El tipo `PagoPendiente` quedó reservado en `Recordatorio`.
 
 ### Etapa siguiente

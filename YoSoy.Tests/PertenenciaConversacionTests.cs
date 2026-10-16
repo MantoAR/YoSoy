@@ -8,22 +8,25 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 
 // Mejora de chats y centrado: pertenencia de conversaciones (cierre del alcance abierto en
-// A1 - ver CAMBIOS_AGUS.md, "Pertenencia de conversaciones"). Corre contra la base local de
-// desarrollo, igual que ChatsGestionTests; usa los profesionales reales 1 y 2 (ninguno de los
-// dos se modifica, solo se los referencia desde conversaciones de prueba con teléfono único,
-// que esta clase crea y borra). El profesional 1 ya tiene en la base al paciente 1 como único
-// profesional asociado (PacienteProfesional) - se aprovecha esa relación real y estable para
-// el caso "bot-only", en vez de crear y desarmar un vínculo nuevo.
+// A1 - ver CAMBIOS_AGUS.md, "Pertenencia de conversaciones"). Corre contra una base de datos, igual que
+// ChatsGestionTests. Crea sus propios datos (DatosDePrueba): el paciente, dos profesionales con su
+// usuario, el vínculo PacienteProfesional del paciente con el profesional A (el caso "bot-only") y los
+// usuarios Configurador y paciente, además de las conversaciones de prueba con teléfono único. Antes
+// suponía los profesionales 1 y 2, el paciente 1 con su vínculo y los usuarios 1 a 4 de la base de desarrollo.
 //
 // No repite la matriz 401/403/404/200 endpoint por endpoint: todos pasan por el mismo punto
 // de decisión (VisibilidadConversacion.Puede/Filtrar, ver el grep que lista cada MapGet/Put/
 // Post/Delete junto a su llamada). Prueba ese punto de decisión a fondo contra un puñado de
 // endpoints representativos (lista, detalle, notas, notificaciones) más las dos acciones que
 // tienen lógica propia además de la pertenencia (tomar atómico, asignar/devolver).
+[Trait("Categoria", "Integracion")]
 public class PertenenciaConversacionTests : IAsyncLifetime
 {
-    private const int IdProfesionalA = 1;   // ya asociado al paciente 1 en PacienteProfesional
-    private const int IdProfesionalB = 2;   // no asociado al paciente 1
+    private DatosDePrueba _datos = null!;
+    private int IdProfesionalA;   // asociado al paciente en PacienteProfesional
+    private int IdProfesionalB;   // no asociado al paciente
+    private int IdPaciente;
+    private string _nombreDelPaciente = null!;
 
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _a = null!, _b = null!, _configurador = null!, _sinToken = null!, _paciente = null!;
@@ -31,16 +34,27 @@ public class PertenenciaConversacionTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
+        _datos = new DatosDePrueba();
+        // Un apellido propio del paciente: la prueba de auditoría comprueba que el nombre NO sale en el detalle.
+        _nombreDelPaciente = "Juan Garcíaprueba " + _datos.Marca;
+        IdPaciente = _datos.Paciente(_nombreDelPaciente);
+        IdProfesionalA = _datos.Profesional();
+        IdProfesionalB = _datos.Profesional();
+        _datos.PacienteProfesional(IdPaciente, IdProfesionalA);
+
+        // IdUsuario de usuarios reales (LogAuditoria.IdUsuario tiene FK a Usuario - con un id inventado,
+        // el INSERT de auditoría fallaría y Auditar/AuditarConIds lo tragarían en silencio, sin avisar).
+        var usuarioA = _datos.UsuarioDeProfesional(IdProfesionalA);
+        var usuarioB = _datos.UsuarioDeProfesional(IdProfesionalB);
+        var usuarioConfigurador = _datos.Usuario();
+        var usuarioPaciente = _datos.UsuarioDePaciente(IdPaciente);
+
         _factory = new WebApplicationFactory<Program>();
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
-        // IdUsuario de usuarios reales ya existentes (LogAuditoria.IdUsuario tiene FK a Usuario -
-        // con un id inventado, el INSERT de auditoría fallaría y Auditar/AuditarConIds lo
-        // tragarían en silencio, sin avisar). El rol/idProfesional/idPaciente del token no tiene
-        // que coincidir con el del Usuario real: son claims independientes.
-        _a = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: IdProfesionalA));
-        _b = ClienteCon(emisor.Emitir(4, Roles.Profesional, idProfesional: IdProfesionalB));
-        _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
-        _paciente = ClienteCon(emisor.Emitir(3, Roles.Paciente, idPaciente: 1));
+        _a = ClienteCon(emisor.Emitir(usuarioA, Roles.Profesional, idProfesional: IdProfesionalA));
+        _b = ClienteCon(emisor.Emitir(usuarioB, Roles.Profesional, idProfesional: IdProfesionalB));
+        _configurador = ClienteCon(emisor.Emitir(usuarioConfigurador, Roles.Configurador));
+        _paciente = ClienteCon(emisor.Emitir(usuarioPaciente, Roles.Paciente, idPaciente: IdPaciente));
         _sinToken = _factory.CreateClient();
         return Task.CompletedTask;
     }
@@ -48,6 +62,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     public Task DisposeAsync()
     {
         _factory.Dispose();
+        _datos.Dispose();   // las filas propias y, en cascada, las conversaciones y la auditoría que cuelgan de ellas
         return Task.CompletedTask;
     }
 
@@ -135,8 +150,8 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     [Fact]
     public async Task Conversacion_bot_only_solo_la_ve_el_equipo_tratante_del_paciente()
     {
-        // Activa (nunca escaló), paciente 1 - cuyo único profesional asociado hoy es el 1 (A).
-        var id = await CrearConversacion(EstadoConversacion.Activa, idPaciente: 1);
+        // Activa (nunca escaló), del paciente - cuyo único profesional asociado es A.
+        var id = await CrearConversacion(EstadoConversacion.Activa, idPaciente: IdPaciente);
         try
         {
             Assert.Equal(HttpStatusCode.OK, (await _a.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
@@ -278,7 +293,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     [Fact]
     public async Task Apertura_queda_auditada_solo_con_ids_sin_nombre_del_paciente()
     {
-        var id = await CrearConversacion(EstadoConversacion.Activa, idPaciente: 1);   // paciente 1 = "Juan García"
+        var id = await CrearConversacion(EstadoConversacion.Activa, idPaciente: IdPaciente);
         try
         {
             var abrir = await _a.GetAsync($"/mensajeria/conversaciones/{id}/paciente");
@@ -294,8 +309,9 @@ public class PertenenciaConversacionTests : IAsyncLifetime
             var detalle = (string?)await cmd.ExecuteScalarAsync();
             Assert.NotNull(detalle);
             Assert.Contains("#" + id, detalle);
-            Assert.Contains("paciente #1", detalle);
+            Assert.Contains($"paciente #{IdPaciente}", detalle);
             Assert.DoesNotContain("García", detalle);
+            Assert.DoesNotContain(_nombreDelPaciente, detalle);
         }
         finally { await BorrarConversacion(id); }
     }

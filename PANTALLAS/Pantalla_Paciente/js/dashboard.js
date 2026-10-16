@@ -622,6 +622,16 @@ async function confirmarReprogramar(idTurno) {
 
     const fechaNueva = _reprogFechaSeleccionada;
 
+    // Reprogramar es cancelar el turno actual y pedir el nuevo. Como se puede pedir para dentro de unos minutos, el
+    // horario elegido puede haber pasado mientras se decidía: el servidor lo rechazaría DESPUÉS de cancelar y la
+    // persona se quedaría sin turno. Se comprueba antes de cancelar.
+    const fechaElegida = `${fechaNueva.getFullYear()}-${String(fechaNueva.getMonth() + 1).padStart(2,"0")}-${String(fechaNueva.getDate()).padStart(2,"0")}`;
+    const [horaElegida, minElegido] = hora.split(":").map(Number);
+    if (horaElegida * 60 + minElegido <= minutosPasadosHoy(fechaElegida)) {
+        toast("Ese horario ya pasó. Elegí otro y volvé a confirmar; tu turno actual sigue como estaba.", "warn");
+        return;
+    }
+
     const rCancel = await YS.fetch(`/turnos/${idTurno}/cancelar?idPaciente=${idPaciente}`, { method: "PUT" });
     if (!rCancel.ok) { toast(await YS.leerMensaje(rCancel, "No se pudo cancelar el turno anterior."), "error"); return; }
 

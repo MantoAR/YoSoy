@@ -40,7 +40,9 @@ public class EmocionesCifradoServiceTests
 
         Assert.Matches(@"^ys1\.k1\.[A-Za-z0-9_-]+$", guardado);
         Assert.True(EmocionesCifradoService.EstaCifrado(guardado));
-        foreach (var palabra in new[] { "neutral", "sad", "promedios", "312", "60", "muestras" })
+        // Solo palabras largas: el texto cifrado es base64 al azar, y una subcadena corta ("60", "sad", "312") aparece
+        // por casualidad en algunas corridas (con "60" fallaba ~3 de cada 100): la prueba era intermitente.
+        foreach (var palabra in new[] { "neutral", "promedios", "muestras" })
             Assert.DoesNotContain(palabra, guardado);
         // Ni siquiera en la parte decodificada: no es un base64 de un JSON.
         var b64 = guardado.Split('.')[2].Replace('-', '+').Replace('_', '/');

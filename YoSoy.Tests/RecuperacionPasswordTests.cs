@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 // Recuperación de contraseña autoservicio: reemplaza la aprobación manual del Configurador
 // (token de un solo uso por mail, vence a los 30 minutos, respuesta siempre genérica).
 // Corre contra la base local real; cada prueba crea su propio usuario y lo borra al final.
+[Trait("Categoria", "Integracion")]
 public class RecuperacionPasswordTests
 {
     private static WebApplicationFactory<Program> FactorySinMailReal() =>
