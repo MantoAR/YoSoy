@@ -3,3 +3,6 @@ node_modules/
 .wwebjs_cache/
 .env
 .env.*
+
+# La sesión de Baileys vive fuera del repositorio (WHATSAPP_BAILEYS_SESSION_PATH). Los patrones por nombre (creds.json,
+# pre-key-*.json, ...) están en el .gitignore de la raíz.

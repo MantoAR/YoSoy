@@ -260,13 +260,15 @@ conEntorno("loggedOut: queda en requiere_vincular, no reintenta (ni pasados 30 m
     assert.match(e.logCompleto(), /WhatsApp cerró la sesión \(loggedOut\)/);
 });
 
-conEntorno("loggedOut borra las credenciales muertas (y solo ellas)", { registrada: true }, async e => {
+conEntorno("loggedOut borra las credenciales muertas con su respaldo (y solo ellos)", { registrada: true }, async e => {
     const sock = await e.iniciar();
     sock.abrir();
+    sock.ev.emit("creds.update", {});             // un guardado deja el respaldo al lado de creds.json
+    await esperarHasta(() => fs.existsSync(path.join(e.dirSesion, "creds.json.bak")), { descripcion: "el respaldo" });
     assert.ok(fs.existsSync(path.join(e.dirSesion, "creds.json")));
 
     sock.cerrar(DisconnectReason.loggedOut);
-    await esperarHasta(() => !fs.existsSync(path.join(e.dirSesion, "creds.json")), { descripcion: "el borrado de creds.json" });
+    await esperarHasta(() => fs.readdirSync(e.dirSesion).length === 0, { descripcion: "el borrado de la sesión" });
 
     assert.ok(fs.existsSync(e.dirSesion), "la carpeta en sí no se borra");
 });

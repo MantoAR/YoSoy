@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 1 (canal Baileys).
+- **Última actualización:** 2026-10-16, tras la etapa 2 (sesión persistente).
 
 ## Estado de las etapas
 
@@ -21,8 +21,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | previo | Línea suelta ` main` al final de `DEPLOY.md` (resto de un conflicto de merge) | hecho | `c384e1c` |
 | — | Este archivo | hecho | `892ae1e` |
 | 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | `4928d2f` |
-| 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | (este commit) |
-| 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | pendiente | — |
+| 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | `bf0c4bd` |
+| 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | (este commit) |
 | 3 | Vinculación por QR (comando y endpoint local) | pendiente | — |
 | 4 | Reconexión con backoff y manejo de `loggedOut` | pendiente | — |
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | pendiente | — |
@@ -167,6 +167,60 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 - **API:** `CanalActivoTests` (nuevo) y `WhatsAppSecretoHeaderTests` (ahora con `WhatsAppWebJs` y `Baileys`): 33 pruebas
   relacionadas, verdes contra `yosoy_test`; sacar el `case "Baileys"` hace fallar 3.
 
+## Etapa 2: la sesión persistente
+
+### Qué quedó hecho
+
+- **`baileys/sesion.js` se endureció.** La sesión (`creds.json` + claves de cifrado) es una credencial de la cuenta; al arrancar,
+  **antes de abrir el puerto y de cargar la librería**, `crearBackend` llama a `sesion.preparar()`, que:
+  1. exige que la carpeta esté **fuera de cualquier repositorio git** (busca un `.git` hacia arriba, también si es un archivo)
+     **y de la carpeta de la aplicación** (ni adentro ni conteniéndola; se resuelven los enlaces simbólicos), sin crear nada si no;
+  2. fija `umask 077` (todo lo que cree el proceso, incluidos los archivos de la librería, queda solo para su usuario);
+  3. crea la carpeta en **700**, y si existía con permisos de más deja la carpeta en 700 y sus archivos en **600**;
+  4. exige que sea **dedicada**: si hay archivos que no son de la sesión (o subcarpetas, o enlaces), **no arranca** y no toca nada;
+  5. comprueba que **se puede escribir** (escribe y borra un archivito): con `ProtectSystem=strict` y sin `ReadWritePaths`,
+     el servicio lo dice al arrancar en vez de perder la vinculación al reiniciar.
+  Cualquier problema corta el arranque con un mensaje que nombra `WHATSAPP_BAILEYS_SESSION_PATH`.
+- **Respaldo de `creds.json`.** Hallazgo al leer la librería: `useMultiFileAuthState` escribe sin cuidado y, si `creds.json`
+  queda cortado, **lo da por inexistente y arma una identidad nueva sin avisar** (hay que volver a escanear el QR). Ahora:
+  cada guardado deja antes la versión anterior como `creds.json.bak` (escritura atómica: temporal + `fsync` + renombrado);
+  si después de guardar el archivo quedó inservible, se vuelve a la versión anterior (y el error original, si lo hubo,
+  sube); y al abrir la sesión, si `creds.json` falta o está cortado y hay respaldo válido, se restaura. Un respaldo que no se
+  puede escribir **no impide** guardar las credenciales nuevas (se avisa).
+- **Borrado:** `limpiar()` (desvincular o `loggedOut`) borra credenciales, respaldo y temporales, y **nada más**: si hay algo
+  ajeno, no borra nada. No sigue enlaces simbólicos.
+- **`.gitignore`:** en la raíz, por nombre (`creds.json`, `creds.json.*`, `pre-key-*.json`, `session-*.json`,
+  `sender-key-*.json`, `app-state-sync-*`, `lid-mapping-*`, `device-list-*`, `tctoken-*`) y por carpetas típicas
+  (`sesion-baileys/`, `auth_info_baileys/`); en `whatsapp-service/.gitignore`, una nota que remite a la raíz. Son una red de
+  seguridad: la regla es que la sesión esté fuera del repo (y `preparar()` lo exige).
+- **README del servicio:** sección "Baileys: la carpeta de la sesión".
+
+### Decisiones y límites
+
+- **Ruta sugerida: `/opt/yosoy/whatsapp/sesion-baileys`**, al lado de `app/` (el despliegue reemplaza `app/`, así que nunca la
+  toca). No se reutiliza `/opt/yosoy/whatsapp/sesion` (la de whatsapp-web.js, con el perfil de Chromium): el chequeo de
+  carpeta dedicada la rechazaría.
+- **El puerto es el candado:** `preparar()` no restaura nada del respaldo (eso lo hace `abrirAuth`, que corre recién después de
+  que `iniciar()` tiene el puerto), así un segundo proceso que arranca por error no puede pisar un guardado del primero.
+- **No se implementó un almacén propio de credenciales** (con escritura atómica de todos los archivos): se envuelve el de la
+  librería. Solo `creds.json` es crítico; las claves sueltas (`pre-key-*`, `session-*`) que queden cortadas las trata la
+  librería como inexistentes y se renegocian con cada contacto. Si algún día se quiere más, el camino es una base de datos.
+- **Límite de lo que pude verificar:** estas pruebas corrieron en Windows, donde **5 pruebas se saltean** (permisos 700/600 y
+  `umask`, no poder crear la carpeta, y dos de enlaces simbólicos) porque Windows no tiene permisos POSIX. La lógica POSIX
+  son ~15 líneas y está revisada, pero **hay que correr `npm test` una vez en Linux** (ver "Pasos manuales").
+
+### Pruebas de esta etapa
+
+- `test/sesion.test.js` (nuevo, 38 pruebas) y ampliaciones en `backend.test.js` y `baileys-servicio.test.js`: ubicación (repo,
+  `.git` como archivo, aplicación, vecinos de nombre parecido, enlaces), carpeta dedicada, permisos, escritura, respaldo
+  (6 formas de `creds.json` dañado, sin respaldo, respaldo viejo que no debe pisar uno sano, falla del respaldo, disco lleno
+  a mitad de un guardado), borrado, y que el `.gitignore` frene cada nombre de archivo de sesión (con `git check-ignore`) y
+  que ninguno esté versionado.
+- **`npm test`: 179 pruebas, 174 pasan, 5 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 34 cambios de comportamiento a propósito en `sesion.js` y `backend.js`; **30 detectados** y 4 que solo se pueden
+  detectar en POSIX (permisos, `umask`, enlaces simbólicos): ver arriba. (Dos de las que primero se escaparon, `..sesion`
+  dentro de la aplicación y `deps.appDir`, llevaron a pruebas nuevas.)
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -181,11 +235,21 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 (Se completa etapa por etapa; nada de esto lo hice ni lo voy a hacer yo.)
 
-- _Todavía ninguno._
+- **Correr `npm test` una vez en Linux** (por ejemplo en una copia aparte, o en el VPS tras `npm ci`): en Windows se saltean 5
+  pruebas de permisos y enlaces simbólicos. Las pruebas usan carpetas temporales y no tocan la sesión real.
+- **Crear la carpeta de la sesión en el VPS** (cuando se vaya a usar Baileys; el detalle completo va en `DEPLOY.md`, etapa 8):
+  `sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys` y poner
+  `WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys` en `/opt/yosoy/config/whatsapp.env`. Esa carpeta también
+  tiene que figurar en `ReadWritePaths` de la unit.
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 2 a 8 (ver la tabla). Lo que la etapa 1 deja a propósito para después: carpeta de sesión endurecida (2), comando y
-  endpoint de vinculación (3), backoff y trato fino de cada motivo de desconexión (4), cola con ritmo/tope y consentimiento
-  (5), revisión de privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de
-  despliegue (8).
+- Etapas 3 a 8 (ver la tabla). Lo que las etapas 1 y 2 dejan a propósito para después: comando y endpoint de vinculación
+  (3), backoff y trato fino de cada motivo de desconexión (4), cola con ritmo/tope y consentimiento (5), revisión de
+  privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de despliegue (8).
+- **Decisión pendiente (no bloquea nada): ¿se respalda la sesión de Baileys?** `SERVIDOR.md` ya pide respaldar fuera del
+  servidor la sesión de WhatsApp. Con Baileys, perderla significa volver a escanear un QR (unos minutos, con el teléfono del
+  número dedicado), no perder el número; el costo de respaldarla es que son credenciales de la cuenta. Si se respalda: cifrada
+  y con acceso restringido, nunca en un chat, un ticket ni el repo. El flujo de despliegue (`/opt/yosoy/backups`: app,
+  configuración, UFW, base) no la menciona.
+

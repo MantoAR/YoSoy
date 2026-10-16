@@ -37,6 +37,31 @@ Van en `/opt/yosoy/config/whatsapp.env` (o en la `Environment=` de la unit). Tod
 | `WHATSAPP_BAILEYS_VERSION_WA` | Fija la versión de WhatsApp Web, por ejemplo `2.3000.1037753511`. Solo si WhatsApp rechaza la que trae la librería (cierre con 405 al arrancar). |
 | `WHATSAPP_BAILEYS_BUSCAR_VERSION` | `1` para pedirle a Baileys la última versión conocida al arrancar (hace un pedido a `raw.githubusercontent.com`). |
 
+### Baileys: la carpeta de la sesión
+
+La sesión de Baileys (`creds.json` y las claves de cifrado) **es una credencial de la cuenta**: quien tenga esos archivos
+puede usar el número de la clínica como si fuera el teléfono. Por eso, al arrancar, el servicio exige que la carpeta de
+`WHATSAPP_BAILEYS_SESSION_PATH`:
+
+- sea **propia**: solo archivos de la sesión. Si hay otra cosa, no arranca y nunca borra nada ajeno (así una ruta mal
+  puesta, como `/opt` o la carpeta de la sesión de whatsapp-web.js, se frena en vez de ensuciarse o borrarse);
+- esté **fuera de cualquier repositorio git y de la carpeta de la aplicación** (`/opt/yosoy/whatsapp/app`): un despliegue
+  reemplaza `app/` y se llevaría la sesión puesta. Sugerida: `/opt/yosoy/whatsapp/sesion-baileys`, al lado de `app/`;
+- sea del usuario que corre el servicio, con permisos **700** en la carpeta y **600** en los archivos (el servicio los
+  corrige si encuentra otros, y fija un `umask` de 077 para todo lo que cree);
+- se **pueda escribir**: lo comprueba escribiendo y borrando un archivito. Con `ProtectSystem=strict`, la carpeta tiene que
+  estar en `ReadWritePaths` de la unit; si no, el servicio dice por qué y no arranca (si arrancara, una vinculación
+  exitosa se perdería al reiniciar).
+
+`creds.json` tiene un **respaldo** (`creds.json.bak`, la versión anterior). Baileys escribe ese archivo sin cuidado y, si lo
+encuentra cortado (corte de luz, disco lleno), lo da por inexistente y arma una identidad nueva sin avisar: habría que
+volver a escanear el QR. Con el respaldo, el servicio lo restaura solo y deja una línea de error en el log. Al desvincular, o
+cuando WhatsApp cierra la sesión, se borran las credenciales **y** el respaldo.
+
+El `.gitignore` de la raíz frena por nombre (`creds.json`, `pre-key-*.json`, ...) cualquier archivo de sesión, por si alguien
+apuntara la variable adentro del repositorio o copiara la carpeta: es solo una red de seguridad, la regla es que no esté
+ahí. **No copiar esa carpeta a ningún lado** (ni a backups sin cifrar, ni a un chat, ni a un ticket).
+
 Más variables (reconexión, ritmo de envío, tope diario, consentimiento) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
 

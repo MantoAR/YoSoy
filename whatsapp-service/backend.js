@@ -20,8 +20,11 @@ async function crearBackend(config, log, deps = {}) {
         // `deps` existe para los tests: reemplaza lo que toca la librería real y la red.
         const cargar = deps.cargarBaileys ?? require("./baileys/cargar").cargarBaileys;
 
+        // Primero la carpeta de la sesión (ubicación, permisos, que se pueda escribir): si está mal, se corta acá, antes de
+        // cargar la librería y de abrir el puerto.
+        const sesion = crearSesion({ dir: config.baileys.sessionPath, log, appDir: deps.appDir ?? __dirname });
+        await sesion.preparar();
         const fachada = await cargar();
-        const sesion = crearSesion({ dir: config.baileys.sessionPath, log });
         const reenviar = deps.reenviar ?? crearReenviador({ apiBaseUrl: config.apiBaseUrl, secreto: config.secreto, log });
         return new ServicioBaileys({
             fachada,
