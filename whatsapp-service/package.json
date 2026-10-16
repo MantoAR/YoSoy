@@ -2,11 +2,11 @@
   "name": "yosoy-whatsapp-service",
   "version": "1.0.0",
   "private": true,
-  "description": "Puente HTTP interno entre la API de YoSoy y WhatsApp, vía whatsapp-web.js. No se expone a internet (ver README.md).",
+  "description": "Puente HTTP interno entre la API de YoSoy y WhatsApp, vía whatsapp-web.js o Baileys. No se expone a internet (ver README.md).",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --require ./test/helpers/sin-red.js --test \"test/*.test.js\"",
+    "test": "node --require ./test/helpers/sin-red.js --test --test-timeout=60000 \"test/*.test.js\"",
     "postinstall": "patch-package"
   },
   "engines": {

@@ -13,7 +13,7 @@ const ESPACIADO_JITTER_MS = 2000;
 
 class ColaEnvios {
     constructor(enviarAhora, log) {
-        this._enviarAhora = enviarAhora; // (telefono, texto) => Promise<void>
+        this._enviarAhora = enviarAhora; // (telefono, texto, meta) => Promise<void>
         this._log = log;
         this._pendientes = [];
         this._procesando = false;
@@ -28,8 +28,9 @@ class ColaEnvios {
         this._detenida = true;
     }
 
-    // Devuelve { ok: true, idExterno } o { ok: false, error } — nunca espera al envío real.
-    encolar(telefono, texto) {
+    // Devuelve { ok: true, idExterno } o { ok: false, error } — nunca espera al envío real. `meta` viaja con el pedido hasta
+    // el envío (por ejemplo, optIn: la API asegura que el paciente aceptó recibir WhatsApp).
+    encolar(telefono, texto, meta = {}) {
         if (this._detenida) {
             return { ok: false, error: "El servicio se está reiniciando, probá de nuevo en un momento." };
         }
@@ -37,7 +38,7 @@ class ColaEnvios {
             return { ok: false, error: "Cola llena, probá de nuevo en unos minutos." };
         }
         const idExterno = `cola-${this._siguienteId++}`;
-        this._pendientes.push({ idExterno, telefono, texto });
+        this._pendientes.push({ idExterno, telefono, texto, meta });
         this._procesarEnSegundoPlano();
         return { ok: true, idExterno };
     }
@@ -53,7 +54,7 @@ class ColaEnvios {
             while (this._pendientes.length > 0 && !this._detenida) {
                 const item = this._pendientes.shift();
                 try {
-                    await this._enviarAhora(item.telefono, item.texto);
+                    await this._enviarAhora(item.telefono, item.texto, item.meta);
                 } catch (err) {
                     // Ya no hay a quién devolverle el error: la respuesta HTTP de /enviar
                     // ya salió hace rato. Queda solo en el log de este proceso.

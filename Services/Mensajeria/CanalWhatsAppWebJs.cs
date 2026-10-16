@@ -1,8 +1,9 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
-// Canal real: llama a whatsapp-service (Node, whatsapp-web.js) por HTTP, solo en
-// loopback (ver whatsapp-service/README.md). Cualquier falla — timeout, 5xx, conexión
+// Canal real: llama a whatsapp-service (Node) por HTTP, solo en loopback (ver whatsapp-service/README.md). Sirve igual para los
+// dos backends del servicio (whatsapp-web.js y Baileys): la interfaz HTTP es la misma, así que Mensajeria:CanalActivo acepta
+// "WhatsAppWebJs" y "Baileys" y registra esta misma clase (el nombre quedó por ser el primero que existió). Cualquier falla — timeout, 5xx, conexión
 // rechazada, o un 503 porque la cola de whatsapp-service está llena — se traduce acá en
 // ResultadoEnvio(false, ...), nunca una excepción sin capturar: el resto de la cadena de
 // manejo de errores (ServicioMensajes, NotificadorTurnos.Seguro, MaxIntentosEnvio) ya la

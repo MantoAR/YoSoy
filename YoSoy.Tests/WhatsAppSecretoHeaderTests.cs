@@ -31,13 +31,15 @@ public class WhatsAppSecretoHeaderTests
             b.UseSetting("Mensajeria:WhatsApp:Secreto", SecretoDePrueba);
         });
 
-    [Fact]
-    public void CanalWhatsAppWebJs_agrega_el_header_X_Shared_Secret_con_el_valor_configurado()
+    [Theory]
+    [InlineData("WhatsAppWebJs")]
+    [InlineData("Baileys")]
+    public void CanalWhatsAppWebJs_agrega_el_header_X_Shared_Secret_con_el_valor_configurado(string canalActivo)
     {
         // CanalWhatsAppWebJs solo se registra en el contenedor cuando CanalActivo es
-        // "WhatsAppWebJs" (default "Simulado") — ver el switch en
+        // "WhatsAppWebJs" o "Baileys" (default "Simulado") — ver el switch en
         // MensajeriaServiceCollectionExtensions.
-        using var factory = Factory("WhatsAppWebJs");
+        using var factory = Factory(canalActivo);
         var fabrica = factory.Services.GetRequiredService<IHttpClientFactory>();
 
         var http = fabrica.CreateClient(nameof(CanalWhatsAppWebJs));

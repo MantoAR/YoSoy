@@ -10,6 +10,36 @@ Solo escucha en `127.0.0.1` — nunca se expone a internet. La API .NET lo
 llama vía `CanalWhatsAppWebJs` (`Services/Mensajeria/`); este servicio le
 reenvía los mensajes entrantes por su cuenta.
 
+## Dos backends: whatsapp-web.js y Baileys
+
+El servicio puede hablar con WhatsApp de dos maneras, y **la API no se entera de cuál**: la interfaz HTTP es la misma
+(`/enviar`, `/estado`, `/desvincular`, `/salud`; ver `servidor.js`).
+
+| `WHATSAPP_BACKEND` | Qué usa | Notas |
+|---|---|---|
+| `webjs` (**por defecto**) | whatsapp-web.js + Chromium | Lo que corre hoy. Sin la variable, el servicio se comporta exactamente como antes. |
+| `baileys` | Baileys (WhatsApp Web sin navegador) | Más liviano: sin Chromium. Obligatoria `WHATSAPP_BAILEYS_SESSION_PATH`. |
+
+Cada librería se carga **solo si se elige** (con `baileys` no se carga Puppeteer, y con `webjs` no se carga Baileys). Son
+mutuamente excluyentes: usan el mismo puerto, y dos conexiones con la misma cuenta se pisan.
+
+Del lado de la API, `Mensajeria__CanalActivo` acepta `Simulado` (por defecto), `Baileys` y `WhatsAppWebJs`; los dos últimos
+son el mismo canal HTTP (se conserva `WhatsAppWebJs` para que un servidor que ya lo tiene configurado siga arrancando).
+
+### Baileys: variables
+
+Van en `/opt/yosoy/config/whatsapp.env` (o en la `Environment=` de la unit). Todas son opcionales salvo la primera.
+
+| Variable | Para qué |
+|---|---|
+| `WHATSAPP_BACKEND` | `baileys` para usarlo. |
+| `WHATSAPP_BAILEYS_SESSION_PATH` | **Obligatoria.** Carpeta de la sesión (es una credencial): ruta absoluta, **fuera del repositorio** y de la carpeta de la aplicación. |
+| `WHATSAPP_BAILEYS_VERSION_WA` | Fija la versión de WhatsApp Web, por ejemplo `2.3000.1037753511`. Solo si WhatsApp rechaza la que trae la librería (cierre con 405 al arrancar). |
+| `WHATSAPP_BAILEYS_BUSCAR_VERSION` | `1` para pedirle a Baileys la última versión conocida al arrancar (hace un pedido a `raw.githubusercontent.com`). |
+
+Más variables (reconexión, ritmo de envío, tope diario, consentimiento) se documentan a medida que cada etapa las agrega;
+la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
+
 ## Qué necesita el VPS
 
 - **Node.js 22 LTS.** No estaba instalado al momento de escribir esto
@@ -244,9 +274,10 @@ pero no lo usa esta configuración — ver el comentario en el código.)
 Recién con `conectado:true` confirmado, en `/opt/yosoy/config/.env` (el
 principal, no `whatsapp.env`):
 ```
-Mensajeria__CanalActivo=WhatsAppWebJs
+Mensajeria__CanalActivo=Baileys
 ```
-y `sudo systemctl restart yosoy-api`.
+(o `WhatsAppWebJs` si el servicio corre con whatsapp-web.js: la API trata los dos igual) y
+`sudo systemctl restart yosoy-api`.
 
 ## Problemas esperables (Ubuntu 24.04)
 

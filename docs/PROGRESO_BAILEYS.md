@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 9 (dependencia).
+- **Última actualización:** 2026-10-16, tras la etapa 1 (canal Baileys).
 
 ## Estado de las etapas
 
@@ -20,8 +20,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | previo | Frase de `DESARROLLO_LOCAL.md` (base de pruebas), pedida aparte | hecho | `6e846be` |
 | previo | Línea suelta ` main` al final de `DEPLOY.md` (resto de un conflicto de merge) | hecho | `c384e1c` |
 | — | Este archivo | hecho | `892ae1e` |
-| 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | (este commit) |
-| 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | pendiente | — |
+| 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | `4928d2f` |
+| 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | (este commit) |
 | 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | pendiente | — |
 | 3 | Vinculación por QR (comando y endpoint local) | pendiente | — |
 | 4 | Reconexión con backoff y manejo de `loggedOut` | pendiente | — |
@@ -115,6 +115,58 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   llama a `makeWASocket`. Verificadas con mutaciones (`^` en la versión, sin `override`, `libsignal` por git, un test que importa
   el paquete real): cada una hace fallar la prueba correspondiente.
 
+## Etapa 1: el canal Baileys
+
+### Qué quedó hecho
+
+- **`whatsapp-service` se partió en piezas** (antes todo estaba en `index.js`, que ahora es solo el arranque):
+  `config.js` (lee y valida las variables **antes** de cargar nada: si falta algo, frena con un mensaje que dice qué),
+  `backend.js` (arma el backend elegido, con carga perezosa: con Baileys no se carga `whatsapp-web.js`/Puppeteer, y al revés),
+  `servidor.js` (el Express: **mismas rutas y mismo contrato HTTP** que usa la API, todo detrás de `X-Shared-Secret` menos
+  `/salud`), `reenvio.js` (entrantes hacia `POST {API_BASE_URL}/mensajeria/whatsapp/entrante`, con tope de 5 s).
+- **`baileys/`**: `servicio.js` (`ServicioBaileys`: ciclo de vida, estados, envío, entrantes, desvincular), `numeros.js`,
+  `mensajes.js`, `logger.js`, `sesion.js` (mínima; la etapa 2 la endurece) y `cargar.js` (etapa 9).
+- **Estados** que informa `/salud` y `/estado`: `detenido`, `iniciando`, `conectado`, `reconectando`, `requiere_vincular`.
+- **API (.NET):** `Mensajeria:CanalActivo` acepta `Simulado`, `Baileys` y `WhatsAppWebJs`. Los dos últimos usan la misma clase
+  (`CanalWhatsAppWebJs`): habla HTTP con el servicio y no sabe qué librería hay detrás. Con `Simulado` nada cambia. El error de
+  un valor inválido ahora lista los tres válidos.
+- **`README.md` del servicio:** sección "Dos backends" y tabla de variables de Baileys.
+
+### Decisiones de diseño de esta etapa
+
+- **Un socket cerrado no se reutiliza** (la librería lo deja inservible): cada conexión crea uno nuevo. Los eventos de un socket
+  descartado se ignoran **por identidad** y además se le sacan los listeners (doble defensa: se probó con un emisor que no
+  deja quitarlos). Un intento de conectar que quedó a medias cuando llega `desvincular()` o `cerrar()` se descarta.
+- **Parecer una persona, no un servicio:** `markOnlineOnConnect: false`, sin bajar el historial de chats, sin vistas previas
+  de links, navegador `Ubuntu / YoSoy`.
+- **Número de destino:** WhatsApp en Argentina acepta el celular con o sin el `9`; se le pregunta a WhatsApp (`onWhatsApp`)
+  cuál de las dos formas existe y se recuerda la respuesta (24 h si existe, 1 h si no), para no repetir consultas.
+- **Entrantes:** solo mensajes nuevos (`notify`, no el historial); se ignoran los propios, grupos, difusiones, canales y lo que
+  no es texto; los repetidos se descartan por id; los chats con identificador `@lid` se resuelven al teléfono real con
+  `senderPn`/`remoteJidAlt`. El texto pasa por memoria y **nunca por el log**.
+- **QR:** vive solo en memoria y sale únicamente por `GET /estado` (que pide el secreto); no se escribe en ningún log.
+- **Logger de la librería:** Baileys es muy conversador; solo `warn` y `error` llegan al log, como una línea de texto con los
+  números enmascarados (nunca el objeto entero).
+- **`desvincular()`** (el botón del Configurador): cierra la sesión en WhatsApp (con tope de 15 s), espera lo que hubiera por
+  guardar, borra las credenciales y deja un QR nuevo. Si no se puede borrar, **no sigue como si nada**: queda en
+  `requiere_vincular` con motivo `error_borrando_sesion` y el error sube.
+- **Reconexión en esta etapa:** espera fija de 5 s (inmediata para el reinicio que WhatsApp pide al terminar de vincular). El
+  backoff exponencial y el trato de cada motivo de desconexión son la etapa 4; `loggedOut` ya **no** se reintenta.
+- **`POST /enviar` acepta `optIn`** (solo si es exactamente `true`) y lo pasa a la cola; la política que lo usa es la etapa 5.
+
+### Pruebas de esta etapa
+
+- **`npm test`: 138 pruebas, 0 fallas, ~2 s**, sin red (el bloqueo de la etapa 9 las protege). Todas con el socket de Baileys
+  simulado: ninguna abre una conexión ni envía nada. Hay un reloj falso (la espera de una reconexión de 5 minutos se prueba en
+  un instante) y carreras con compuertas, para que el orden sea siempre el mismo.
+- **Pruebas de mutación:** apliqué a mano 45 cambios de comportamiento al código (por ejemplo: reintentar `loggedOut`, loguear
+  el QR o el texto de un paciente, escuchar en `0.0.0.0`, aceptar `/enviar` sin secreto, cargar los dos backends a la vez) y
+  verifiqué que **cada uno hace fallar alguna prueba**. Las que al principio no fallaban (eventos de un socket viejo,
+  `desvincular` en medio de una conexión, `iniciar` dos veces, borrar antes de terminar de guardar) se cubrieron con pruebas
+  nuevas y se volvieron a probar. Los archivos quedaron idénticos tras cada mutación.
+- **API:** `CanalActivoTests` (nuevo) y `WhatsAppSecretoHeaderTests` (ahora con `WhatsAppWebJs` y `Baileys`): 33 pruebas
+  relacionadas, verdes contra `yosoy_test`; sacar el `case "Baileys"` hace fallar 3.
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -122,6 +174,8 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 2. **`WhatsAppWebJs` se conserva en la API** además de `Baileys` (ver arriba).
 3. **Variable propia para la sesión de Baileys** (`WHATSAPP_BAILEYS_SESSION_PATH`), obligatoria, sin valor por defecto: así
    nunca puede terminar dentro del repo por omisión ni mezclarse con la carpeta de `whatsapp-web.js`.
+4. **El mismo nombre de canal ("WhatsApp") en la bitácora de la API** para los dos backends: cambiar de librería no parte el
+   historial de mensajes en dos.
 
 ## Pasos manuales para Agustín
 
@@ -131,4 +185,7 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- _Se completa al final de cada etapa._
+- Etapas 2 a 8 (ver la tabla). Lo que la etapa 1 deja a propósito para después: carpeta de sesión endurecida (2), comando y
+  endpoint de vinculación (3), backoff y trato fino de cada motivo de desconexión (4), cola con ritmo/tope y consentimiento
+  (5), revisión de privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de
+  despliegue (8).
