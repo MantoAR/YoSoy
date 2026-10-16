@@ -461,8 +461,8 @@ app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService i
 
 // Registro público de paciente, con acceso: Usuario + Paciente + UsuarioPaciente juntos
 // (PacienteDAO.RegistrarConAcceso), para que nunca quede un paciente sin login ni un login
-// a medias. A diferencia de /recuperacion-password, acá la respuesta de conflicto SÍ dice
-// cuál campo está repetido: la persona está registrando su propio dato, no el de un tercero.
+// a medias. La respuesta de conflicto dice si el NOMBRE DE USUARIO está en uso (lo elige la persona) pero
+// ya no cuál de los datos personales (DNI, mail) coincidió: ver MensajesConflictoRegistro.
 var EsMailValido = (string mail) =>
 {
     try { return new System.Net.Mail.MailAddress(mail).Address == mail; }
@@ -476,8 +476,9 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
         return Results.BadRequest(new { mensaje = "El DNI es obligatorio." });
     if (string.IsNullOrWhiteSpace(req.Usuario) || !System.Text.RegularExpressions.Regex.IsMatch(req.Usuario, "^[a-zA-Z0-9_.-]{3,50}$"))
         return Results.BadRequest(new { mensaje = "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." });
-    if (string.IsNullOrWhiteSpace(req.Contrasena) || req.Contrasena.Length < 6)
-        return Results.BadRequest(new { mensaje = "La contraseña debe tener al menos 6 caracteres." });
+    var errorContrasena = PoliticaContrasena.Validar(req.Contrasena);
+    if (errorContrasena != null)
+        return Results.BadRequest(new { mensaje = errorContrasena });
     if (string.IsNullOrWhiteSpace(req.Mail) || !EsMailValido(req.Mail))
         return Results.BadRequest(new { mensaje = "El mail es obligatorio y tiene que tener un formato válido." });
 
@@ -494,16 +495,7 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
 
     var (campoConflicto, idPacienteNuevo, idUsuarioNuevo) = new PacienteDAO().RegistrarConAcceso(paciente, req.Usuario, passwordHash);
     if (campoConflicto != null)
-    {
-        var mensaje = campoConflicto switch
-        {
-            "usuario" => "Ese nombre de usuario ya está en uso.",
-            "mail"    => "Ya existe una cuenta registrada con ese mail.",
-            "dni"     => "Ya existe un paciente registrado con ese DNI.",
-            _         => "No se pudo completar el registro porque alguno de estos datos ya existe. Probá de nuevo."
-        };
-        return Results.Json(new { mensaje }, statusCode: 409);
-    }
+        return Results.Json(new { mensaje = MensajesConflictoRegistro.Paciente(campoConflicto) }, statusCode: 409);
 
     paciente.IdPaciente = idPacienteNuevo;
     paciente.Estado = "Activo";
@@ -1415,6 +1407,11 @@ app.MapPost("/recuperacion-password", (RecuperacionPasswordRequest req, EmailSer
 
 app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 {
+    // Antes no se comprobaba nada acá (solo la pantalla): con un token válido se podía dejar una contraseña
+    // vacía. Se valida primero, así una contraseña inválida no consume el token.
+    var errorContrasena = PoliticaContrasena.Validar(req.NuevaPassword);
+    if (errorContrasena != null) return Results.BadRequest(new { mensaje = errorContrasena });
+
     var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Token ?? "")));
     var dao = new RecuperacionPasswordDAO();
     var idUsuario = dao.ObtenerIdUsuarioPorTokenVigente(tokenHash);
