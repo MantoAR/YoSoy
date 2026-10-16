@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
+using Xunit.Abstractions;
 
 // El consentimiento y las emociones guardadas contra SQL Server de verdad: lo que VideoApp y las pruebas de servicio
 // prueban con dobles en memoria, acá con la base (ConsentimientoVideoDAO, SesionClinicaDAO, la purga y los endpoints de
@@ -61,8 +62,13 @@ public sealed class DatosEmociones : IDisposable
     public readonly string Sala = "SALA-T6-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
     private int? _idEspecialidadCreada, _idEstadoCreado, _idInforme, _idTutor;
 
-    public DatosEmociones(DateTime? nacimiento = null)
+    private readonly ITestOutputHelper? _salida;
+
+    /// <param name="salida">La salida de la prueba que lo usa: ahí se escribe lo que la limpieza no pudo borrar. Sin ella, en la
+    /// salida de error del proceso (que con pruebas en paralelo xUnit no atribuye a ninguna en particular).</param>
+    public DatosEmociones(DateTime? nacimiento = null, ITestOutputHelper? salida = null)
     {
+        _salida = salida;
         var sufijo = Guid.NewGuid().ToString("N")[..12];
         IdUsuarioPaciente = Insertar("INSERT INTO Usuario (Username, PasswordHash, Estado, Mail) OUTPUT INSERTED.IdUsuario VALUES (@A, 'x', 'Activo', @B)",
             ("@A", "t6p_" + sufijo), ("@B", $"t6p_{sufijo}@example.test"));
@@ -175,6 +181,11 @@ public sealed class DatosEmociones : IDisposable
             ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador), ("@L", accionComo))
             .Select(f => ((string)f[0]!, (string?)f[1])).ToList();
 
+    private readonly List<string> _fallosDeLimpieza = new();
+
+    /// <summary>Los borrados de <see cref="Dispose"/> que fallaron (quedaron filas sueltas con la marca). Vacía si todo salió bien.</summary>
+    public IReadOnlyList<string> FallosDeLimpieza => _fallosDeLimpieza;
+
     public void Dispose()
     {
         // En el orden de las claves foráneas. Todo lo de esta prueba, y nada más.
@@ -182,6 +193,11 @@ public sealed class DatosEmociones : IDisposable
         Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM ConsentimientoVideo WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM InformeAdmision WHERE IdPaciente = @P", ("@P", IdPaciente));
+        // El servicio de recordatorios de una aplicación de prueba puede haberle creado recordatorios al turno (Recordatorio.IdTurno)
+        // y una notificación al paciente (Notificacion.IdPaciente): van ANTES que el turno y el paciente, o sus claves foráneas
+        // frenan esos borrados y quedan filas sueltas con la marca.
+        Intentar("DELETE FROM Recordatorio WHERE IdTurno IN (SELECT IdTurno FROM Turno WHERE IdPaciente = @P OR IdProfesional = @M)", ("@P", IdPaciente), ("@M", IdProfesional));
+        Intentar("DELETE FROM Notificacion WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM Turno WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM PacienteTutor WHERE IdPaciente = @P", ("@P", IdPaciente));
         if (_idTutor is int t) Intentar("DELETE FROM Tutor WHERE IdTutor = @T", ("@T", t));
@@ -195,18 +211,53 @@ public sealed class DatosEmociones : IDisposable
         Intentar("DELETE FROM Paciente WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM Usuario WHERE IdUsuario IN (@A, @B, @C)", ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
         if (_idEspecialidadCreada is int e) Intentar("DELETE FROM Especialidad WHERE IdEspecialidad = @E", ("@E", e));
-        if (_idEstadoCreado is int s) Intentar("DELETE FROM EstadoTurno WHERE IdEstadoTurno = @S", ("@S", s));
+        if (_idEstadoCreado is int s)
+        {
+            // Catálogo COMPARTIDO: si otra prueba (en paralelo) lo está usando, la clave foránea frena el borrado y el estado queda,
+            // como en cualquier base real. Es lo único que puede fallar a propósito; cualquier otro error sí se registra.
+            const string borrarEstado = "DELETE FROM EstadoTurno WHERE IdEstadoTurno = @S";
+            try { Ejecutar(borrarEstado, ("@S", s)); }
+            catch (SqlException falla) when (falla.Number == 547) { /* lo usa otra prueba */ }
+            catch (SqlException falla) { Registrar(borrarEstado, falla); }
+        }
+
+        if (_fallosDeLimpieza.Count > 0)
+            Informar($"[DatosEmociones {Sala}] no se pudo borrar {_fallosDeLimpieza.Count} cosa(s); quedan filas sueltas con la marca {Marca}:"
+                + Environment.NewLine + "  " + string.Join(Environment.NewLine + "  ", _fallosDeLimpieza));
     }
 
-    private static void Intentar(string sql, params (string, object?)[] p)
+    private void Informar(string mensaje)
     {
-        try { Ejecutar(sql, p); } catch (SqlException) { /* un borrado que no corresponde no tiene que tapar el resultado de la prueba */ }
+        try
+        {
+            if (_salida is not null) { _salida.WriteLine(mensaje); return; }
+        }
+        catch (InvalidOperationException) { /* la prueba ya terminó y no tiene dónde escribir */ }
+        Console.Error.WriteLine(mensaje);
     }
+
+    /// <summary>
+    /// Un borrado de la limpieza. Si falla no se relanza (un borrado que no corresponde no tiene que tapar el resultado de la
+    /// prueba), pero tampoco se calla: queda en <see cref="FallosDeLimpieza"/> y <see cref="Dispose"/> lo escribe en la salida de
+    /// la prueba, porque un borrado que falla deja filas sueltas en la base.
+    /// </summary>
+    public void Intentar(string sql, params (string, object?)[] p)
+    {
+        try { Ejecutar(sql, p); }
+        catch (SqlException e) { Registrar(sql, e); }
+    }
+
+    private void Registrar(string sql, SqlException e) =>
+        _fallosDeLimpieza.Add($"{sql.Trim()}  ->  SqlException {e.Number}: {e.Message.Split('\n')[0].Trim()}");
 }
 
 [Trait("Categoria", "Integracion")]
 public class EmocionesBaseRealTests
 {
+    private readonly ITestOutputHelper _salida;
+
+    public EmocionesBaseRealTests(ITestOutputHelper salida) { _salida = salida; }
+
     private static readonly Dictionary<string, string?> ConClave = new()
     {
         ["Video:Emociones:ClaveCifrado"] = EscenarioEmociones.ClaveDePrueba,
@@ -263,7 +314,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void El_DAO_guarda_una_fila_por_decision_y_la_ultima_es_la_vigente_con_horas_utc_exactas()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var dao = new ConsentimientoVideoDAO();
         var t0 = new DateTime(2031, 3, 4, 10, 0, 0, 123, DateTimeKind.Utc);
 
@@ -285,7 +336,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void Revocar_marca_la_hora_una_sola_vez_y_nunca_antes_de_la_decision()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var dao = new ConsentimientoVideoDAO();
         var t0 = new DateTime(2031, 3, 4, 10, 0, 0, DateTimeKind.Utc);
         var fila = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v", new string('c', 64), "acepta", t0);
@@ -308,7 +359,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void Los_datos_del_paciente_para_decidir_si_se_le_ofrece_el_analisis()
     {
-        using var d = new DatosEmociones(nacimiento: new DateTime(1980, 2, 2));
+        using var d = new DatosEmociones(nacimiento: new DateTime(1980, 2, 2), salida: _salida);
         var dao = new ConsentimientoVideoDAO();
 
         var adulto = dao.ObtenerDatosPaciente(d.IdPaciente)!;
@@ -329,7 +380,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Aceptar_y_revocar_quedan_en_la_tabla_con_version_hash_y_auditoria()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
 
         var acepta = await Aceptar(app, d);
@@ -368,7 +419,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Las_emociones_se_guardan_cifradas_el_profesional_las_lee_y_el_configurador_no()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         await Aceptar(app, d);
 
@@ -425,7 +476,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Sin_consentimiento_la_sesion_se_guarda_sin_emociones_y_lo_dice()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         var desde = DateTime.UtcNow.AddSeconds(-10);
         var emociones = new { origen = "turno", id = d.IdTurno, desdeUtc = Iso(desde), hastaUtc = Iso(desde.AddSeconds(5)), muestras = 8, promedios = Promedios() };
@@ -448,7 +499,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task El_campo_historialEmociones_de_antes_del_PR_6_ya_no_se_guarda()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         await Aceptar(app, d);   // aun con una aceptación vigente
 
@@ -467,7 +518,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Revocar_despues_de_guardar_anula_las_emociones_y_deja_intactas_las_notas()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         await Aceptar(app, d);
         var (_, guardada) = await Guardar(app, d, notas: "nota clínica [TEST-PR6]", transcripcion: "transcripción [TEST-PR6]");
@@ -506,7 +557,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Un_dato_cifrado_no_se_puede_mover_a_otra_sesion_ni_alterar()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         await Aceptar(app, d);
         var (_, a) = await Guardar(app, d, notas: "A [TEST-PR6]");
@@ -542,7 +593,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Lo_guardado_en_claro_antes_del_PR_6_se_sigue_leyendo_y_el_configurador_tampoco_lo_ve()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         d.InsertarSesion(DateTime.Now.AddDays(-400), "{\"Neutral\":70,\"Tristeza\":30}");
         var profesional = app.Cliente(d.IdUsuarioProfesional, Roles.Profesional, idProfesional: d.IdProfesional);
@@ -560,7 +611,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Sin_clave_de_cifrado_las_emociones_cifradas_no_se_devuelven_ni_se_filtran()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         string? cifrado;
         int idSesion;
         using (var conClave = App())
@@ -587,7 +638,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Un_menor_no_tiene_analisis_en_ningun_punto_del_circuito_y_la_llamada_no_depende_de_eso()
     {
-        using var d = new DatosEmociones(nacimiento: new DateTime(2016, 9, 9));
+        using var d = new DatosEmociones(nacimiento: new DateTime(2016, 9, 9), salida: _salida);
         using var app = App();
         var paciente = app.Cliente(d.IdUsuarioPaciente, Roles.Paciente, idPaciente: d.IdPaciente);
         var profesional = app.Cliente(d.IdUsuarioProfesional, Roles.Profesional, idProfesional: d.IdProfesional);
@@ -616,7 +667,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task La_entrevista_de_admision_decide_y_guarda_igual_con_el_configurador_en_el_asiento_del_profesional()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         var idInforme = d.IdInforme;
         await Aceptar(app, d, "admision", idInforme);
@@ -644,8 +695,8 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public async Task Otro_profesional_no_puede_guardar_las_emociones_de_una_sesion_que_no_es_suya()
     {
-        using var d = new DatosEmociones();
-        using var otro = new DatosEmociones();   // otro profesional, con sus propios pacientes
+        using var d = new DatosEmociones(salida: _salida);
+        using var otro = new DatosEmociones(salida: _salida);   // otro profesional, con sus propios pacientes
         using var app = App();
         await Aceptar(app, d);
         // El otro profesional está asociado también a este paciente (por ejemplo, por una derivación), pero no es el del turno.
@@ -672,7 +723,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void Si_falla_el_cifrado_no_queda_la_sesion_a_medio_guardar()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var antes = (int)DatosEmociones.Escalar("SELECT COUNT(*) FROM SesionClinica WHERE IdPaciente = @P", ("@P", d.IdPaciente))!;
 
         Assert.Throws<InvalidOperationException>(() => new SesionClinicaDAO().Insertar(
@@ -686,7 +737,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void La_escritura_de_las_emociones_vuelve_a_mirar_el_consentimiento_y_no_guarda_si_se_revoco()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var consentimientos = new ConsentimientoVideoDAO();
         var ahora = DateTime.UtcNow;
         var vigente = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "acepta", ahora);
@@ -732,7 +783,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void La_purga_real_anula_solo_lo_vencido_por_lotes_y_no_toca_las_notas()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var corte = new DateTime(1990, 1, 1);
         Assert.Equal(0, (int)DatosEmociones.Escalar(
             "SELECT COUNT(*) FROM SesionClinica WHERE HistorialEmociones IS NOT NULL AND FechaHora < @C AND IdPaciente <> @P",
@@ -777,7 +828,7 @@ public class EmocionesBaseRealTests
     [FactConBaseDeConsentimiento]
     public void El_recifrado_lee_por_lotes_y_solo_reemplaza_una_fila_que_no_cambio()
     {
-        using var d = new DatosEmociones();
+        using var d = new DatosEmociones(salida: _salida);
         var a = d.InsertarSesion(DatosEmociones.Fecha, "{\"Neutral\":50}", "nota a [TEST-PR6]");
         var b = d.InsertarSesion(DatosEmociones.Fecha, "{\"Neutral\":60}", "nota b [TEST-PR6]");
         using var repo = new SqlRecifradoRepositorio();
@@ -793,5 +844,61 @@ public class EmocionesBaseRealTests
         Assert.Equal("ys1.k1.XXXX", d.Sesion(a).Emociones);
         Assert.Equal("{\"Neutral\":60}", d.Sesion(b).Emociones);         // la otra fila, intacta
         Assert.Equal("nota a [TEST-PR6]", d.Sesion(a).Notas);              // y las notas, nunca
+    }
+
+    // ───────────── La limpieza de los datos de prueba ─────────────
+
+    // El servicio de recordatorios de una aplicación de prueba puede crearle recordatorios al turno y una notificación al
+    // paciente. Antes, Dispose no los borraba: el DELETE del turno chocaba con FK_Recordatorio_Turno, el del paciente con
+    // Notificacion, y quedaban filas sueltas con la marca [TEST-PR6] en la base.
+    [FactConBaseDeConsentimiento]
+    public void Dispose_se_lleva_los_recordatorios_y_las_notificaciones_que_le_creo_el_servicio_de_recordatorios()
+    {
+        var d = new DatosEmociones(salida: _salida);
+        try
+        {
+            DatosEmociones.Ejecutar(@"INSERT INTO Recordatorio (IdTurno, Tipo, Canal, FechaProgramada)
+                VALUES (@T, 'Turno24h', 'Chat', @F), (@T, 'Turno24h', 'Email', @F), (@T, 'Turno24h', 'App', @F)",
+                ("@T", d.IdTurno), ("@F", DatosEmociones.Fecha));
+            DatosEmociones.Ejecutar("INSERT INTO Notificacion (IdPaciente, Titulo, Mensaje) VALUES (@P, 'Recordatorio de turno', @M)",
+                ("@P", d.IdPaciente), ("@M", DatosEmociones.Marca));
+        }
+        finally { d.Dispose(); }
+
+        Assert.Empty(d.FallosDeLimpieza);
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Recordatorio WHERE IdTurno = @T", ("@T", d.IdTurno)));
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Notificacion WHERE IdPaciente = @P", ("@P", d.IdPaciente)));
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdTurno = @T", ("@T", d.IdTurno)));
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Paciente WHERE IdPaciente = @P", ("@P", d.IdPaciente)));
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Profesional WHERE IdProfesional = @M", ("@M", d.IdProfesional)));
+    }
+
+    // Un borrado de la limpieza que falla no se relanza (no tiene que tapar el resultado de la prueba), pero tampoco se calla:
+    // queda registrado, y Dispose lo escribe en la salida de la prueba.
+    [FactConBaseDeConsentimiento]
+    public void Un_borrado_de_la_limpieza_que_falla_queda_registrado_y_se_escribe_en_la_salida_de_la_prueba()
+    {
+        var salida = new SalidaEnMemoria();
+        var d = new DatosEmociones(salida: salida);
+
+        d.Intentar("DELETE FROM TablaQueNoExiste_TEST_PR6 WHERE Id = @I", ("@I", 1));
+
+        var fallo = Assert.Single(d.FallosDeLimpieza);
+        Assert.Contains("TablaQueNoExiste_TEST_PR6", fallo);
+        Assert.Contains("SqlException 208", fallo);   // 208 = nombre de objeto no válido
+        Assert.Empty(salida.Lineas);                  // todavía no: se escribe al limpiar
+
+        d.Dispose();
+
+        var escrito = Assert.Single(salida.Lineas);
+        Assert.Contains("no se pudo borrar 1 cosa(s)", escrito);
+        Assert.Contains("TablaQueNoExiste_TEST_PR6", escrito);
+    }
+
+    private sealed class SalidaEnMemoria : ITestOutputHelper
+    {
+        public readonly List<string> Lineas = new();
+        public void WriteLine(string message) => Lineas.Add(message);
+        public void WriteLine(string format, params object[] args) => Lineas.Add(string.Format(format, args));
     }
 }

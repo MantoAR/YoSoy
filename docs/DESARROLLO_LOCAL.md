@@ -155,4 +155,3 @@ volvé a crearla.
 | `No encuentro sqlcmd` | Instalá las herramientas de línea de comandos de SQL Server (o SSMS). |
 | "La ejecución de scripts está deshabilitada en este sistema" | Corré el script con `powershell -NoProfile -ExecutionPolicy Bypass -File ...` |
 | El script dice que la base ya existe | Es a propósito: nunca toca una base existente. Borrala (arriba) o elegí otro `-Base`. |
-| `VideoBaseRealTests.De_punta_a_punta_...` falla a veces con `FK_Recordatorio_Turno` | Falla intermitente conocida del propio test, no de tu base: borra su turno sin borrar antes los recordatorios que el servicio de recordatorios pudo crearle. Repetí la corrida. |
