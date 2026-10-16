@@ -10,6 +10,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { crearSesion, ErrorDeSesion, CREDS, RESPALDO } = require("../baileys/sesion");
+const { conRutaDentroDeLaAplicacion, APLICACION } = require("./helpers/dentro-de-la-aplicacion");
 
 const POSIX = process.platform !== "win32";
 const SOLO_POSIX = !POSIX && "los permisos de POSIX no existen en Windows";
@@ -101,12 +102,12 @@ test("un enlace simbólico hacia adentro de la aplicación no sirve para esquiva
         await assert.rejects(() => crearSesion({ dir: path.join(raiz, "enlace", "sesion"), appDir: app }).preparar(), /dentro de la carpeta de la aplicación/);
     }));
 
-test("la ubicación del propio repositorio de YoSoy no sirve como carpeta de sesión", async () => {
-    // Sin tocar el disco real: se valida la ruta sola. Es lo que pasaría si WHATSAPP_BAILEYS_SESSION_PATH apuntara al repo.
-    const adentro = path.join(RAIZ_REPO, "whatsapp-service", "sesion-baileys");
-    await assert.rejects(() => crearSesion({ dir: adentro, appDir: path.join(RAIZ_REPO, "whatsapp-service") }).preparar(), /dentro de/);
-    assert.equal(fs.existsSync(adentro), false, "no se creó nada en el repositorio");
-});
+test("la ubicación del propio repositorio de YoSoy no sirve como carpeta de sesión", () =>
+    // Es lo que pasaría si WHATSAPP_BAILEYS_SESSION_PATH apuntara al repo.
+    conRutaDentroDeLaAplicacion("sesion-prueba-que-no-tiene-que-existir", async adentro => {
+        await assert.rejects(() => crearSesion({ dir: adentro, appDir: APLICACION }).preparar(), /dentro de/);
+        assert.equal(fs.existsSync(adentro), false, "no se creó nada en el repositorio");
+    }));
 
 // ---------- Carpeta dedicada ----------
 

@@ -6,6 +6,8 @@
 //   conectado          listo para enviar y recibir
 //   reconectando       se cortó y se reintenta solo (con espera creciente)
 //   requiere_vincular  no hay sesión válida: hace falta escanear un QR (motivo dice por qué). NO se reintenta en bucle.
+//                      motivos: esperando_escaneo (hay un QR para escanear), qr_vencido (la ventana de QR terminó sin
+//                      escanearse), sesion_cerrada (WhatsApp cerró la sesión), error_borrando_sesion
 //
 // Reglas que este archivo respeta:
 //   - Baileys llega por la "fachada" que se le inyecta (nunca se importa acá): los tests le pasan una falsa.
@@ -49,7 +51,7 @@ function codigoDeError(error) {
 }
 
 class ServicioBaileys {
-    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy" }) {
+    constructor({ fachada, sesion, log, reenviar, reloj = RELOJ_REAL, versionWa = null, buscarVersionWa = false, navegador = "YoSoy", maxVentanasQr = 2 }) {
         this._f = fachada;
         this._sesion = sesion;
         this._log = log;
@@ -58,6 +60,7 @@ class ServicioBaileys {
         this._versionWa = versionWa;
         this._buscarVersionWa = buscarVersionWa;
         this._navegador = navegador;
+        this._maxVentanasQr = maxVentanasQr;       // ventanas de QR que se abren solas antes de esperar a que una persona lo pida
         this._loggerBaileys = crearLoggerBaileys(log, { ahora: () => reloj.ahora() });
 
         this._estado = ESTADOS.DETENIDO;
@@ -65,6 +68,9 @@ class ServicioBaileys {
         this._sock = null;
         this._qr = null;
         this._qrAvisado = false;
+        this._ventanasQr = 0;                      // ventanas de QR abiertas desde la última acción de una persona (arranque, vincular, desvincular)
+        this._huboQr = false;                      // el socket actual llegó a mostrar un QR
+        this._creds = null;                        // credenciales del socket actual (con `me` una vez vinculado)
         this._numero = null;
         this._cerrando = false;
         this._desvinculando = false;
@@ -80,6 +86,7 @@ class ServicioBaileys {
     iniciar() {
         if (this._estado !== ESTADOS.DETENIDO) return;
         this._cerrando = false;
+        this._ventanasQr = 0;
         this._cambiarEstado(ESTADOS.INICIANDO, null);
         this._conectar().catch(err => this._falloAlConectar(err));
     }
@@ -129,6 +136,36 @@ class ServicioBaileys {
         };
     }
 
+    // El texto crudo del QR, SOLO para el comando de vinculación de la terminal (vincular.js), que corre en este mismo proceso.
+    // Nada del servidor HTTP lo expone: GET /estado devuelve la imagen. Es un secreto de vinculación mientras vale.
+    qrTexto() {
+        return this._qr;
+    }
+
+    // Abre una ventana de vinculación por QR a pedido (POST /vincular). Solo si no hay un número vinculado: para cambiar de número
+    // está desvincular(). Es idempotente: si ya hay un QR esperando, no hace nada. Cada pedido de una persona renueva el cupo.
+    async vincular() {
+        const resumen = () => ({ estado: this._estado, motivo: this._motivo, qrPendiente: this._qr !== null });
+        if (this._cerrando || this._estado === ESTADOS.DETENIDO) {
+            return { exito: false, codigo: "detenido", error: "El servicio no está en marcha.", ...resumen() };
+        }
+        if (this._estado === ESTADOS.CONECTADO) {
+            return { exito: false, codigo: "ya_vinculado", error: "Ya hay un número vinculado. Para cambiarlo hay que desvincular primero.", ...resumen() };
+        }
+        if (this._estado !== ESTADOS.REQUIERE_VINCULAR) {
+            return { exito: false, codigo: "en_curso", error: `Todavía no se puede: el servicio está ${this._estado}.`, ...resumen() };
+        }
+        if (this._motivo === "esperando_escaneo") return { exito: true, yaAbierta: true, ...resumen() };
+        if (this._motivo === "error_borrando_sesion") {
+            return { exito: false, codigo: "error_borrando_sesion", error: "No se pudo borrar la sesión anterior: revisar los permisos de la carpeta de la sesión antes de vincular.", ...resumen() };
+        }
+        // qr_vencido o sesion_cerrada: se abre una ventana nueva.
+        this._ventanasQr = 0;
+        this._cambiarEstado(ESTADOS.INICIANDO, null);
+        this._conectar().catch(err => this._falloAlConectar(err));
+        return { exito: true, yaAbierta: false, ...resumen() };
+    }
+
     // Cierra la sesión en WhatsApp, borra las credenciales locales y deja un QR nuevo para vincular otro número
     // (lo mismo que hace el servicio con whatsapp-web.js; es lo que dispara el botón del Configurador).
     async desvincular() {
@@ -155,6 +192,7 @@ class ServicioBaileys {
             this._desvinculando = false;
         }
         if (this._cerrando) return;
+        this._ventanasQr = 0;
         this._cambiarEstado(ESTADOS.INICIANDO, null);
         try { await this._conectar(); }
         catch (err) { this._falloAlConectar(err); }
@@ -171,6 +209,15 @@ class ServicioBaileys {
         if (!vigente()) return;
         const version = await this._resolverVersionWa();
         if (!vigente()) return;
+
+        // Sin número vinculado (en el flujo por QR la librería deja `me` recién al emparejar; `registered` no se toca) este socket
+        // abre una ventana de vinculación: se cuenta, para no pedir QR sin parar.
+        this._creds = state.creds;
+        this._huboQr = false;
+        if (!state.creds?.me?.id) {
+            this._ventanasQr++;
+            this._log.info(`Sin número vinculado: se abre una ventana de vinculación por QR (${this._ventanasQr} de ${this._maxVentanasQr}).`);
+        }
 
         // Si quedó un socket de antes, se descarta: nunca hay dos conectados a la vez.
         const previo = this._sock;
@@ -236,6 +283,7 @@ class ServicioBaileys {
     // El QR es un secreto de vinculación: vive solo en memoria, no se escribe en el log (se ve en GET /estado, que pide secreto).
     _alQr(qr) {
         this._qr = qr;
+        this._huboQr = true;
         this._cambiarEstado(ESTADOS.REQUIERE_VINCULAR, "esperando_escaneo");
         if (!this._qrAvisado) {
             this._qrAvisado = true;
@@ -269,6 +317,18 @@ class ServicioBaileys {
             this._guardado = this._guardado
                 .then(() => this._sesion.limpiar())
                 .catch(err => this._log.error(`No se pudo borrar la sesión cerrada: ${err?.message || err}`));
+            return;
+        }
+        // Una ventana de vinculación terminó sin que nadie escaneara el QR (Baileys la cierra a los ~2,7 minutos). No se sigue
+        // pidiendo QR sin parar: se abren pocas ventanas solas y después se espera a que una persona lo pida.
+        if (this._huboQr && !this._creds?.me?.id) {
+            if (this._ventanasQr < this._maxVentanasQr) {
+                this._log.info(`La ventana de vinculación por QR terminó sin escanearse; se abre otra (${this._ventanasQr + 1} de ${this._maxVentanasQr}).`);
+                this._programarReconexion(2000);
+            } else {
+                this._log.info("La ventana de vinculación por QR terminó sin escanearse y no se abren más solas: hay que pedir otra (POST /vincular, \"Desvincular y cambiar número\" en el Configurador o el comando npm run vincular).");
+                this._cambiarEstado(ESTADOS.REQUIERE_VINCULAR, "qr_vencido");
+            }
             return;
         }
         const demoraMs = codigo === DR.restartRequired ? 0 : 5000;

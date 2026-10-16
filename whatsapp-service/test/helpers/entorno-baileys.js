@@ -15,7 +15,7 @@ function crearEntorno({ registrada = false, opcionesFachada, opcionesServicio = 
     const dirSesion = path.join(raiz, "sesion");
     if (registrada) {
         fs.mkdirSync(dirSesion, { recursive: true });
-        fs.writeFileSync(path.join(dirSesion, "creds.json"), JSON.stringify({ registered: true, me: { id: "5491100000000:7@s.whatsapp.net" } }));
+        fs.writeFileSync(path.join(dirSesion, "creds.json"), JSON.stringify({ registered: false, me: { id: "5491100000000:7@s.whatsapp.net" } }));
     }
 
     const falso = fachadaFalsa(opcionesFachada);

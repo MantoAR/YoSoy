@@ -238,6 +238,154 @@ conEntorno("un entrante mal formado no tira abajo al servicio", { registrada: tr
     assert.equal(e.reenviados.length, 1);
 });
 
+// ---------- Vinculación por QR: ventanas acotadas y vincular() ----------
+
+const VENCE_LA_VENTANA = "QR refs attempts ended";
+
+conEntorno("sin número vinculado: vence la primera ventana de QR, se abre otra, y al vencer la segunda queda esperando a una persona", async e => {
+    const primero = await e.iniciar();
+    primero.emitirQr(QR);
+    primero.cerrar(DisconnectReason.timedOut, VENCE_LA_VENTANA);
+    assert.equal(e.servicio.salud().estado, "reconectando");
+    await e.reloj.avanzar(2000);
+    await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "la segunda ventana" });
+    await e.reloj.avanzar(0);
+
+    e.falso.ultimo.emitirQr(QR);
+    e.falso.ultimo.cerrar(DisconnectReason.timedOut, VENCE_LA_VENTANA);
+
+    const salud = e.servicio.salud();
+    assert.equal(salud.estado, "requiere_vincular");
+    assert.equal(salud.motivo, "qr_vencido");
+    assert.equal(salud.requiereVincular, true);
+    assert.equal(salud.ok, false);
+    assert.equal(e.servicio.qrTexto(), null);
+    assert.equal(e.reloj.pendientes(), 0, "no queda ningún reintento programado");
+    await e.reloj.avanzar(60 * 60 * 1000);
+    assert.equal(e.falso.sockets.length, 2, "ni una ventana más en una hora");
+    assert.match(e.logCompleto(), /no se abren más solas/);
+    assert.doesNotMatch(e.logCompleto(), /ref-secreta|ruido|identidad|adv/, "el QR no aparece en ningún mensaje de las ventanas");
+});
+
+conEntorno("con un cupo de una ventana, la primera que vence ya deja el servicio esperando a una persona", { opcionesServicio: { maxVentanasQr: 1 } }, async e => {
+    const sock = await e.iniciar();
+    sock.emitirQr(QR);
+    sock.cerrar(DisconnectReason.timedOut, VENCE_LA_VENTANA);
+    assert.equal(e.servicio.salud().motivo, "qr_vencido");
+    assert.equal(e.reloj.pendientes(), 0);
+    assert.equal(e.falso.sockets.length, 1);
+});
+
+conEntorno("con un número vinculado, un 408 es un corte común y no una ventana de QR vencida", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.cerrar(DisconnectReason.timedOut);
+    assert.equal(e.servicio.salud().estado, "reconectando");
+    assert.equal(e.servicio.salud().motivo, null);
+    assert.doesNotMatch(e.logCompleto(), /ventana de vinculación|qr_vencido/);
+});
+
+conEntorno("sin número vinculado pero sin que llegara ningún QR, un corte se reintenta como cualquier otro", async e => {
+    const sock = await e.iniciar();
+    sock.cerrar(DisconnectReason.connectionClosed);
+    assert.equal(e.servicio.salud().estado, "reconectando");
+    assert.equal(e.reloj.pendientes(), 1);
+    assert.doesNotMatch(e.logCompleto(), /qr_vencido|terminó sin escanearse/);
+});
+
+conEntorno("una sesión vinculada no cuenta ventanas de QR", { registrada: true }, async e => {
+    await e.iniciar();
+    assert.doesNotMatch(e.logCompleto(), /ventana de vinculación/);
+});
+
+conEntorno("qrTexto() entrega el texto crudo solo mientras el QR está pendiente; /estado entrega la imagen", async e => {
+    const sock = await e.iniciar();
+    assert.equal(e.servicio.qrTexto(), null);
+    sock.emitirQr(QR);
+    assert.equal(e.servicio.qrTexto(), QR);
+    const estado = await e.servicio.estado();
+    assert.match(estado.qr, /^data:image\/png;base64,/);
+    assert.equal(JSON.stringify(estado).includes(QR), false, "el texto crudo no sale en el estado");
+    sock.abrir();
+    assert.equal(e.servicio.qrTexto(), null);
+});
+
+conEntorno("vincular() desde qr_vencido abre una ventana nueva con el cupo renovado (otra ventana más antes de rendirse)", async e => {
+    await gastarElCupo(e);
+
+    const r = await e.servicio.vincular();
+
+    assert.deepEqual(r, { exito: true, yaAbierta: false, estado: "iniciando", motivo: null, qrPendiente: false });
+    await esperarHasta(() => e.falso.sockets.length === 3, { descripcion: "la ventana nueva" });
+    await e.reloj.avanzar(0);
+    e.falso.ultimo.emitirQr(QR);
+    assert.equal((await e.servicio.estado()).qrPendiente, true);
+    e.falso.ultimo.cerrar(DisconnectReason.timedOut, VENCE_LA_VENTANA);
+
+    assert.equal(e.servicio.salud().estado, "reconectando", "queda una segunda ventana por abrir");
+    await e.reloj.avanzar(2000);
+    await esperarHasta(() => e.falso.sockets.length === 4, { descripcion: "la segunda ventana de la tanda nueva" });
+});
+
+conEntorno("vincular() con un QR esperando es idempotente: no abre otro socket", async e => {
+    const sock = await e.iniciar();
+    sock.emitirQr(QR);
+    const r = await e.servicio.vincular();
+    assert.deepEqual(r, { exito: true, yaAbierta: true, estado: "requiere_vincular", motivo: "esperando_escaneo", qrPendiente: true });
+    await e.reloj.avanzar(0);
+    assert.equal(e.falso.sockets.length, 1);
+});
+
+conEntorno("vincular() con un número ya vinculado se niega", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    const r = await e.servicio.vincular();
+    assert.equal(r.exito, false);
+    assert.equal(r.codigo, "ya_vinculado");
+    assert.equal(r.estado, "conectado");
+    assert.equal(e.falso.sockets.length, 1);
+});
+
+conEntorno("vincular() después de que WhatsApp cerró la sesión abre una ventana", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    sock.cerrar(DisconnectReason.loggedOut);
+    await esperarHasta(() => !fs.existsSync(path.join(e.dirSesion, "creds.json")), { descripcion: "el borrado de la sesión muerta" });
+
+    const r = await e.servicio.vincular();
+
+    assert.equal(r.exito, true);
+    await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "la ventana nueva" });
+    assert.equal(e.falso.ultimo.config.auth.creds.me, undefined, "arranca sin las credenciales muertas");
+});
+
+conEntorno("vincular() antes de iniciar o mientras se conecta no corresponde", { registrada: true }, async e => {
+    assert.equal((await e.servicio.vincular()).codigo, "detenido");
+    const sock = await e.iniciar();
+    assert.equal((await e.servicio.vincular()).codigo, "en_curso");
+    sock.abrir();
+    sock.cerrar(DisconnectReason.connectionClosed);
+    const r = await e.servicio.vincular();
+    assert.equal(r.codigo, "en_curso");
+    assert.equal(r.exito, false);
+    assert.equal(e.falso.sockets.length, 1);
+});
+
+conEntorno("vincular() no abre una ventana si no se pudo borrar la sesión anterior", {
+    registrada: true,
+    sesionPersonalizada: (dir, log) => { const real = crearSesion({ dir, log }); return { dir, abrirAuth: f => real.abrirAuth(f), limpiar: async () => { throw new Error("EACCES"); } }; }
+}, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    await assert.rejects(() => e.servicio.desvincular(), /EACCES/);
+
+    const r = await e.servicio.vincular();
+
+    assert.equal(r.exito, false);
+    assert.equal(r.codigo, "error_borrando_sesion");
+    assert.equal(e.falso.sockets.length, 1);
+});
+
 // ---------- Se cierra la sesión (loggedOut): sin reintentos en bucle ----------
 
 conEntorno("loggedOut: queda en requiere_vincular, no reintenta (ni pasados 30 minutos) y lo avisa por /salud", { registrada: true }, async e => {
@@ -321,9 +469,9 @@ conEntorno("vincular con éxito: se guardan las credenciales y el socket nuevo a
     await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "el socket posterior a la vinculación" });
 
     const guardadas = JSON.parse(fs.readFileSync(path.join(e.dirSesion, "creds.json"), "utf8"));
-    assert.equal(guardadas.registered, true);
     assert.equal(guardadas.me.id, "5491177776666:7@s.whatsapp.net");
-    assert.equal(e.falso.ultimo.config.auth.creds.registered, true, "el socket nuevo usa las credenciales ya vinculadas");
+    assert.equal(e.falso.ultimo.config.auth.creds.me.id, "5491177776666:7@s.whatsapp.net", "el socket nuevo usa las credenciales ya vinculadas");
+    assert.doesNotMatch(e.logCompleto(), /terminó sin escanearse|qr_vencido/, "vincularse no es que venza la ventana de QR");
 
     e.falso.ultimo.abrir("5491177776666");
     const estado = await e.servicio.estado();
@@ -398,7 +546,9 @@ conEntorno("creds.update guarda las credenciales; si falla, se loguea y el servi
 
     sock.config.auth.creds.contador = 7;
     sock.ev.emit("creds.update", {});
-    await esperarHasta(() => JSON.parse(fs.readFileSync(path.join(e.dirSesion, "creds.json"), "utf8")).contador === 7, { descripcion: "el guardado" });
+    // La escritura de la librería (y la del doble) no es atómica: mientras se escribe, el archivo puede leerse a medias.
+    const contador = () => { try { return JSON.parse(fs.readFileSync(path.join(e.dirSesion, "creds.json"), "utf8")).contador; } catch { return undefined; } };
+    await esperarHasta(() => contador() === 7, { descripcion: "el guardado" });
 
     // Ahora el guardado falla: la carpeta pasa a ser un archivo.
     fs.rmSync(e.dirSesion, { recursive: true, force: true });
@@ -419,7 +569,7 @@ conEntorno("desvincular: cierra la sesión en WhatsApp, borra las credenciales y
     assert.equal(sock.cerroSesion, true);
     assert.ok(!fs.existsSync(path.join(e.dirSesion, "creds.json")), "las credenciales viejas se borraron");
     await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "el socket de la vinculación nueva" });
-    assert.equal(e.falso.ultimo.config.auth.creds.registered, false, "el socket nuevo arranca sin sesión");
+    assert.equal(e.falso.ultimo.config.auth.creds.me, undefined, "el socket nuevo arranca sin sesión");
 
     e.falso.ultimo.emitirQr(QR);
     assert.equal((await e.servicio.estado()).qrPendiente, true);
@@ -427,6 +577,34 @@ conEntorno("desvincular: cierra la sesión en WhatsApp, borra las credenciales y
     await e.reloj.avanzar(10 * 60 * 1000);
     assert.equal(e.falso.sockets.length, 2);
     assert.doesNotMatch(e.logCompleto(), /cerró la sesión|sesion_cerrada/, "una desvinculación pedida no se registra como una sesión cerrada por WhatsApp");
+});
+
+// Deja el servicio en qr_vencido: gasta el cupo de ventanas de QR (por defecto 2) sin que nadie escanee nada.
+async function gastarElCupo(e) {
+    const primero = await e.iniciar();
+    primero.emitirQr(QR);
+    primero.cerrar(DisconnectReason.timedOut, "QR refs attempts ended");
+    await e.reloj.avanzar(2000);
+    await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "la segunda ventana" });
+    await e.reloj.avanzar(0);
+    e.falso.ultimo.emitirQr(QR);
+    e.falso.ultimo.cerrar(DisconnectReason.timedOut, "QR refs attempts ended");
+    assert.equal(e.servicio.salud().motivo, "qr_vencido");
+    assert.equal(e.falso.sockets.length, 2);
+}
+
+conEntorno("desvincular renueva el cupo de ventanas de QR: la ventana nueva también tiene una segunda", async e => {
+    await gastarElCupo(e);
+
+    await e.servicio.desvincular();
+    await esperarHasta(() => e.falso.sockets.length === 3, { descripcion: "la ventana nueva" });
+    await e.reloj.avanzar(0);
+    e.falso.ultimo.emitirQr(QR);
+    e.falso.ultimo.cerrar(DisconnectReason.timedOut, "QR refs attempts ended");
+
+    assert.equal(e.servicio.salud().estado, "reconectando", "queda una segunda ventana por abrir");
+    await e.reloj.avanzar(2000);
+    await esperarHasta(() => e.falso.sockets.length === 4, { descripcion: "la segunda ventana de la tanda nueva" });
 });
 
 conEntorno("desvincular sin nada conectado (QR pendiente) no pide logout y genera un QR nuevo", async e => {
@@ -494,7 +672,7 @@ test("desvincular espera lo que quedó por guardar antes de borrar la sesión: n
         await desvinculado;
         await esperarHasta(() => e.falso.sockets.length === 2, { descripcion: "el socket de la vinculación nueva" });
         assert.ok(!fs.existsSync(path.join(e.dirSesion, "creds.json")), "las credenciales viejas no resucitaron");
-        assert.equal(e.falso.ultimo.config.auth.creds.registered, false);
+        assert.equal(e.falso.ultimo.config.auth.creds.me, undefined);
     } finally {
         await e.servicio.cerrar().catch(() => {});
         e.limpiar();
@@ -547,7 +725,7 @@ test("desvincular mientras se estaba conectando: el intento viejo se descarta, s
         await esperarHasta(() => e.falso.sockets.length >= 1, { descripcion: "el socket de la vinculación nueva" });
         await e.reloj.avanzar(0);
         assert.equal(e.falso.sockets.length, 1, "un solo socket, el de la vinculación nueva");
-        assert.equal(e.falso.ultimo.config.auth.creds.registered, false, "y arranca sin las credenciales viejas");
+        assert.equal(e.falso.ultimo.config.auth.creds.me, undefined, "y arranca sin las credenciales viejas");
     } finally {
         await e.servicio.cerrar().catch(() => {});
         e.limpiar();

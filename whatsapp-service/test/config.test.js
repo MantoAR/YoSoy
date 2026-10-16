@@ -3,7 +3,7 @@ require("./helpers/sin-red");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
-const { leerConfig, ErrorDeConfiguracion, validarApiBaseUrl } = require("../config");
+const { leerConfig, leerConfigBaileys, leerPuerto, ErrorDeConfiguracion, validarApiBaseUrl } = require("../config");
 
 const SECRETO = "secreto-de-prueba-que-no-se-puede-filtrar";
 const base = (extra = {}) => ({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, ...extra });
@@ -69,6 +69,7 @@ test("con baileys y la carpeta bien puesta, la configuración queda completa", (
     assert.equal(c.baileys.sessionPath, ABSOLUTA);
     assert.equal(c.baileys.versionWa, null);
     assert.equal(c.baileys.buscarVersionWa, false);
+    assert.equal(c.baileys.maxVentanasQr, 2);
 });
 
 test("la versión de WhatsApp Web se puede fijar a mano, y se valida", () => {
@@ -76,6 +77,25 @@ test("la versión de WhatsApp Web se puede fijar a mano, y se valida", () => {
     assert.deepEqual(leerConfig({ ...env, WHATSAPP_BAILEYS_VERSION_WA: "2.3000.1037753511" }).baileys.versionWa, [2, 3000, 1037753511]);
     assert.equal(leerConfig({ ...env, WHATSAPP_BAILEYS_BUSCAR_VERSION: "1" }).baileys.buscarVersionWa, true);
     falla({ ...env, WHATSAPP_BAILEYS_VERSION_WA: "ultima" }, /WHATSAPP_BAILEYS_VERSION_WA tiene que tener la forma/);
+});
+
+test("las ventanas de QR que se abren solas son entre 1 y 5 (por defecto 2)", () => {
+    const env = base({ WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA });
+    assert.equal(leerConfig({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "1" }).baileys.maxVentanasQr, 1);
+    assert.equal(leerConfig({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "5" }).baileys.maxVentanasQr, 5);
+    falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "0" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que estar entre 1 y 5/);
+    falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "6" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que estar entre 1 y 5/);
+    falla({ ...env, WHATSAPP_BAILEYS_VENTANAS_QR: "muchas" }, /WHATSAPP_BAILEYS_VENTANAS_QR tiene que ser un número entero/);
+});
+
+test("el comando de vinculación lee solo lo de Baileys: no pide la API ni el secreto", () => {
+    const c = leerConfigBaileys({ WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA, WHATSAPP_BAILEYS_VENTANAS_QR: "3" });
+    assert.deepEqual(c, { sessionPath: ABSOLUTA, versionWa: null, buscarVersionWa: false, maxVentanasQr: 3 });
+    assert.throws(() => leerConfigBaileys({}), /Falta WHATSAPP_BAILEYS_SESSION_PATH/);
+    assert.throws(() => leerConfigBaileys({ WHATSAPP_BAILEYS_SESSION_PATH: "relativa" }), /ruta absoluta/);
+    assert.equal(leerPuerto({}), 3002);
+    assert.equal(leerPuerto({ WHATSAPP_SERVICE_PORT: "4567" }), 4567);
+    assert.throws(() => leerPuerto({ WHATSAPP_SERVICE_PORT: "70000" }), /WHATSAPP_SERVICE_PORT tiene que estar entre 1 y 65535/);
 });
 
 test("con baileys, API_BASE_URL no puede mandar el secreto en claro a otra máquina", () => {

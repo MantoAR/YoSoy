@@ -220,6 +220,43 @@ test("POST /vincular: 401 sin secreto, 404 si el backend no lo soporta, y con so
     });
 });
 
+test("POST /vincular: si el servicio dice que no corresponde (ya hay un número...), es un 409 con el motivo", async () => {
+    const servicio = servicioFalso({
+        vincular: async () => ({ exito: false, codigo: "ya_vinculado", error: "Ya hay un número vinculado.", estado: "conectado" })
+    });
+    await conServidor({ servicio }, async ({ pedir }) => {
+        const r = await pedir("/vincular", { metodo: "POST" });
+        assert.equal(r.status, 409);
+        assert.equal(r.headers.get("cache-control"), "no-store");
+        assert.deepEqual(await r.json(), { exito: false, codigo: "ya_vinculado", error: "Ya hay un número vinculado.", estado: "conectado" });
+    });
+});
+
+test("POST /vincular: si el servicio falla, 500 en JSON y sin filtrar el detalle", async () => {
+    const log = crearLog();
+    const servicio = servicioFalso({ vincular: async () => { throw new Error("detalle interno 5491122334455"); } });
+    await conServidor({ servicio, log }, async ({ pedir }) => {
+        const r = await pedir("/vincular", { metodo: "POST" });
+        assert.equal(r.status, 500);
+        assert.deepEqual(await r.json(), { exito: false, error: "Error interno." });
+    });
+});
+
+test("ninguna ruta devuelve el texto crudo del QR: /estado entrega la imagen", async () => {
+    const QR_CRUDO = "ref-secreta-1,ruido,identidad,adv";
+    const servicio = servicioFalso({
+        estado: async () => ({ conectado: false, numero: null, qrPendiente: true, qr: "data:image/png;base64,AAAA" }),
+        vincular: async () => ({ exito: true, estado: "requiere_vincular", motivo: "esperando_escaneo", qrPendiente: true }),
+        qrTexto: () => QR_CRUDO
+    });
+    await conServidor({ servicio }, async ({ pedir }) => {
+        for (const [ruta, metodo] of [["/estado", "GET"], ["/vincular", "POST"], ["/salud", "GET"], ["/qr", "GET"], ["/qrTexto", "GET"]]) {
+            const r = await pedir(ruta, { metodo });
+            assert.equal((await r.text()).includes(QR_CRUDO), false, `${metodo} ${ruta} no puede devolver el QR crudo`);
+        }
+    });
+});
+
 // ---------- Robustez ----------
 
 test("un JSON roto o enorme da 400 o 413 en JSON, nunca el HTML con la pila de Express", async () => {

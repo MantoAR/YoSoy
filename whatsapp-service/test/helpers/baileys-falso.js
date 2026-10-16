@@ -6,7 +6,8 @@
 //   - makeWASocket emite "connecting" en el próximo tick (no antes de que quien lo creó registre sus handlers);
 //   - end() emite UN "close" y después quita todos los listeners de "connection.update": un socket cerrado no se reutiliza;
 //   - logout() termina en un cierre con el código 401 (el mismo que una desvinculación desde el teléfono);
-//   - al vincular, llegan "creds.update" e "isNewLogin" y enseguida el servidor pide reiniciar (515).
+//   - al vincular, llegan "creds.update" e "isNewLogin" y enseguida el servidor pide reiniciar (515). Con el QR la librería deja
+//     `creds.me` y NO toca `creds.registered` (solo lo marca el emparejamiento por código de teléfono): "vinculado" se decide por `me`.
 "use strict";
 
 const fs = require("node:fs");
@@ -101,7 +102,6 @@ class SocketFalso {
     // Vinculación exitosa: se actualizan las credenciales, llegan creds.update e isNewLogin y el servidor pide reiniciar (515).
     vincularConExito(numero = "5491100000000") {
         const creds = this.config.auth.creds;
-        creds.registered = true;
         creds.me = { id: `${numero}:7@s.whatsapp.net`, name: "Clínica" };
         this.ev.emit("creds.update", { me: creds.me });
         this.ev.emit("connection.update", { isNewLogin: true, qr: undefined });

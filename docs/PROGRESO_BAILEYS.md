@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 2 (sesión persistente).
+- **Última actualización:** 2026-10-16, tras la etapa 3 (vinculación por QR).
 
 ## Estado de las etapas
 
@@ -22,8 +22,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | — | Este archivo | hecho | `892ae1e` |
 | 9 | Dependencia: paquete, versión exacta, `npm audit`, red de seguridad de los tests | **hecho** | `4928d2f` |
 | 1 | Canal Baileys en `whatsapp-service` + `Mensajeria__CanalActivo=Baileys` en la API | **hecho** | `bf0c4bd` |
-| 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | (este commit) |
-| 3 | Vinculación por QR (comando y endpoint local) | pendiente | — |
+| 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | `7e95b94` |
+| 3 | Vinculación por QR (comando y endpoint local) | **hecho** | (este commit) |
 | 4 | Reconexión con backoff y manejo de `loggedOut` | pendiente | — |
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | pendiente | — |
 | 6 | Privacidad en logs | pendiente | — |
@@ -221,6 +221,51 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   detectar en POSIX (permisos, `umask`, enlaces simbólicos): ver arriba. (Dos de las que primero se escaparon, `..sesion`
   dentro de la aplicación y `deps.appDir`, llevaron a pruebas nuevas.)
 
+## Etapa 3: vinculación por QR
+
+### Qué quedó hecho
+
+- **Tres formas de vincular, ninguna con el QR en un log o un archivo** (ver README, "Baileys: vincular el número (QR)"):
+  1. el **Configurador** (el flujo de siempre: muestra el QR de `GET /estado`);
+  2. **`POST /vincular`** (loopback, con secreto): abre una ventana nueva; el QR se ve en `GET /estado`. 409 si no corresponde;
+  3. **`npm run vincular`** / `node vincular.js` (**el comando**): dibuja el QR en la terminal, reemplazándolo en cada renovación, y
+     termina cuando el número queda vinculado. Corre con el servicio apagado, como el usuario del servicio, y solo en una
+     terminal real. No necesita el secreto compartido ni reenvía mensajes.
+- **Ventanas de QR acotadas.** Hallazgo: Baileys cierra cada ventana (~2,7 min) con un 408 y, con la reconexión de la etapa 1, el
+  servicio habría pedido un QR nuevo cada ~3 minutos para siempre, sin nadie mirando. Ahora, sin número vinculado, se abren
+  hasta `WHATSAPP_BAILEYS_VENTANAS_QR` ventanas solas (1 a 5, por defecto 2) y después el servicio queda en `requiere_vincular` /
+  `qr_vencido`, esperando que una persona pida otra (`POST /vincular`, "Desvincular y cambiar número" o el comando). Cada
+  pedido de una persona renueva el cupo.
+- **"Vinculado" se decide por `creds.me`, no por `creds.registered`.** Hallazgo al leer la librería: con el QR, Baileys deja
+  `me` y **nunca** marca `registered` (eso solo pasa con el emparejamiento por código de teléfono). Usar `registered` habría
+  tomado una sesión válida por vacía. Los dobles de prueba ahora se comportan como la librería real en esto.
+- **`ServicioBaileys.vincular()`** (nuevo): `ya_vinculado` si hay número, `en_curso` si todavía conecta, `detenido`,
+  `error_borrando_sesion` si la sesión vieja no se pudo borrar; idempotente si ya hay un QR esperando. `qrTexto()` entrega el
+  texto crudo **solo al comando** (mismo proceso): ninguna ruta HTTP lo devuelve (hay una prueba que lo verifica).
+- **`config.js`:** `leerConfigBaileys()` y `leerPuerto()` salen aparte para que el comando no pida la API ni el secreto.
+
+### Decisiones y límites
+
+- **El comando es autónomo** (abre su propio socket sobre la misma carpeta de sesión) en vez de hablarle al servicio por HTTP:
+  así el texto crudo del QR nunca viaja por HTTP. A cambio hay que parar el servicio antes (lo verifica por el puerto).
+- **No cambié la API ni el Configurador.** Hoy el Configurador solo sabe `GET /estado` y `POST /desvincular`; con Baileys alcanza
+  (el QR aparece solo al arrancar sin número, y "Desvincular y cambiar número" abre otra ventana). Un botón "Vincular" que llame
+  a `POST /vincular` sería un cambio chico en la API, **no hecho** (queda como mejora; ver "Qué falta").
+- **Lo que no probé, por el límite de no tocar WhatsApp real:** que el QR que genera la librería real se vea bien en una terminal
+  de SSH, y el ciclo de ~2,7 minutos con tiempos reales. Los tiempos se prueban con reloj falso y el dibujo con `qrcode-terminal`
+  sobre un texto de ejemplo.
+
+### Pruebas de esta etapa
+
+- `test/vincular.test.js` (nuevo, 16), más pruebas de ventanas y `vincular()` en `baileys-servicio.test.js`, de `/vincular` (409,
+  500, sin QR crudo) en `servidor.test.js`, y de configuración y cableado.
+- **`npm test`: 213 pruebas, 208 pasan, 5 saltadas (solo POSIX), 0 fallas.** Además arreglé una prueba intermitente de la etapa 1
+  (leía `creds.json` mientras se escribía).
+- **Mutaciones:** 36 cambios a propósito (servicio, comando, configuración, endpoint, cableado); **todos detectados.** Para que se
+  note que `vincular`/`desvincular` renuevan el cupo, esas pruebas usan el cupo por defecto (2 ventanas): con 1 el resultado
+  visible es el mismo. Una mutación dejó una carpeta vacía dentro del repo; las pruebas que apuntan una sesión adentro del repo ahora la
+  borran si el código la llegara a crear.
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -237,6 +282,9 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 - **Correr `npm test` una vez en Linux** (por ejemplo en una copia aparte, o en el VPS tras `npm ci`): en Windows se saltean 5
   pruebas de permisos y enlaces simbólicos. Las pruebas usan carpetas temporales y no tocan la sesión real.
+- **Vincular el número dedicado (yo no lo hago nunca):** tener el chip del número dedicado de la clínica con WhatsApp ya activo en un
+  teléfono, y escanear el QR vos, por la forma que prefieras (README, "Baileys: vincular el número (QR)"). Después de escanear,
+  no usar ese WhatsApp en otro teléfono al mismo tiempo: invalida la sesión.
 - **Crear la carpeta de la sesión en el VPS** (cuando se vaya a usar Baileys; el detalle completo va en `DEPLOY.md`, etapa 8):
   `sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys` y poner
   `WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys` en `/opt/yosoy/config/whatsapp.env`. Esa carpeta también
@@ -244,9 +292,12 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 3 a 8 (ver la tabla). Lo que las etapas 1 y 2 dejan a propósito para después: comando y endpoint de vinculación
-  (3), backoff y trato fino de cada motivo de desconexión (4), cola con ritmo/tope y consentimiento (5), revisión de
-  privacidad de todo el log (6), `/salud` más completo y apagado ordenado (7), unidad systemd y docs de despliegue (8).
+- Etapas 4 a 8 (ver la tabla). Lo que las etapas 1 a 3 dejan a propósito para después: backoff y trato fino de cada motivo de
+  desconexión (4), cola con ritmo/tope y consentimiento (5), revisión de privacidad de todo el log (6), `/salud` más completo y
+  apagado ordenado (7), unidad systemd y docs de despliegue (8).
+- **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
+  se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
+  mezclar un cambio de API/UI en esta tarea.
 - **Decisión pendiente (no bloquea nada): ¿se respalda la sesión de Baileys?** `SERVIDOR.md` ya pide respaldar fuera del
   servidor la sesión de WhatsApp. Con Baileys, perderla significa volver a escanear un QR (unos minutos, con el teléfono del
   número dedicado), no perder el número; el costo de respaldarla es que son credenciales de la cuenta. Si se respalda: cifrada

@@ -32,7 +32,8 @@ async function crearBackend(config, log, deps = {}) {
             log,
             reenviar,
             versionWa: config.baileys.versionWa,
-            buscarVersionWa: config.baileys.buscarVersionWa
+            buscarVersionWa: config.baileys.buscarVersionWa,
+            maxVentanasQr: config.baileys.maxVentanasQr
         });
     }
 

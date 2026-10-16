@@ -8,6 +8,7 @@ const path = require("node:path");
 const { crearBackend } = require("../backend");
 const { ServicioBaileys } = require("../baileys/servicio");
 const { fachadaFalsa } = require("./helpers/baileys-falso");
+const { conRutaDentroDeLaAplicacion } = require("./helpers/dentro-de-la-aplicacion");
 
 const log = { info() {}, error() {} };
 const configBaileys = sessionPath => ({
@@ -15,7 +16,7 @@ const configBaileys = sessionPath => ({
     puerto: 3002,
     apiBaseUrl: "http://127.0.0.1:5000",
     secreto: "S3CRETO",
-    baileys: { sessionPath, versionWa: null, buscarVersionWa: false }
+    baileys: { sessionPath, versionWa: null, buscarVersionWa: false, maxVentanasQr: 3 }
 });
 
 // Una carpeta de sesión en el directorio temporal (fuera del repo), que se borra al terminar.
@@ -41,6 +42,7 @@ test("con backend baileys se arma un ServicioBaileys, sin iniciarlo ni abrir soc
     assert.equal(falso.sockets.length, 0);
     assert.deepEqual(cargadas(), [], "con baileys no hay Puppeteer ni whatsapp-web.js en memoria");
     assert.ok(fs.statSync(carpeta).isDirectory(), "la carpeta de la sesión quedó creada y lista");
+    assert.equal(backend._maxVentanasQr, 3, "el cupo de ventanas de QR de la configuración llega al servicio");
 }));
 
 test("si Baileys no se puede cargar, el error sube (index.js lo informa y sale)", conCarpeta(async carpeta => {
@@ -49,15 +51,15 @@ test("si Baileys no se puede cargar, el error sube (index.js lo informa y sale)"
         /No está instalado/);
 }));
 
-test("una carpeta de sesión dentro de la aplicación frena el arranque ANTES de cargar la librería y no crea nada", async () => {
-    const adentro = path.join(__dirname, "..", "sesion-que-no-tiene-que-existir");
-    let seCargo = false;
-    await assert.rejects(
-        () => crearBackend(configBaileys(adentro), log, { cargarBaileys: async () => { seCargo = true; return fachadaFalsa().fachada; } }),
-        /FUERA/);
-    assert.equal(seCargo, false, "la librería ni se cargó");
-    assert.equal(fs.existsSync(adentro), false, "y no se creó la carpeta");
-});
+test("una carpeta de sesión dentro de la aplicación frena el arranque ANTES de cargar la librería y no crea nada", () =>
+    conRutaDentroDeLaAplicacion("sesion-backend-que-no-tiene-que-existir", async adentro => {
+        let seCargo = false;
+        await assert.rejects(
+            () => crearBackend(configBaileys(adentro), log, { cargarBaileys: async () => { seCargo = true; return fachadaFalsa().fachada; } }),
+            /FUERA/);
+        assert.equal(seCargo, false, "la librería ni se cargó");
+        assert.equal(fs.existsSync(adentro), false, "y no se creó la carpeta");
+    }));
 
 test("una carpeta de sesión dentro de la carpeta de la aplicación (aunque no sea un repo) frena el arranque", conCarpeta(async carpeta => {
     const app = path.dirname(carpeta);                       // la "aplicación" de esta prueba es la carpeta temporal

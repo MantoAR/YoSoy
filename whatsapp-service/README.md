@@ -36,6 +36,7 @@ Van en `/opt/yosoy/config/whatsapp.env` (o en la `Environment=` de la unit). Tod
 | `WHATSAPP_BAILEYS_SESSION_PATH` | **Obligatoria.** Carpeta de la sesión (es una credencial): ruta absoluta, **fuera del repositorio** y de la carpeta de la aplicación. |
 | `WHATSAPP_BAILEYS_VERSION_WA` | Fija la versión de WhatsApp Web, por ejemplo `2.3000.1037753511`. Solo si WhatsApp rechaza la que trae la librería (cierre con 405 al arrancar). |
 | `WHATSAPP_BAILEYS_BUSCAR_VERSION` | `1` para pedirle a Baileys la última versión conocida al arrancar (hace un pedido a `raw.githubusercontent.com`). |
+| `WHATSAPP_BAILEYS_VENTANAS_QR` | Cuántas ventanas de QR (~2,7 minutos cada una) se abren solas sin número vinculado antes de esperar a que una persona pida otra. De 1 a 5; por defecto 2. |
 
 ### Baileys: la carpeta de la sesión
 
@@ -61,6 +62,41 @@ cuando WhatsApp cierra la sesión, se borran las credenciales **y** el respaldo.
 El `.gitignore` de la raíz frena por nombre (`creds.json`, `pre-key-*.json`, ...) cualquier archivo de sesión, por si alguien
 apuntara la variable adentro del repositorio o copiara la carpeta: es solo una red de seguridad, la regla es que no esté
 ahí. **No copiar esa carpeta a ningún lado** (ni a backups sin cifrar, ni a un chat, ni a un ticket).
+
+### Baileys: vincular el número (QR)
+
+Para vincular el número dedicado de la clínica hay tres formas, de la más cómoda a la de respaldo. En ninguna el QR queda en un
+log ni en un archivo: vive en memoria mientras vale (WhatsApp lo renueva cada ~20 segundos) y sale solo por pantalla o por
+`GET /estado`, que pide el secreto. Es de un solo uso, pero mientras vale **quien lo escanee conecta SU cuenta de WhatsApp al
+servicio**: mostrarlo solo a quien lo va a escanear con el teléfono del número de la clínica.
+
+1. **Desde el Configurador** (sección WhatsApp, administrador). Sin número vinculado, el servicio abre solo una **ventana de QR**
+   al arrancar. Si nadie la escanea abre una segunda (`WHATSAPP_BAILEYS_VENTANAS_QR`) y después **se queda esperando**, en
+   estado `requiere_vincular` con motivo `qr_vencido`: no le pide QR a WhatsApp sin parar. Para abrir otra: "Desvincular y
+   cambiar número" en el Configurador, o la forma 2.
+2. **Por HTTP, en la propia máquina** (diagnóstico). `POST /vincular` abre una ventana nueva y el QR se ve en `GET /estado`
+   (campo `qr`, una imagen). Responde 409 si ya hay un número vinculado o el servicio todavía se está conectando; es idempotente
+   si ya hay un QR esperando.
+   ```bash
+   curl -s -X POST http://127.0.0.1:3002/vincular -H "X-Shared-Secret: $SECRETO"
+   curl -s http://127.0.0.1:3002/estado -H "X-Shared-Secret: $SECRETO"
+   ```
+3. **Desde la terminal** (por SSH, sin el Configurador). `vincular.js` dibuja el QR en la pantalla, reemplazándolo cada vez que
+   WhatsApp lo renueva, y termina cuando el número queda vinculado. Corre **con el servicio apagado** (dos conexiones con la
+   misma cuenta se pisan) y **como el usuario del servicio** (no root: la sesión quedaría de root):
+   ```bash
+   sudo systemctl stop whatsapp-service
+   cd /opt/yosoy/whatsapp/app
+   sudo -u yosoy env WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys node vincular.js
+   sudo systemctl start whatsapp-service
+   ```
+   Se niega si la salida no es una terminal (para que el QR no termine en un archivo ni en el journal), si corre como root o
+   si hay algo escuchando en el puerto del servicio. No necesita el secreto compartido ni reenvía mensajes. Códigos de salida:
+   0 vinculado (o ya lo estaba), 1 no se pudo, 2 el QR venció o se agotó el tiempo, 130 Ctrl+C.
+
+Para escanear: en el teléfono del número de la clínica, WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo.
+Al terminar, WhatsApp pide reiniciar la conexión y el servicio la reabre solo con la sesión ya guardada (en el log aparece
+"WhatsApp conectado (número ***1234)").
 
 Más variables (reconexión, ritmo de envío, tope diario, consentimiento) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).

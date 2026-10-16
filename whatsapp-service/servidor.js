@@ -5,7 +5,8 @@
 //   GET  /estado       { conectado, numero, qrPendiente, qr } (más campos extra según el backend). Pide secreto.
 //   POST /enviar       { telefono, texto } → { exito, idExterno } o { exito:false, error }. Pide secreto.
 //   POST /desvincular  Pide secreto. Responde apenas valida, sin esperar al reinicio.
-//   POST /vincular     Solo Baileys: arranca una vinculación por QR. Pide secreto.
+//   POST /vincular     Solo Baileys: abre una ventana de vinculación por QR (el QR se ve en GET /estado). Pide secreto.
+//                      409 si no corresponde (ya hay un número vinculado, todavía se está conectando...).
 //
 // El secreto es X-Shared-Secret (Mensajeria__WhatsApp__Secreto), comparado en tiempo constante.
 "use strict";
@@ -85,7 +86,8 @@ function crearApp({ servicio, cola, secreto, log }) {
             return res.status(404).json({ exito: false, error: "Este backend no tiene vinculación a pedido." });
         }
         res.set("Cache-Control", "no-store");
-        res.json({ exito: true, ...(await servicio.vincular()) });
+        const resultado = await servicio.vincular();
+        res.status(resultado.exito === false ? 409 : 200).json({ exito: true, ...resultado });
     }, { exito: false, error: "Error interno." }));
 
     app.use((req, res) => res.status(404).json({ exito: false, error: "No existe." }));
