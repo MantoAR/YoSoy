@@ -552,22 +552,27 @@ app.MapGet("/profesionales/{id}", (int id) =>
     return p is null ? Results.NotFound() : Results.Ok(p);
 }).RequireAuthorization();
 
+// Matrícula o DNI ya registrados → 409 con un mensaje neutral; especialidad inexistente → 400; antes
+// salía todo como 500 (RegistroProfesionalService). Con el mismo límite por IP que el registro de
+// paciente: el 409 es una pista de "esto ya existe" y no tiene que poder barrerse a ritmo libre.
 app.MapPost("/profesionales", (Profesional p, HttpContext ctx) =>
 {
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     p.Estado = "Pendiente";
-    p.IdProfesional = new ProfesionalDAO().Insertar(p);
+    var resultado = new RegistroProfesionalService(new ProfesionalDAO()).Registrar(p);
+    if (!resultado.Ok) return Results.Json(new { mensaje = resultado.Mensaje }, statusCode: resultado.StatusCode);
+    p.IdProfesional = resultado.IdProfesional;
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", Detalle = $"{p.Nombre} {p.Apellido}" });
     return Results.Created("/profesionales", p);
-});
+}).RequireRateLimiting("registro");
 
 app.MapPut("/profesionales/{id}", (int id, Profesional p, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador && yo.IdProfesional != id)
         return Results.Json(new { mensaje = "Solo podés editar tu propio perfil." }, statusCode: 403);
-    p.IdProfesional = id;
-    new ProfesionalDAO().Modificar(p);
+    var resultado = new RegistroProfesionalService(new ProfesionalDAO()).Modificar(id, p);
+    if (!resultado.Ok) return Results.Json(new { mensaje = resultado.Mensaje }, statusCode: resultado.StatusCode);
     return Results.Ok(p);
 }).RequireAuthorization();
 
