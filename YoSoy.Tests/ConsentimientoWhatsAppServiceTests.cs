@@ -378,6 +378,25 @@ public class ConsentimientoWhatsAppServiceTests
     }
 
     [Fact]
+    public void Una_identidad_que_no_es_de_paciente_no_hace_nada_aunque_traiga_un_id_de_paciente()
+    {
+        // Un token mal armado (o un cambio futuro en cómo se arma la identidad) no puede convertir a un profesional o al Configurador en "el
+        // paciente 301": el rol manda, no solo que haya un id.
+        var e = new EscenarioWhatsApp();
+        e.Aceptar();
+        var antes = e.Repo.Filas.ToList();
+
+        foreach (var yo in new[] { new Identidad(21, Roles.Profesional, EscenarioWhatsApp.IdPaciente, 201), new Identidad(11, Roles.Configurador, EscenarioWhatsApp.IdPaciente, null) })
+        {
+            Assert.Equal(TipoErrorConsentimiento.SoloPacientes, Falla(e.Servicio.Obtener(yo)).Tipo);
+            Assert.Equal(TipoErrorConsentimiento.SoloPacientes, Falla(e.Servicio.Aceptar(yo, "v1")).Tipo);
+            Assert.Equal(TipoErrorConsentimiento.SoloPacientes, Falla(e.Servicio.Revocar(yo)).Tipo);
+        }
+        Assert.Equal(antes, e.Repo.Filas);
+        Assert.Single(e.Auditoria.Registros);
+    }
+
+    [Fact]
     public void Un_paciente_sin_id_de_paciente_en_la_sesion_no_hace_nada()
     {
         var e = new EscenarioWhatsApp();
@@ -487,6 +506,21 @@ public class ConsentimientoWhatsAppServiceTests
 
         Assert.Equal(0, e.Servicio.RegistrarBaja(telefono));
         Assert.Null(e.Repo.Filas[0].RevocadoUtc);
+        Assert.Empty(e.Repo.TelefonosDeBaja);          // ni siquiera se consulta la base con algo que no es un teléfono
+    }
+
+    [Theory]
+    [InlineData("1155550001", "1155550001")]
+    [InlineData("5491155550001", "1155550001")]          // como lo escribe WhatsApp
+    [InlineData("+54 9 11 5555-0001", "1155550001")]
+    [InlineData("011 15 5555-0001", "1155550001")]
+    public void La_baja_busca_en_la_base_siempre_por_el_numero_nacional_de_10_digitos(string llega, string seBusca)
+    {
+        var e = new EscenarioWhatsApp();
+        e.Aceptar();
+
+        Assert.Equal(1, e.Servicio.RegistrarBaja(llega));
+        Assert.Equal(new[] { seBusca }, e.Repo.TelefonosDeBaja);
     }
 
     [Fact]

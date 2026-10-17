@@ -86,6 +86,72 @@ public class TelefonoArgentinoTests
         Assert.Null(TelefonoArgentino.Normalizar(entrada));
     }
 
+    [Theory]
+    // Letras junto a un número que, sin ellas, sería válido: no se "rescata" el número (podría ser cualquier cosa).
+    [InlineData("11 5555-0001 casa")]
+    [InlineData("cel 11 5555 0001")]
+    [InlineData("cel: 011 15 5555-0001")]
+    [InlineData("1155550001x")]
+    [InlineData("x1155550001")]
+    [InlineData("Juan 1155550001")]
+    [InlineData("11 5555-0001 (Juan)")]
+    [InlineData("11 5555-0001 ext.")]
+    [InlineData("+54 9 11 5555-0001 wsp")]
+    public void Con_letras_o_texto_de_mas_no_vale_aunque_los_digitos_cierren(string entrada)
+    {
+        Assert.Null(TelefonoArgentino.Normalizar(entrada));
+    }
+
+    [Theory]
+    // Números de otros países con prefijo "+" o "00" que, por casualidad, suman 10 dígitos que "parecen" un número nacional (o que tienen
+    // un "15" adentro que al sacarlo lo parece): sin mirar el prefijo se tomarían por argentinos.
+    [InlineData("+34 1234 5678")]
+    [InlineData("+31 2345 6789")]
+    [InlineData("+32 2 345 6789")]
+    [InlineData("+33 11 5555 0001")]
+    [InlineData("+34 11 5555 0001")]
+    [InlineData("0034 1234 5678")]
+    [InlineData("00 31 2345 6789")]
+    [InlineData("003411 5555 0001")]
+    public void Un_numero_de_otro_pais_no_se_toma_por_argentino_aunque_tenga_10_digitos(string entrada)
+    {
+        Assert.Null(TelefonoArgentino.Normalizar(entrada));
+    }
+
+    [Fact]
+    public void Ningun_codigo_de_pais_que_no_sea_el_54_convierte_un_numero_nacional_en_otro_valido()
+    {
+        // "+<país> <número nacional argentino>" nunca es un teléfono argentino, sea cual sea el país y el número.
+        var paises = new[] { "1", "7", "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47", "48", "49",
+            "51", "52", "53", "55", "56", "57", "58", "60", "61", "62", "63", "64", "65", "66", "81", "82", "84", "86", "90", "91", "92", "93",
+            "94", "95", "98", "212", "213", "351", "352", "353", "358", "380", "420", "421", "591", "593", "595", "598" };
+        var nacionales = new[] { "1155550001", "3514123456", "2966123456", "2614251234", "1123456789", "3415551234" };
+        foreach (var pais in paises)
+            foreach (var nacional in nacionales)
+                foreach (var entrada in new[] { $"+{pais} {nacional}", $"00{pais} {nacional}", $"+{pais} 0{nacional}", $"+{pais}{nacional[2..]}" })
+                    Assert.True(TelefonoArgentino.Normalizar(entrada) is null, $"\"{entrada}\" no es un teléfono argentino");
+    }
+
+    [Fact]
+    public void Los_digitos_que_no_son_ASCII_no_valen_ni_mezclados_con_otros()
+    {
+        // \d de .NET acepta los dígitos de ancho completo, los arábigos y los devanagari: si pasaran, el "número" que llegaría al servicio de
+        // WhatsApp (y a una columna VARCHAR(10)) no sería el que se cree.
+        static string En(int cero, string ascii) => string.Concat(ascii.Select(c => char.IsAsciiDigit(c) ? (char)(cero + (c - '0')) : c));
+
+        foreach (var cero in new[] { 0xFF10, 0x0660, 0x06F0, 0x0966, 0x09E6 })
+        {
+            Assert.Null(TelefonoArgentino.Normalizar(En(cero, "1155550001")));
+            Assert.Null(TelefonoArgentino.Normalizar("11" + En(cero, "55550001")));           // empieza en ASCII y sigue con otros
+            Assert.Null(TelefonoArgentino.Normalizar(En(cero, "11") + "55550001"));
+            Assert.Null(TelefonoArgentino.Normalizar("+54 9 11 " + En(cero, "5555-0001")));
+            Assert.Null(TelefonoArgentino.Normalizar("351 " + En(cero, "4123456")));
+            Assert.Null(TelefonoArgentino.Normalizar("1155550001" + En(cero, "7")));          // un número válido con un dígito "raro" de más
+            Assert.Null(TelefonoArgentino.Normalizar(En(cero, "9") + " 11 5555-0001"));      // y uno de más al principio
+        }
+        Assert.Equal("1155550001", TelefonoArgentino.Normalizar("11 5555-0001"));            // y el ASCII sigue andando
+    }
+
     [Fact]
     public void Una_entrada_enorme_no_se_cuelga_ni_da_un_numero()
     {

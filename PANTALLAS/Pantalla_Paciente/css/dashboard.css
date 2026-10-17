@@ -204,6 +204,13 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 .sesion-entrada-fila { display: flex; gap: 8px; }
 .sesion-entrada-fila .ui-input { flex: 1; font-family: var(--mono); letter-spacing: .08em; }
 
+/* Avisos por WhatsApp (perfil). El texto del consentimiento (.wa-texto) está en shared/tema.css. */
+.wa-cabecera { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.wa-cabecera .titulo-tarjeta { margin-bottom: 0; }
+.wa-acciones { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; }
+.wa-detalle summary { cursor: pointer; margin: 8px 0; font-size: var(--fs-md); color: var(--accent-strong); }
+.wa-detalle .wa-texto { margin-top: 8px; }
+
 /* Mis profesionales */
 .prof-cabecera { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .prof-cambio { margin-top: 10px; align-self: flex-start; }

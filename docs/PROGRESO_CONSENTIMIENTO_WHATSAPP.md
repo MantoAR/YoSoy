@@ -11,7 +11,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ninguna migración se aplica a
   una base real** (solo a bases descartables de prueba); sin `--force` ni merge a `main`; los datos de consentimiento no se loguean con
   teléfonos completos ni contenido.
-- **Última actualización:** 2026-10-17, tras la etapa 2 (la API).
+- **Última actualización:** 2026-10-17, tras la etapa 3 (las pantallas).
 
 ## Estado de las etapas
 
@@ -19,8 +19,8 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 |---|---|---|---|
 | — | Este archivo (plan, hallazgos y decisiones) | hecho | `2cb6615` |
 | 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | `2c79f5a` |
-| 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | (este commit) |
-| 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | pendiente | |
+| 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | `8f1335b` |
+| 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | **hecho** | (este commit) |
 | 4 | Link `wa.me` (opción B) configurable | pendiente | |
 | 5 | Plantillas de mensajes sin nada clínico | pendiente | |
 | 6 | Documentación: `DEPLOY.md`, `SERVIDOR.md`, avisos que quedaron viejos | pendiente | |
@@ -223,6 +223,79 @@ fecha es obligatoria en el registro de la pantalla). **Lo tiene que validar el e
   perfil de punta a punta con cambio de teléfono; la BAJA por el webhook) y `CanalWhatsAppInteropNodeTests` (lo que manda la API lo recibe el
   `crearApp` real del servicio: `optIn` true solo cuando corresponde, y el código de rechazo vuelve).
 - `whatsapp-service`: `npm test` sin cambios (388, 382 pasan, 6 saltadas de POSIX): el servicio ya entendía `optIn` y BAJA.
+- **Mutaciones** (65 cambios a propósito en el código de esta etapa, corridos sobre una copia del repo contra las pruebas que los tienen que
+  notar): 60 detectadas de entrada y 5 que se escaparon. Cuatro eran huecos de las pruebas y se cerraron (un número de otro país que suma 10
+  dígitos, letras junto a un número válido, un profesional o el Configurador con un id de paciente en la identidad, y la BAJA con algo que no
+  es un teléfono llegando a la base); se repitieron y quedan **detectadas**. La quinta (`D5`: la rama que atrapa la violación del índice
+  único en `ConsentimientoWhatsAppDAO.Aceptar`) **no se puede provocar de forma determinista desde una prueba**: solo ocurre si dos pedidos
+  caen en los microsegundos entre el `UPDATE` y el `INSERT` de la misma transacción (cualquier otra secuencia termina bien y sin error). Queda
+  cubierta por lo que importa: la prueba de 12 pedidos a la vez falla si esa violación sale sin atrapar, y las reglas se prueban contra un
+  repositorio que simula perder la carrera (`null`).
+- **Un defecto real que salió de ahí:** `\d` de .NET acepta cualquier dígito Unicode (ancho completo, arábigos, devanagari), así que
+  `11` + 8 dígitos de ancho completo pasaba por teléfono argentino y llegaba así al servicio de WhatsApp y a una columna `VARCHAR(10)`.
+  `TelefonoArgentino` (y el armado del link `wa.me` de la etapa 4) ahora aceptan solo `0-9`; la prueba nueva falla con el código de la etapa 2
+  tal como estaba commiteado.
+
+## Etapa 3: las pantallas
+
+### Qué quedó hecho
+
+- **Módulo compartido** `PANTALLAS/shared/consentimiento-whatsapp.js` (`YS.whatsapp`), que cargan el registro y el panel del paciente: trae el
+  texto vigente (`GET /consentimiento-whatsapp/texto`, sin sesión), lo dibuja (etiqueta **"Texto provisorio"**, título, párrafos y "Versión
+  del texto: …"), traduce los motivos que manda la API (menor de edad, teléfono que no sirve) y calcula la edad. Todo entra por
+  `textContent`: **nada de lo que manda el servidor se interpreta como HTML**.
+- **Registro** (`Pantalla_Usuario/Usuario/registro.html` + `js/app.js`): un bloque "Avisos por WhatsApp (opcional)" con el texto de la API y una
+  casilla **sin tildar** (sin `checked`, sin `required`, con `autocomplete="off"`, y destildada por código al cargar y al dibujar el texto: ni
+  el navegador ni nada la deja tildada). El bloque aparece solo si la API entregó el texto; si no, el registro anda igual que antes.
+  Al enviar, `aceptaWhatsApp` es **lo que la persona tildó** y `versionTextoWhatsApp` la versión del texto que vio. Si tildó y no cargó
+  teléfono, marca el campo; si es menor de 18, le explica que lo tiene que activar su madre, padre o tutor y que puede registrarse sin
+  tildar. El resto (celular válido, edad, texto vigente) lo decide el servidor **antes de crear la cuenta**. La pantalla final confirma
+  "Activaste los avisos…" o, si no se pudo guardar, que los active desde su perfil.
+- **Perfil del paciente** (`Pantalla_Paciente/dashboard.html`, `js/dashboard.js`, `css/dashboard.css`): una tarjeta "Avisos por WhatsApp" debajo
+  de los datos personales, con el estado como chip (**Activados / Pausados / Desactivados**) y una frase que lo explica. El texto está a la
+  vista cuando hay que decidir y plegado ("Ver el texto que aceptaste") si ya está activo. Activar = **casilla sin tildar + botón deshabilitado
+  hasta tildar**; manda la versión que leyó. Desactivar pide confirmación. Si cambia el teléfono en el mismo perfil, la tarjeta pasa sola a
+  "Pausados" y el botón dice "Activar para este número". Si alguien se dio de baja por WhatsApp, la tarjeta le avisa que además de activarlos
+  acá tiene que responder ALTA. Si no se puede aceptar (teléfono que no sirve, menor de edad), no se ofrece la casilla y se dice por qué;
+  desactivar siempre se puede.
+- Estilos en `PANTALLAS/shared/tema.css` y `dashboard.css` (clases `wa-*`), con el mismo lenguaje visual del resto (chips, `.ui-check`, `.ui-alerta`).
+
+### Decisiones y límites
+
+- **El texto no está copiado en ninguna pantalla**: se lee de la API, así que lo que se ve es lo que queda registrado (versión + SHA-256). Una
+  prueba busca los párrafos del texto en todo `PANTALLAS/` para que nadie lo copie "para que cargue más rápido".
+- **El navegador no guarda ningún consentimiento** (ni `localStorage` ni `sessionStorage`): el estado es siempre el del servidor. La única cosa
+  que va a poder recordar es una molestia ("ahora no" a una sugerencia), nunca una aceptación.
+- **Sin texto, no se ofrece nada** (el servidor no lo tiene, no contesta, o no está la tabla): no se muestra una casilla de algo que no se
+  podría registrar. El registro sigue.
+- **La pantalla valida lo mínimo** (teléfono vacío, menor de edad) para no hacer un viaje inútil; **la decisión es del servidor**, que vuelve a
+  validar todo. Por eso un pedido armado a mano igual no se salta nada.
+- **No se tocó el flujo de registro de siempre** (acuerdo de atención, tutor, validaciones): el bloque va antes de "Acceso" y no cambia nada si no
+  se usa. PC primero: no se invirtió en pantallas angostas (la app mobile es aparte).
+- **Texto provisorio a la vista.** Mientras el texto sea `v0-provisorio` la etiqueta "Texto provisorio" se ve en ambas pantallas. Se va sola
+  cuando se publique una versión sin ese marcador (ver "Pasos manuales").
+
+### Pruebas de esta etapa
+
+- La suite de la API pasó de 1291 a **1329 pruebas, todas verdes** contra la base descartable `yosoy_test_wa`: 14 son las estáticas de las
+  pantallas (abajo) y 24 cierran los huecos que mostraron las mutaciones de la etapa 2 (ver ahí).
+- **Banco de navegador real** (Chrome por Playwright, la API real contra una base descartable; **no se versiona**, vive fuera del repo): 74
+  verificaciones, 0 fallas. Cubre: la casilla nunca viene tildada (ni tras tildar y recargar), el texto de la API se ve entero, sin tildar no se
+  crea ninguna fila, con teléfono inválido el servidor rechaza y **no se crea ni la cuenta**, sin teléfono y menor de edad no sale ni el pedido, con
+  un celular válido (con el 15) queda **una** fila con el número normalizado, origen `registro` y el hash de 64; en el perfil, los tres estados,
+  activar solo con el tilde, desactivar con confirmación ("Volver" no cambia nada), reactivar deja el historial (dos filas), cambiar el teléfono
+  pasa a "Pausados" sin recargar y cierra la fila anterior por `telefono-cambiado`, un teléfono inválido explica el motivo, cada paciente ve
+  lo suyo; **lo que el servidor mande con HTML (en el registro y en el perfil) se ve como texto y no ejecuta nada**; y el log de la API no trae
+  ningún teléfono.
+- **`PantallasConsentimientoWhatsAppTests`** (14 pruebas estáticas, leen los archivos de `PANTALLAS/`): casilla sin `checked`/`required` y con
+  `autocomplete="off"`, orden de los `<script>`, el registro destilda y manda solo lo tildado, nada tilda la casilla por su cuenta
+  (`.checked = true`, `defaultChecked`…), el perfil activa solo con el tilde y la versión leída, nada de lo que manda el servidor entra como
+  HTML, el texto no está copiado en ninguna pantalla, y el consentimiento no se guarda en el navegador.
+- **Mutaciones de la interfaz** (18 cambios a propósito en `registro.html`, `app.js`, `dashboard.js` y el módulo, con el banco de navegador
+  como juez): el banco detectó 14 de entrada; tres se le escaparon (la casilla con `checked` en el HTML, el bloque sin chequear que haya
+  texto, el texto insertado como HTML) y una no la pude correr por un error de mi script. Se agregaron al banco los escenarios "el servidor
+  no tiene texto" y "el servidor manda HTML" y las pruebas estáticas: **las 18 quedan detectadas**. La del `checked` solo la ve la prueba
+  estática: el código destilda la casilla igual, así que en el navegador no se nota, y justamente por eso conviene que no se pueda colar.
 
 ## Pasos manuales para Agustín
 

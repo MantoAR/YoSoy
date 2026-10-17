@@ -502,6 +502,15 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 .ui-campo-ayuda { font-size: var(--fs-sm); color: var(--text-3); }
 .ui-check { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-md); color: var(--text-2); cursor: pointer; }
 .ui-check input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+/* Texto del consentimiento de los avisos por WhatsApp (shared/consentimiento-whatsapp.js): igual en el registro y en el perfil.
+   Se ve ENTERO, sin una barra de desplazamiento propia: es un consentimiento, no tiene que quedar nada escondido. */
+.wa-texto {
+    padding: 14px 16px; margin-bottom: 12px;
+    border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2);
+    font-size: var(--fs-md); line-height: 1.5; color: var(--text-2);
+}
+.wa-texto p { margin: 0 0 8px; }
+.wa-texto-titulo { margin: 6px 0 8px; font-size: var(--fs-lg); color: var(--text); }
 .ui-fila { display: flex; gap: 12px; flex-wrap: wrap; }
 .ui-fila > .ui-campo { flex: 1; min-width: 140px; }
 .ui-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }

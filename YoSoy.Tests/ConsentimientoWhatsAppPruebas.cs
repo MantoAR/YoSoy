@@ -90,9 +90,13 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
         return true;
     }
 
+    /// <summary>Los teléfonos con los que se llamó a RevocarVigentesDelTelefono (para ver qué le llega a la base, no solo qué devuelve).</summary>
+    public readonly List<string> TelefonosDeBaja = new();
+
     public List<(int IdConsentimientoWhatsApp, int IdPaciente)> RevocarVigentesDelTelefono(string telefono, DateTime revocadoUtc, string motivo)
     {
         if (Falla is not null) throw Falla;
+        TelefonosDeBaja.Add(telefono);
         var revocadas = new List<(int, int)>();
         for (var i = 0; i < Filas.Count; i++)
         {

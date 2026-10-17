@@ -12,11 +12,13 @@ using System.Text.RegularExpressions;
 // teléfono argentino CON código de área, se devuelve null en vez de adivinar.
 public static class TelefonoArgentino
 {
-    // Lo que una persona escribe en un campo de teléfono: dígitos y separadores. Con letras u otros símbolos no es un teléfono.
-    private static readonly Regex Escritura = new(@"^[\d\s+()./-]+$", RegexOptions.Compiled);
+    // Lo que una persona escribe en un campo de teléfono: dígitos y separadores. Con letras u otros símbolos no es un teléfono. Dígitos son
+    // los ASCII (0-9) y nada más: \d de .NET también acepta los de ancho completo o los arábigos, y el número tiene que llegar así al servicio de
+    // WhatsApp y a una columna VARCHAR(10).
+    private static readonly Regex Escritura = new(@"^[0-9\s+()./-]+$", RegexOptions.Compiled);
 
     // Buenos Aires y alrededores es el 11 (más 8 dígitos); el resto de los códigos de área empieza con 2 o con 3. Siempre 10 en total.
-    private static readonly Regex Nacional = new(@"^(11\d{8}|[23]\d{9})$", RegexOptions.Compiled);
+    private static readonly Regex Nacional = new(@"^(11[0-9]{8}|[23][0-9]{9})$", RegexOptions.Compiled);
 
     /// <summary>
     /// El número nacional de 10 dígitos (código de área + abonado), o null si <paramref name="entrada"/> no es un teléfono argentino posible:
@@ -28,7 +30,7 @@ public static class TelefonoArgentino
         var texto = entrada.Trim();
         if (!Escritura.IsMatch(texto)) return null;
 
-        var d = new string(texto.Where(char.IsDigit).ToArray());
+        var d = new string(texto.Where(c => c is >= '0' and <= '9').ToArray());
         var conPais = texto.StartsWith('+') || d.StartsWith("00");   // "+" y "00" son los dos prefijos internacionales
         if (d.StartsWith("00")) d = d[2..];
 
