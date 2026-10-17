@@ -11,14 +11,14 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ninguna migración se aplica a
   una base real** (solo a bases descartables de prueba); sin `--force` ni merge a `main`; los datos de consentimiento no se loguean con
   teléfonos completos ni contenido.
-- **Última actualización:** 2026-10-17, al arrancar (lectura del código y diseño; todavía no hay código).
+- **Última actualización:** 2026-10-17, tras la etapa 1 (modelo de datos).
 
 ## Estado de las etapas
 
 | Etapa | Qué | Estado | Commit |
 |---|---|---|---|
-| — | Este archivo (plan, hallazgos y decisiones) | en curso | |
-| 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | pendiente | |
+| — | Este archivo (plan, hallazgos y decisiones) | hecho | `2cb6615` |
+| 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | (este commit) |
 | 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | pendiente | |
 | 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | pendiente | |
 | 4 | Link `wa.me` (opción B) configurable | pendiente | |
@@ -32,6 +32,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 3. Tests de la API: hace falta una base de pruebas **con el esquema nuevo** (`docs/produccion/01-produccion.sql` de esta rama). La
    `yosoy_test` de siempre no tiene la tabla `ConsentimientoWhatsApp` hasta que se le aplique la migración. Crear una nueva con
    `Scripts\crear-base-de-pruebas.ps1 -Base <otro_nombre>` y correr `Scripts\correr-tests.ps1 -Base <otro_nombre>` (**nunca** contra `yosoy`).
+   Yo trabajé con `yosoy_test_wa` (descartable; se borra al final con el comando de `docs/DESARROLLO_LOCAL.md`, "Borrar la base de pruebas").
 4. Seguir por la primera etapa en `pendiente` de la tabla de arriba.
 
 ## Hallazgos de la lectura inicial (antes de tocar nada)
@@ -108,6 +109,50 @@ posible. Sin ese número válido no se puede aceptar. `Telefono.Normalizar` (el 
 Mismo criterio provisorio que el consentimiento de video: si se sabe que es menor de 18 años (fecha de nacimiento, o tiene tutor
 cargado), **no puede aceptar por sí mismo**; tendría que hacerlo su madre, padre o tutor. Sin fecha de nacimiento se deja aceptar (la
 fecha es obligatoria en el registro de la pantalla). **Lo tiene que validar el equipo legal.**
+
+## Etapa 1: el modelo de datos
+
+### Qué quedó hecho
+
+- **`migrations/add_consentimiento_whatsapp.sql`** (la migración 16): crea `ConsentimientoWhatsApp` con `IdPaciente`, `IdUsuario` (quién lo
+  dio), `Telefono` (el número para el que se aceptó, 10 dígitos), `Origen` (`registro` | `perfil`), `VersionTexto` y `HashTexto` (el SHA-256
+  del texto exacto que se mostró), `AceptadoUtc`, `RevocadoUtc` y `MotivoRevocacion` (`paciente`, `baja-whatsapp`, `telefono-cambiado`,
+  `texto-nuevo`). Cuatro restricciones `CHECK`, dos claves foráneas (a `Paciente` y a `Usuario`), un **índice único filtrado** (a lo sumo
+  una aceptación abierta por paciente) y uno de consulta. **Solo agrega**: no toca ninguna tabla existente. Idempotente (cada cambio va
+  detrás de un `IF`) y con `SET QUOTED_IDENTIFIER ON` propio, igual que `add_link_publico_profesional.sql`.
+- **`docs/produccion/01-produccion.sql`**: la misma tabla, índices y claves en su sección de cada cosa (ahora "las 16 migraciones"). Una
+  base nueva ya la trae.
+- **Cuentas que cambiaron:** `Scripts/crear-base-de-pruebas.ps1` espera **45 tablas** (eran 44) y los documentos que lo decían
+  (`README.md` con la fila 16 de la tabla de migraciones, `CATALOGO_SCRIPTS_SQL.md`, `DESARROLLO_LOCAL.md`).
+- **Un error del diseño que encontraron las pruebas:** la primera versión del `CHECK` de la revocación dejaba entrar una revocación **con
+  fecha y sin motivo**. En SQL Server un `CHECK` se da por cumplido cuando su resultado es "desconocido", y `NULL IN (...)` lo es. Se
+  corrigió exigiendo `MotivoRevocacion IS NOT NULL` en la rama de la revocación (en la migración y en el esquema consolidado) y quedó un
+  comentario que explica por qué.
+
+### Decisiones y límites
+
+- **El estado no es una columna.** "Aceptó / revocó / sin decidir" se deduce de la fila más nueva del paciente (`RevocadoUtc` nulo o no).
+  Así no hay dos lugares que puedan contradecirse.
+- **`Telefono` guarda el número nacional de 10 dígitos** (no el texto libre del perfil): es lo que permite saber, sin hooks en cada lugar
+  que edita el perfil, que **la aceptación fue para ESE número** y dejar de valer si el paciente lo cambia (etapa 2).
+- **Fechas en UTC con `DATETIME2(3)`**, como `ConsentimientoVideo` (el resto del esquema usa `GETDATE()`).
+- **La migración no se aplicó a ninguna base real.** Se probó solo en bases descartables que creé y borré.
+
+### Pruebas de esta etapa
+
+- `ConsentimientoWhatsAppEsquemaTests.cs`, **23 pruebas**: 5 sin base (la migración solo agrega y cada cambio está protegido por un `IF`;
+  `QUOTED_IDENTIFIER ON` antes del índice filtrado; no toca otras tablas; **la migración y `01-produccion.sql` definen exactamente la
+  misma tabla**, columnas, restricciones, índices y claves) y 18 con base (las columnas y su tipo; el índice único filtrado, el de consulta
+  y las dos claves; cada valor inválido se rechaza; la revocación exige fecha y motivo juntos y no puede ser anterior a la aceptación;
+  dos aceptaciones abiertas no entran pero una nueva después de revocar sí; la limpieza de las pruebas se lleva sus filas; **correr la
+  migración sobre una base que ya la tiene no cambia nada**).
+- **Verificación a mano** (script descartable): una base con el esquema **viejo** (el de `origin/main`, 44 tablas) + la migración: 45 tablas;
+  una segunda corrida y una tercera **sin `-I`**, todas sin error y con la estructura idéntica; y esa estructura es **igual** a la de una
+  base creada con el `01-produccion.sql` nuevo (10 columnas, 4 `CHECK`, 2 claves, 3 índices).
+- **Mutaciones:** 19 cambios a propósito, **todos detectados**: 12 sobre los archivos SQL (sin `IF`, tipo distinto, falta una clave, un
+  `UPDATE` o un `DROP` metidos, otra tabla tocada, sin `SET QUOTED_IDENTIFIER`...) y 7 sobre la base (sin el índice único, sin una clave,
+  sin un `CHECK`, y el `CHECK` sin el `IS NOT NULL`, que reproduce el error de arriba).
+- Corridas con la base `yosoy_test_wa` (descartable, 45 tablas, creada con `Scripts\crear-base-de-pruebas.ps1`).
 
 ## Pasos manuales para Agustín
 

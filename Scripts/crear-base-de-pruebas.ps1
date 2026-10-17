@@ -4,13 +4,13 @@
 
 .DESCRIPTION
     Arma una copia temporal de docs\produccion\01-produccion.sql con el nombre de la base reemplazado (el original no se
-    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 44 tablas.
+    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 45 tablas.
 
     Se niega a:
       - usar la base "yosoy" (la de desarrollo, con datos reales);
       - seguir si la base ya existe (nunca pisa ni completa una base existente).
 
-    El esquema ya trae el resultado de las 15 migraciones de migrations\. La base queda sin datos propios (el esquema
+    El esquema ya trae el resultado de las 16 migraciones de migrations\. La base queda sin datos propios (el esquema
     solo siembra el tipo de consentimiento y el contenido de arranque del chat) y así tiene que estar: los tests crean y
     borran sus filas, no hace falta migrations\seed_catalogos.sql.
 
@@ -38,7 +38,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TablasEsperadas = 44
+$TablasEsperadas = 45
 
 # ── 1) Guardas que no necesitan SQL Server: si alguna falla, no se toca nada ─────────────────────────────────────────
 if (-not $PSScriptRoot) { throw 'Ejecutá el archivo (por ejemplo: .\Scripts\crear-base-de-pruebas.ps1), no pegues su contenido en la consola.' }
@@ -99,7 +99,7 @@ finally {
     if (Test-Path -LiteralPath $copia) { Remove-Item -LiteralPath $copia -Force }
 }
 
-# ── 5) Verificar: tiene que tener 44 tablas ──────────────────────────────────────────────────────────────────────────
+# ── 5) Verificar: tiene que tener 45 tablas ──────────────────────────────────────────────────────────────────────────
 Write-Host '4/4 Verificando el esquema...'
 $cuenta = "$(Invoke-Consulta -EnBase $Base -Consulta 'SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables')".Trim()
 if ($cuenta -notmatch '^\d+$') { throw "No pude contar las tablas de '$Base' (respuesta: '$cuenta')." }

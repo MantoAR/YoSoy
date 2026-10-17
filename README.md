@@ -139,15 +139,16 @@ cd YoSoy
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
    | 15 | `add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 | Sí |
+   | 16 | `add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto, el número y las fechas en UTC). Solo agrega — requiere `Paciente` y `Usuario` | Sí |
 
-   Las 15 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 16 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\<archivo>.sql
    ```
    (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
-   El 15 (`add_consentimiento_video.sql`) se probó con `-I` (`QUOTED_IDENTIFIER ON`, como lo abre la aplicación): agregalo.
+   El 15 (`add_consentimiento_video.sql`) y el 16 (`add_consentimiento_whatsapp.sql`) se probaron con `-I` (`QUOTED_IDENTIFIER ON`, como lo abre la aplicación): agregalo.
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
