@@ -22,6 +22,7 @@ public class GuardiaEndpointsTests
         ("GET", "/public/profesionales/{slug}/disponibilidad"),       // disponibilidad pública
         ("POST", "/public/profesionales/{slug}/reservar"),            // reserva pública (misma superficie, rate-limited)
         ("GET", "/capacidades"),                                      // lo consulta cualquier pantalla antes de saber quién sos; sin datos sensibles
+        ("GET", "/consentimiento-whatsapp/texto"),                    // el texto del consentimiento de WhatsApp: lo necesita la pantalla de registro antes de que haya sesión; es texto legal, sin datos de nadie
         ("POST", "/mensajeria/simulado/entrante"),                    // equivalente a un webhook: no hay sesión del otro lado
         ("GET", "/mensajeria/simulado/conversacion"),                 // idem; ambos ya cierran con Disponible()/SoloLocal, no con JWT
         ("POST", "/mensajeria/whatsapp/entrante"),                    // webhook real de whatsapp-service: sin JWT a propósito, cierra con EsLocal()+secreto compartido (no con Disponible())

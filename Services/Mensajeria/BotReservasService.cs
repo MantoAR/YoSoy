@@ -40,12 +40,13 @@ public class BotReservasService
     private readonly FiltroSeguridad _filtro;
     private readonly IOptionsMonitor<MensajeriaOptions> _opciones;
     private readonly TimeProvider _reloj;
+    private readonly IBajaDeWhatsApp _bajas;
 
     public BotReservasService(
         IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos,
         IPreguntaFrecuenteDAO faq, IRecordatorioDAO recordatorios, TurnoReglasService reglas,
         INotificadorTurnos notificador, IInterpreteIntencion interprete, FiltroSeguridad filtro,
-        IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj)
+        IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj, IBajaDeWhatsApp bajas)
     {
         _conversaciones = conversaciones;
         _mensajes       = mensajes;
@@ -58,6 +59,7 @@ public class BotReservasService
         _filtro         = filtro;
         _opciones       = opciones;
         _reloj          = reloj;
+        _bajas          = bajas;
     }
 
     private MensajeriaOptions Op => _opciones.CurrentValue;
@@ -73,6 +75,19 @@ public class BotReservasService
         _mensajes.RegistrarEntrante(c, texto);
 
         var ahora = _reloj.GetLocalNow().DateTime;
+
+        // BAJA / STOP: la persona pide no recibir más avisos por WhatsApp. whatsapp-service ya dejó de escribirle (BAJA gana sobre todo); acá se
+        // revoca su aceptación en la base, para que el perfil y los avisos lo sepan. No se contesta: el servicio rechazaría cualquier respuesta
+        // (y es lo que pidió), y el pedido no es una conversación con el bot. Antes que la seguridad clínica no hace falta: el mensaje tiene que
+        // ser ENTERO una de las palabras de baja, así que no puede traer una frase de riesgo.
+        if (ComandoWhatsApp.EsBaja(texto))
+        {
+            _bajas.RegistrarBaja(tel);
+            c.FechaUltimaActividad = ahora;
+            _conversaciones.Guardar(c);
+            return new RespuestaBot(c.IdConversacion, new List<string>());
+        }
+
         var ctx   = ContextoBot.Leer(c.DatosContexto);
         var r     = new List<string>();
 

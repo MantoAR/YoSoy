@@ -35,6 +35,12 @@
     <EmbeddedResource Include="Services\Video\Consentimiento\*.txt" LogicalName="ConsentimientoVideo.%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Textos del consentimiento de los avisos por WhatsApp: mismo criterio que el de arriba (adentro del ensamblado, una versión
+       publicada no se edita). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Services\Mensajeria\Consentimiento\*.txt" LogicalName="ConsentimientoWhatsApp.%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <!-- PANTALLAS/ es el frontend que sirve la propia API (UseStaticFiles en Program.cs).
        El SDK clasifica la mayoría de los archivos ahí (.html/.js/.css) como None por
        default, y None no se copia al publicar; unos pocos .json ya entraban solos como

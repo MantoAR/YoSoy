@@ -28,6 +28,9 @@ public class MensajeriaOptions
     public string UrlRegistroWeb { get; set; } = "";
     public string UrlIngresoTurno { get; set; } = "";
 
+    // Consentimiento de los avisos por WhatsApp (tabla ConsentimientoWhatsApp): qué texto se le muestra al paciente.
+    public ConsentimientoWhatsAppOptions ConsentimientoWhatsApp { get; set; } = new();
+
     // RN-02: por defecto el bot crea el turno Pendiente aunque falte el
     // consentimiento (se exige al confirmar). true = comportamiento estricto.
     public bool ExigirConsentimientoParaSolicitar { get; set; }
@@ -42,6 +45,13 @@ public class MensajeriaOptions
     // lo clínico lo trabaja el profesional (nunca responde consultas clínicas).
     public List<string> PalabrasClinicas { get; set; } = new();
     public List<LineaEmergencia> LineasEmergencia { get; set; } = new();
+}
+
+public class ConsentimientoWhatsAppOptions
+{
+    // Archivo Services/Mensajeria/Consentimiento/<versión>.txt (embebido). Una versión publicada NO se edita: un texto nuevo es una
+    // versión nueva, y al cambiarla los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.
+    public string VersionTexto { get; set; } = "v0-provisorio";
 }
 
 public class LineaEmergencia

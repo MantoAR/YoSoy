@@ -328,6 +328,7 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. |
 | `UrlRegistroWeb`, `UrlIngresoTurno` | | Links que manda el bot. El de firma del consentimiento sale de `Consentimiento:UrlFirma`. |
 | `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
+| `ConsentimientoWhatsApp:VersionTexto` | `v0-provisorio` | Versión del texto del consentimiento de los avisos por WhatsApp (`Services/Mensajeria/Consentimiento/<versión>.txt`, embebido). Una versión publicada no se edita; **al cambiarla, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.** Variable de entorno: `Mensajeria__ConsentimientoWhatsApp__VersionTexto`. |
 | `DiasBusquedaHorarios`, `MaxHorariosOfrecidos` | `14`, `5` | Búsqueda de horarios libres. |
 | `PalabrasRiesgo` | lista | Frases que disparan el mensaje de emergencia. **Obligatoria:** la app no arranca si está vacía. |
 | `PalabrasClinicas` | lista | Si el mensaje no se entiende y contiene alguna, el bot aclara que no responde consultas clínicas. |

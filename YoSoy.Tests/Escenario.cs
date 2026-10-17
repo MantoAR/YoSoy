@@ -15,6 +15,7 @@ public class Escenario
     public readonly FakeServicioMensajes Mensajes = new();
     public readonly FakeRecordatorios Recordatorios = new();
     public readonly FakeNotificador Notificador = new();
+    public readonly FakePoliticaWhatsApp WhatsApp = new();
     public readonly TurnoReglasService Reglas;
     public readonly BotReservasService Bot;
 
@@ -39,7 +40,7 @@ public class Escenario
         Conversaciones = new FakeConversaciones(Reloj);
         Reglas = new TurnoReglasService(new FakeTurnoRepositorio(Db), Reloj, Opciones, Consentimiento);
         Bot = new BotReservasService(Conversaciones, Mensajes, new FakeDatos(Db), new FakeFaq(Db), Recordatorios,
-            Reglas, Notificador, new InterpreteMenu(), new FiltroSeguridad(Opciones), Opciones, Reloj);
+            Reglas, Notificador, new InterpreteMenu(), new FiltroSeguridad(Opciones), Opciones, Reloj, WhatsApp);
     }
 
     public async Task<string> Enviar(string telefono, string texto) =>

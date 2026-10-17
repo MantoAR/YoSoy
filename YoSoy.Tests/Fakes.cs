@@ -186,6 +186,27 @@ public class FakeServicioMensajes : IServicioMensajes
 {
     public readonly List<MensajeChat> Mensajes = new();
 
+    /// <summary>Las opciones con las que se mandó cada mensaje SALIENTE, en el mismo orden que ellos (OptIn, por ejemplo).</summary>
+    public readonly List<OpcionesEnvio> OpcionesDeEnvio = new();
+
+    /// <summary>Si no es null, el próximo envío "falla" con este código (como cuando whatsapp-service rechaza el pedido). Se usa una vez.</summary>
+    public string? RechazarProximoConCodigo { get; set; }
+
+    public Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen, OpcionesEnvio opciones)
+    {
+        var rechazo = RechazarProximoConCodigo;
+        RechazarProximoConCodigo = null;
+        var enviado = EnviarAsync(c, texto, origen);
+        OpcionesDeEnvio.Add(opciones);
+        if (rechazo is not null)
+        {
+            var m = enviado.Result;
+            m.EstadoEnvio = "Error";
+            m.CodigoDeError = rechazo;
+        }
+        return enviado;
+    }
+
     public MensajeChat RegistrarEntrante(Conversacion c, string texto) =>
         Agregar(new MensajeChat { IdConversacion = c.IdConversacion, Direccion = "Entrante", Origen = "Paciente", Texto = texto, EstadoEnvio = "Enviado" });
 

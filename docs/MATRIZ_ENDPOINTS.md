@@ -27,6 +27,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | GET | `/public/profesionales/{slug}/disponibilidad` | Disponibilidad pública, misma superficie. |
 | POST | `/public/profesionales/{slug}/reservar` | Reserva pública, misma superficie (rate-limited). |
 | GET | `/capacidades` | Lo consulta cualquier pantalla antes de saber quién sos; sin datos sensibles (solo flags). |
+| GET | `/consentimiento-whatsapp/texto` | El texto del consentimiento de los avisos por WhatsApp (versión, título, párrafos): la pantalla de registro lo muestra antes de que haya sesión. Es texto legal, sin datos de nadie; rate-limited (`consentimiento-whatsapp`). |
 | POST | `/mensajeria/simulado/entrante` | Equivalente a un webhook: no hay sesión del otro lado. |
 | GET | `/mensajeria/simulado/conversacion` | Idem; ambos ya cierran con `Disponible()`/`SoloLocal`, no con JWT. |
 | POST | `/mensajeria/whatsapp/entrante` | Webhook real de `whatsapp-service`. Sin JWT a propósito (lo llama una máquina) — cierra con `EsLocal()` + secreto compartido, no con `Disponible()`/`SoloLocal` (candado propio, no depende de `ChatSimuladoHabilitado`). |
@@ -377,6 +378,22 @@ auditoría y lo que hay que validar legalmente: `docs/VIDEOLLAMADAS.md`, "Lectur
 | POST | `/video/consentimiento/revocar` | Cualquier rol autenticado | **Solo el paciente de la sesión — 404** | `{ origen, id }`. Revoca la aceptación vigente y **anula las emociones ya guardadas de esa sesión** (nunca las notas). No depende de la ventana de la sala; se puede repetir. **Auditada**, con la cantidad anulada. |
 | GET | `/video/emociones/permiso` | Cualquier rol autenticado | **Solo el profesional del turno o un Configurador — 404** | `permitido` solo con una aceptación vigente de alguien a quien se le puede ofrecer; con `consultarCadaSegundos` y `vigenciaSegundos`. Es lo que la pantalla del profesional pregunta cada pocos segundos y obedece (falla cerrada). Un profesional que no es del turno, o que quiere una entrevista de admisión, recibe el 404 uniforme. |
 
+## Consentimiento de los avisos por WhatsApp (`Endpoints/ConsentimientoWhatsAppEndpoints.cs`)
+
+El paciente acepta (y puede revocar) recibir avisos de sus turnos por WhatsApp. **Quién es sale siempre del JWT**: no hay un id en la URL ni
+en el cuerpo, así que nadie acepta ni revoca por otro; un profesional o el Configurador reciben 403 (`solo-pacientes`). Nada viene aceptado por
+defecto. Nunca se cachean (`Cache-Control: no-store`) y comparten una política de rate limit por IP (`consentimiento-whatsapp`, 30 por minuto).
+El registro de un paciente nuevo (`POST /pacientes`, público) también acepta, con `aceptaWhatsApp` y `versionTextoWhatsApp`: se valida **antes**
+de crear la cuenta (celular argentino válido, mayor de edad, texto vigente) y la aceptación queda a nombre del usuario recién creado. Modelo,
+reglas y decisiones: `docs/PROGRESO_CONSENTIMIENTO_WHATSAPP.md`.
+
+| Método | Ruta | Rol | Pertenencia | Notas |
+|---|---|---|---|---|
+| GET | `/consentimiento-whatsapp/texto` | Público | — | La versión y el texto vigentes. Si la versión configurada no existe, `disponible: false`. |
+| GET | `/consentimiento-whatsapp` | Paciente | **Solo el paciente de la sesión — 403 al resto** | Su estado (`sin-decision`, `acepta`, `revocado`, `telefono-cambiado`, `texto-desactualizado`, `no-disponible`), si puede aceptar ahora (`disponible` y `motivo`: `menor-de-edad`, `telefono-invalido`, `no-configurado`) y el texto que tiene que leer. |
+| POST | `/consentimiento-whatsapp/aceptar` | Paciente | **Solo el paciente de la sesión — 403 al resto** | `{ version }` (la del texto que leyó). Registra una fila de `ConsentimientoWhatsApp` con la versión y el hash del texto, su usuario, **el número nacional de 10 dígitos de su ficha** y la hora UTC; si tenía una abierta (otro número u otro texto) la cierra en el mismo paso. Repetirlo no agrega nada. 409: `version-desactualizada`, `menor-de-edad`, `telefono-invalido`, `no-configurado`. **Auditada.** |
+| POST | `/consentimiento-whatsapp/revocar` | Paciente | **Solo el paciente de la sesión — 403 al resto** | Cierra la aceptación abierta con la hora UTC y el motivo `paciente`. Se puede repetir. **Auditada.** |
+
 ## Superficie pública (reserva por link, sin sesión)
 
 Sin cambios esta vuelta — ya estaba bien decidida desde la Fase 3a. 404 idéntico si el
@@ -407,6 +424,10 @@ slug no existe o si el link está apagado (nunca se revela cuál de las dos cosa
   endpoints y `POST /sesiones-clinicas` por HTTP: 401, 404 idéntico, 409 con su código, 429, `no-store`, el Configurador sin
   emociones), `ConsentimientoVideoServiceTests`, `GuardiaEmocionesServiceTests`, `EmocionesCifradoServiceTests`,
   `PurgaEmocionesTests`, `RecifrarEmocionesTests` y, contra una base real con la migración, `EmocionesBaseRealTests`.
+- **Consentimiento de los avisos por WhatsApp:** `YoSoy.Tests/ConsentimientoWhatsAppEndpointsTests.cs` (401, 403 a los demás roles, el cuerpo
+  que no puede decir de quién es, 409 con su código, 429, `no-store`), `ConsentimientoWhatsAppServiceTests` (las reglas), `TelefonoArgentinoTests`,
+  `ComandoWhatsAppTests` (la BAJA, comparada con el código real del servicio de WhatsApp), `TextoConsentimientoWhatsAppTests` y, contra una base
+  real, `ConsentimientoWhatsAppBaseRealTests` y `ConsentimientoWhatsAppEsquemaTests`.
 - **Videollamadas (PR 3):** `YoSoy.Tests/VideoAccesoEndpointsTests.cs` (matriz 401/404/409, respuesta idéntica para "no existe" y "no sos parte", bordes de la
   ventana, rol y `exp` del token desde el servidor, 503, ICE, auditoría, cabeceras, rate limit),
   `AccesoSalaServiceTests`, `TurnCredentialsServiceTests` (vectores HMAC-SHA1 calculados aparte), `TokenSalaServiceTests`,

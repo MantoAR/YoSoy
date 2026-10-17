@@ -23,6 +23,7 @@ public class NotificadorTurnos : INotificadorTurnos
     private readonly IConversacionDAO _conversaciones;
     private readonly IServicioMensajes _mensajes;
     private readonly IMessageChannel _canal;
+    private readonly IPoliticaEnvioWhatsApp _politicaWhatsApp;
     private readonly ITurnoRepositorio _turnos;
     private readonly IServiceProvider _servicios;
     private readonly IConfiguration _config;
@@ -32,7 +33,7 @@ public class NotificadorTurnos : INotificadorTurnos
 
     public NotificadorTurnos(
         IDatosMensajeria datos, IRecordatorioDAO recordatorios, INotificacionInternaDAO internas,
-        IConversacionDAO conversaciones, IServicioMensajes mensajes, IMessageChannel canal,
+        IConversacionDAO conversaciones, IServicioMensajes mensajes, IMessageChannel canal, IPoliticaEnvioWhatsApp politicaWhatsApp,
         ITurnoRepositorio turnos, IServiceProvider servicios, IConfiguration config,
         IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj, ILogger<NotificadorTurnos> log)
     {
@@ -42,6 +43,7 @@ public class NotificadorTurnos : INotificadorTurnos
         _conversaciones = conversaciones;
         _mensajes       = mensajes;
         _canal          = canal;
+        _politicaWhatsApp = politicaWhatsApp;
         _turnos         = turnos;
         _servicios      = servicios;
         _config         = config;
@@ -211,7 +213,15 @@ public class NotificadorTurnos : INotificadorTurnos
 
     private (string, string?) EnviarChat(TurnoAviso t, string texto, bool esRecordatorio)
     {
-        var telefono = Telefono.Normalizar(t.TelefonoPaciente);
+        // Consentimiento de WhatsApp (ConsentimientoWhatsApp): si el paciente revocó, no se manda nada, y ni se arma la conversación. Con una
+        // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
+        // decide él (solo le escribe a quien le escribió primero al número de la clínica).
+        var permiso = _politicaWhatsApp.Evaluar(t.IdPaciente, t.TelefonoPaciente);
+        if (permiso == PermisoEnvioWhatsApp.Revocado) return ("Omitido", "El paciente revocó los avisos por WhatsApp.");
+
+        // El número nacional de 10 dígitos si se lo entiende como teléfono argentino ("011 15 5555-0001" es 1155550001); si no, lo de
+        // siempre (los últimos 10 dígitos).
+        var telefono = TelefonoArgentino.Normalizar(t.TelefonoPaciente) ?? Telefono.Normalizar(t.TelefonoPaciente);
         if (telefono.Length < 6) return ("Omitido", "El paciente no tiene teléfono cargado.");
 
         var c = _conversaciones.ObtenerOCrear(telefono, _canal.Nombre);
@@ -232,8 +242,13 @@ public class NotificadorTurnos : INotificadorTurnos
         c.FechaUltimaActividad = Ahora;
         _conversaciones.Guardar(c);
 
-        var m = _mensajes.EnviarAsync(c, texto, "Sistema").GetAwaiter().GetResult();
-        return m.EstadoEnvio == "Enviado" ? ("Enviado", null) : ("Error", "El canal no pudo entregar el mensaje.");
+        var m = _mensajes.EnviarAsync(c, texto, "Sistema", new OpcionesEnvio(OptIn: permiso == PermisoEnvioWhatsApp.ConConsentimiento))
+            .GetAwaiter().GetResult();
+        if (m.EstadoEnvio == "Enviado") return ("Enviado", null);
+        // whatsapp-service rechazó el aviso porque la persona no aceptó recibir WhatsApp (o pidió la baja): no es una falla ni se reintenta.
+        if (m.CodigoDeError is "sin_consentimiento" or "baja")
+            return ("Omitido", "La persona no aceptó recibir WhatsApp o pidió la baja.");
+        return ("Error", "El canal no pudo entregar el mensaje.");
     }
 
     private (string, string?) Campanita(TurnoAviso t, string titulo, string texto)

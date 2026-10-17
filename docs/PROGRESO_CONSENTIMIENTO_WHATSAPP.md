@@ -11,15 +11,15 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ninguna migración se aplica a
   una base real** (solo a bases descartables de prueba); sin `--force` ni merge a `main`; los datos de consentimiento no se loguean con
   teléfonos completos ni contenido.
-- **Última actualización:** 2026-10-17, tras la etapa 1 (modelo de datos).
+- **Última actualización:** 2026-10-17, tras la etapa 2 (la API).
 
 ## Estado de las etapas
 
 | Etapa | Qué | Estado | Commit |
 |---|---|---|---|
 | — | Este archivo (plan, hallazgos y decisiones) | hecho | `2cb6615` |
-| 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | (este commit) |
-| 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | pendiente | |
+| 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | `2c79f5a` |
+| 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | (este commit) |
 | 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | pendiente | |
 | 4 | Link `wa.me` (opción B) configurable | pendiente | |
 | 5 | Plantillas de mensajes sin nada clínico | pendiente | |
@@ -153,6 +153,76 @@ fecha es obligatoria en el registro de la pantalla). **Lo tiene que validar el e
   `UPDATE` o un `DROP` metidos, otra tabla tocada, sin `SET QUOTED_IDENTIFIER`...) y 7 sobre la base (sin el índice único, sin una clave,
   sin un `CHECK`, y el `CHECK` sin el `IS NOT NULL`, que reproduce el error de arriba).
 - Corridas con la base `yosoy_test_wa` (descartable, 45 tablas, creada con `Scripts\crear-base-de-pruebas.ps1`).
+
+## Etapa 2: la API
+
+### Qué quedó hecho
+
+- **Las reglas** (`Services/Mensajeria/ConsentimientoWhatsAppService.cs`), testeables en memoria como las del consentimiento de video:
+  `Obtener` (el estado y el texto), `Aceptar`, `Revocar`, `Evaluar` (lo que usa el notificador) y `RegistrarBaja` (lo que usa el bot). Estados:
+  `sin-decision`, `acepta`, `revocado`, `telefono-cambiado`, `texto-desactualizado`, `no-disponible`. Acceso a datos en
+  `DAOs/ConsentimientoWhatsAppDAO.cs` (aceptar es **una sola transacción**: cierra la abierta y abre la nueva; el índice único resuelve las
+  carreras) y auditoría en `LogAuditoria` (solo ids y códigos, nunca el teléfono ni el texto).
+- **El texto**, servido por la API y versionado como el de video: `Services/Mensajeria/Consentimiento/v0-provisorio.txt` (embebido), con su
+  SHA-256 en cada aceptación, `Mensajeria:ConsentimientoWhatsApp:VersionTexto` para elegir la versión y una prueba que traba el hash de la
+  versión publicada. Marcado **provisorio**, con los datos de contacto y las referencias legales entre corchetes.
+- **Endpoints** (`Endpoints/ConsentimientoWhatsAppEndpoints.cs`, en `docs/MATRIZ_ENDPOINTS.md`): `GET /consentimiento-whatsapp/texto` (público,
+  para el registro), `GET /consentimiento-whatsapp`, `POST /consentimiento-whatsapp/aceptar` y `POST /consentimiento-whatsapp/revocar`. Quién es
+  sale **solo del JWT** (no hay ids en la URL ni en el cuerpo): un profesional o el Configurador reciben 403.
+- **Registro** (`POST /pacientes`): `aceptaWhatsApp` y `versionTextoWhatsApp`, nunca aceptado por defecto (ausente, `null` o `false` es "no"; un
+  texto como `"true"` es 400). Se valida **antes de crear la cuenta** (celular válido, mayor de edad, texto vigente): si algo no sirve, no
+  se crea ni la cuenta. La aceptación queda a nombre del usuario recién creado, con origen `registro`, y la respuesta dice
+  `consentimientoWhatsApp: { pedido, estado }`.
+- **Teléfono argentino** (`TelefonoArgentino`): `+54 9 11 5555-0001`, `011 15 5555-0001`, `0351 15 412-3456`, `02966 15 123456`... → número
+  nacional de 10 dígitos; sin código de área, de otro país o con letras → no vale. El aviso también va a ese número (antes, con un `15`, los
+  últimos 10 dígitos eran **otro** número).
+- **Lo que sale hacia el servicio de WhatsApp** (`IMessageChannel` con `OpcionesEnvio`, `CanalWhatsAppWebJs`): `"optIn": true` solo con una
+  aceptación vigente (nunca `optIn:false`); si el paciente **revocó**, `NotificadorTurnos` no manda nada ni arma la conversación; el rechazo del
+  servicio por falta de consentimiento o por BAJA (`sin_consentimiento`, `baja`) queda **"Omitido"**, no "Error", así no se reintenta.
+- **BAJA** (`ComandoWhatsApp` + `BotReservasService`): el mensaje entero `BAJA`, `STOP`, `no molestar`... revoca las aceptaciones abiertas de ese
+  número (motivo `baja-whatsapp`, auditado sin usuario) y el bot no contesta. Las palabras son las del servicio.
+
+### Decisiones y límites
+
+- **Los pacientes que nunca decidieron siguen como hoy** (son todos los existentes): el aviso sale sin `optIn` y el servicio decide, o sea que
+  reciben solo si le escribieron primero al número (la opción B del link `wa.me` sigue funcionando así). Si el servicio lo rechaza queda
+  "Omitido". **Límite conocido:** para esos pacientes se arma igual la conversación y queda un mensaje saliente en "Error" en la bandeja del
+  equipo, aunque el servicio lo rechace. Se evitaría mirando en la API si escribieron primero, pero eso duplicaría la regla del servicio (con
+  su propio plazo) y arriesga dejar de avisar a quien sí debería recibir; no lo hice. Queda como mejora si molesta en la bandeja.
+- **Aceptación vigente = este número + este texto.** Si cambia el teléfono (en el perfil, o lo cambia el Configurador), o se publica un texto
+  nuevo (otra `VersionTexto`), el paciente vuelve a "sin decisión" para los avisos hasta que acepte de nuevo; la fila vieja se cierra en ese
+  paso (`telefono-cambiado` / `texto-nuevo`). Cambiar la versión del texto **detiene los avisos por WhatsApp de todos hasta que cada uno vuelva
+  a aceptar**: es lo que corresponde cuando el texto provisorio se reemplace por el validado, pero hay que saberlo antes de hacerlo.
+- **Después de una BAJA hace falta aceptar de nuevo Y escribir ALTA.** El servicio de WhatsApp mantiene la baja hasta que la persona escriba
+  ALTA (decisión de la tarea anterior: BAJA gana sobre todo, aunque la API mande `optIn`). El texto del consentimiento lo dice. No dejé que una
+  aceptación nueva levante la baja del servicio: si la API se perdió la BAJA por una caída, esa baja es la última red para no escribirle a
+  quien pidió que no.
+- **Revocar desde el perfil solo existe si hay una aceptación.** Quien nunca aceptó pero recibe avisos porque le escribió al número primero se
+  da de baja respondiendo BAJA (lo dice la pantalla). No inventé una "revocación sin aceptación": ensuciaría el registro con una aceptación que
+  nunca existió.
+- **El número no se verifica.** Quien se registra con el celular de otra persona y tilda la casilla puede hacer que le escriban a un tercero (hoy
+  pasa igual con cualquier paciente con teléfono cargado, pero ahora hay una constancia que dice lo contrario). Mitigaciones que hay: los
+  mensajes son solo día y hora (etapa 5) y BAJA funciona desde ese teléfono. **Lo correcto sería un doble opt-in** (que escriba desde ese
+  número, o un código): ver "Qué falta".
+- **La validación del teléfono es solo para el consentimiento.** `POST /pacientes` y `PUT /pacientes/{id}` siguen guardando el texto libre (cambiar
+  eso es otra decisión: hay pacientes con números del exterior o sin código de área).
+- **Un número, una baja para todos:** si dos pacientes comparten celular (una familia), la BAJA revoca a los dos.
+- **Menores:** mismo criterio provisorio que el video (menor de 18 o con tutor cargado = no acepta solo). Lo tiene que validar el equipo legal.
+- **Sin base de datos o sin la migración**, los avisos de WhatsApp quedan en "Error" (no salen) y los demás canales siguen: se prefiere no
+  mandar a mandar sin saber si hay consentimiento. Por eso la migración va **antes** que la API en `DEPLOY.md`.
+
+### Pruebas de esta etapa
+
+- **270 pruebas nuevas** (la suite de la API pasó de 1021 a 1291, todas verdes contra una base descartable con el esquema nuevo):
+  `TelefonoArgentinoTests` (formas válidas y no válidas, entradas gigantes, y el caso del `15`), `ComandoWhatsAppTests` (la BAJA y, **con el
+  código real del servicio de WhatsApp** corrido con node sobre 87 textos raros, que las dos coinciden), `TextoConsentimientoWhatsAppTests`,
+  `ConsentimientoWhatsAppServiceTests` (los estados, el teléfono, el texto, los menores, quién puede qué, las carreras, la BAJA y que el
+  log y la auditoría no traigan el teléfono ni el texto), `ConsentimientoWhatsAppEnviosTests` (notificador, canal HTTP, servicio de mensajes y
+  bot), `ConsentimientoWhatsAppEndpointsTests` (la aplicación real con JWT: 401, 403, el cuerpo que no puede decir de quién es, 409, 429),
+  `ConsentimientoWhatsAppBaseRealTests` (el DAO contra la base: reemplazo atómico, 12 pedidos a la vez; el registro con y sin casilla; el
+  perfil de punta a punta con cambio de teléfono; la BAJA por el webhook) y `CanalWhatsAppInteropNodeTests` (lo que manda la API lo recibe el
+  `crearApp` real del servicio: `optIn` true solo cuando corresponde, y el código de rechazo vuelve).
+- `whatsapp-service`: `npm test` sin cambios (388, 382 pasan, 6 saltadas de POSIX): el servicio ya entendía `optIn` y BAJA.
 
 ## Pasos manuales para Agustín
 

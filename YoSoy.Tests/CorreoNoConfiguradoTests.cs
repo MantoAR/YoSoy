@@ -211,7 +211,7 @@ public class CorreoNoConfiguradoTests
         var servicios = new ServiceCollection().AddSingleton(new EmailService(config, logs.CreateLogger<EmailService>())).BuildServiceProvider();
         var notificador = new NotificadorTurnos(
             new DatosConMail(new FakeDatos(e.Db), Destinatario), recordatorios, new InternasNulas(), e.Conversaciones, e.Mensajes,
-            new CanalSimulado(), new FakeTurnoRepositorio(e.Db), servicios, config, e.Opciones, e.Reloj,
+            new CanalSimulado(), e.WhatsApp, new FakeTurnoRepositorio(e.Db), servicios, config, e.Opciones, e.Reloj,
             logs.CreateLogger<NotificadorTurnos>());
 
         notificador.EnviarRecordatorio24h(turno.IdTurno);
