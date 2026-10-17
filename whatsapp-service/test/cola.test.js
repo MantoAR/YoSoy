@@ -308,6 +308,77 @@ test("un mensaje que lleva más de 3 horas esperando se descarta: ya no sirve", 
 
 // ---------- Apagado y resumen ----------
 
+test("esperarEnCurso: sin nada en curso termina enseguida", async () => {
+    const c = armar();
+    assert.equal(await c.cola.esperarEnCurso(5000), true);
+    encolarN(c, 1);
+    await drenar();
+    await c.reloj.avanzar(10);
+    c.cola.detener();
+    assert.equal(await c.cola.esperarEnCurso(5000), true, "el envío ya terminó");
+});
+
+test("esperarEnCurso: espera al envío que está saliendo y devuelve true cuando termina", async () => {
+    const reloj = new RelojFalso();
+    const log = { info() {}, error() {} };
+    let terminar;
+    const cola = new ColaEnvios(() => new Promise(resolver => { terminar = resolver; }), log, { reloj, aleatorio: () => 0 });
+    cola.encolar(tel(1), "a");
+    cola.encolar(tel(2), "b");
+    await drenar();
+    cola.detener();
+
+    let resultado = "pendiente";
+    const espera = cola.esperarEnCurso(5000).then(r => { resultado = r; });
+    await drenar();
+    assert.equal(resultado, "pendiente", "el envío sigue en curso");
+    terminar();
+    await espera;
+    assert.equal(resultado, true);
+    assert.equal(cola.tamano(), 1, "y el segundo ya no sale: la cola está detenida");
+    assert.equal(reloj.pendientes(), 0, "sin temporizadores sueltos");
+});
+
+test("esperarEnCurso: si el envío se cuelga, a los maxMs devuelve false", async () => {
+    const reloj = new RelojFalso();
+    const cola = new ColaEnvios(() => new Promise(() => {}), { info() {}, error() {} }, { reloj });
+    cola.encolar(tel(1), "a");
+    await drenar();
+    cola.detener();
+    let resultado = "pendiente";
+    const espera = cola.esperarEnCurso(5000).then(r => { resultado = r; });
+    await reloj.avanzar(4999);
+    assert.equal(resultado, "pendiente");
+    await reloj.avanzar(1);
+    await espera;
+    assert.equal(resultado, false);
+});
+
+test("esperarEnCurso: un envío que falla también cuenta como terminado", async () => {
+    const reloj = new RelojFalso();
+    let fallar;
+    const cola = new ColaEnvios(() => new Promise((_, rechazar) => { fallar = rechazar; }), { info() {}, error() {} }, { reloj });
+    cola.encolar(tel(1), "a");
+    await drenar();
+    cola.detener();
+    let resultado = "pendiente";
+    const espera = cola.esperarEnCurso(5000).then(r => { resultado = r; });
+    await drenar();
+    assert.equal(resultado, "pendiente");
+    fallar(new Error("falló"));
+    await espera;
+    assert.equal(resultado, true);
+});
+
+test("detener() durante la pausa entre mensajes despierta el loop y esperarEnCurso termina al toque", async () => {
+    const c = armar({ espaciado: { minMs: 60000, maxMs: 90000 } });
+    encolarN(c, 3);
+    await drenar();
+    c.cola.detener();
+    assert.equal(await c.cola.esperarEnCurso(5000), true);
+    assert.equal(c.reloj.pendientes(), 0);
+});
+
 test("detener() corta enseguida, incluso en una pausa: no queda nada dormido ni se manda lo que falta", async () => {
     const c = armar({ espaciado: { minMs: 60000, maxMs: 90000 } });
     encolarN(c, 3);

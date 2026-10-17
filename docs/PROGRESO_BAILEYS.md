@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 6 (privacidad en logs).
+- **Última actualización:** 2026-10-16, tras la etapa 7 (salud y apagado ordenado).
 
 ## Estado de las etapas
 
@@ -26,8 +26,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 3 | Vinculación por QR (comando y endpoint local) | **hecho** | `a5001e0` |
 | 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | `d5039bf` |
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | `aad3f96` |
-| 6 | Privacidad en logs | **hecho** | (este commit) |
-| 7 | Salud y apagado ordenado | pendiente | — |
+| 6 | Privacidad en logs | **hecho** | `e9939b9` |
+| 7 | Salud y apagado ordenado | **hecho** | (este commit) |
 | 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | pendiente | — |
 
 ## Cómo retomar
@@ -418,6 +418,48 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   Cuatro se escaparon primero y llevaron a pruebas más fuertes (que el comando filtre un QR repetido en un mensaje de la librería,
   que info/debug de la librería no salgan, y que el descarte de la cola ocurra de verdad en el escenario).
 
+## Etapa 7: salud y apagado ordenado
+
+### Qué quedó hecho
+
+- **`GET /salud` completo** (sin secreto, solo loopback): 200 si está `conectado` y 503 si no, con `estado` (`conectado`, `iniciando`,
+  `reconectando`, `requiere_vincular`, `requiere_atencion`, `detenido`), `motivo`, **`desde`** (desde cuándo está en ese estado),
+  `qrPendiente` (hay un QR esperando, sin mostrarlo), `intentosDeReconexion`, **`uptimeSegundos`** y la **`cola`** (pendientes, enviados
+  hoy y en la última hora, y los topes). Sin teléfonos ni textos: una prueba verifica que las claves del cuerpo son exactamente
+  esas y que no hay ningún número largo. `Cache-Control: no-store`. Con whatsapp-web.js sigue siendo `{ "ok": true }`.
+- **El pedido de `loggedOut`**, cerrado: sin reintentos, se registra, queda en `requiere_vincular` (`sesion_cerrada`) y `/salud` lo
+  avisa con 503 y `requiereVincular: true` (etapas 1 y 4; acá se completa con `desde`, la cola y el tiempo en marcha).
+- **Apagado ordenado** (`apagado.js`, antes un bloque de `index.js` sin pruebas): ahora es un módulo con su secuencia probada.
+  1) se cierra el puerto y la cola deja de despachar; 2) **se espera hasta 5 s al envío en curso** (antes se cerraba WhatsApp con el
+  mensaje a medio salir, y el contador del día podía quedar sin contarlo); 3) se suelta el socket **sin cerrar la sesión** y a la vez se
+  guardan credenciales, consentimientos y contadores (si WhatsApp tarda en soltar el socket, los datos se guardan igual);
+  4) salida con 0. Todo con un tope de 10 s (la unit da 20).
+- **`cola.esperarEnCurso(ms)`** (nueva) y un arreglo en la cola: con la cola detenida ya no se duerme la pausa entre mensajes
+  (antes, un `detener()` que llegaba con un envío en curso dejaba al loop durmiendo 3 a 9 s más).
+- README: sección "`/salud` y apagado ordenado" con la tabla de estados y qué hacer en cada uno.
+
+### Decisiones y límites
+
+- **503 también para `reconectando` e `iniciando`.** Un monitor que alerte por 503 va a avisar en cada corte de red de unos segundos.
+  Si molesta, que alerte solo si el 503 dura más de, por ejemplo, 5 minutos (`desde` dice cuánto lleva).
+- **Un servicio recién desplegado y sin vincular contesta 503**: es lo correcto (no puede mandar mensajes), pero conviene saberlo antes de
+  usar `curl -f /salud` como chequeo de despliegue (la guía de `DEPLOY.md` de la etapa 8 lo tiene en cuenta).
+- **El apagado no manda un último estado por `/salud`**: cierra el puerto de entrada. Para quien consulta, un servicio apagándose es un
+  "conexión rechazada", igual que apagado del todo.
+- **No pude probar un SIGTERM real** (Windows no los entrega a un proceso como Linux, y no corro la librería real en los tests): el
+  apagado se prueba con dobles y reloj falso, y una prueba chica verifica que `index.js` lo conecta a SIGTERM y SIGINT. **Pasos
+  manuales** incluye un `systemctl stop` de verificación.
+
+### Pruebas de esta etapa
+
+- `apagado.test.js` (nuevo, 12): el orden, las señales repetidas, WhatsApp que no suelta el socket, errores de cierre (con teléfonos
+  enmascarados), y una de punta a punta con la cola y los contadores de verdad: el último envío queda contado **en el disco** antes de salir.
+  Más 9 pruebas nuevas en `cola.test.js`, `servidor.test.js` y `baileys-servicio.test.js`.
+- **`npm test`: 371 pruebas, 365 pasan, 6 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 37 cambios a propósito (cada paso del apagado y su orden, el tope, `esperarEnCurso`, los campos de `/salud` y su
+  código HTTP, el cableado de `index.js`): **36 detectados y 1 equivalente** (un manejador de rechazo que no se puede alcanzar porque
+  el loop de la cola atrapa todos los errores de envío).
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -445,6 +487,9 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   Mientras no se elija, `NotificadorTurnos` va a registrar fallos de envío para los pacientes sin constancia.
 - **Arrancar el número nuevo con topes bajos** (por ejemplo `WHATSAPP_TOPE_DIARIO=30` y `WHATSAPP_TOPE_POR_HORA=10`) y subirlos de a poco
   durante semanas; es lo que más baja el riesgo de bloqueo.
+- **Probar el apagado en el servidor** (cuando se despliegue Baileys): `sudo systemctl stop whatsapp-service` tiene que terminar en
+  1 a 3 segundos, sin esperar a los 20 de `TimeoutStopSec`, y el journal tiene que decir `SIGTERM recibido, apagando...` y
+  `Apagado completo.`. Después, `systemctl start` y `curl -s http://127.0.0.1:3002/salud`: tiene que volver a `conectado` sin pedir QR.
 - **Vincular el número dedicado (yo no lo hago nunca):** tener el chip del número dedicado de la clínica con WhatsApp ya activo en un
   teléfono, y escanear el QR vos, por la forma que prefieras (README, "Baileys: vincular el número (QR)"). Después de escanear,
   no usar ese WhatsApp en otro teléfono al mismo tiempo: invalida la sesión.
@@ -455,9 +500,7 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 7 y 8 (ver la tabla). Lo que las etapas 1 a 6 dejan a propósito para después: `/salud` más completo (con los contadores de la
-  cola y los topes, que ya existen en `cola.resumen()`) y apagado ordenado (extraer y probar el cierre de `index.js`, incluido
-  `datos.cerrar()` y esperar el envío en curso) (7), unidad systemd y docs de despliegue (8).
+- Etapa 8 (ver la tabla): unidad systemd propuesta y docs de despliegue (`DEPLOY.md`, `SERVIDOR.md`).
 - **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
   se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
   mezclar un cambio de API/UI en esta tarea.

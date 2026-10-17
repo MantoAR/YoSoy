@@ -23,9 +23,9 @@ function servicioFalso(extra = {}) {
 }
 
 // Levanta la app en un puerto libre de loopback y devuelve una función para pedirle cosas.
-async function conServidor({ servicio = servicioFalso(), cola, log = crearLog() } = {}, cuerpo) {
+async function conServidor({ servicio = servicioFalso(), cola, log = crearLog(), uptime } = {}, cuerpo) {
     const colaUsada = cola ?? new ColaEnvios(async () => {}, log);
-    const app = crearApp({ servicio, cola: colaUsada, secreto: SECRETO, log });
+    const app = crearApp({ servicio, cola: colaUsada, secreto: SECRETO, log, ...(uptime ? { uptime } : {}) });
     const servidor = await new Promise(resolver => { const s = escuchar(app, 0, () => resolver(s)); });
     const { port, address } = servidor.address();
     const pedir = (ruta, { metodo = "GET", secreto = SECRETO, cuerpo: body, crudo } = {}) => fetch(`http://127.0.0.1:${port}${ruta}`, {
@@ -47,17 +47,44 @@ test("GET /salud sin secreto y con un backend sin salud() responde {ok:true}, ig
     });
 });
 
-test("GET /salud con un backend que informa su estado: 200 si está bien y 503 si no, con el estado en el cuerpo", async () => {
+test("GET /salud con un backend que informa su estado: 200 si está bien y 503 si no, con el estado, el tiempo en marcha y la cola", async () => {
     let salud = { ok: true, canal: "baileys", estado: "conectado" };
-    await conServidor({ servicio: servicioFalso({ salud: () => salud }) }, async ({ pedir }) => {
+    await conServidor({ servicio: servicioFalso({ salud: () => salud }), uptime: () => 41.6 }, async ({ pedir }) => {
         let r = await pedir("/salud", { secreto: null });
         assert.equal(r.status, 200);
-        assert.deepEqual(await r.json(), salud);
+        assert.deepEqual(await r.json(), { ...salud, uptimeSegundos: 42, cola: { pendientes: 0 } });
 
         salud = { ok: false, canal: "baileys", estado: "requiere_vincular", motivo: "sesion_cerrada" };
         r = await pedir("/salud", { secreto: null });
         assert.equal(r.status, 503);
         assert.equal((await r.json()).estado, "requiere_vincular");
+    });
+});
+
+test("GET /salud no se cachea, no pide secreto y no trae teléfonos ni textos", async () => {
+    const servicio = servicioFalso({
+        salud: () => ({ ok: false, canal: "baileys", estado: "reconectando", motivo: null, desde: "2026-10-16T15:00:00.000Z", conectado: false, qrPendiente: false,
+            requiereVincular: false, requiereAtencion: false, reconectando: true, intentosDeReconexion: 3 })
+    });
+    const cola = { tamano: () => 2, detener() {}, resumen: () => ({ pendientes: 2, dia: "2026-10-16", enviadosHoy: 7, enEspera: 2, topeDiario: 100, enviadosUltimaHora: 7, topePorHora: 40, topePorDestinatario: 3 }) };
+    await conServidor({ servicio, cola }, async ({ pedir }) => {
+        const r = await pedir("/salud", { secreto: null });
+        assert.equal(r.status, 503);
+        assert.equal(r.headers.get("cache-control"), "no-store");
+        const cuerpo = await r.json();
+        assert.deepEqual(Object.keys(cuerpo).sort(), ["canal", "cola", "conectado", "desde", "estado", "intentosDeReconexion", "motivo", "ok", "qrPendiente",
+            "reconectando", "requiereAtencion", "requiereVincular", "uptimeSegundos"].sort());
+        assert.deepEqual(cuerpo.cola, { pendientes: 2, dia: "2026-10-16", enviadosHoy: 7, enEspera: 2, topeDiario: 100, enviadosUltimaHora: 7, topePorHora: 40, topePorDestinatario: 3 });
+        assert.equal(typeof cuerpo.uptimeSegundos, "number");
+        assert.doesNotMatch(JSON.stringify(cuerpo), /\d{7,}/, "ningún número que parezca un teléfono");
+    });
+});
+
+test("GET /salud con whatsapp-web.js (sin salud()) sigue siendo {ok:true}, también sin cabeceras raras", async () => {
+    await conServidor({}, async ({ pedir }) => {
+        const r = await pedir("/salud", { secreto: null });
+        assert.equal(r.headers.get("cache-control"), "no-store");
+        assert.deepEqual(await r.json(), { ok: true });
     });
 });
 

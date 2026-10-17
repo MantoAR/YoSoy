@@ -1,7 +1,10 @@
 // La app HTTP de whatsapp-service (Express), separada de index.js para poder probarla con un backend falso.
 // Es la interfaz que usa la API de YoSoy (CanalWhatsAppWebJs y WhatsAppAdminService): no cambia según el backend.
 //
-//   GET  /salud        sin secreto, solo loopback. Con Baileys dice en qué estado está (ver servicio.salud()).
+//   GET  /salud        sin secreto, solo loopback. Con Baileys: 200 si está conectado y 503 si no, con el estado (conectado,
+//                      iniciando, reconectando, requiere_vincular, requiere_atencion), el motivo, desde cuándo, los intentos de
+//                      reconexión, el tiempo en marcha del proceso y lo de la cola y los topes. Sin teléfonos ni textos.
+//                      Con whatsapp-web.js, { ok: true } mientras el proceso responda, como siempre.
 //   GET  /estado       { conectado, numero, qrPendiente, qr } (más campos extra según el backend). Pide secreto.
 //   POST /enviar       { telefono, texto, optIn? } → { exito, idExterno } o { exito:false, error, codigo }. Pide secreto.
 //                      Con Baileys puede rechazar el pedido: 400 telefono_invalido · 403 sin_consentimiento / baja ·
@@ -28,7 +31,7 @@ function secretoValido(esperadoTexto, recibido) {
     return crypto.timingSafeEqual(esperado, dado);
 }
 
-function crearApp({ servicio, cola, secreto, log }) {
+function crearApp({ servicio, cola, secreto, log, uptime = () => process.uptime() }) {
     const app = express();
     app.disable("x-powered-by");
     app.use(express.json({ limit: "32kb" }));
@@ -46,9 +49,11 @@ function crearApp({ servicio, cola, secreto, log }) {
     };
 
     app.get("/salud", (req, res) => {
+        res.set("Cache-Control", "no-store");
         if (typeof servicio.salud !== "function") return res.json({ ok: true });
         const salud = servicio.salud();
-        res.status(salud.ok ? 200 : 503).json(salud);
+        const cuerpo = { ...salud, uptimeSegundos: Math.round(uptime()), ...(typeof cola?.resumen === "function" ? { cola: cola.resumen() } : {}) };
+        res.status(salud.ok ? 200 : 503).json(cuerpo);
     });
 
     // El QR viaja en esta misma respuesta (ver estado() de cada backend), así que se gatea igual que /enviar.

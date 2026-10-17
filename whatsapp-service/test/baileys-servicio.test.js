@@ -854,9 +854,34 @@ conEntorno("salud() informa la forma completa", { registrada: true }, async e =>
     const sock = await e.iniciar();
     sock.abrir();
     assert.deepEqual(e.servicio.salud(), {
-        ok: true, canal: "baileys", estado: "conectado", motivo: null, conectado: true,
+        ok: true, canal: "baileys", estado: "conectado", motivo: null, desde: "2026-10-16T15:00:00.000Z", conectado: true, qrPendiente: false,
         requiereVincular: false, requiereAtencion: false, reconectando: false, intentosDeReconexion: 0
     });
+});
+
+conEntorno("salud() dice desde cuándo está en el estado, y solo lo cambia cuando cambia el estado o el motivo", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+    assert.equal(e.servicio.salud().desde, "2026-10-16T15:00:00.000Z");
+
+    await e.reloj.avanzar(10 * 60 * 1000);
+    assert.equal(e.servicio.salud().desde, "2026-10-16T15:00:00.000Z", "diez minutos conectado: sigue siendo desde el mismo momento");
+
+    sock.cerrar(DisconnectReason.connectionClosed);
+    assert.equal(e.servicio.salud().estado, "reconectando");
+    assert.equal(e.servicio.salud().desde, "2026-10-16T15:10:00.000Z");
+});
+
+conEntorno("salud() avisa que hay un QR esperando, sin mostrarlo", async e => {
+    const sock = await e.iniciar();
+    assert.equal(e.servicio.salud().qrPendiente, false);
+    sock.emitirQr(QR);
+    const salud = e.servicio.salud();
+    assert.equal(salud.qrPendiente, true);
+    assert.equal(salud.estado, "requiere_vincular");
+    assert.equal(JSON.stringify(salud).includes("ref-secreta"), false);
+    sock.abrir();
+    assert.equal(e.servicio.salud().qrPendiente, false);
 });
 
 // ---------- Guardado de credenciales ----------

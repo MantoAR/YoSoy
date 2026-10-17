@@ -116,9 +116,8 @@ terminar en un bloqueo del número.
 
 - **El proceso no se cae** en los casos que "no reintentan": sigue vivo y contesta `/salud`. Si saliera con error, systemd
   (`Restart=on-failure`) lo reiniciaría cada pocos segundos y volvería a golpear la puerta de WhatsApp: justo lo que se evita.
-- **`GET /salud`** contesta 200 solo si está `conectado`; si no, 503 con `estado` (`iniciando`, `reconectando`,
-  `requiere_vincular`, `requiere_atencion`), `motivo` y las banderas `requiereVincular`, `requiereAtencion` y `reconectando`
-  (más `intentosDeReconexion`). Con `loggedOut`: `requiere_vincular` + `sesion_cerrada`.
+- **`GET /salud`** (ver "`/salud` y apagado ordenado", más abajo) contesta 200 solo si está `conectado`; si no, 503 con el estado.
+  Con `loggedOut`: `requiere_vincular` + `sesion_cerrada`.
 - **Para salir de `requiere_atencion`:** resolver lo que dice el log y `sudo systemctl restart whatsapp-service`. Para cambiar de
   número (por ejemplo, si el bloqueado es definitivo): "Desvincular y cambiar número" en el Configurador y vincular el nuevo.
 - Los mensajes del log dicen el código, el intento y la espera (`se reintenta en 8 s (intento 3)`), nunca un teléfono.
@@ -197,6 +196,47 @@ teléfono, un texto, el QR, credenciales o secretos sin enmascarar, ni volcar un
 
 Con whatsapp-web.js el log queda como estaba (por ejemplo, escribe el número propio de la clínica al conectar). Para revisar a mano
 un log de Baileys, esto no tendría que devolver nada: `journalctl -u whatsapp-service -o cat | grep -E '[0-9]{7,}'`.
+
+### Baileys: `/salud` y apagado ordenado
+
+**`GET /salud`** no pide secreto y solo escucha en loopback (`127.0.0.1:3002`). Dice si el servicio está en condiciones de mandar
+mensajes y, si no, por qué:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3002/salud     # 200 conectado · 503 todo lo demás
+curl -s http://127.0.0.1:3002/salud
+```
+```json
+{ "ok": false, "canal": "baileys", "estado": "requiere_vincular", "motivo": "sesion_cerrada", "desde": "2026-10-16T15:00:00.000Z",
+  "conectado": false, "qrPendiente": false, "requiereVincular": true, "requiereAtencion": false, "reconectando": false,
+  "intentosDeReconexion": 0, "uptimeSegundos": 5231,
+  "cola": { "pendientes": 0, "dia": "2026-10-16", "enviadosHoy": 3, "enEspera": 0, "topeDiario": 100,
+            "enviadosUltimaHora": 3, "topePorHora": 40, "topePorDestinatario": 3 } }
+```
+
+| `estado` | HTTP | Qué significa | Qué hacer |
+|---|---|---|---|
+| `conectado` | 200 | listo para enviar y recibir | nada |
+| `iniciando` | 503 | abriendo la sesión (pasa en segundos) | esperar |
+| `reconectando` | 503 | se cortó y se reintenta solo (`intentosDeReconexion`, `desde`) | esperar; si pasa de unos minutos, mirar el log |
+| `requiere_vincular` | 503 | falta escanear un QR; `motivo`: `esperando_escaneo` (hay un QR, `qrPendiente: true`), `qr_vencido`, `sesion_cerrada` | vincular (ver arriba) |
+| `requiere_atencion` | 503 | WhatsApp cortó por algo que reintentar no arregla; `motivo`: `cuenta_restringida`, `sesion_reemplazada`, `version_rechazada`, `sesion_invalida` | mirar el log y reiniciar el servicio |
+| `detenido` | 503 | todavía no arrancó, o ya se apagó | — |
+
+`desde` es desde cuándo está en ese estado y motivo. No trae teléfonos ni textos (lo vigila una prueba), y se puede consultar sin
+secreto porque solo escucha en loopback. Con whatsapp-web.js, `/salud` contesta `{ "ok": true }` mientras el proceso responda, como
+siempre. **Ojo:** con Baileys, un servicio recién desplegado y sin vincular contesta 503 (con `requiere_vincular`); eso es lo correcto,
+no una falla del proceso.
+
+**Apagado ordenado.** systemd manda SIGTERM al hacer `stop` o `restart` (Ctrl+C es SIGINT, lo mismo). En este orden:
+1. se cierra el puerto y la cola deja de despachar (lo nuevo recibe `503 reiniciando`);
+2. se espera hasta 5 segundos al envío que esté saliendo, para no cortarlo a la mitad y para que cuente en el tope del día;
+3. se suelta el socket de WhatsApp **sin cerrar la sesión** (el número sigue vinculado) y se guardan, a la vez, lo que quede por escribir de
+   las credenciales, los consentimientos y los contadores;
+4. se sale con código 0.
+
+Todo tiene un tope de 10 segundos (la unit da 20): si algo no contesta, se anota y se sale igual con lo que haya, sin bloquear.
+Se sale con 0 a propósito: fue un pedido de apagado, no una falla, y con otro código `Restart=on-failure` lo volvería a levantar.
 
 Más variables (el `/salud` completo, el apagado) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).

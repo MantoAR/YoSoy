@@ -78,6 +78,7 @@ class ServicioBaileys {
 
         this._estado = ESTADOS.DETENIDO;
         this._motivo = null;
+        this._desde = reloj.ahora();               // desde cuándo está en este estado y motivo
         this._sock = null;
         this._qr = null;
         this._qrAvisado = false;
@@ -133,7 +134,9 @@ class ServicioBaileys {
             canal: "baileys",
             estado: this._estado,
             motivo: this._motivo,
+            desde: new Date(this._desde).toISOString(),
             conectado,
+            qrPendiente: this._qr !== null,
             requiereVincular: this._estado === ESTADOS.REQUIERE_VINCULAR,
             requiereAtencion: this._estado === ESTADOS.REQUIERE_ATENCION,
             reconectando: this._estado === ESTADOS.RECONECTANDO,
@@ -430,6 +433,7 @@ class ServicioBaileys {
         if (this._estado === estado && this._motivo === motivo) return;
         this._estado = estado;
         this._motivo = motivo;
+        this._desde = this._reloj.ahora();
         this._log.info(`WhatsApp: estado ${estado}${motivo ? ` (${motivo})` : ""}.`);
     }
 

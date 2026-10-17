@@ -11,6 +11,7 @@ const { leerConfig, ErrorDeConfiguracion } = require("./config");
 const { crearBackend } = require("./backend");
 const { crearApp, escuchar } = require("./servidor");
 const { crearColaParaBackend } = require("./cola");
+const { crearApagado } = require("./apagado");
 const { crearLogDelProceso, logParaBackend } = require("./logs");
 const { ocultarNumeros } = require("./privacidad");
 
@@ -60,26 +61,8 @@ async function main() {
         wa.recuperar();
     });
 
-    // Apagado limpio (systemd manda SIGTERM al hacer stop/restart; TimeoutStopSec=20 en la unit le da margen de sobra a este
-    // timeout interno de 10s + el tiempo propio de Node/SO). Orden: dejar de aceptar pedidos nuevos (servidor + cola), después
-    // cerrar el cliente de WhatsApp con un tope de tiempo — nunca bloquear el apagado esperando a la librería.
-    let apagando = false;
-    async function apagar(señal) {
-        if (apagando) return;
-        apagando = true;
-        log.info(`${señal} recibido, apagando...`);
-        cola.detener();
-        servidor.close();
-        try {
-            await Promise.race([
-                Promise.all([wa.cerrar(), wa.datos?.cerrar()]),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de espera agotado cerrando el cliente de WhatsApp.")), 10000))
-            ]);
-        } catch (err) {
-            log.error(`${err.message || err} — se sale igual.`);
-        }
-        process.exit(0);
-    }
+    // Apagado ordenado (ver apagado.js): systemd manda SIGTERM al hacer stop o restart.
+    const apagar = crearApagado({ servidor, cola, wa, log });
     process.on("SIGTERM", () => apagar("SIGTERM"));
     process.on("SIGINT", () => apagar("SIGINT"));
 }

@@ -54,6 +54,7 @@ class ColaEnvios {
 
         this._pendientes = [];
         this._procesando = false;
+        this._enCurso = null;                      // la promesa del loop que está despachando
         this._siguienteId = 1;
         this._detenida = false;
         this._espera = null;                       // { temporizador, despertar } mientras el loop duerme
@@ -97,12 +98,24 @@ class ColaEnvios {
         }
         const idExterno = `cola-${this._siguienteId++}`;
         this._pendientes.push({ idExterno, telefono, texto, meta, huella, encoladoEn: this._reloj.ahora() });
-        this._procesarEnSegundoPlano();
+        if (!this._procesando) this._enCurso = this._procesarEnSegundoPlano();
         return { ok: true, idExterno };
     }
 
     tamano() {
         return this._pendientes.length;
+    }
+
+    // Espera (hasta maxMs) a que termine el envío que esté en curso; con la cola detenida no sale ningún otro. true si terminó, false si
+    // se acabó el tiempo. Lo usa el apagado: así un mensaje no se corta a la mitad ni se queda sin contar en el tope del día.
+    async esperarEnCurso(maxMs) {
+        if (!this._procesando || !this._enCurso) return true;
+        let temporizador;
+        const vencio = new Promise(resolver => { temporizador = this._reloj.setTimeout(() => resolver(false), maxMs); });
+        const termino = this._enCurso.then(() => true, () => true);
+        const resultado = await Promise.race([termino, vencio]);
+        this._reloj.clearTimeout(temporizador);
+        return resultado;
     }
 
     resumen() {
@@ -187,6 +200,7 @@ class ColaEnvios {
     }
 
     _dormir(ms) {
+        if (this._detenida) return Promise.resolve();            // con la cola detenida no se espera nada
         return new Promise(resolver => {
             const despertar = () => { this._espera = null; resolver(); };
             this._espera = { despertar, temporizador: this._reloj.setTimeout(despertar, ms) };
