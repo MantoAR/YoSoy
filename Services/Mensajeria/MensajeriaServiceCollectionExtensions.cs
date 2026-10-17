@@ -17,8 +17,8 @@ public static class MensajeriaServiceCollectionExtensions
         // Esta línea solo cubre a quien use AddMensajeria sin él.
         services.TryAddSingleton(TimeProvider.System);
 
-        // Canal activo elegido por configuración. CanalWhatsAppCloud existe pero
-        // todavía no se registra (ver el TODO en esa clase).
+        // Canal activo elegido por configuración: Simulado (por defecto), o WhatsApp por whatsapp-service ("Baileys" o
+        // "WhatsAppWebJs"). CanalWhatsAppCloud existe pero todavía no se registra (ver el TODO en esa clase).
         var canal = config.GetSection(MensajeriaOptions.Seccion)["CanalActivo"] ?? "Simulado";
         switch (canal)
         {
@@ -26,6 +26,12 @@ public static class MensajeriaServiceCollectionExtensions
                 services.AddSingleton<IMessageChannel, CanalSimulado>();
                 break;
             case "WhatsAppWebJs":
+            case "Baileys":
+                // "WhatsAppWebJs" y "Baileys" son el MISMO canal desde acá: los dos hablan con whatsapp-service por la misma interfaz
+                // HTTP (/enviar, /estado, /desvincular) y no saben qué librería hay detrás. Cuál usa el servicio lo decide su propia
+                // variable WHATSAPP_BACKEND (ver whatsapp-service/README.md); este valor es solo la forma de decir "salir por WhatsApp".
+                // Se conservan los dos nombres para que un servidor que ya tiene Mensajeria__CanalActivo=WhatsAppWebJs siga arrancando.
+                //
                 // whatsapp-service solo escucha en loopback (ver whatsapp-service/README.md) —
                 // nunca una URL configurable desde afuera. AddHttpClient<T> registra el canal
                 // mismo como transient; se envuelve en un singleton para que todo lo que
@@ -41,7 +47,7 @@ public static class MensajeriaServiceCollectionExtensions
                 break;
             default:
                 throw new InvalidOperationException(
-                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\" y \"WhatsAppWebJs\".");
+                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\", \"Baileys\" y \"WhatsAppWebJs\".");
         }
 
         // WhatsAppAdminService (pantalla de WhatsApp del Configurador: estado/QR/desvincular)

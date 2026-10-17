@@ -12,3 +12,20 @@ docs/capturas-cambios-agus/
 docs/pruebas-ui-cambios-agus/
 .app-stdout.log
 .app-stderr.log
+
+# WhatsApp con Baileys: la sesión es una credencial de la cuenta y vive FUERA del repositorio (WHATSAPP_BAILEYS_SESSION_PATH).
+# Esto es solo una red de seguridad por si alguien apunta la variable adentro o copia la carpeta: frena por nombre lo que
+# escribe la librería, sea cual sea la carpeta.
+sesion-baileys/
+auth_info_baileys/
+baileys_auth_info/
+creds.json
+creds.json.*
+pre-key-*.json
+session-*.json
+sender-key-*.json
+app-state-sync-key-*.json
+app-state-sync-version-*.json
+lid-mapping-*.json
+device-list-*.json
+tctoken-*.json

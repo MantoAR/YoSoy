@@ -3,4 +3,6 @@
 # ("bad interpreter" / "$'\r': command not found") y un valor de coturn quedaría con un "\r" pegado al final.
 # No afecta a ningún otro archivo del repositorio.
 /deploy/** text eol=lf
+# Las units de whatsapp-service (whatsapp-service/deploy/) se copian igual al servidor.
+/whatsapp-service/deploy/** text eol=lf
 *.sh text eol=lf

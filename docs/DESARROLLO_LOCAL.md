@@ -142,9 +142,9 @@ base de pruebas.
 sqlcmd -S .\SQLEXPRESS -d master -E -C -Q "ALTER DATABASE [yosoy_test] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [yosoy_test];"
 ```
 
-Fijate bien en el nombre: borra la base entera. Los tests limpian lo que crean, pero algunos dejan filas sueltas de prueba
-(marcadas `[TEST-PR6]`); no molestan, y la suite se puede repetir sobre la misma base. Si querés una base limpia, borrala y
-volvé a crearla.
+Fijate bien en el nombre: borra la base entera. Los tests limpian lo que crean; lo único que puede quedar es alguna fila de
+catálogo (por ejemplo un `EstadoTurno`), que no molesta y que la suite reutiliza. Si querés una base limpia, borrala y volvé a
+crearla.
 
 ### Si falla
 
