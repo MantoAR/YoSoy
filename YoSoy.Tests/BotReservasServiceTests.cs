@@ -239,7 +239,9 @@ public class BotReservasServiceTests
     {
         var t = _e.Db.AgregarTurno(1, 10, Dia(25, 8), BaseEnMemoria.Confirmado);
         _e.SimularRecordatorio(Juan, t.IdTurno);
-        Assert.Contains("Le avisamos a Santiago Manto", await _e.Enviar(Juan, "2"));
+        var respuesta = await _e.Enviar(Juan, "2");
+        Assert.Contains("Le avisamos a tu profesional", respuesta);
+        Assert.DoesNotContain("Santiago Manto", respuesta);      // la respuesta a un recordatorio no nombra al profesional
         Assert.Equal("Confirmado", _e.Db.EstadoDe(t.IdTurno));
         Assert.Contains($"NoAsistencia:{t.IdTurno}", _e.Notificador.Eventos);
         Assert.Contains((t.IdTurno, "Turno24h", "NoAsistira"), _e.Recordatorios.Respuestas);

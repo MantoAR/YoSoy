@@ -21,8 +21,8 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 | 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | `2c79f5a` |
 | 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | `8f1335b` |
 | 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | **hecho** | `766e53a` |
-| 4 | Link `wa.me` (opción B) configurable | **hecho** | (este commit) |
-| 5 | Plantillas de mensajes sin nada clínico | pendiente | |
+| 4 | Link `wa.me` (opción B) configurable | **hecho** | `e18e650` |
+| 5 | Plantillas de mensajes sin nada clínico | **hecho** | (este commit) |
 | 6 | Documentación: `DEPLOY.md`, `SERVIDOR.md`, avisos que quedaron viejos | pendiente | |
 
 ## Cómo retomar
@@ -354,6 +354,63 @@ fecha es obligatoria en el registro de la pantalla). **Lo tiene que validar el e
   en la misma pestaña, la sugerencia para cualquier estado, "Ahora no" que no pospone o que lleva al perfil, la postergación que no vence, la
   sugerencia que lleva a otra sección o que activa directamente, que no se sugiera tras pedir o confirmar un turno, y un link escrito a mano):
   **las 15 detectadas** (12 por el banco de navegador y 3 por las pruebas estáticas).
+
+## Etapa 5: las plantillas de los mensajes (nada clínico por WhatsApp)
+
+### Qué se revisó
+
+Todo lo que puede salir por WhatsApp, y quién lo escribe:
+
+| Qué | Quién lo escribe | Antes | Ahora |
+|---|---|---|---|
+| Aviso: solicitud recibida, turno propuesto por el equipo, confirmado, cancelado | `NotificadorTurnos` (solo) | **Nombraba al profesional** ("…turno con *Dra. X*…") | Solo el día y la hora |
+| Recordatorio de 24 h | `NotificadorTurnos` (solo) | **Profesional y modalidad** ("con *Dra. X* (*Virtual*)") | Solo el día y la hora, con el link al panel |
+| Respuesta a "2" después de un recordatorio (menos de 24 h) | `BotReservasService` | "Le avisamos a *Dra. X*…" | "Le avisamos a tu profesional…" |
+| Respuestas del asistente cuando **la persona le escribe primero** (menú, pedir, ver y cancelar turnos) | `BotReservasService` | Nombra profesionales y especialidades | **Sin cambios, a propósito** (ver abajo) |
+| Respuesta de una persona del equipo; "el equipo cerró / reabrió esta conversación" | Una persona / `MensajeriaEndpoints` | Sin nada clínico | Sin cambios |
+| Algo propio de `whatsapp-service` | — | **El servicio no tiene plantillas**: solo reenvía el texto que le manda la API | — |
+
+### Qué quedó hecho
+
+- **`Services/Mensajeria/PlantillasWhatsApp.cs`**: los cinco avisos automáticos, en un solo lugar. **La garantía está en las firmas**: cada
+  plantilla recibe el momento del turno y, si hace falta, el link de ingreso; no hay por dónde pasarle un nombre, una especialidad, un motivo ni
+  una modalidad. Los textos (con un turno del martes 4/3 a las 10:30):
+  - *Solicitud:* "Recibimos tu solicitud de turno para el martes 04/03 a las 10:30. Queda pendiente de confirmación."
+  - *Turno propuesto:* "Te propusieron un turno para el martes 04/03 a las 10:30. Para confirmarlo, ingresá a tu panel en la web: <link>"
+  - *Confirmado:* "Tu turno del martes 04/03 a las 10:30 quedó confirmado."
+  - *Cancelado:* "Tu turno del martes 04/03 a las 10:30 fue cancelado. Si querés pedir otro, escribí "menu" por acá o ingresá a la web."
+  - *Recordatorio:* "Recordatorio: tenés turno el martes 04/03 a las 10:30. Para ver los detalles o ingresar: <link>" y, abajo, "Respondé 1 para
+    confirmar tu asistencia o 2 si no podés asistir. **Para dejar de recibir estos avisos, respondé BAJA.**" (la baja es nueva en el recordatorio: es
+    lo que el texto del consentimiento promete, y esa palabra es una baja de verdad para el servicio).
+- **`NotificadorTurnos`**: cada aviso tiene ahora **dos textos**, el del chat (la plantilla) y el de la campanita del panel y el mail (los de
+  siempre, con el profesional: es el panel, con sesión). El chat no lee nada del turno salvo su momento.
+- **`BotReservasService`**: la respuesta a un "2" después de un recordatorio ya no nombra al profesional (es la respuesta a un mensaje que salió solo,
+  así que sigue el mismo criterio).
+
+### Decisiones y límites
+
+- **Ningún aviso dice "profesional".** Hasta la palabra genérica quedó afuera de los textos automáticos (una prueba lo exige): hoy no hace
+  falta y, si alguna vez hace falta, tiene que ser una decisión consciente.
+- **El asistente cuando la persona le escribe primero no se tocó.** Ahí pidió ella ver o pedir turnos, y el menú necesita decir con quién
+  (sin eso no se puede elegir): es lo que dice el texto del consentimiento ("si vos nos escribís por WhatsApp para pedir o ver turnos, la
+  respuesta puede nombrar a tu profesional, porque lo pediste vos"). Si el equipo legal lo quiere más estricto, hay que cambiar el menú, no una
+  plantilla.
+- **La campanita y el mail siguen completos** (el recordatorio por mail dice con quién y cómo es el turno). La campanita está dentro del panel, con
+  sesión; el **mail** es otro canal de un tercero y **no lo revisé en esta tarea** (el encargo era el de WhatsApp): queda en "Qué falta".
+- **El link del recordatorio y del turno propuesto lleva al panel**, donde la persona ve los detalles después de iniciar sesión.
+
+### Pruebas de esta etapa
+
+- La suite de la API pasó de 1389 a **1407 pruebas, todas verdes** contra `yosoy_test_wa` (18 nuevas de `PlantillasWhatsAppTests` y una del asistente
+  ajustada). Por la **firma** (reflexión: solo `DateTime momento` y `string urlIngreso`, y ningún texto suelto); por el **texto** (dicen el día y la
+  hora y ninguna palabra que revele la atención: profesional, especialidad, motivo, psic-, psiq-, terapia, virtual, presencial, sala, Dr./Dra.…);
+  y **de punta a punta con el notificador real**: con un turno cargado de datos "marcados" (profesional, especialidad, modalidad, motivo, paciente), lo
+  que sale por el chat es **exactamente** la plantilla y no trae ninguna marca, en los cinco avisos; la campanita **sí** trae al profesional (así se sabe
+  que las marcas se verían si se colaran). Además: la palabra BAJA del recordatorio es una baja de verdad (`ComandoWhatsApp.EsBaja`), las respuestas
+  1 y 2 siguen, y la respuesta del asistente a un "2" no nombra al profesional.
+- **Mutaciones** (15: cada aviso del chat con el texto de la campanita, el recordatorio viejo, un nombre en la confirmación o en la solicitud, la baja
+  o el link que se pierden, una plantilla con un parámetro más, la palabra "virtual" o "profesional" en un texto, plantillas cambiadas entre sí, la
+  campanita sin el profesional…): **las 15 detectadas**.
 
 ## Pasos manuales para Agustín
 

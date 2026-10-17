@@ -553,7 +553,8 @@ public class BotReservasService
             {
                 // RN-05: faltan menos de 24 h, no se cancela; se le avisa al profesional.
                 _notificador.AvisarNoAsistencia(t.IdTurno);
-                r.Add($"Le avisamos a {t.NombreProfesional} que no vas a poder asistir. " +
+                // Es la respuesta a un recordatorio que salió solo: como él, no nombra al profesional (ver PlantillasWhatsApp).
+                r.Add("Le avisamos a tu profesional que no vas a poder asistir. " +
                       "Como faltan menos de 24 horas, el turno no se puede cancelar por este medio. " + PieMenu);
             }
             ctx.LimpiarFlujo();

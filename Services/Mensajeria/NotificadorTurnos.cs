@@ -57,11 +57,14 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Eventos de turno ────────────────────────────────────────
 
+    // Cada aviso tiene DOS textos: el del chat de WhatsApp (PlantillasWhatsApp: solo el día y la hora, nada clínico) y el de la campanita del panel
+    // (con sesión, con el nombre del profesional). El chat no recibe nada del turno salvo su momento (ver PlantillasWhatsApp).
     public void TurnoSolicitado(int idTurno, bool respondidoPorChat = false) => Seguro(nameof(TurnoSolicitado), () =>
         AvisarPaciente(idTurno, "TurnoSolicitado", CanalesEvento, respondidoPorChat,
             "Solicitud de turno recibida",
-            t => $"Recibimos tu solicitud de turno con {t.NombreProfesional} para el {Formato.FechaHora(t.Momento)}. " +
-                 "Queda pendiente hasta que tu profesional la confirme."));
+            textoChat: t => PlantillasWhatsApp.SolicitudRecibida(t.Momento),
+            textoApp: t => $"Recibimos tu solicitud de turno con {t.NombreProfesional} para el {Formato.FechaHora(t.Momento)}. " +
+                           "Queda pendiente hasta que tu profesional la confirme."));
 
     // POST /turnos/solicitar no devuelve el id: se busca por sus datos.
     public void TurnoSolicitado(Turno t) => Seguro(nameof(TurnoSolicitado), () =>
@@ -78,21 +81,24 @@ public class NotificadorTurnos : INotificadorTurnos
             if (id is null) { _log.LogWarning("No se encontró el turno agendado por el profesional para avisar al paciente."); return; }
             AvisarPaciente(id.Value, "TurnoAgendado", CanalesEvento, false,
                 "Tu profesional te propuso un turno",
-                t => $"{t.NombreProfesional} te propuso un turno para el {Formato.FechaHora(t.Momento)}. " +
-                     $"Para confirmarlo, ingresá a tu panel en la web: {Op.UrlIngresoTurno}");
+                textoChat: t => PlantillasWhatsApp.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
+                textoApp: t => $"{t.NombreProfesional} te propuso un turno para el {Formato.FechaHora(t.Momento)}. " +
+                               $"Para confirmarlo, ingresá a tu panel en la web: {Op.UrlIngresoTurno}");
         });
 
     public void TurnoConfirmado(int idTurno) => Seguro(nameof(TurnoConfirmado), () =>
         AvisarPaciente(idTurno, "TurnoConfirmado", CanalesEvento, false,
             "Turno confirmado",
-            t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} quedó confirmado.",
+            textoChat: t => PlantillasWhatsApp.TurnoConfirmado(t.Momento),
+            textoApp: t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} quedó confirmado.",
             estadoEsperado: "Confirmado"));
 
     public void TurnoCancelado(int idTurno, bool respondidoPorChat = false) => Seguro(nameof(TurnoCancelado), () =>
         AvisarPaciente(idTurno, "TurnoCancelado", CanalesEvento, respondidoPorChat,
             "Turno cancelado",
-            t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} fue cancelado. " +
-                 "Si querés pedir otro, escribí \"menu\" por acá o ingresá a la web.",
+            textoChat: t => PlantillasWhatsApp.TurnoCancelado(t.Momento),
+            textoApp: t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} fue cancelado. " +
+                           "Si querés pedir otro, escribí \"menu\" por acá o ingresá a la web.",
             estadoEsperado: "Cancelado"));
 
     // PUT /turnos/{id}: el profesional confirma o rechaza mandando el turno entero.
@@ -110,12 +116,13 @@ public class NotificadorTurnos : INotificadorTurnos
     public void EnviarRecordatorio24h(int idTurno) => Seguro(nameof(EnviarRecordatorio24h), () =>
         AvisarPaciente(idTurno, "Turno24h", CanalesRecordatorio, false,
             "Recordatorio de turno",
-            t => TextoRecordatorio(t) + "\n\nRespondé 1 para confirmar tu asistencia o 2 si no podés asistir.",
-            estadoEsperado: "Confirmado",
-            textoOtrosCanales: t => TextoRecordatorio(t) +
+            textoChat: t => PlantillasWhatsApp.Recordatorio(t.Momento, Op.UrlIngresoTurno),
+            textoApp: t => TextoRecordatorio(t) +
                 "\n\nSi no vas a poder asistir, avisanos respondiendo el mensaje del chat o desde la web.",
+            estadoEsperado: "Confirmado",
             esRecordatorio: true));
 
+    // El del mail y la campanita (con sesión): lleva con quién es el turno y cómo es. El del chat de WhatsApp es PlantillasWhatsApp.Recordatorio.
     private string TextoRecordatorio(TurnoAviso t) =>
         $"Recordatorio: tenés turno el {Formato.FechaHora(t.Momento)} con {t.NombreProfesional} " +
         $"({t.Modalidad ?? "Virtual"}).\nPara ingresar: {Op.UrlIngresoTurno}";
@@ -173,9 +180,9 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Envío a pacientes ───────────────────────────────────────
 
+    // textoChat: lo que sale por WhatsApp (siempre una plantilla de PlantillasWhatsApp). textoApp: lo que va a la campanita del panel y al mail.
     private void AvisarPaciente(int idTurno, string tipo, string[] canales, bool respondidoPorChat, string titulo,
-        Func<TurnoAviso, string> texto, string? estadoEsperado = null,
-        Func<TurnoAviso, string>? textoOtrosCanales = null, bool esRecordatorio = false)
+        Func<TurnoAviso, string> textoChat, Func<TurnoAviso, string> textoApp, string? estadoEsperado = null, bool esRecordatorio = false)
     {
         var t = _datos.ObtenerTurnoAviso(idTurno);
         if (t is null) return;
@@ -190,7 +197,7 @@ public class NotificadorTurnos : INotificadorTurnos
             string estado; string? error;
             try
             {
-                var cuerpo = canal == "Chat" ? texto(t) : (textoOtrosCanales ?? texto)(t);
+                var cuerpo = canal == "Chat" ? textoChat(t) : textoApp(t);
                 (estado, error) = canal switch
                 {
                     "Chat" when respondidoPorChat => ("Omitido", "El bot ya se lo respondió en la conversación."),
