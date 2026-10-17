@@ -22,7 +22,8 @@ const net = require("node:net");
 const { leerConfigBaileys, leerPuerto, ErrorDeConfiguracion } = require("./config");
 const { crearSesion } = require("./baileys/sesion");
 const { ServicioBaileys, RELOJ_REAL } = require("./baileys/servicio");
-const { ocultarNumeros } = require("./privacidad");
+const { ocultarNumeros, crearLogSeguro } = require("./privacidad");
+const { secretosDelQr } = require("./logs");
 
 const UNA_VENTANA_MS = 3 * 60 * 1000;     // una ventana de QR dura ~2,7 minutos
 
@@ -60,7 +61,12 @@ async function ejecutarVinculacion({
     senal = null
 } = {}) {
     const decir = texto => stderr.write(`${texto}\n`);
-    const log = { info: m => decir(`[vincular] ${ocultarNumeros(m)}`), error: m => decir(`[vincular] ${ocultarNumeros(m)}`) };
+    // Lo que escribe el servicio por la salida de errores pasa por el filtro de privacidad: teléfonos enmascarados y, si el QR llegara
+    // a aparecer en un mensaje, tapado (el QR va SOLO por la pantalla, nunca por acá).
+    let servicio = null;
+    const log = crearLogSeguro(
+        { info: m => decir(`[vincular] ${m}`), error: m => decir(`[vincular] ${m}`) },
+        { secretos: () => secretosDelQr(servicio?.qrTexto()) });
 
     if (!esTTY) {
         decir("Este comando muestra un código QR: correrlo en una terminal, no redirigido a un archivo, a un pipe ni al journal.");
@@ -97,7 +103,7 @@ async function ejecutarVinculacion({
     }
 
     const fachada = await cargarBaileys();
-    const servicio = new ServicioBaileys({
+    servicio = new ServicioBaileys({
         fachada,
         sesion,
         log,

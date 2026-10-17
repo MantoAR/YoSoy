@@ -196,7 +196,7 @@ class ServicioBaileys {
         try {
             if (sock && this._estado === ESTADOS.CONECTADO) {
                 try { await this._conTimeout(sock.logout(), TIMEOUT_LOGOUT_MS, "cerrando sesión"); }
-                catch (err) { this._log.error(`Error en logout, se continúa con el borrado igual: ${err?.message || err}`); }
+                catch (err) { this._log.error(ocultarNumeros(`Error en logout, se continúa con el borrado igual: ${err?.message || err}`)); }
             }
             this._sock = null;
             this._soltar(sock);
@@ -283,7 +283,7 @@ class ServicioBaileys {
                     return r.version;
                 }
             } catch (err) {
-                this._log.error(`No se pudo consultar la última versión de WhatsApp Web: ${err?.message || err}`);
+                this._log.error(ocultarNumeros(`No se pudo consultar la última versión de WhatsApp Web: ${err?.message || err}`));
             }
         }
         return undefined;   // la que trae la librería
@@ -292,7 +292,7 @@ class ServicioBaileys {
     _guardarCreds(saveCreds) {
         this._guardado = this._guardado
             .then(() => saveCreds())
-            .catch(err => this._log.error(`No se pudieron guardar las credenciales de WhatsApp: ${err?.message || err}`));
+            .catch(err => this._log.error(ocultarNumeros(`No se pudieron guardar las credenciales de WhatsApp: ${err?.message || err}`)));
     }
 
     _alActualizarConexion(sock, { connection, lastDisconnect, qr }) {
@@ -341,7 +341,7 @@ class ServicioBaileys {
             // Después de lo que haya quedado por escribir, para que un guardado pendiente no vuelva a crear los archivos.
             this._guardado = this._guardado
                 .then(() => this._sesion.limpiar())
-                .catch(err => this._log.error(`No se pudo borrar la sesión cerrada: ${err?.message || err}`));
+                .catch(err => this._log.error(ocultarNumeros(`No se pudo borrar la sesión cerrada: ${err?.message || err}`)));
             return;
         }
         // Cortes que reintentar no arregla (y que escanear un QR tampoco): se deja de intentar y se avisa. Seguir golpeando la

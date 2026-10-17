@@ -1,5 +1,6 @@
 // Privacidad de este proceso:
-//   1. LOGS: el número de teléfono de un paciente no se escribe completo (ocultarNumeros).
+//   1. LOGS: el número de teléfono de un paciente no se escribe completo (ocultarNumeros), y con Baileys nada que sea un secreto
+//      (crearLogSeguro). Nunca se loguea el texto de un mensaje, el QR, las credenciales ni el secreto compartido.
 //   2. CONSENTIMIENTO (con Baileys): reglas de qué cuenta como "esta persona quiere recibir mensajes por WhatsApp" y cómo se guarda
 //      sin guardar el teléfono (huellaDeTelefono, interpretarComando). El registro que las usa está en consentimiento.js.
 //
@@ -13,9 +14,27 @@ const crypto = require("node:crypto");
 const { ultimosDiez } = require("./baileys/numeros");
 
 const POSIBLE_NUMERO = /\+?\d(?:[\s().-]?\d){6,}/g;
+// La versión de WhatsApp Web (2.3000.1037753511) parece un número por sus dígitos, pero no es de nadie y sirve para diagnosticar.
+const VERSION_DE_WHATSAPP_WEB = /^\d{1,2}\.\d{4}\.\d{7,}$/;
 
 function ocultarNumeros(valor) {
-    return String(valor ?? "").replace(POSIBLE_NUMERO, coincidencia => "***" + coincidencia.replace(/\D/g, "").slice(-4));
+    return String(valor ?? "").replace(POSIBLE_NUMERO, coincidencia =>
+        VERSION_DE_WHATSAPP_WEB.test(coincidencia) ? coincidencia : "***" + coincidencia.replace(/\D/g, "").slice(-4));
+}
+
+// Un log que filtra todo lo que se le escribe, por si algún mensaje trae lo que no debe (por ejemplo, el error de una librería que
+// repite una dirección o una cabecera): primero tapa los secretos y después enmascara los teléfonos. En ESE orden, porque un secreto
+// con dígitos y guiones quedaría a medio enmascarar y ya no se lo reconocería. `secretos` es una función porque hay secretos que
+// cambian (el QR vigente); los que miden menos de 8 caracteres se ignoran (taparían cualquier cosa).
+function crearLogSeguro(log, { secretos = () => [] } = {}) {
+    const limpiar = mensaje => {
+        let texto = String(mensaje ?? "");
+        for (const secreto of secretos()) {
+            if (typeof secreto === "string" && secreto.length >= 8) texto = texto.split(secreto).join("[secreto]");
+        }
+        return ocultarNumeros(texto);
+    };
+    return { info: mensaje => log.info(limpiar(mensaje)), error: mensaje => log.error(limpiar(mensaje)) };
 }
 
 // ── 2. Consentimiento ──
@@ -63,4 +82,4 @@ function huellaDeTelefono(telefono, clave) {
     return crypto.createHmac("sha256", clave).update(digitos).digest("hex").slice(0, 32);
 }
 
-module.exports = { ocultarNumeros, interpretarComando, derivarClaveDeHuellas, huellaDeTelefono };
+module.exports = { ocultarNumeros, crearLogSeguro, interpretarComando, derivarClaveDeHuellas, huellaDeTelefono };

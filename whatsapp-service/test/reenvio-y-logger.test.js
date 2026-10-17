@@ -116,6 +116,8 @@ test("una línea larga se corta a 300 caracteres y una vacía no rompe nada", ()
     assert.equal(textoSeguro(undefined), "(sin texto)");
     assert.equal(textoSeguro({}, undefined), "(sin texto)");
     assert.equal(textoSeguro({ err: { message: "solo el detalle" } }), "solo el detalle");
+    assert.equal(textoSeguro(new Error("un error suelto")), "un error suelto", "un Error como primer argumento aporta su mensaje");
+    assert.equal(textoSeguro(new Error("el error"), "y el texto"), "y el texto — el error");
 });
 
 test("tope de líneas por minuto: una falla en bucle no llena el journal, y se avisa cuántas se omitieron", () => {

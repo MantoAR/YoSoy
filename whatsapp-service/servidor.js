@@ -15,6 +15,7 @@
 
 const crypto = require("node:crypto");
 const express = require("express");
+const { ocultarNumeros } = require("./privacidad");
 
 const MAX_TEXTO = 4096;
 
@@ -39,7 +40,7 @@ function crearApp({ servicio, cola, secreto, log }) {
         try {
             await manejador(req, res);
         } catch (err) {
-            log.error(`Error atendiendo ${req.method} ${req.path}: ${err?.message || err}`);
+            log.error(ocultarNumeros(`Error atendiendo ${req.method} ${req.path}: ${err?.message || err}`));
             if (!res.headersSent) res.status(500).json(respuestaDeError);
         }
     };
@@ -78,7 +79,7 @@ function crearApp({ servicio, cola, secreto, log }) {
     // /enviar, que responde apenas encola.
     app.post("/desvincular", (req, res) => {
         if (!autorizado(req)) return res.status(401).json({ exito: false, error: "Secreto inválido." });
-        servicio.desvincular().catch(err => log.error(`Error desvinculando: ${err?.message || err}`));
+        servicio.desvincular().catch(err => log.error(ocultarNumeros(`Error desvinculando: ${err?.message || err}`)));
         res.json({ exito: true });
     });
 
@@ -99,7 +100,7 @@ function crearApp({ servicio, cola, secreto, log }) {
     app.use((err, req, res, next) => {
         if (err?.type === "entity.parse.failed") return res.status(400).json({ exito: false, error: "El cuerpo no es un JSON válido." });
         if (err?.type === "entity.too.large") return res.status(413).json({ exito: false, error: "El cuerpo es demasiado grande." });
-        log.error(`Error no esperado en el servidor HTTP: ${err?.message || err}`);
+        log.error(ocultarNumeros(`Error no esperado en el servidor HTTP: ${err?.message || err}`));
         res.status(500).json({ exito: false, error: "Error interno." });
     });
 

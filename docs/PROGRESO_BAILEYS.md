@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 5 (anti-bloqueo y consentimiento).
+- **Última actualización:** 2026-10-16, tras la etapa 6 (privacidad en logs).
 
 ## Estado de las etapas
 
@@ -25,8 +25,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 2 | Sesión persistente (ruta configurable, fuera del repo, permisos, `.gitignore`) | **hecho** | `7e95b94` |
 | 3 | Vinculación por QR (comando y endpoint local) | **hecho** | `a5001e0` |
 | 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | `d5039bf` |
-| 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | (este commit) |
-| 6 | Privacidad en logs | pendiente | — |
+| 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | `aad3f96` |
+| 6 | Privacidad en logs | **hecho** | (este commit) |
 | 7 | Salud y apagado ordenado | pendiente | — |
 | 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | pendiente | — |
 
@@ -370,6 +370,54 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   sacó del código. Otras (el orden "primero ver si hay lugar en la cola, después reservar cupo", o que un recordatorio no se
   descarte antes de las 3 horas) se reforzaron antes de correr las mutaciones.
 
+## Etapa 6: privacidad en logs
+
+### Qué quedó hecho
+
+- **Auditoría de cada línea de log** del servicio (cerca de cien llamadas). El resultado: texto de mensajes, QR, credenciales y secretos no se
+  escribían en ningún lado, pero había **mensajes de error de librerías o del sistema que no pasaban por la máscara de teléfonos**: en
+  `index.js` (`unhandledRejection` y `uncaughtException`), en `servidor.js` (errores de rutas y de `desvincular`) y en
+  `baileys/servicio.js` (logout, versión, guardado de credenciales, borrado de la sesión). Todos enmascarados ahora.
+- **Filtro en el borde del proceso** (`logs.js` + `crearLogSeguro` en `privacidad.js`): con Baileys, todo lo que escribe el proceso
+  pasa por un filtro que **primero tapa los secretos** (el compartido con la API y el QR vigente, entero y por partes) y **después
+  enmascara los teléfonos**. En ese orden, porque un secreto con dígitos y guiones quedaría a medio enmascarar y ya no se lo
+  reconocería. Es la última red: cada módulo ya enmascara lo suyo. También lo usa el comando de vinculación.
+- **La versión de WhatsApp Web** (`2.3000.1037753511`) ya no se enmascara aunque parezca un teléfono (se perdía en el log y sirve para
+  diagnosticar un 405).
+- **El logger de Baileys** ahora toma el mensaje de un `Error` pasado suelto (`logger.error(err)`), que antes salía como "(sin texto)".
+- **Guardia sobre el código fuente** (`test/privacidad-logs.test.js` + `helpers/llamadas-de-log.js`): lee el código de cada archivo, separa
+  los textos de las expresiones (sabe de plantillas, comillas y llamadas en varias líneas) y falla si una llamada de log nombra un
+  teléfono, un texto, un JID, el QR, credenciales, claves, huellas, tokens o secretos sin `ocultarNumeros()`; si vuelca un objeto
+  (`JSON.stringify`); o si alguien escribe en la consola o en la salida estándar por fuera de `logs.js` y `vincular.js`.
+- **Escenarios completos con datos marcados** (teléfonos, textos, claves, QR, secreto): el servicio recorre QR con ventanas, vinculación,
+  mensajes entrantes y salientes, cortes, cierre de sesión, bloqueo y desvincular, con la librería haciendo ruido con objetos llenos
+  de claves y textos; la cola con consentimiento, baja, topes, fallas y descartes; el HTTP con errores que repiten teléfonos y secretos;
+  y el comando de terminal. Al final el log entero **no puede tener ni un marcador ni nada con forma de teléfono sin enmascarar**.
+  Además, cada lugar que escribe un error de una librería se prueba **por separado con el log sin filtro**, para que ningún módulo
+  dependa del filtro del proceso. El arranque real (`index.js` como proceso) también se prueba: un secreto y un teléfono metidos
+  en el mensaje de error salen tapados y enmascarados.
+- README: sección "Baileys: qué se escribe en el log (y qué nunca)" con la forma de revisarlo a mano.
+
+### Decisiones y límites
+
+- **Con whatsapp-web.js no se toca el log.** Ese backend escribe, por ejemplo, el número propio de la clínica completo al conectar
+  y es lo que se usa para confirmar qué número quedó; filtrarlo cambiaría algo que funciona. La guardia lo excluye a propósito.
+- **El número propio de la clínica** (`GET /estado` lo devuelve completo a la API, que ya lo muestra en el Configurador) sale
+  enmascarado en el log de Baileys (`***6666`).
+- **Los textos de error que no son teléfonos ni secretos conocidos pasan tal cual** (por ejemplo, "rate-overlimit"): el filtro no
+  puede adivinar qué es sensible; por eso la guardia exige que cada llamada sea explícita y los escenarios prueban los casos reales.
+- **No pude revisar qué escribe de verdad la librería** en cada caso (límite de la tarea): se asume lo peor (objetos con claves y
+  mensajes), y por eso solo se toma de cada línea su texto y el `message` de un error, nunca un objeto.
+
+### Pruebas de esta etapa
+
+- `privacidad-logs.test.js` (27 pruebas), ampliaciones en `arranque.test.js` y `reenvio-y-logger.test.js`.
+- **`npm test`: 350 pruebas, 344 pasan, 6 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 42 cambios a propósito (el filtro y su orden, la excepción de la versión, el QR por partes, cada lugar que escribe
+  un error, escribir el QR/el texto/las credenciales en el log, el logger de Baileys, el arranque, el comando); **todos detectados.**
+  Cuatro se escaparon primero y llevaron a pruebas más fuertes (que el comando filtre un QR repetido en un mensaje de la librería,
+  que info/debug de la librería no salgan, y que el descarte de la cola ocurra de verdad en el escenario).
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -407,9 +455,9 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Qué falta / pendiente de decisión
 
-- Etapas 6 a 8 (ver la tabla). Lo que las etapas 1 a 5 dejan a propósito para después: revisión de privacidad de todo el log (6),
-  `/salud` más completo (con los contadores de la cola y los topes, que ya existen en `cola.resumen()`) y apagado ordenado
-  (extraer y probar el cierre de `index.js`, incluido `datos.cerrar()`) (7), unidad systemd y docs de despliegue (8).
+- Etapas 7 y 8 (ver la tabla). Lo que las etapas 1 a 6 dejan a propósito para después: `/salud` más completo (con los contadores de la
+  cola y los topes, que ya existen en `cola.resumen()`) y apagado ordenado (extraer y probar el cierre de `index.js`, incluido
+  `datos.cerrar()` y esperar el envío en curso) (7), unidad systemd y docs de despliegue (8).
 - **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
   se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
   mezclar un cambio de API/UI en esta tarea.

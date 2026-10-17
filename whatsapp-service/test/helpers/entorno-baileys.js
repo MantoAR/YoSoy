@@ -10,12 +10,12 @@ const { crearSesion } = require("../../baileys/sesion");
 const { fachadaFalsa } = require("./baileys-falso");
 const { RelojFalso, esperarHasta } = require("./reloj-falso");
 
-function crearEntorno({ registrada = false, opcionesFachada, opcionesServicio = {}, sesionPersonalizada } = {}) {
+function crearEntorno({ registrada = false, credsExtra = {}, opcionesFachada, opcionesServicio = {}, sesionPersonalizada } = {}) {
     const raiz = fs.mkdtempSync(path.join(os.tmpdir(), "yosoy-ws-"));
     const dirSesion = path.join(raiz, "sesion");
     if (registrada) {
         fs.mkdirSync(dirSesion, { recursive: true });
-        fs.writeFileSync(path.join(dirSesion, "creds.json"), JSON.stringify({ registered: false, me: { id: "5491100000000:7@s.whatsapp.net" } }));
+        fs.writeFileSync(path.join(dirSesion, "creds.json"), JSON.stringify({ registered: false, me: { id: "5491100000000:7@s.whatsapp.net" }, ...credsExtra }));
     }
 
     const falso = fachadaFalsa(opcionesFachada);

@@ -3,6 +3,7 @@
 require("./helpers/sin-red");
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -43,6 +44,22 @@ test("un WHATSAPP_BACKEND que no existe no arranca", () => {
     const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BACKEND: "oficial" });
     assert.equal(r.codigo, 1);
     assert.match(r.salida, /WHATSAPP_BACKEND tiene que ser "webjs" o "baileys"/);
+});
+
+test("con baileys, el log del proceso tapa el secreto y enmascara los teléfonos aunque aparezcan en un mensaje de error", () => {
+    // Una carpeta de sesión DENTRO del repositorio se rechaza sin cargar la librería; el mensaje repite la ruta, y esta lleva el secreto
+    // y un teléfono, para ver que lo que sale por la salida de errores del proceso real ya viene filtrado.
+    const secretoLargo = "SECRETO-DE-PRUEBA-QUE-NO-PUEDE-SALIR-0123";
+    const ruta = path.join(path.dirname(INDEX), `${secretoLargo}-5491122334455`);
+    const r = arrancar({
+        API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: secretoLargo,
+        WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: ruta
+    });
+    assert.equal(r.codigo, 1);
+    assert.match(r.salida, /No se pudo preparar el backend de WhatsApp \(baileys\)/);
+    assert.match(r.salida, /\[secreto\]-\*\*\*4455/, "el secreto tapado y el teléfono enmascarado, en la ruta que repite el mensaje");
+    assert.doesNotMatch(r.salida, /SECRETO-DE-PRUEBA|5491122334455/);
+    assert.equal(fs.existsSync(ruta), false, "y no se creó nada");
 });
 
 test("con baileys y la API en otra máquina sin HTTPS no arranca: el secreto no viaja en claro", () => {

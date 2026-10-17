@@ -55,6 +55,7 @@ class SocketFalso {
         this.errorAlEnviar = null;
         this.envioColgado = false;
         this.logoutColgado = false;
+        this.errorAlCerrarSesion = null;   // logout() falla con este error
         this.errorEnPresencia = null;      // sendPresenceUpdate("composing") y presenceSubscribe fallan con este error
         this.presenciaColgada = false;     // ...o no contestan nunca
         this._cerrado = false;
@@ -87,6 +88,7 @@ class SocketFalso {
 
     async logout() {
         this.cerroSesion = true;
+        if (this.errorAlCerrarSesion) throw this.errorAlCerrarSesion;
         if (this.logoutColgado) return new Promise(() => {});
         this.end(errorBoom(DisconnectReason.loggedOut, "Intentional Logout"));
     }
@@ -132,7 +134,9 @@ class SocketFalso {
 }
 
 // compuertaGuardado: una promesa que el test abre a mano; mientras tanto saveCreds() espera (un guardado lento, para probar el orden).
-function fachadaFalsa({ errorAlCrear = null, versionBuscada = { version: [2, 3000, 1], isLatest: true }, conservaListeners = false, compuertaGuardado = null } = {}) {
+// credsIniciales: lo que traen las credenciales nuevas además de `registered: false` (las pruebas de privacidad les ponen marcadores,
+// para comprobar que nada de eso llegue a un log).
+function fachadaFalsa({ errorAlCrear = null, versionBuscada = { version: [2, 3000, 1], isLatest: true }, conservaListeners = false, compuertaGuardado = null, credsIniciales = {}, errorAlBuscarVersion = null, errorAlGuardar = null } = {}) {
     const sockets = [];
 
     function makeWASocket(config) {
@@ -148,11 +152,12 @@ function fachadaFalsa({ errorAlCrear = null, versionBuscada = { version: [2, 300
     async function useMultiFileAuthState(dir) {
         await fs.promises.mkdir(dir, { recursive: true });
         const archivo = path.join(dir, "creds.json");
-        let creds = { registered: false };
+        let creds = { registered: false, ...credsIniciales };
         try { creds = JSON.parse(await fs.promises.readFile(archivo, "utf8")); } catch { /* sin credenciales todavía */ }
         return {
             state: { creds, keys: { get: async () => ({}), set: async () => {} } },
             saveCreds: async () => {
+                if (errorAlGuardar) throw errorAlGuardar;
                 if (compuertaGuardado) await compuertaGuardado;
                 await fs.promises.writeFile(archivo, JSON.stringify(creds));
             }
@@ -166,7 +171,7 @@ function fachadaFalsa({ errorAlCrear = null, versionBuscada = { version: [2, 300
         useMultiFileAuthState,
         DisconnectReason: { ...DisconnectReason },
         Browsers: { ubuntu: navegador => ["Ubuntu", navegador, "22.04.4"] },
-        fetchLatestBaileysVersion: async () => { llamadas.fetchLatestBaileysVersion++; return versionBuscada; },
+        fetchLatestBaileysVersion: async () => { llamadas.fetchLatestBaileysVersion++; if (errorAlBuscarVersion) throw errorAlBuscarVersion; return versionBuscada; },
         makeCacheableSignalKeyStore: keys => { llamadas.makeCacheableSignalKeyStore++; return keys; }
     };
 

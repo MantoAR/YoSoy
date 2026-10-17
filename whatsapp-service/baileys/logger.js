@@ -13,7 +13,7 @@ const MAX_CARACTERES = 300;
 function textoSeguro(primero, segundo) {
     const linea = typeof primero === "string" ? primero : (typeof segundo === "string" ? segundo : "");
     const objeto = primero !== null && typeof primero === "object" ? primero : null;
-    const error = objeto?.err ?? objeto?.error;
+    const error = primero instanceof Error ? primero : (objeto?.err ?? objeto?.error);
     const detalle = error && typeof error.message === "string" ? error.message : "";
     return [linea, detalle].filter(Boolean).join(" — ").slice(0, MAX_CARACTERES) || "(sin texto)";
 }

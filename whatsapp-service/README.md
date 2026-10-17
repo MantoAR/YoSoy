@@ -176,6 +176,28 @@ Lo que ve la API cuando se rechaza (`POST /enviar` → `{ "exito": false, "error
 > a quien le escribió primero al número de la clínica; al resto se le rechaza con `403 sin_consentimiento` (queda en el log de la
 > API). Cómo se resuelve es una decisión de producto: ver `docs/PROGRESO_BAILEYS.md`, "Pasos manuales".
 
+### Baileys: qué se escribe en el log (y qué nunca)
+
+El log (`journalctl -u whatsapp-service`) sirve para saber qué pasa sin guardar datos de pacientes. **Nunca** se escribe:
+- el **texto** de un mensaje, ni el que llega ni el que sale;
+- un **teléfono completo**: queda `***4455` (los últimos 4 dígitos), también dentro de los errores que repiten la librería o el sistema;
+- el **QR** de vinculación (sale solo por la pantalla del comando o por `GET /estado`, que pide el secreto), ni las **credenciales** de
+  la sesión, ni sus claves;
+- el **secreto compartido** con la API (`Mensajeria__WhatsApp__Secreto`), ni el que pruebe alguien en `X-Shared-Secret`.
+
+Sí se escriben los estados (`conectado`, `reconectando`...), los códigos de desconexión, los intentos y las esperas, las ventanas de QR,
+los rechazos de envío (con el motivo y los 4 últimos dígitos) y los errores.
+
+Se garantiza en tres capas, y las tres se prueban en cada `npm test`: **(1)** cada módulo enmascara lo suyo; **(2)** con Baileys, todo
+lo que el proceso escribe pasa por un filtro (`crearLogSeguro`, en `privacidad.js`) que tapa el secreto compartido y el QR vigente y
+enmascara cualquier número que parezca un teléfono; **(3)** una guardia revisa el código fuente: ninguna llamada de log puede nombrar un
+teléfono, un texto, el QR, credenciales o secretos sin enmascarar, ni volcar un objeto entero, ni escribir en la consola por fuera de
+`logs.js`; y escenarios completos con datos marcados comprueban que ni un marcador llegue al log. La versión de WhatsApp Web
+(`2.3000.1037753511`) no se enmascara aunque parezca un número: no es de nadie y sirve para diagnosticar.
+
+Con whatsapp-web.js el log queda como estaba (por ejemplo, escribe el número propio de la clínica al conectar). Para revisar a mano
+un log de Baileys, esto no tendría que devolver nada: `journalctl -u whatsapp-service -o cat | grep -E '[0-9]{7,}'`.
+
 Más variables (el `/salud` completo, el apagado) se documentan a medida que cada etapa las agrega;
 la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
 

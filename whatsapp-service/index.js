@@ -11,11 +11,10 @@ const { leerConfig, ErrorDeConfiguracion } = require("./config");
 const { crearBackend } = require("./backend");
 const { crearApp, escuchar } = require("./servidor");
 const { crearColaParaBackend } = require("./cola");
+const { crearLogDelProceso, logParaBackend } = require("./logs");
+const { ocultarNumeros } = require("./privacidad");
 
-const log = {
-    info: msg => console.log(`[${new Date().toISOString()}] ${msg}`),
-    error: msg => console.error(`[${new Date().toISOString()}] ${msg}`)
-};
+const logBase = crearLogDelProceso();
 
 async function main() {
     let config;
@@ -23,11 +22,13 @@ async function main() {
         config = leerConfig(process.env);
     } catch (err) {
         if (!(err instanceof ErrorDeConfiguracion)) throw err;
-        log.error(err.message);
+        logBase.error(err.message);               // un error de configuración nunca trae un secreto (lo vigilan las pruebas)
         process.exit(1);
     }
 
+    // Con Baileys el log filtra teléfonos y secretos (el compartido y el QR vigente); con whatsapp-web.js es el de siempre.
     let wa;
+    const log = logParaBackend(config, logBase, () => [wa?.qrTexto?.()]);
     try {
         wa = await crearBackend(config, log);
     } catch (err) {
@@ -51,11 +52,11 @@ async function main() {
     // tirar abajo todo el proceso — se loguea (nunca el objeto entero del error, puede traer de más) y se le pide al backend que
     // se recupere por el mismo camino que un corte transitorio.
     process.on("unhandledRejection", razon => {
-        log.error(`unhandledRejection (no se cae el proceso): ${razon?.message || razon}`);
+        log.error(`unhandledRejection (no se cae el proceso): ${ocultarNumeros(razon?.message || razon)}`);
         wa.recuperar();
     });
     process.on("uncaughtException", err => {
-        log.error(`uncaughtException (no se cae el proceso): ${err?.message || err}`);
+        log.error(`uncaughtException (no se cae el proceso): ${ocultarNumeros(err?.message || err)}`);
         wa.recuperar();
     });
 
@@ -84,6 +85,6 @@ async function main() {
 }
 
 main().catch(err => {
-    log.error(`Error fatal al arrancar: ${err?.message || err}`);
+    logBase.error(`Error fatal al arrancar: ${ocultarNumeros(err?.message || err)}`);
     process.exit(1);
 });
