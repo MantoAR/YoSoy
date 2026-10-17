@@ -511,6 +511,10 @@ button.ui-stat { font: inherit; text-align: left; cursor: pointer; }
 }
 .wa-texto p { margin: 0 0 8px; }
 .wa-texto-titulo { margin: 6px 0 8px; font-size: var(--fs-lg); color: var(--text); }
+/* El link para escribirle primero a la clínica (perfil y sugerencia posterior a un turno). */
+.wa-contacto { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.wa-contacto p { margin: 0 0 8px; }
+.wa-contacto .ui-btn { display: inline-flex; margin: 2px 0 8px; text-decoration: none; }
 .ui-fila { display: flex; gap: 12px; flex-wrap: wrap; }
 .ui-fila > .ui-campo { flex: 1; min-width: 140px; }
 .ui-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; }

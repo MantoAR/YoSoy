@@ -134,7 +134,8 @@ public class ConsentimientoWhatsAppEndpointsTests
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("no-store", r.Headers.CacheControl?.ToString());
-        Assert.Equal(new[] { "aceptadoUtc", "disponible", "estado", "motivo", "provisorio", "revocadoUtc", "texto", "titulo", "version", "versionAceptada" }, Nombres(j));
+        Assert.Equal(new[] { "aceptadoUtc", "contacto", "disponible", "estado", "motivo", "provisorio", "revocadoUtc", "texto", "titulo", "version", "versionAceptada" }, Nombres(j));
+        Assert.Equal(JsonValueKind.Null, j.GetProperty("contacto").ValueKind);   // sin número de la clínica configurado, no hay link
         Assert.True(j.GetProperty("disponible").GetBoolean());
         Assert.Equal("sin-decision", j.GetProperty("estado").GetString());
         Assert.Equal("v0-provisorio", j.GetProperty("version").GetString());

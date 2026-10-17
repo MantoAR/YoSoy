@@ -20,8 +20,8 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 | — | Este archivo (plan, hallazgos y decisiones) | hecho | `2cb6615` |
 | 1 | Modelo de datos: tabla, migración idempotente, `01-produccion.sql` | **hecho** | `2c79f5a` |
 | 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | `8f1335b` |
-| 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | **hecho** | (este commit) |
-| 4 | Link `wa.me` (opción B) configurable | pendiente | |
+| 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | **hecho** | `766e53a` |
+| 4 | Link `wa.me` (opción B) configurable | **hecho** | (este commit) |
 | 5 | Plantillas de mensajes sin nada clínico | pendiente | |
 | 6 | Documentación: `DEPLOY.md`, `SERVIDOR.md`, avisos que quedaron viejos | pendiente | |
 
@@ -296,6 +296,64 @@ fecha es obligatoria en el registro de la pantalla). **Lo tiene que validar el e
   texto, el texto insertado como HTML) y una no la pude correr por un error de mi script. Se agregaron al banco los escenarios "el servidor
   no tiene texto" y "el servidor manda HTML" y las pruebas estáticas: **las 18 quedan detectadas**. La del `checked` solo la ve la prueba
   estática: el código destilda la casilla igual, así que en el navegador no se nota, y justamente por eso conviene que no se pueda colar.
+
+## Etapa 4: el link `wa.me` (opción B)
+
+### Qué quedó hecho
+
+- **Configuración** (`Services/Mensajeria/MensajeriaOptions.cs`, `appsettings.json`, fila nueva en el README): `Mensajeria__WhatsAppNumeroClinica`
+  (**vacío por defecto = no se muestra ningún link**) y `Mensajeria__WhatsAppTextoInicio` (por defecto `Hola`: lo que viene escrito al abrir
+  el link, neutro a propósito, no dice qué es la clínica ni para qué se escribe). El número se escribe como quiera quien lo configure
+  (`+54 9 11 5555-0000`, `011 5555-0000`…): un argentino queda `549` + área + abonado, que es lo que espera `wa.me`; uno de otro país solo
+  vale con `+`; con letras, símbolos o dígitos que no son ASCII no hay link (y queda **un** aviso en el log, sin el valor).
+- **La API arma el link** (`Services/Mensajeria/EnlaceWhatsApp.cs`): `GET /consentimiento-whatsapp` y las respuestas de aceptar y revocar traen
+  `contacto: { enlace }`, o `contacto: null` si no hay número. El texto de inicio va codificado, sin caracteres de control y con un tope.
+  **Las pantallas no escriben ningún número ni arman ningún link**: lo muestran tal cual lo manda la API, y solo si es `https://wa.me/…` (sin
+  credenciales). Una prueba busca `wa.me/` en todo `PANTALLAS/` y en el código.
+- **Perfil del paciente:** bajo la casilla de activar, "Si preferís, escribinos vos primero por WhatsApp: el chat lo abrís vos y te
+  contestamos por ahí" y el botón **Abrir WhatsApp** (pestaña nueva, `noopener noreferrer`; WhatsApp se abre con el saludo ya escrito y no se
+  manda nada hasta que lo envía la persona). Se ofrece donde se pueden activar los avisos (sin decisión, pausados por cambio de teléfono o de
+  texto) y **no** a quien los desactivó, ni a quien ya los tiene, ni cuando no se pueden activar (menor de edad, teléfono que no sirve).
+- **Después de pedir o confirmar un turno** (`confirmarSolicitudDia` y `confirmarTurnoPaciente` del panel): si la persona **nunca decidió** sobre
+  los avisos, un diálogo corto ("el día y la hora, nada más", con el link si hay número) con **Ahora no** y **Ver cómo activarlos** (lleva al
+  perfil: ahí se lee el texto y se tilda; desde el diálogo **no se activa nada**). "Ahora no" o cerrarlo lo posterga 30 días. No sale para quien
+  ya activó, desactivó o tiene los avisos en pausa.
+
+### Decisiones y límites
+
+- **El link no es una aceptación y no deja nada en `ConsentimientoWhatsApp`.** Cuando la persona le escribe primero al número, `whatsapp-service` aplica
+  su regla "escribió primero" (365 días; la BAJA siempre gana) y recién ahí puede contestarle y mandarle avisos. Es el camino B de la
+  decisión de producto, y anda sin la tabla ni la migración. **Lo que hay que validar con el equipo legal:** si ese camino necesita su propio texto
+  (hoy el texto del consentimiento no lo menciona, porque el link no consiente nada: solo abre el chat).
+- **Tiene que ser el número que vincula Baileys** (un celular, el dedicado a la clínica). La API no puede comprobarlo: si se carga otro, el link
+  abre un chat con otro número.
+- **Sin número, sin link y sin rastros**: no se pide nada ni se rompe nada; las pantallas no muestran el bloque ni el diálogo muestra el link.
+- **El registro no muestra el link**: la persona todavía no tiene sesión y el link llega con la respuesta autenticada. Se lo ve en el perfil y
+  después de su primer turno.
+- **Lo único que se guarda en el navegador es la fecha de "Ahora no"** (30 días, clave `ys.wa.ahoraNo`): una molestia, nunca una aceptación.
+  Una prueba estática lo vigila.
+- **El límite de la API** (30 pedidos por minuto por IP a `/consentimiento-whatsapp`) alcanza para una persona; una oficina entera detrás de
+  la misma IP también. Si una pantalla recibe un 429 muestra "No pudimos consultar tus avisos por WhatsApp" con un botón Reintentar.
+
+### Pruebas de esta etapa
+
+- La suite de la API pasó de 1329 a **1389 pruebas, todas verdes** contra `yosoy_test_wa`: 57 de `EnlaceWhatsAppTests` (los formatos de número, uno
+  de otro país solo con `+`, letras y dígitos que no son ASCII, el texto de inicio codificado y con tope, la configuración vacía o inválida, y
+  los endpoints con la aplicación real: con número, sin número, con un número que no sirve y que el log no lo traiga) y 3 estáticas más de las
+  pantallas (el link lo arma la API y solo se muestra si es de WhatsApp, dónde se ofrece, y que la sugerencia posterior a un turno nunca acepta
+  nada). Una prueba busca `wa.me/` con un número escrito en cualquier archivo del producto, y otra en `PANTALLAS/`.
+- **Banco de navegador real** (Chrome, la API real; sin versionar), dos corridas: **con número de la clínica** configurado (110 verificaciones, 0
+  fallas) y **sin número** (107, 0 fallas). Cubre: el link exacto que arma la API (`https://wa.me/5491155550100?text=Hola`, pestaña nueva y sin
+  opener), que aparece en "sin decisión" y en "pausados" y **no** en activados, desactivados por la persona ni en un teléfono que no sirve, que un
+  "link" que no es de WhatsApp (otro sitio, `javascript:`, `http`, con usuario y clave, sin host, un número) **no se muestra** aunque la API lo
+  mande, y la sugerencia de después de un turno: aparece solo a quien nunca decidió, cuenta que es "el día y la hora, nada más", no registra ni
+  activa nada, "Ahora no" y Escape la posponen, vuelve a los 30 días, "Ver cómo activarlos" lleva al perfil con la casilla sin tildar. Sin número,
+  ningún link en ninguna pantalla. El banco manda cada pedido a esos endpoints con otra IP en `X-Forwarded-For` (la API la toma de la propia
+  máquina, como detrás de Caddy) para no chocar con el límite de 30 por minuto, que prueban las pruebas de la API.
+- **Mutaciones de la interfaz** (15: el link a quien desactivó, un link de cualquier sitio o con `http` o con usuario y clave, sin `noopener`,
+  en la misma pestaña, la sugerencia para cualquier estado, "Ahora no" que no pospone o que lleva al perfil, la postergación que no vence, la
+  sugerencia que lleva a otra sección o que activa directamente, que no se sugiera tras pedir o confirmar un turno, y un link escrito a mano):
+  **las 15 detectadas** (12 por el banco de navegador y 3 por las pruebas estáticas).
 
 ## Pasos manuales para Agustín
 

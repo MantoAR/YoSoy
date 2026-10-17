@@ -180,10 +180,70 @@ public class PantallasConsentimientoWhatsAppTests
     [Fact]
     public void El_consentimiento_no_se_guarda_en_el_navegador()
     {
-        // Lo único que puede recordar el navegador es una molestia ("ahora no" a una sugerencia), nunca una aceptación.
-        foreach (var texto in new[] { Modulo, RegistroJs, SeccionDelPerfil() })
-            Assert.DoesNotMatch(@"(?i)(local|session)Storage\s*\.\s*(set|get)Item\(\s*[""'][^""']*(acept|consent|whatsapp)[^""']*[""']\s*,\s*[^)]*(true|checked|acepta)", texto);
-        Assert.DoesNotMatch(@"(?i)(local|session)Storage", Modulo);
+        // Lo único que puede recordar el navegador es una molestia ("ahora no" a la sugerencia de después de un turno), nunca una aceptación:
+        // todo uso del almacenamiento en el módulo es de UNA clave, y lo que se guarda es la fecha de ese "ahora no".
+        var modulo = Modulo;
+        var usos = Regex.Matches(modulo, @"(?:local|session)Storage\.\w+\(([^)]*)\)").Select(m => m.Groups[1].Value.Trim()).ToList();
+        Assert.NotEmpty(usos);
+        Assert.All(usos, u => Assert.StartsWith("CLAVE_AHORA_NO", u));
+        Assert.Contains(@"const CLAVE_AHORA_NO = ""ys.wa.ahoraNo"";", modulo);
+        Assert.Contains("localStorage.setItem(CLAVE_AHORA_NO, new Date().toISOString())", modulo);
+
+        // Ni el registro ni el perfil guardan nada.
         Assert.DoesNotMatch(@"(?i)(local|session)Storage", RegistroJs.Substring(RegistroJs.IndexOf("// ── Avisos por WhatsApp", StringComparison.Ordinal)));
+        Assert.DoesNotMatch(@"(?i)(local|session)Storage", SeccionDelPerfil());
+    }
+
+    // ───────────── El link para escribirle primero a la clínica (opción B) ─────────────
+
+    [Fact]
+    public void El_link_lo_arma_la_API_y_la_pantalla_solo_lo_muestra_si_es_de_WhatsApp()
+    {
+        var modulo = Modulo;
+
+        Assert.Contains("estado?.contacto?.enlace", modulo);                                             // viene de la API
+        Assert.Contains(@"u.protocol === ""https:"" && u.hostname === ""wa.me""", modulo);                 // y solo se muestra si es un link de WhatsApp
+        Assert.Contains(@"target: ""_blank""", modulo);
+        Assert.Contains(@"rel: ""noopener noreferrer""", modulo);
+        Assert.Matches(@"if \(!enlace\) return null;", modulo);                                          // sin link, no hay bloque
+        // Ni un link ni un número escritos a mano en la pantalla (EnlaceWhatsAppTests lo vigila en todo PANTALLAS/).
+        Assert.DoesNotMatch(@"wa\.me/|api\.whatsapp\.com|web\.whatsapp\.com", modulo + SeccionDelPerfil());
+    }
+
+    [Fact]
+    public void El_perfil_ofrece_el_link_solo_donde_se_puede_activar_y_no_a_quien_acaba_de_desactivar()
+    {
+        var seccion = SeccionDelPerfil();
+
+        Assert.Contains(@"const contacto = e.estado === ""revocado"" ? null : YS.whatsapp.contacto(e);", seccion);
+        // Está dentro del bloque de la casilla (el que solo existe si se puede activar) y antes del botón de desactivar.
+        var bloque = seccion.IndexOf("if (e.disponible && !activo) {", StringComparison.Ordinal);
+        var link = seccion.IndexOf("YS.whatsapp.contacto(e)", StringComparison.Ordinal);
+        var desactivar = seccion.IndexOf("if (activo || pausado)", StringComparison.Ordinal);
+        Assert.True(bloque >= 0 && bloque < link && link < desactivar, "el link tiene que estar dentro del bloque de la casilla");
+    }
+
+    [Fact]
+    public void Despues_de_pedir_o_confirmar_un_turno_se_sugiere_sin_activar_nada()
+    {
+        var js = Dashboard;
+
+        // Las dos veces: tras "Turno solicitado" y tras "Turno confirmado".
+        foreach (var aviso in new[] { @"toast(""Turno solicitado.", @"toast(""Turno confirmado." })
+        {
+            var i = js.IndexOf(aviso, StringComparison.Ordinal);
+            Assert.True(i >= 0, $"no encuentro {aviso}");
+            Assert.Contains("sugerirAvisosWhatsApp();", js.Substring(i, Math.Min(900, js.Length - i)));
+        }
+        Assert.Contains(@"YS.whatsapp.sugerirTrasUnTurno({ alActivar: () => mostrarSeccion(""perfil"") });", js);
+
+        // La sugerencia nunca acepta: no hay ningún POST ni ruta de "aceptar" entre sus líneas.
+        var modulo = Modulo;
+        var sugerencia = modulo[modulo.IndexOf("async sugerirTrasUnTurno", StringComparison.Ordinal)..];
+        Assert.DoesNotContain("aceptar", sugerencia);
+        Assert.DoesNotContain("POST", sugerencia);
+        Assert.Contains(@"estado.estado !== ""sin-decision"" || !estado.disponible", sugerencia);   // solo a quien no decidió y puede activarlos
+        Assert.Contains("if (sugerenciaPospuesta()) return false;", sugerencia);                       // y no si dijo "ahora no" hace poco
+        Assert.Matches(@"if \(respuesta === true\) alActivar\?\.\(\);\s+else posponerSugerencia\(\);", sugerencia);
     }
 }

@@ -535,6 +535,7 @@ async function confirmarSolicitudDia(fechaStr) {
         turnosCalendario = await r.json();
         dibujarCalendario();
         document.getElementById("panelTurno").classList.remove("visible");
+        sugerirAvisosWhatsApp();
     } else toast(await YS.leerMensaje(res, "No se pudo solicitar el turno."), "error");
 }
 
@@ -869,12 +870,21 @@ async function renderAvisosWhatsApp() {
             YS.el("label", { class: "ui-check", for: "aceptoAvisosWhatsApp" }, casilla,
                 YS.el("span", { text: "Leí el texto y quiero recibir avisos de mis turnos por WhatsApp" })),
             boton));
+        // La otra forma: escribirle primero a la clínica. Solo si la API tiene el número, y no a quien acaba de desactivar los avisos.
+        const contacto = e.estado === "revocado" ? null : YS.whatsapp.contacto(e);
+        if (contacto) partes.push(contacto);
     }
     if (activo || pausado)
         partes.push(YS.el("div", { class: "wa-acciones" },
             YS.el("button", { type: "button", class: "ui-btn", id: "btnDesactivarWhatsApp", text: "Dejar de recibir avisos por WhatsApp", on: { click: desactivarAvisosWhatsApp } })));
 
     tarjeta.replaceChildren(...partes);
+}
+
+// Después de pedir o confirmar un turno: si todavía no decidió nada sobre los avisos por WhatsApp, se le cuentan (YS.whatsapp.sugerirTrasUnTurno).
+// No se espera ni puede romper el flujo del turno, que ya terminó. "Ver cómo activarlos" lleva al perfil: acá no se activa nada.
+function sugerirAvisosWhatsApp() {
+    YS.whatsapp.sugerirTrasUnTurno({ alActivar: () => mostrarSeccion("perfil") });
 }
 
 async function activarAvisosWhatsApp() {
@@ -1117,6 +1127,7 @@ async function confirmarTurnoPaciente(idTurno) {
                 dibujarCalendario();
                 document.getElementById("panelTurno").classList.remove("visible");
             } else mostrarSeccion(YS.shell.actual);
+            sugerirAvisosWhatsApp();
         } else if (r.status === 409) {
             // RN-02: falta firmar el consentimiento de telemedicina.
             if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?",

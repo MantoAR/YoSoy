@@ -1,7 +1,8 @@
 // Consentimiento de los avisos de turnos por WhatsApp. Se registra con app.MapConsentimientoWhatsApp().
 //
 //   GET  /consentimiento-whatsapp/texto      Sin sesión: la versión y el texto vigentes (los necesita la pantalla de registro).
-//   GET  /consentimiento-whatsapp            El paciente de la sesión: su estado y el texto que tiene que leer.
+//   GET  /consentimiento-whatsapp            El paciente de la sesión: su estado, el texto que tiene que leer y, si hay un número de la clínica
+//                                            configurado, el link wa.me para escribirle primero (contacto.enlace; null si no hay).
 //   POST /consentimiento-whatsapp/aceptar    El paciente acepta: { version } (la del texto que leyó).
 //   POST /consentimiento-whatsapp/revocar    El paciente deja de recibir avisos por WhatsApp.
 //
@@ -23,32 +24,36 @@ public static class ConsentimientoWhatsAppEndpoints
             return Results.Ok(new { disponible = t.Disponible, version = t.Version, provisorio = t.Provisorio, titulo = t.Titulo, texto = t.Texto });
         }).AllowAnonymous().RequireRateLimiting(PoliticaDeLimite);
 
-        app.MapGet("/consentimiento-whatsapp", (HttpContext ctx, IdentidadActualService identidad, ConsentimientoWhatsAppService servicio) =>
+        app.MapGet("/consentimiento-whatsapp", (HttpContext ctx, IdentidadActualService identidad, ConsentimientoWhatsAppService servicio,
+            ContactoWhatsApp contacto) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
-            return Responder(servicio.Obtener(identidad.Resolver(ctx)!));
+            return Responder(servicio.Obtener(identidad.Resolver(ctx)!), contacto);
         }).RequireAuthorization().RequireRateLimiting(PoliticaDeLimite);
 
         app.MapPost("/consentimiento-whatsapp/aceptar", (AceptarWhatsAppRequest? req, HttpContext ctx, IdentidadActualService identidad,
-            ConsentimientoWhatsAppService servicio) =>
+            ConsentimientoWhatsAppService servicio, ContactoWhatsApp contacto) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
-            return Responder(servicio.Aceptar(identidad.Resolver(ctx)!, req?.Version));
+            return Responder(servicio.Aceptar(identidad.Resolver(ctx)!, req?.Version), contacto);
         }).RequireAuthorization().RequireRateLimiting(PoliticaDeLimite);
 
-        app.MapPost("/consentimiento-whatsapp/revocar", (HttpContext ctx, IdentidadActualService identidad, ConsentimientoWhatsAppService servicio) =>
+        app.MapPost("/consentimiento-whatsapp/revocar", (HttpContext ctx, IdentidadActualService identidad, ConsentimientoWhatsAppService servicio,
+            ContactoWhatsApp contacto) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
-            return Responder(servicio.Revocar(identidad.Resolver(ctx)!));
+            return Responder(servicio.Revocar(identidad.Resolver(ctx)!), contacto);
         }).RequireAuthorization().RequireRateLimiting(PoliticaDeLimite);
 
         return app;
     }
 
-    internal static IResult Responder(ResultadoConsentimientoWhatsApp r)
+    // "contacto": el link wa.me para escribirle primero a la clínica (opción B), o null si no hay un número configurado.
+    internal static IResult Responder(ResultadoConsentimientoWhatsApp r, ContactoWhatsApp contacto)
     {
         if (!r.Ok) return Error(r.Error!);
         var e = r.Estado!;
+        var enlace = contacto.Enlace();
         return Results.Ok(new
         {
             disponible = e.Disponible,
@@ -60,7 +65,8 @@ public static class ConsentimientoWhatsAppEndpoints
             texto = e.Texto,
             aceptadoUtc = e.AceptadoUtc,
             revocadoUtc = e.RevocadoUtc,
-            versionAceptada = e.VersionAceptada
+            versionAceptada = e.VersionAceptada,
+            contacto = enlace is null ? null : new { enlace }
         });
     }
 

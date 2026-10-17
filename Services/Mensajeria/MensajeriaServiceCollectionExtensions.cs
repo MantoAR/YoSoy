@@ -80,6 +80,7 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<IAuditoriaConsentimientoWhatsApp, AuditoriaConsentimientoWhatsApp>();
         services.AddSingleton<ITextoConsentimientoWhatsApp, TextoConsentimientoWhatsApp>();
         services.AddSingleton<ConsentimientoWhatsAppService>();
+        services.AddSingleton<ContactoWhatsApp>();
         services.AddSingleton<IPoliticaEnvioWhatsApp>(sp => sp.GetRequiredService<ConsentimientoWhatsAppService>());
         services.AddSingleton<IBajaDeWhatsApp>(sp => sp.GetRequiredService<ConsentimientoWhatsAppService>());
         // Límite propio de /consentimiento-whatsapp (incluye el texto, que es público): por IP real, ventana de un minuto, en memoria, como las demás.

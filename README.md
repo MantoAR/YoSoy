@@ -329,6 +329,8 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | `UrlRegistroWeb`, `UrlIngresoTurno` | | Links que manda el bot. El de firma del consentimiento sale de `Consentimiento:UrlFirma`. |
 | `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
 | `ConsentimientoWhatsApp:VersionTexto` | `v0-provisorio` | Versión del texto del consentimiento de los avisos por WhatsApp (`Services/Mensajeria/Consentimiento/<versión>.txt`, embebido). Una versión publicada no se edita; **al cambiarla, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.** Variable de entorno: `Mensajeria__ConsentimientoWhatsApp__VersionTexto`. |
+| `WhatsAppNumeroClinica` | vacío | El número de WhatsApp de la clínica (el que vincula `whatsapp-service`), para el link con el que un paciente le **escribe primero** (perfil y después de pedir o confirmar un turno). Formato libre: `+54 9 11 5555-0000`, `011 5555-0000`; uno de otro país solo con `+`. **Vacío = no se muestra ningún link.** No es un secreto, pero no está escrito en el código ni en las pantallas. Variable de entorno: `Mensajeria__WhatsAppNumeroClinica`. |
+| `WhatsAppTextoInicio` | `Hola` | Lo que viene escrito cuando el paciente abre ese link. Neutro a propósito: no dice qué es la clínica ni para qué se escribe. Variable de entorno: `Mensajeria__WhatsAppTextoInicio`. |
 | `DiasBusquedaHorarios`, `MaxHorariosOfrecidos` | `14`, `5` | Búsqueda de horarios libres. |
 | `PalabrasRiesgo` | lista | Frases que disparan el mensaje de emergencia. **Obligatoria:** la app no arranca si está vacía. |
 | `PalabrasClinicas` | lista | Si el mensaje no se entiende y contiene alguna, el bot aclara que no responde consultas clínicas. |
