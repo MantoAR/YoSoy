@@ -11,7 +11,8 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ninguna migración se aplica a
   una base real** (solo a bases descartables de prueba); sin `--force` ni merge a `main`; los datos de consentimiento no se loguean con
   teléfonos completos ni contenido.
-- **Última actualización:** 2026-10-17, tras la etapa 3 (las pantallas).
+- **Última actualización:** 2026-10-17, **cierre**: las 6 etapas hechas, pusheadas y probadas. Lo que falta es tuyo: ver "Pasos manuales para Agustín" y
+  "Qué falta".
 
 ## Estado de las etapas
 
@@ -22,8 +23,8 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 | 2 | API: aceptar/revocar, `optIn` solo con consentimiento vigente, teléfono argentino, BAJA | **hecho** | `8f1335b` |
 | 3 | Pantallas: casilla sin tildar en el registro, activar/revocar en el perfil | **hecho** | `766e53a` |
 | 4 | Link `wa.me` (opción B) configurable | **hecho** | `e18e650` |
-| 5 | Plantillas de mensajes sin nada clínico | **hecho** | (este commit) |
-| 6 | Documentación: `DEPLOY.md`, `SERVIDOR.md`, avisos que quedaron viejos | pendiente | |
+| 5 | Plantillas de mensajes sin nada clínico | **hecho** | `62b59c7` |
+| 6 | Documentación: `DEPLOY.md`, `SERVIDOR.md`, avisos que quedaron viejos | **hecho** | (este commit) |
 
 ## Cómo retomar
 
@@ -32,8 +33,9 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 3. Tests de la API: hace falta una base de pruebas **con el esquema nuevo** (`docs/produccion/01-produccion.sql` de esta rama). La
    `yosoy_test` de siempre no tiene la tabla `ConsentimientoWhatsApp` hasta que se le aplique la migración. Crear una nueva con
    `Scripts\crear-base-de-pruebas.ps1 -Base <otro_nombre>` y correr `Scripts\correr-tests.ps1 -Base <otro_nombre>` (**nunca** contra `yosoy`).
-   Yo trabajé con `yosoy_test_wa` (descartable; se borra al final con el comando de `docs/DESARROLLO_LOCAL.md`, "Borrar la base de pruebas").
-4. Seguir por la primera etapa en `pendiente` de la tabla de arriba.
+   Yo trabajé con `yosoy_test_wa` (descartable; **ya la borré** al terminar, con el comando de `docs/DESARROLLO_LOCAL.md`, "Borrar la base de pruebas").
+4. Todas las etapas están hechas: lo que queda es de Agustín (abajo, "Pasos manuales para Agustín" y "Qué falta"). Si se retoma una tarea de código, la tabla de
+   arriba dice en qué commit está cada etapa.
 
 ## Hallazgos de la lectura inicial (antes de tocar nada)
 
@@ -412,16 +414,87 @@ Todo lo que puede salir por WhatsApp, y quién lo escribe:
   o el link que se pierden, una plantilla con un parámetro más, la palabra "virtual" o "profesional" en un texto, plantillas cambiadas entre sí, la
   campanita sin el profesional…): **las 15 detectadas**.
 
+## Etapa 6: la documentación
+
+### Qué quedó hecho
+
+- **`docs/DEPLOY.md`**: sección nueva **"Consentimiento de WhatsApp (migración 16): orden del despliegue"** (backup → migración con `sqlcmd -I` y su
+  verificación → variables → publicar la API → probar → recién después `whatsapp-service` con Baileys), qué pasa si la tabla no está, y el aviso
+  de que **al volver a la API anterior se pierde el respeto a las revocaciones** (apagar el canal hasta redesplegar). Las cuentas pasaron a **45 tablas**
+  y el punto "decisión sobre el consentimiento" de la sección de Baileys dejó de decir que la API no manda `optIn`.
+- **`docs/SERVIDOR.md`**: lo que manda la API al servicio de WhatsApp (ya no "todavía no manda `optIn`"), 44 → 45 tablas (con la aclaración de que la base
+  del servidor se creó con 44), la migración 16 en "Migraciones aplicadas" como **pendiente de aplicar**, las tres variables nuevas, y los
+  pendientes.
+- **`migrations/add_consentimiento_whatsapp.sql`**: el encabezado ahora dice cómo **verificar** (la consulta que da 1, 2, 2) y cómo **deshacer**
+  (y por qué conviene no hacerlo: es el registro de quién aceptó).
+- **`whatsapp-service/README.md`** y **`docs/PROGRESO_BAILEYS.md`**: donde decían que la API no manda `optIn`, ahora dicen lo que pasa de verdad (con
+  una marca de que la decisión A+B está resuelta en esta rama, sin reescribir lo que era cierto cuando se escribió).
+- `README.md` y `docs/MATRIZ_ENDPOINTS.md`: ya estaban al día desde las etapas anteriores.
+
+### Pruebas de esta etapa
+
+- `cd whatsapp-service && npm test`: **388 pruebas, 382 pasan, 6 saltadas (permisos POSIX), 0 fallas** (sin cambios: el servicio ya entendía `optIn`
+  y la BAJA; la API es la que cambió).
+- La suite de la API con el árbol final, contra `yosoy_test_wa`: **1407 pruebas, todas verdes** (en `origin/main` eran 1021).
+
+## Resultado final
+
+| Qué | Resultado |
+|---|---|
+| Suite de la API (`dotnet test`, base descartable con las 45 tablas) | **1407/1407** (1021 en `origin/main`: +386) |
+| `whatsapp-service` (`npm test`) | 388 (382 pasan, 6 saltadas de POSIX, 0 fallas) |
+| Banco de navegador real (Chrome + API real, sin versionar) | etapa 3: 74/74; etapa 4: 110/110 con número de la clínica y 107/107 sin número |
+| Mutaciones (cambios a propósito en el código, contra las pruebas) | 138: 19 de la base (etapa 1), 65 + 6 de la API (etapa 2), 18 + 15 de las pantallas (etapas 3 y 4), 15 de las plantillas (etapa 5). **Todas detectadas** salvo una rama del DAO que no se puede provocar de forma determinista (etapa 2, `D5`) |
+| Base de datos real, VPS, despliegue | **Nada tocado.** La migración solo corrió en bases descartables que se borraron |
+| WhatsApp real | **Nada corrió contra WhatsApp** (ni el canal Baileys ni el link `wa.me`) |
+
 ## Pasos manuales para Agustín
 
-(Se completa etapa por etapa. Lo que ya se sabe:)
+En este orden. Nada de esto lo hice yo: lo que toca producción, el equipo legal o el teléfono del número es tuyo.
 
-1. **Validación legal del texto** `v0-provisorio` antes de usarlo con pacientes reales. Un texto nuevo es una versión nueva (archivo
-   nuevo y `Mensajeria__ConsentimientoWhatsApp__VersionTexto`): **al cambiar la versión, los avisos por WhatsApp se detienen hasta que
-   cada paciente vuelva a aceptar**. Es a propósito.
-2. **Aplicar `migrations/add_consentimiento_whatsapp.sql`** a la base `yosoy` **antes** de publicar la API de esta rama (ver `DEPLOY.md`).
-3. En la PC: la `yosoy_test` de siempre necesita esa migración (o recrearla con el esquema nuevo) para que la suite pase.
+1. **Abrir y revisar el PR** (`feat/consentimiento-whatsapp` contra `main`; el link de compare lo dejé en el mensaje final). Son 6 commits, uno por etapa.
+2. **Que el equipo legal valide el texto del consentimiento** (`Services/Mensajeria/Consentimiento/v0-provisorio.txt`) **antes de usarlo con pacientes
+   reales**: es un borrador marcado "TEXTO PROVISORIO". Lo que hay que completar o decidir: los **datos de contacto de la institución** (marcador
+   `[DATOS DE CONTACTO DE LA INSTITUCIÓN: A COMPLETAR]`), las **referencias legales** (Ley 25.326 y 26.529: a validar), el **criterio para menores** (hoy: menor
+   de 18 o con un tutor cargado no acepta solo), **si el camino de escribir primero** (el link `wa.me`) **necesita un texto propio**, si basta una casilla o
+   se quiere verificar el número (ver "Qué falta"), y cuánto tiempo se conserva el registro. Un texto nuevo es una **versión nueva** (un archivo
+   `<versión>.txt` y `Mensajeria__ConsentimientoWhatsApp__VersionTexto`): **al cambiar la versión, los avisos por WhatsApp se detienen hasta que cada
+   paciente vuelva a aceptar** (es a propósito; mejor hacerlo antes de que haya aceptaciones que perder).
+3. **Backup de la base y aplicar `migrations/add_consentimiento_whatsapp.sql`** a `yosoy` (login administrador, `sqlcmd -I -b -f 65001`), **antes** de
+   publicar la API. Verificar con la consulta del encabezado del script (da 1, 2, 2) y `SELECT COUNT(*) FROM sys.tables` (45). Paso a paso:
+   `docs/DEPLOY.md`, "Consentimiento de WhatsApp".
+4. **Cargar el número de la clínica** (opcional, solo si querés el link) en `/opt/yosoy/config/.env`: `Mensajeria__WhatsAppNumeroClinica` (el mismo que
+   vincula Baileys). Sin él no se muestra ningún link. Y `Mensajeria__WhatsAppTextoInicio` si querés otro saludo que "Hola".
+5. **Publicar la API** con el flujo de siempre y **probar** con un paciente de prueba (la lista está en `DEPLOY.md`: texto 200, casilla sin tildar,
+   perfil, link, y que el log no traiga teléfonos).
+6. **Recién después, desplegar `whatsapp-service` con Baileys** (`DEPLOY.md`, sección de Baileys), con lo que ya estaba pendiente: número dedicado, topes
+   iniciales bajos. **El primer despliegue es también la primera vez que algo corre contra WhatsApp de verdad**: hacelo con el teléfono del número en la mano.
+7. **En tu PC:** la `yosoy_test` que ya tenías **no tiene la tabla nueva**: aplicale la migración o recreala con `Scripts\crear-base-de-pruebas.ps1` (ya trae
+   las 45 tablas) para que la suite pase. La base descartable que usé (`yosoy_test_wa`) la borré al terminar.
+8. **Decidir qué hacer con lo de abajo** ("Qué falta").
 
 ## Qué falta / pendiente de decisión
 
-(Se completa etapa por etapa.)
+1. **El número no se verifica.** Quien se registra con el celular de otra persona y tilda la casilla puede hacer que le escriban a un tercero (hoy pasa igual con
+   cualquier paciente con teléfono cargado, pero ahora hay una constancia que dice lo contrario). Mitigan: los avisos son solo día y hora, y la BAJA funciona desde
+   ese teléfono. Lo correcto sería un **doble opt-in** (que escriba desde ese número, o un código por WhatsApp). Decisión tuya y del equipo legal.
+2. **Los pacientes que ya existen no decidieron** (son todos): no reciben WhatsApp salvo que le escriban primero al número (el link `wa.me`) o activen los avisos desde
+   el perfil. La interfaz se lo ofrece en el perfil y después de pedir o confirmar un turno; **no hay una campaña** (un mail o un aviso en el panel invitándolos a
+   decidir). Si la querés, es un cambio chico.
+3. **El mail y la campanita siguen con el nombre del profesional y la modalidad.** Las plantillas de WhatsApp son mínimas; **el recordatorio por mail no lo revisé** (el
+   encargo era el de WhatsApp) y también sale por un tercero. Decidir si el mail debe ser igual de mínimo.
+4. **El asistente, cuando la persona le escribe primero, nombra profesionales y especialidades** (hace falta para elegir). Es lo que dice el texto del consentimiento;
+   si legal lo quiere más estricto hay que cambiar el menú.
+5. **Límite conocido del envío a quien nunca decidió:** se arma igual la conversación y queda un mensaje saliente en "Error" en la bandeja del equipo aunque el servicio
+   de WhatsApp lo rechace (el aviso queda "Omitido"). Se evitaría mirando en la API si escribió primero, pero eso duplica la regla del servicio y arriesga dejar de avisar a quien
+   sí debería recibir.
+6. **La app mobile (aparte) no tiene la pantalla del consentimiento.** Sus pacientes se registran sin `aceptaWhatsApp` (nunca aceptado por defecto: es lo seguro) y no
+   pueden activar los avisos desde ahí. La API ya tiene todo (`GET`/`POST /consentimiento-whatsapp/...`): falta la pantalla de esa app. Esta tarea es PC primero.
+7. **Dos pacientes con el mismo celular** (una familia): una BAJA revoca a los dos.
+8. **Quien recibe avisos porque le escribió primero** y nunca aceptó **no tiene "revocar" en el perfil** (no hay nada que revocar): se da de baja respondiendo BAJA, y la pantalla lo dice.
+9. **La validación del teléfono es solo para el consentimiento.** `POST /pacientes` y `PUT /pacientes/{id}` siguen guardando el texto libre.
+10. **Nada corrió contra WhatsApp real**, ni el canal ni el link. Las pruebas usan un socket simulado y la red bloqueada.
+11. **Una rama del DAO sin prueba determinista:** la que atrapa la violación del índice único cuando dos pedidos aceptan en el mismo microsegundo (etapa 2, `D5`). La prueba de 12
+    pedidos a la vez falla si esa violación saliera sin atrapar, pero no se puede forzar desde una prueba sin tocar el DAO.
+12. **Derechos sobre los datos:** `ConsentimientoWhatsApp` tiene claves foráneas a `Paciente` y `Usuario` (sin cascada): es un registro de prueba de quién aceptó qué. Si un paciente
+    pide la supresión de sus datos, hay que decidir cómo se conserva (o no) esa constancia: lo define el equipo legal.

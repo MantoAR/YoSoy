@@ -358,7 +358,9 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ### Decisiones y límites
 
-- **La API todavía no manda `optIn`.** Hoy `CanalWhatsAppWebJs` manda solo `{telefono, texto}` y la API no sabe si un paciente aceptó
+- **(Actualizado en la rama del consentimiento de WhatsApp: la API ya manda `optIn`, solo a quien aceptó; ver
+  [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md). Lo que sigue es lo que valía cuando se escribió esta etapa.)**
+  **La API todavía no manda `optIn`.** Hoy `CanalWhatsAppWebJs` manda solo `{telefono, texto}` y la API no sabe si un paciente aceptó
   recibir WhatsApp (el "consentimiento" que existe es el informado de telemedicina, otra cosa). Consecuencia, **con Baileys**: los
   avisos y recordatorios **solo salen a quien le escribió primero al número de la clínica**; al resto se le rechaza con 403 y
   queda en el log de la API. Es el lado seguro, pero hay que decidir cómo se resuelve: ver "Pasos manuales".
@@ -541,7 +543,9 @@ Están en el orden en que hacen falta.
 
 ### A. Decisiones tuyas, antes de desplegar
 
-1. **Cómo llega el consentimiento al servicio (la más importante).** Con la API como está, con Baileys solo reciben WhatsApp los pacientes que le
+1. **Cómo llega el consentimiento al servicio (la más importante).** **Resuelta en la rama `feat/consentimiento-whatsapp`: están hechas la
+   (A) y la (B) de abajo, con un texto provisorio que falta validar con el equipo legal; qué se hizo, qué decidí y qué te toca está en
+   [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md).** Lo que sigue es el planteo original: con la API como estaba, con Baileys solo reciben WhatsApp los pacientes que le
    escribieron primero al número de la clínica; al resto se le rechaza con `403 sin_consentimiento` y queda en el log de la API. Tres caminos
    (se pueden combinar):
    - **(A) Guardar la aceptación en la API**: un campo en `Paciente` (por ejemplo `AceptaWhatsApp`) que se tilda al registrarse, en el perfil o

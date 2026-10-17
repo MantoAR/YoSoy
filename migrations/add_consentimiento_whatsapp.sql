@@ -17,6 +17,17 @@
 -- desde el esquema base. Con sqlcmd se corre así:
 --   sqlcmd -S TU_SERVIDOR -d yosoy -E -C -I -f 65001 -i migrations\add_consentimiento_whatsapp.sql
 --
+-- Verificar (tiene que dar 1, 2 y 2: la tabla, sus dos claves foráneas y sus dos índices):
+--   SELECT (SELECT COUNT(*) FROM sys.tables WHERE name = 'ConsentimientoWhatsApp') AS tabla,
+--          (SELECT COUNT(*) FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID('dbo.ConsentimientoWhatsApp')) AS claves,
+--          (SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.ConsentimientoWhatsApp')
+--              AND name IN ('UQ_ConsentimientoWhatsApp_Abierto', 'IX_ConsentimientoWhatsApp_Paciente')) AS indices;
+--
+-- Deshacer: no hace falta para volver a la API anterior, que no conoce la tabla y la ignora. Si de verdad hay que sacarla,
+-- DROP TABLE dbo.ConsentimientoWhatsApp; PERO esa tabla es el registro de quién aceptó recibir WhatsApp, con qué texto y cuándo:
+-- antes de borrarla, guardá un backup de la base (o un SELECT * de la tabla). Sin ella, la API de esta rama no puede aceptar ni
+-- revocar, y los avisos por WhatsApp quedan sin salir (se prefiere no mandar a mandar sin saber si hay consentimiento).
+--
 -- QUOTED_IDENTIFIER ON: lo pide el índice único filtrado de más abajo (error 1934 si no), igual que en
 -- add_link_publico_profesional.sql y add_grupos_casos_derivacion.sql. Con -I ya viene así; el SET lo deja a salvo si se olvida.
 SET QUOTED_IDENTIFIER ON;
