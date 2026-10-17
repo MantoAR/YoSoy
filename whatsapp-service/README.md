@@ -238,8 +238,39 @@ no una falla del proceso.
 Todo tiene un tope de 10 segundos (la unit da 20): si algo no contesta, se anota y se sale igual con lo que haya, sin bloquear.
 Se sale con 0 a propósito: fue un pedido de apagado, no una falla, y con otro código `Restart=on-failure` lo volvería a levantar.
 
-Más variables (el `/salud` completo, el apagado) se documentan a medida que cada etapa las agrega;
-la lista completa queda al final de esta sección cuando termine la tarea (ver `docs/PROGRESO_BAILEYS.md`).
+### Baileys: todas las variables, de un vistazo
+
+Las obligatorias van en `/opt/yosoy/config/whatsapp.env` (o en la unit); las opcionales, solo si hace falta cambiar el valor por defecto.
+Si una variable está definida en la unit y en `whatsapp.env`, vale la de `whatsapp.env`.
+
+| Variable | Por defecto | Qué hace |
+|---|---|---|
+| `API_BASE_URL` | — (obligatoria) | Dónde está la API (`http://127.0.0.1:5000`). Con Baileys, si es otra máquina tiene que ser `https`. |
+| `Mensajeria__WhatsApp__Secreto` | — (obligatoria) | El secreto compartido con la API (`X-Shared-Secret`). Nunca va en el repo ni en el log. |
+| `WHATSAPP_BACKEND` | `webjs` | `baileys` activa este backend; sin la variable, todo sigue como siempre. |
+| `WHATSAPP_BAILEYS_SESSION_PATH` | — (obligatoria con Baileys) | Carpeta de la sesión: absoluta, propia, fuera del repo y de la aplicación (ver "la carpeta de la sesión"). |
+| `WHATSAPP_SERVICE_PORT` | `3002` | Puerto (siempre en `127.0.0.1`). |
+| `WHATSAPP_BAILEYS_VENTANAS_QR` | `2` (1 a 5) | Ventanas de QR que se abren solas sin número vinculado. |
+| `WHATSAPP_BAILEYS_VERSION_WA` | la de la librería | Fija la versión de WhatsApp Web (solo si WhatsApp rechaza la de la librería, cierre 405). |
+| `WHATSAPP_BAILEYS_BUSCAR_VERSION` | apagado | `1` pide la última versión conocida al arrancar (un pedido a `raw.githubusercontent.com`). |
+| `WHATSAPP_TOPE_DIARIO` | `100` (1 a 1000) | Mensajes por día. Para un número nuevo, empezar en 30. |
+| `WHATSAPP_TOPE_POR_HORA` | `40` (1 a 500) | Mensajes por hora; los que se pasan esperan en la cola. |
+| `WHATSAPP_TOPE_POR_PERSONA` | `3` (1 a 20) | Mensajes por persona y por día. |
+| `WHATSAPP_CONSENTIMIENTO_DIAS` | `365` (1 a 3650) | Cuánto vale que la persona le haya escrito primero al número. |
+| `WHATSAPP_ZONA_HORARIA` | `America/Argentina/Buenos_Aires` | Zona en la que cambia el día para el tope diario. |
+| `WHATSAPP_PAUSA_MIN_S`, `WHATSAPP_PAUSA_MAX_S` | `4` y `9` | Pausa al azar entre mensajes, en segundos. |
+| `WHATSAPP_SIMULAR_ESCRITURA` | activo | `0` apaga el "escribiendo..." antes de cada mensaje. |
+
+(`WHATSAPP_SESSION_PATH`, `WHATSAPP_WEB_VERSION` y `WHATSAPP_DEBUG` son del backend de whatsapp-web.js y se explican en sus secciones.)
+
+### Baileys: dependencias y auditoría
+
+- Baileys está fijado en la versión **exacta** `6.7.24` (sin `^`), la última estable, con `"overrides": {"libsignal": "6.0.0"}`: la librería
+  depende de `libsignal` por git, que el VPS (sin clave SSH hacia GitHub) no puede bajar; el paquete de npm tiene el mismo código y trae
+  hash de integridad. Cambiar de versión es una decisión: ver `docs/PROGRESO_BAILEYS.md` (la 7.x todavía es candidata).
+- `npm audit` del servicio: 13 avisos altos, **todos de las cadenas de `puppeteer` (la descarga de Chromium de whatsapp-web.js) y de
+  `patch-package`; ninguno viene de Baileys** ni de sus dependencias. Se pueden ver con `npm audit --omit=dev`.
+- En el VPS se instala con `PUPPETEER_SKIP_DOWNLOAD=1 npm ci --omit=dev`: no hace falta bajar Chromium para usar Baileys.
 
 ## Qué necesita el VPS
 
@@ -314,6 +345,10 @@ Nunca se escribe el secreto directo en el repo ni en ningún script
 versionado — generarlo en el momento, en el VPS.
 
 ### Instalar las units
+
+> Para **Baileys** la unit es `deploy/whatsapp-service-baileys.service` (se instala con el mismo nombre, `whatsapp-service.service`) y el
+> paso a paso, con backup y rollback, está en `docs/DEPLOY.md`, "Despliegue de whatsapp-service con Baileys". Lo de abajo es
+> la instalación de siempre, con whatsapp-web.js.
 
 ```bash
 sudo cp deploy/whatsapp-service.service /etc/systemd/system/

@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 7 (salud y apagado ordenado).
+- **Última actualización:** 2026-10-16, tras la etapa 8 (unit de systemd y documentación de despliegue).
 
 ## Estado de las etapas
 
@@ -27,8 +27,8 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 4 | Reconexión con backoff y manejo de `loggedOut` | **hecho** | `d5039bf` |
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | `aad3f96` |
 | 6 | Privacidad en logs | **hecho** | `e9939b9` |
-| 7 | Salud y apagado ordenado | **hecho** | (este commit) |
-| 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | pendiente | — |
+| 7 | Salud y apagado ordenado | **hecho** | `fb13936` |
+| 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | **hecho** | (este commit) |
 
 ## Cómo retomar
 
@@ -460,6 +460,56 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   código HTTP, el cableado de `index.js`): **36 detectados y 1 equivalente** (un manejador de rechazo que no se puede alcanzar porque
   el loop de la cola atrapa todos los errores de envío).
 
+## Etapa 8: la unit de systemd y la documentación de despliegue
+
+### Qué quedó hecho
+
+- **`whatsapp-service/deploy/whatsapp-service-baileys.service`** (propuesta, **no instalada en ningún lado**). Se instala con el mismo nombre
+  que la actual (`whatsapp-service.service`), así que la API, el drop-in `whatsapp.conf` y los comandos de siempre no cambian. Corre como
+  `yosoy`; lee `/opt/yosoy/config/whatsapp.env`; trae `WHATSAPP_BACKEND=baileys` y la carpeta de la sesión
+  (`/opt/yosoy/whatsapp/sesion-baileys`); con `ProtectSystem=strict` **solo puede escribir en esa carpeta**; `MemoryMax=512M` (la de
+  whatsapp-web.js tiene 2G); `UMask=0077`; sin privilegios nuevos, sin home, sin dispositivos, sin capacidades y con las familias de red
+  justas; si cae 5 veces en 5 minutos systemd se rinde (no volver a golpear a WhatsApp en bucle); `TimeoutStopSec=20`, el doble del tope
+  del apagado ordenado. Cada línea tiene su comentario.
+- **`.gitattributes`:** `/whatsapp-service/deploy/** text eol=lf`. Antes solo `/deploy/**` tenía la regla; las units de `whatsapp-service/deploy/`
+  quedaban con CRLF en un checkout de Windows y, copiadas al servidor, systemd lee mal los valores. El procedimiento igual saca los CR (`sed`)
+  por si el archivo viene de un árbol viejo.
+- **`docs/DEPLOY.md`: sección nueva "Despliegue de whatsapp-service con Baileys (flujo manual)"**, en el mismo estilo que la de la API: antes de
+  empezar; empaquetar en la PC; instalar **al lado** (`app-nueva/`) y probarla con `npm test` **en Linux** sin tocar el servicio que corre;
+  backup (la unit y `whatsapp.env`; el código viejo se renombra a `app-anterior-<fecha>`); corte y reemplazo; topes iniciales bajos;
+  arrancar y verificar (`/salud`, permisos, log sin teléfonos, `systemd-analyze`); vincular; prender el canal en la API y probar con tu
+  propio teléfono; apagado; **rollback**; qué no hacer; al terminar.
+- **`docs/SERVIDOR.md`:** servicios, carpetas, variables, verificación rápida y pendientes, con una sección "WhatsApp con Baileys (propuesto,
+  todavía no desplegado)" y una tabla "hoy vs con Baileys". Dice claramente que **no está desplegado**.
+- **`whatsapp-service/README.md`:** la tabla de **todas** las variables con su valor por defecto, y "dependencias y auditoría".
+- **`npm audit`** (vuelto a correr hoy): **13 avisos altos, todos de las cadenas de `puppeteer`/`whatsapp-web.js` y `patch-package`; ninguno de
+  Baileys ni de sus dependencias** (ya estaba así antes de agregar Baileys; ver la etapa 9).
+
+### Decisiones y límites
+
+- **Instalar al lado y renombrar** (en vez de copiar encima, como la API): `app-nueva/` se instala y se prueba con el servicio viejo todavía
+  andando; el corte es un `mv` y el rollback, otro. Evita copiar cientos de MB (el `node_modules` viejo) y deja el backup listo.
+- **Sin Chromium en el VPS nuevo** (`PUPPETEER_SKIP_DOWNLOAD=1`), pero el Chromium viejo sigue en `cache/`, así que volver a whatsapp-web.js
+  es posible.
+- **La unit nunca corrió en un systemd real.** Las opciones de endurecimiento son las habituales para un servicio de Node, pero no las probé;
+  el procedimiento pide `systemd-analyze verify` y `security`, y la unit dice que, si alguna opción impidiera arrancar, se comente esa línea.
+  No usé `MemoryDenyWriteExecute` (Node no arranca) ni filtros de llamadas al sistema (no los puedo probar acá).
+- **`MemoryMax=512M` es una estimación** (importar Baileys sumó ~48 MB en la medición de la etapa 9): confirmar con la primera conexión real.
+- **Lo de los ~14 días** (WhatsApp desvincula los dispositivos vinculados si el teléfono principal no se conecta en ese tiempo, y reinstalar
+  WhatsApp con el número en otro teléfono también) es lo que WhatsApp documenta para dispositivos vinculados; **no lo verifiqué hoy**.
+- **La documentación se vigila con pruebas:** cada variable que lee `config.js` tiene que estar en el README, los valores por defecto del
+  README son los del código, y la unit, `DEPLOY.md` y `SERVIDOR.md` dicen lo mismo (nombre del archivo, carpeta de la sesión, memoria, topes
+  iniciales, rollback). Se saltean solas donde no está `docs/` (por ejemplo, en el servidor).
+
+### Pruebas de esta etapa
+
+- `unidad-y-documentacion.test.js` (nuevo, 17): la unit línea por línea (usuario, rutas, qué puede escribir, endurecimiento, memoria, reinicios,
+  tiempo de apagado, sin secretos, LF), que la configuración que arma la unit es válida para `config.js`, y la documentación contra el código.
+- **`npm test`: 388 pruebas, 382 pasan, 6 saltadas (solo POSIX), 0 fallas.**
+- **Mutaciones:** 58 cambios a propósito (cada línea de la unit, el código y los documentos); **todos detectados.** Tres se escaparon primero
+  (la carpeta de la sesión y `PUPPETEER_SKIP_DOWNLOAD` en el procedimiento, y la memoria en `SERVIDOR.md`, que estaban nombrados también en otro
+  lado del texto) y llevaron a fijar cada mención con su prueba.
+
 ## Decisiones tomadas (para revisar)
 
 1. **Dos backends, `webjs` por defecto.** `WHATSAPP_BACKEND=baileys` activa el nuevo; sin la variable, el servicio se comporta
@@ -472,41 +522,60 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
 
 ## Pasos manuales para Agustín
 
-(Se completa etapa por etapa; nada de esto lo hice ni lo voy a hacer yo.)
+Nada de esto lo hice ni lo voy a hacer yo: son decisiones tuyas o cosas que solo pasan en el servidor o con el teléfono del número.
+Están en el orden en que hacen falta.
 
-- **Correr `npm test` una vez en Linux** (por ejemplo en una copia aparte, o en el VPS tras `npm ci`): en Windows se saltean 5
-  pruebas de permisos y enlaces simbólicos. Las pruebas usan carpetas temporales y no tocan la sesión real.
-- **DECISIÓN TUYA, importante antes de usar Baileys en producción: cómo llega el consentimiento al servicio.** Con la API como está, solo
-  reciben WhatsApp los pacientes que le escribieron primero al número de la clínica. Tres caminos (se pueden combinar):
-  (A) **Guardar la aceptación en la API**: un campo en `Paciente` (por ejemplo `AceptaWhatsApp`) que se tilda al registrarse, en el
-  perfil o en recepción, y que `NotificadorTurnos`/`CanalWhatsAppWebJs` manden como `"optIn": true`. Es un cambio de API + base +
-  pantallas y de texto legal; no lo hice porque requiere tu decisión sobre dónde y con qué leyenda se acepta.
-  (B) **Que el primer contacto sea del paciente**: un link `wa.me/<número>?text=Hola` en la web y en el mail de confirmación; al
-  escribir, queda con constancia por 365 días y recibe respuestas y recordatorios. Sin cambios de código.
-  (C) **Nada de recordatorios por WhatsApp a quien no haya escrito** y usar mail para el resto.
-  Mientras no se elija, `NotificadorTurnos` va a registrar fallos de envío para los pacientes sin constancia.
-- **Arrancar el número nuevo con topes bajos** (por ejemplo `WHATSAPP_TOPE_DIARIO=30` y `WHATSAPP_TOPE_POR_HORA=10`) y subirlos de a poco
-  durante semanas; es lo que más baja el riesgo de bloqueo.
-- **Probar el apagado en el servidor** (cuando se despliegue Baileys): `sudo systemctl stop whatsapp-service` tiene que terminar en
-  1 a 3 segundos, sin esperar a los 20 de `TimeoutStopSec`, y el journal tiene que decir `SIGTERM recibido, apagando...` y
-  `Apagado completo.`. Después, `systemctl start` y `curl -s http://127.0.0.1:3002/salud`: tiene que volver a `conectado` sin pedir QR.
-- **Vincular el número dedicado (yo no lo hago nunca):** tener el chip del número dedicado de la clínica con WhatsApp ya activo en un
-  teléfono, y escanear el QR vos, por la forma que prefieras (README, "Baileys: vincular el número (QR)"). Después de escanear,
-  no usar ese WhatsApp en otro teléfono al mismo tiempo: invalida la sesión.
-- **Crear la carpeta de la sesión en el VPS** (cuando se vaya a usar Baileys; el detalle completo va en `DEPLOY.md`, etapa 8):
-  `sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys` y poner
-  `WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys` en `/opt/yosoy/config/whatsapp.env`. Esa carpeta también
-  tiene que figurar en `ReadWritePaths` de la unit.
+### A. Decisiones tuyas, antes de desplegar
+
+1. **Cómo llega el consentimiento al servicio (la más importante).** Con la API como está, con Baileys solo reciben WhatsApp los pacientes que le
+   escribieron primero al número de la clínica; al resto se le rechaza con `403 sin_consentimiento` y queda en el log de la API. Tres caminos
+   (se pueden combinar):
+   - **(A) Guardar la aceptación en la API**: un campo en `Paciente` (por ejemplo `AceptaWhatsApp`) que se tilda al registrarse, en el perfil o
+     en recepción, y que `NotificadorTurnos`/`CanalWhatsAppWebJs` manden como `"optIn": true`. Es un cambio de API + base + pantallas y de texto
+     legal; no lo hice porque requiere tu decisión sobre dónde y con qué leyenda se acepta.
+   - **(B) Que el primer contacto sea del paciente**: un link `wa.me/<número>?text=Hola` en la web y en el mail de confirmación; al escribir
+     queda con constancia por 365 días y recibe respuestas y recordatorios. Sin cambios de código.
+   - **(C) Nada de recordatorios por WhatsApp a quien no haya escrito**, y mail para el resto.
+2. **La versión de Baileys.** Dejé la `6.7.24`, la última estable (está en modo mantenimiento). La `7.0.0-rc14` es candidata y todavía no
+   estable; cuando haya una estable, pasar es cambiar la versión exacta, sacar el `override` de `libsignal` y correr `npm test` (una prueba de
+   contrato vigila lo que el servicio usa de la librería). No urge.
+3. **¿Se respalda la sesión de Baileys?** `SERVIDOR.md` ya pide respaldar fuera del servidor la de whatsapp-web.js. Con Baileys, perderla es volver
+   a escanear un QR (unos minutos), no perder el número; el costo de respaldarla es que son credenciales de la cuenta. Si se respalda: cifrada y
+   con acceso restringido, nunca en un chat, un ticket ni el repo. El flujo de despliegue (`/opt/yosoy/backups`) no la incluye.
+4. **(Opcional) Un botón "Vincular" en el Configurador** que llame a `POST /vincular` (hoy, con el QR vencido, se usa "Desvincular y cambiar
+   número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; no lo hice para no mezclar un cambio de API/UI en esta tarea.
+
+### B. Preparación
+
+5. **El número dedicado**: el chip de la clínica con WhatsApp ya activo en un teléfono que tengas a mano. Cuidar ese teléfono: WhatsApp desvincula
+   los dispositivos vinculados si el principal pasa unos 14 días sin conectarse (no lo verifiqué hoy) y al reinstalar WhatsApp con ese número en otro
+   teléfono.
+6. **Revisar la unit propuesta** (`whatsapp-service/deploy/whatsapp-service-baileys.service`): nunca corrió en un systemd real. Se verifica en el
+   paso 6 de `DEPLOY.md` con `systemd-analyze verify` y `security`.
+
+### C. El despliegue (`docs/DEPLOY.md`, "Despliegue de whatsapp-service con Baileys")
+
+7. **Seguir los 10 pasos.** Lo que solo vos podés hacer: crear la carpeta de la sesión (700), instalar la unit, cargar los **topes iniciales bajos**
+   (`WHATSAPP_TOPE_DIARIO=30`, `WHATSAPP_TOPE_POR_HORA=10`), **vincular el QR** con el teléfono del número, poner `Mensajeria__CanalActivo=Baileys`
+   en `.env` **recién con `conectado`**, y probar con tu propio teléfono. El paso 2 incluye **correr `npm test` en Linux**: en Windows se
+   saltean 6 pruebas de permisos y enlaces simbólicos (POSIX) y esa es la única vez que corren de verdad.
+8. **Probar el apagado y la memoria reales.** `sudo systemctl stop whatsapp-service` tiene que terminar en 1 a 3 segundos (no los 20 de
+   `TimeoutStopSec`); `systemctl status` muestra `Memory:` y ahí se ajusta `MemoryMax` si 512M no es lo justo.
+9. **Subir los topes de a poco, durante semanas.** Es lo que más baja el riesgo de bloqueo.
+
+### D. Qué mirar en las primeras semanas (lo que no pude probar contra WhatsApp real)
+
+- Que el QR se vea bien en la terminal de SSH (si no, usar el Configurador).
+- Los códigos de desconexión que WhatsApp manda de verdad: `sudo journalctl -u whatsapp-service | grep "WhatsApp desconectado"`. Los desconocidos
+  caen en "corte común" (con espera creciente), que es el lado seguro.
+- Cuántos envíos se rechazan por consentimiento: en el log de la API, "whatsapp-service no aceptó el envío".
+- Señales de bloqueo: `requiere_atencion` con `cuenta_restringida` en `/salud`.
 
 ## Qué falta / pendiente de decisión
 
-- Etapa 8 (ver la tabla): unidad systemd propuesta y docs de despliegue (`DEPLOY.md`, `SERVIDOR.md`).
-- **Mejora opcional (no bloquea):** un botón "Vincular" en el Configurador que llame a `POST /vincular` (hoy, con el QR vencido,
-  se usa "Desvincular y cambiar número"). Es un cambio chico en `WhatsAppAdminService` y la pantalla; lo dejé sin tocar para no
-  mezclar un cambio de API/UI en esta tarea.
-- **Decisión pendiente (no bloquea nada): ¿se respalda la sesión de Baileys?** `SERVIDOR.md` ya pide respaldar fuera del
-  servidor la sesión de WhatsApp. Con Baileys, perderla significa volver a escanear un QR (unos minutos, con el teléfono del
-  número dedicado), no perder el número; el costo de respaldarla es que son credenciales de la cuenta. Si se respalda: cifrada
-  y con acceso restringido, nunca en un chat, un ticket ni el repo. El flujo de despliegue (`/opt/yosoy/backups`: app,
-  configuración, UFW, base) no la menciona.
-
+- **De código, nada:** las 9 etapas están hechas (ver la tabla). Lo que queda son las **decisiones y los pasos manuales** de arriba, y el primer
+  despliegue real, que es la primera vez que esto habla con WhatsApp de verdad.
+- **Límite de todo lo anterior:** se probó con un socket simulado, relojes falsos y la red bloqueada. Ningún código habló con WhatsApp, y los
+  tiempos, los códigos de desconexión y los umbrales de bloqueo de WhatsApp son los de la documentación y la lectura de la librería, no medidos.
+- **Mejoras posibles, más adelante:** un botón "Vincular" en el Configurador; pasar a Baileys 7.x cuando sea estable; guardar la sesión en una
+  base de datos en vez de archivos (la librería misma lo recomienda para producción) si el volumen de contactos crece mucho.
