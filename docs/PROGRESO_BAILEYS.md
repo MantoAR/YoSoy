@@ -8,7 +8,7 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.
 - **Límites duros:** nada de `.env`/secretos; sin deploy, sin `sudo`, sin tocar el VPS ni la base `yosoy`; **ningún test ni
   comando abre una conexión real a WhatsApp ni genera o escanea un QR**; sin merge a `main`; sin `--force`.
-- **Última actualización:** 2026-10-16, tras la etapa 8 (unit de systemd y documentación de despliegue).
+- **Última actualización:** 2026-10-16, con las 9 etapas hechas y la verificación final (resultados abajo).
 
 ## Estado de las etapas
 
@@ -28,14 +28,27 @@ condiciona cómo se escribe el resto) y recién ahí la 1 a la 8.
 | 5 | Anti-bloqueo (ritmo, pausas, tope diario, consentimiento) | **hecho** | `aad3f96` |
 | 6 | Privacidad en logs | **hecho** | `e9939b9` |
 | 7 | Salud y apagado ordenado | **hecho** | `fb13936` |
-| 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | **hecho** | (este commit) |
+| 8 | Unidad systemd, `DEPLOY.md`, `SERVIDOR.md` | **hecho** | `61755db` |
+
+## Resultado final (verificación de cierre)
+
+Nada de esto habló con WhatsApp: todo se probó con un socket simulado, relojes falsos y la red bloqueada.
+
+| Qué | Resultado |
+|---|---|
+| `cd whatsapp-service && npm test` (Node 24, Windows) | **388 pruebas: 382 pasan, 6 saltadas, 0 fallas.** Las 6 saltadas son de permisos y enlaces simbólicos (POSIX): corren de verdad la primera vez que se haga `npm test` en Linux (paso 2 de `DEPLOY.md`) |
+| `Scripts\correr-tests.ps1` (suite de la API, base `yosoy_test`) | **998 pruebas: 998 pasan, 0 fallas, 0 omitidas** (2 min 16 s) |
+| Mutaciones a propósito (runner descartable, no versionado) | 389 en las etapas 1 a 8 (más 4 en la 9): **todas detectadas**, salvo 2 equivalentes (código inalcanzable) y 4 que solo se pueden detectar en POSIX |
+| `npm audit` del servicio | 13 avisos altos, **ninguno de Baileys ni de sus dependencias** (puppeteer, `whatsapp-web.js` y `patch-package`; ya estaban antes) |
+| Contra WhatsApp real | **nada**: ni una conexión, ni un QR, ni un mensaje. Tampoco se desplegó, se tocó el VPS o se usó la base `yosoy` |
 
 ## Cómo retomar
 
 1. `git switch feat/whatsapp-baileys` y mirar `git log --oneline origin/main..HEAD`: un commit por etapa.
 2. Tests del servicio: `cd whatsapp-service && npm test` (Node 22 o más nuevo; no necesita red ni WhatsApp).
 3. Si se tocó la API: `Scripts\correr-tests.ps1` contra `yosoy_test` (**nunca** contra `yosoy`).
-4. Seguir por la primera etapa en `pendiente` de la tabla de arriba.
+4. **Las 9 etapas están hechas.** Lo que queda no es código: son las decisiones y los pasos manuales de más abajo
+   ("Pasos manuales para Agustín", "Qué falta") y el primer despliegue real, que sigue `docs/DEPLOY.md`.
 
 ## Hallazgos de la lectura inicial (antes de tocar nada)
 
@@ -126,7 +139,8 @@ Consultado el 2026-10-16 con `npm view` (solo lectura) y con instalaciones de pr
   `/salud`), `reenvio.js` (entrantes hacia `POST {API_BASE_URL}/mensajeria/whatsapp/entrante`, con tope de 5 s).
 - **`baileys/`**: `servicio.js` (`ServicioBaileys`: ciclo de vida, estados, envío, entrantes, desvincular), `numeros.js`,
   `mensajes.js`, `logger.js`, `sesion.js` (mínima; la etapa 2 la endurece) y `cargar.js` (etapa 9).
-- **Estados** que informa `/salud` y `/estado`: `detenido`, `iniciando`, `conectado`, `reconectando`, `requiere_vincular`.
+- **Estados** que informa `/salud` y `/estado`: `detenido`, `iniciando`, `conectado`, `reconectando`, `requiere_vincular`
+  (en la etapa 4 se agregó `requiere_atencion`).
 - **API (.NET):** `Mensajeria:CanalActivo` acepta `Simulado`, `Baileys` y `WhatsAppWebJs`. Los dos últimos usan la misma clase
   (`CanalWhatsAppWebJs`): habla HTTP con el servicio y no sabe qué librería hay detrás. Con `Simulado` nada cambia. El error de
   un valor inválido ahora lista los tres válidos.
