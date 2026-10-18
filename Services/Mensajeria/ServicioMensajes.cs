@@ -2,6 +2,10 @@ public interface IServicioMensajes
 {
     MensajeChat RegistrarEntrante(Conversacion c, string texto);
     Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen);
+
+    // Con opciones para el canal (hoy, OptIn: el paciente aceptó recibir WhatsApp). Quien implementa solo el de arriba (los dobles de
+    // prueba) las ignora.
+    Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen, OpcionesEnvio opciones) => EnviarAsync(c, texto, origen);
 }
 
 // Único punto por el que entra y sale un mensaje: primero lo guarda en
@@ -37,7 +41,10 @@ public class ServicioMensajes : IServicioMensajes
         return m;
     }
 
-    public async Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen)
+    public Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen) =>
+        EnviarAsync(c, texto, origen, OpcionesEnvio.Ninguna);
+
+    public async Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen, OpcionesEnvio opciones)
     {
         var m = new MensajeChat
         {
@@ -53,7 +60,7 @@ public class ServicioMensajes : IServicioMensajes
         ResultadoEnvio resultado;
         try
         {
-            resultado = await _canal.EnviarAsync(c.Telefono, m.Texto);
+            resultado = await _canal.EnviarAsync(c.Telefono, m.Texto, opciones);
         }
         catch (Exception ex)
         {
@@ -62,6 +69,7 @@ public class ServicioMensajes : IServicioMensajes
         }
 
         m.EstadoEnvio = resultado.Exito ? "Enviado" : "Error";
+        m.CodigoDeError = resultado.Exito ? null : resultado.Codigo;
         _mensajes.ActualizarEstadoEnvio(m.IdMensaje, m.EstadoEnvio);
         return m;
     }

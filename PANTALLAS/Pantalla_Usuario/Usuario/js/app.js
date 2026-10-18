@@ -58,6 +58,32 @@ function calcularEdad(fechaNacimiento) {
     return edad;
 }
 
+// ── Avisos por WhatsApp (opcional) ──────────────────────────────
+// El texto y su versión los sirve la API (YS.whatsapp.texto): lo que se lee es lo que queda registrado. La casilla NUNCA viene tildada:
+// se destilda a mano al cargar (por si el navegador recuerda un estado) y solo cuenta un tilde de la persona. Si no hay texto, no se ofrece.
+let textoWhatsApp = null;
+
+(async function prepararWhatsApp() {
+    const bloque = document.getElementById("bloqueWhatsApp");
+    const caja = document.getElementById("aceptaWhatsApp");
+    if (!bloque || !caja || !window.YS?.whatsapp) return;
+    caja.checked = false;
+    textoWhatsApp = await YS.whatsapp.texto();
+    if (!textoWhatsApp) return;
+    YS.whatsapp.dibujarTexto(document.getElementById("textoWhatsApp"), textoWhatsApp);
+    caja.checked = false;
+    bloque.classList.remove("oculto");
+})();
+
+// Lo que se le dice a la persona cuando el registro salió bien, según lo que contestó la API sobre el consentimiento.
+function avisoDeWhatsAppTrasRegistrarse(datos) {
+    const c = datos?.consentimientoWhatsApp;
+    if (!c?.pedido) return null;
+    return c.estado === "acepta"
+        ? "Activaste los avisos de tus turnos por WhatsApp. Podés cambiarlo cuando quieras desde tu perfil."
+        : "Tu cuenta quedó creada, pero no pudimos guardar tu pedido de avisos por WhatsApp. Podés activarlos desde tu perfil.";
+}
+
 document.getElementById("formRegistro")?.addEventListener("submit", async function (e) {
     e.preventDefault();
     const error = document.getElementById("errorRegistro");
@@ -112,11 +138,35 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         contrasena: valor("pass1")
     };
 
+    // Avisos por WhatsApp: solo con la casilla tildada por la persona y con la versión del texto que ella leyó. El servidor lo valida de nuevo
+    // (celular argentino válido, mayor de edad, texto vigente) ANTES de crear la cuenta; acá se evita un viaje inútil.
+    const quiereWhatsApp = !!(textoWhatsApp && document.getElementById("aceptaWhatsApp")?.checked);
+    paciente.aceptaWhatsApp = quiereWhatsApp;
+    paciente.versionTextoWhatsApp = quiereWhatsApp ? textoWhatsApp.version : null;
+    if (quiereWhatsApp) {
+        if (!valor("telefono").trim()) {
+            YS.form.marcar("telefono", "Para recibir avisos por WhatsApp cargá tu celular, con código de área.");
+            return;
+        }
+        if (edad < 18) {
+            error.textContent = YS.whatsapp.motivo("menor-de-edad") + " Podés registrarte igual, sin tildar esa opción.";
+            error.classList.remove("oculto");
+            return;
+        }
+    }
+
     const btn = document.getElementById("btnRegistrar");
     btn.classList.add("cargando");
     try {
         const respuesta = await YS.fetch("/pacientes", { method: "POST", json: paciente, sinRedireccion: true });
         if (respuesta.ok) {
+            let aviso = null;
+            try { aviso = avisoDeWhatsAppTrasRegistrarse(await respuesta.json()); } catch { /* sin cuerpo legible: no hay aviso */ }
+            const avisoWhatsApp = document.getElementById("avisoWhatsAppRegistro");
+            if (aviso && avisoWhatsApp) {
+                avisoWhatsApp.textContent = aviso;
+                avisoWhatsApp.classList.remove("oculto");
+            }
             document.getElementById("formRegistro").classList.add("oculto");
             document.getElementById("registroListo").classList.remove("oculto");
             window.scrollTo({ top: 0 });

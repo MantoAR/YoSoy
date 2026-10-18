@@ -139,15 +139,16 @@ cd YoSoy
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
    | 15 | `add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 | Sí |
+   | 16 | `add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto, el número y las fechas en UTC). Solo agrega — requiere `Paciente` y `Usuario` | Sí |
 
-   Las 15 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 16 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
    sqlcmd -S TU_SERVIDOR -d yosoy -E -C -f 65001 -i migrations\<archivo>.sql
    ```
    (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
-   El 15 (`add_consentimiento_video.sql`) se probó con `-I` (`QUOTED_IDENTIFIER ON`, como lo abre la aplicación): agregalo.
+   El 15 (`add_consentimiento_video.sql`) y el 16 (`add_consentimiento_whatsapp.sql`) se probaron con `-I` (`QUOTED_IDENTIFIER ON`, como lo abre la aplicación): agregalo.
 
 3. Configurar la cadena de conexión en `Conexion.cs`:
 ```csharp
@@ -327,6 +328,9 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. |
 | `UrlRegistroWeb`, `UrlIngresoTurno` | | Links que manda el bot. El de firma del consentimiento sale de `Consentimiento:UrlFirma`. |
 | `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
+| `ConsentimientoWhatsApp:VersionTexto` | `v0-provisorio` | Versión del texto del consentimiento de los avisos por WhatsApp (`Services/Mensajeria/Consentimiento/<versión>.txt`, embebido). Una versión publicada no se edita; **al cambiarla, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.** Variable de entorno: `Mensajeria__ConsentimientoWhatsApp__VersionTexto`. |
+| `WhatsAppNumeroClinica` | vacío | El número de WhatsApp de la clínica (el que vincula `whatsapp-service`), para el link con el que un paciente le **escribe primero** (perfil y después de pedir o confirmar un turno). Formato libre: `+54 9 11 5555-0000`, `011 5555-0000`; uno de otro país solo con `+`. **Vacío = no se muestra ningún link.** No es un secreto, pero no está escrito en el código ni en las pantallas. Variable de entorno: `Mensajeria__WhatsAppNumeroClinica`. |
+| `WhatsAppTextoInicio` | `Hola` | Lo que viene escrito cuando el paciente abre ese link. Neutro a propósito: no dice qué es la clínica ni para qué se escribe. Variable de entorno: `Mensajeria__WhatsAppTextoInicio`. |
 | `DiasBusquedaHorarios`, `MaxHorariosOfrecidos` | `14`, `5` | Búsqueda de horarios libres. |
 | `PalabrasRiesgo` | lista | Frases que disparan el mensaje de emergencia. **Obligatoria:** la app no arranca si está vacía. |
 | `PalabrasClinicas` | lista | Si el mensaje no se entiende y contiene alguna, el bot aclara que no responde consultas clínicas. |

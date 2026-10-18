@@ -92,8 +92,8 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 
 ### Qué necesitan
 
-- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 44 tablas, con
-  el resultado de las 15 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
+- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 45 tablas, con
+  el resultado de las 16 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
   el tipo de consentimiento y el contenido de arranque del chat.
 - **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
   falta `migrations/seed_catalogos.sql`: ese es para servidores reales (ver [`DEPLOY.md`](DEPLOY.md)).
@@ -109,7 +109,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 ```
 
 El script arma una copia temporal de `01-produccion.sql` con el nombre de la base cambiado, la ejecuta con `sqlcmd` (autenticación
-de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 44 tablas. El original no se toca: dice
+de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 45 tablas. El original no se toca: dice
 `[yosoy]` fijo en tres lugares y, corrido tal cual en una instancia donde `yosoy` ya existe, apuntaría a la base de desarrollo.
 Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.

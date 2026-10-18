@@ -50,6 +50,22 @@
             <div class="ui-campo ui-campo--ancho"><label for="provincia">Provincia<span class="ui-requerido">*</span></label><input type="text" id="provincia" class="ui-input" autocomplete="address-level1"></div>
         </div>
 
+        <!-- Avisos de turnos por WhatsApp. OPCIONAL y NUNCA tildado por defecto (autocomplete="off": ni el navegador lo recuerda al
+             recargar). El bloque se muestra recién cuando la API entrega el texto; la versión que se lee es la que queda registrada. -->
+        <div id="bloqueWhatsApp" class="oculto">
+            <div class="acceso-seccion">Avisos por WhatsApp (opcional)</div>
+            <div class="acceso-grid">
+                <div class="ui-campo ui-campo--ancho">
+                    <div class="wa-texto" id="textoWhatsApp" role="group" aria-label="Texto del consentimiento de los avisos por WhatsApp"></div>
+                    <label class="ui-check" for="aceptaWhatsApp">
+                        <input type="checkbox" id="aceptaWhatsApp" name="aceptaWhatsApp" autocomplete="off">
+                        <span>Quiero recibir avisos de mis turnos por WhatsApp</span>
+                    </label>
+                    <small class="texto-suave" id="ayudaWhatsApp">Es opcional y no cambia tu atención. Usamos el teléfono que cargaste arriba: tiene que ser un celular con código de área.</small>
+                </div>
+            </div>
+        </div>
+
         <div class="acceso-seccion">Acceso</div>
         <div class="acceso-grid">
             <div class="ui-campo"><label for="usuario">Usuario<span class="ui-requerido">*</span></label><input type="text" id="usuario" class="ui-input" placeholder="Elegí un nombre de usuario" autocomplete="username"></div>
@@ -106,11 +122,13 @@
         <div class="acceso-listo-icono" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
         <h2>Tus datos quedaron registrados</h2>
         <p>Gracias por registrarte en YoSoy.</p>
+        <p id="avisoWhatsAppRegistro" class="oculto"></p>
         <a class="ui-btn ui-btn--primary" href="../../index.html" id="linkVolverIngreso">Volver al ingreso</a>
     </section>
 </main>
 
 <script src="../../shared/ui.js"></script>
+<script src="../../shared/consentimiento-whatsapp.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

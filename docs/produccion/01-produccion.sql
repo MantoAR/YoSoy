@@ -2,7 +2,7 @@
    01-produccion.sql — Esquema completo de YoSoy para un servidor nuevo.
 
    Qué es: la base [yosoy] tal como la necesita el código hoy — el script base
-   de la rama `DataBase` más las 15 migraciones de migrations/, consolidados
+   de la rama `DataBase` más las 16 migraciones de migrations/, consolidados
    en un solo archivo con la forma FINAL de cada tabla (no un replay histórico
    de cada ALTER). Pensado para correr UNA vez contra un servidor recién
    instalado, sin nada previo.
@@ -368,6 +368,29 @@ CREATE TABLE [dbo].[ConsentimientoVideo](
 );
 GO
 
+-- Migración 16. Una fila por ACEPTACIÓN de un paciente de recibir avisos de sus turnos por WhatsApp; la de su fila más nueva
+-- es su estado. Solo se edita para revocarla (volver a aceptar es otra fila). Fechas en UTC a propósito, como arriba.
+CREATE TABLE [dbo].[ConsentimientoWhatsApp](
+    [IdConsentimientoWhatsApp] [int] IDENTITY(1,1) NOT NULL CONSTRAINT [PK_ConsentimientoWhatsApp] PRIMARY KEY,
+    [IdPaciente] [int] NOT NULL,
+    [IdUsuario] [int] NOT NULL,
+    [Telefono] [varchar](10) NOT NULL,
+    [Origen] [nvarchar](10) NOT NULL,
+    [VersionTexto] [nvarchar](40) NOT NULL,
+    [HashTexto] [char](64) NOT NULL,
+    [AceptadoUtc] [datetime2](3) NOT NULL CONSTRAINT [DF_ConsentimientoWhatsApp_AceptadoUtc] DEFAULT (sysutcdatetime()),
+    [RevocadoUtc] [datetime2](3) NULL,
+    [MotivoRevocacion] [nvarchar](20) NULL,
+    CONSTRAINT [CK_ConsentimientoWhatsApp_Origen] CHECK ([Origen] IN ('registro', 'perfil')),
+    CONSTRAINT [CK_ConsentimientoWhatsApp_Telefono] CHECK (LEN([Telefono]) = 10 AND [Telefono] NOT LIKE '%[^0-9]%'),
+    CONSTRAINT [CK_ConsentimientoWhatsApp_Hash] CHECK (LEN([HashTexto]) = 64),
+    CONSTRAINT [CK_ConsentimientoWhatsApp_Revocacion] CHECK (
+        ([RevocadoUtc] IS NULL AND [MotivoRevocacion] IS NULL)
+        OR ([RevocadoUtc] IS NOT NULL AND [MotivoRevocacion] IS NOT NULL AND [RevocadoUtc] >= [AceptadoUtc]
+            AND [MotivoRevocacion] IN ('paciente', 'baja-whatsapp', 'telefono-cambiado', 'texto-nuevo')))
+);
+GO
+
 -- ── 3) Tablas — grupos, casos y derivación en cascada (migración 10) ───────
 
 CREATE TABLE [dbo].[Grupo](
@@ -584,6 +607,11 @@ CREATE INDEX [IX_RespuestaRapida_Profesional] ON [dbo].[RespuestaRapida]([IdProf
 GO
 CREATE INDEX [IX_ConsentimientoVideo_Sesion] ON [dbo].[ConsentimientoVideo]([Origen], [IdOrigen], [IdPaciente], [IdConsentimientoVideo]);
 GO
+-- Índice único filtrado: a lo sumo UNA aceptación abierta (sin revocar) de WhatsApp por paciente.
+CREATE UNIQUE INDEX [UQ_ConsentimientoWhatsApp_Abierto] ON [dbo].[ConsentimientoWhatsApp]([IdPaciente]) WHERE [RevocadoUtc] IS NULL;
+GO
+CREATE INDEX [IX_ConsentimientoWhatsApp_Paciente] ON [dbo].[ConsentimientoWhatsApp]([IdPaciente], [IdConsentimientoWhatsApp]);
+GO
 
 -- ── 7) Claves foráneas (todas al final, mismo criterio que el script base:
 --      ninguna CREATE TABLE de arriba depende del orden de las demás) ──────
@@ -662,6 +690,10 @@ GO
 ALTER TABLE [dbo].[ConsentimientoVideo] ADD CONSTRAINT [FK_ConsentimientoVideo_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
 GO
 ALTER TABLE [dbo].[SesionClinica] ADD CONSTRAINT [FK_SesionClinica_ConsentimientoVideo] FOREIGN KEY([IdConsentimientoVideo]) REFERENCES [dbo].[ConsentimientoVideo]([IdConsentimientoVideo]);
+GO
+ALTER TABLE [dbo].[ConsentimientoWhatsApp] ADD CONSTRAINT [FK_ConsentimientoWhatsApp_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
+GO
+ALTER TABLE [dbo].[ConsentimientoWhatsApp] ADD CONSTRAINT [FK_ConsentimientoWhatsApp_Usuario] FOREIGN KEY([IdUsuario]) REFERENCES [dbo].[Usuario]([IdUsuario]);
 GO
 
 ALTER TABLE [dbo].[ProfesionalGrupo] ADD CONSTRAINT [FK_ProfesionalGrupo_Profesional] FOREIGN KEY([IdProfesional]) REFERENCES [dbo].[Profesional]([IdProfesional]);

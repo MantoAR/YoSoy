@@ -28,6 +28,17 @@ public class MensajeriaOptions
     public string UrlRegistroWeb { get; set; } = "";
     public string UrlIngresoTurno { get; set; } = "";
 
+    // Consentimiento de los avisos por WhatsApp (tabla ConsentimientoWhatsApp): qué texto se le muestra al paciente.
+    public ConsentimientoWhatsAppOptions ConsentimientoWhatsApp { get; set; } = new();
+
+    // El número de WhatsApp de la clínica (el que atiende whatsapp-service), para el link wa.me con el que un paciente puede escribirle primero.
+    // VACÍO = no se muestra ningún link. Formato libre: "+54 9 11 5555-0000", "011 5555-0000"... (ver EnlaceWhatsApp). No es un secreto, pero tampoco
+    // está escrito en el código ni en las pantallas: se configura por servidor (Mensajeria__WhatsAppNumeroClinica).
+    public string WhatsAppNumeroClinica { get; set; } = "";
+
+    // Lo que viene escrito cuando el paciente abre ese link. Neutro a propósito (no dice qué es la clínica ni para qué se escribe).
+    public string WhatsAppTextoInicio { get; set; } = EnlaceWhatsApp.TextoPorDefecto;
+
     // RN-02: por defecto el bot crea el turno Pendiente aunque falte el
     // consentimiento (se exige al confirmar). true = comportamiento estricto.
     public bool ExigirConsentimientoParaSolicitar { get; set; }
@@ -42,6 +53,13 @@ public class MensajeriaOptions
     // lo clínico lo trabaja el profesional (nunca responde consultas clínicas).
     public List<string> PalabrasClinicas { get; set; } = new();
     public List<LineaEmergencia> LineasEmergencia { get; set; } = new();
+}
+
+public class ConsentimientoWhatsAppOptions
+{
+    // Archivo Services/Mensajeria/Consentimiento/<versión>.txt (embebido). Una versión publicada NO se edita: un texto nuevo es una
+    // versión nueva, y al cambiarla los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.
+    public string VersionTexto { get; set; } = "v0-provisorio";
 }
 
 public class LineaEmergencia

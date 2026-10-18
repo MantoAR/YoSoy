@@ -1,3 +1,5 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -71,6 +73,22 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<INotificacionInternaDAO, NotificacionInternaDAO>();
         services.AddSingleton<IDatosMensajeria, DatosMensajeriaDAO>();
         services.AddSingleton<ITurnoRepositorio, TurnoRepositorioDAO>();
+
+        // Consentimiento de los avisos por WhatsApp (tabla ConsentimientoWhatsApp): las reglas, el texto versionado y la auditoría. El mismo
+        // servicio responde a NotificadorTurnos (¿qué le mando a este paciente?) y a BotReservasService (llegó una BAJA).
+        services.AddSingleton<IConsentimientoWhatsAppRepositorio, ConsentimientoWhatsAppDAO>();
+        services.AddSingleton<IAuditoriaConsentimientoWhatsApp, AuditoriaConsentimientoWhatsApp>();
+        services.AddSingleton<ITextoConsentimientoWhatsApp, TextoConsentimientoWhatsApp>();
+        services.AddSingleton<ConsentimientoWhatsAppService>();
+        services.AddSingleton<ContactoWhatsApp>();
+        services.AddSingleton<IPoliticaEnvioWhatsApp>(sp => sp.GetRequiredService<ConsentimientoWhatsAppService>());
+        services.AddSingleton<IBajaDeWhatsApp>(sp => sp.GetRequiredService<ConsentimientoWhatsAppService>());
+        // Límite propio de /consentimiento-whatsapp (incluye el texto, que es público): por IP real, ventana de un minuto, en memoria, como las demás.
+        // Una persona abre la pantalla, lee y acepta o revoca: 30 por minuto sobra para una oficina entera detrás de la misma IP.
+        services.AddRateLimiter(opt => opt.AddPolicy(ConsentimientoWhatsAppEndpoints.PoliticaDeLimite, httpContext =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+                factory: _ => new FixedWindowRateLimiterOptions { Window = TimeSpan.FromMinutes(1), PermitLimit = 30, QueueLimit = 0 })));
 
         services.AddSingleton<IServicioMensajes, ServicioMensajes>();
         // TurnoReglasService también aplica RN-02 en los endpoints de confirmación de turnos.

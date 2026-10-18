@@ -535,6 +535,7 @@ async function confirmarSolicitudDia(fechaStr) {
         turnosCalendario = await r.json();
         dibujarCalendario();
         document.getElementById("panelTurno").classList.remove("visible");
+        sugerirAvisosWhatsApp();
     } else toast(await YS.leerMensaje(res, "No se pudo solicitar el turno."), "error");
 }
 
@@ -756,8 +757,10 @@ async function renderPerfil(c) {
                     <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
                 </div>
             </form>
-        </div>`;
+        </div>
+        <div class="card perfil-form" id="avisosWhatsApp" aria-live="polite"><p class="texto-suave">Cargando tus avisos por WhatsApp…</p></div>`;
     document.getElementById("formPerfil").addEventListener("submit", e => { e.preventDefault(); guardarPerfil(p.idPaciente); });
+    renderAvisosWhatsApp();
 }
 
 async function guardarPerfil(id) {
@@ -790,13 +793,126 @@ async function guardarPerfil(id) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
-        if (res.ok) { window._perfilPaciente = { ...window._perfilPaciente, ...body }; toast("Tus datos quedaron guardados."); }
+        if (res.ok) {
+            window._perfilPaciente = { ...window._perfilPaciente, ...body };
+            toast("Tus datos quedaron guardados.");
+            renderAvisosWhatsApp();   // si cambió el teléfono, los avisos por WhatsApp quedan en pausa hasta que los active para el número nuevo
+        }
         else toast(await YS.leerMensaje(res, "No se pudieron guardar los cambios."), "error");
     } catch {
         toast("No se pudo conectar con el servidor.", "error");
     } finally {
         boton.disabled = false;
     }
+}
+
+// ── AVISOS POR WHATSAPP (consentimiento) ───────────────────
+// El texto, su versión y el estado los sirve la API (GET /consentimiento-whatsapp); lo que se lee acá es lo que queda registrado con la
+// aceptación. Aceptar es una acción EXPLÍCITA: la casilla nunca viene tildada y no se guarda nada hasta apretar "Activar". Quién es sale
+// del token en el servidor, no de esta pantalla. Todo lo que manda el servidor entra por textContent, nunca como HTML.
+let _estadoWhatsApp = null;
+
+async function renderAvisosWhatsApp() {
+    const tarjeta = document.getElementById("avisosWhatsApp");
+    if (!tarjeta) return;
+    let e;
+    try { e = await YS.api("/consentimiento-whatsapp"); }
+    catch {
+        if (document.getElementById("avisosWhatsApp") === tarjeta)
+            tarjeta.replaceChildren(YS.el("p", { class: "texto-suave" }, "No pudimos consultar tus avisos por WhatsApp. ",
+                YS.el("button", { type: "button", class: "ui-btn ui-btn--sm", text: "Reintentar", on: { click: renderAvisosWhatsApp } })));
+        return;
+    }
+    if (document.getElementById("avisosWhatsApp") !== tarjeta) return;   // el usuario ya cambió de sección
+    _estadoWhatsApp = e;
+
+    const activo = e.estado === "acepta";
+    const pausado = e.estado === "telefono-cambiado" || e.estado === "texto-desactualizado";
+    const fecha = f => (f ? YS.fecha.corta(f) : "");
+    const [tono, etiqueta] = activo ? ["ok", "Activados"] : pausado ? ["warn", "Pausados"] : ["neutral", "Desactivados"];
+    const explicacion = ({
+        "acepta": `Te avisamos por WhatsApp de tus turnos, al celular que figura en tu perfil. Los activaste el ${fecha(e.aceptadoUtc)}.`,
+        "telefono-cambiado": "Cambiaste tu teléfono: los avisos por WhatsApp quedaron en pausa hasta que los actives para el número nuevo.",
+        "texto-desactualizado": "Actualizamos el texto de los avisos por WhatsApp: para seguir recibiéndolos, leelo y volvé a aceptarlo.",
+        "revocado": `Los desactivaste el ${fecha(e.revocadoUtc)}. Seguís viendo tus avisos dentro de YoSoy.`,
+        "sin-decision": "Si los activás, te avisamos de tus turnos por WhatsApp. Es opcional y no cambia tu atención."
+    })[e.estado] ?? "";
+
+    const partes = [
+        YS.el("div", { class: "wa-cabecera" },
+            YS.el("div", { class: "titulo-tarjeta", text: "Avisos por WhatsApp" }),
+            YS.el("span", { class: `ui-chip ui-chip--${tono} ui-chip--sin-punto`, text: etiqueta }))
+    ];
+    if (explicacion) partes.push(YS.el("p", { class: "texto-suave", text: explicacion }));
+    if (e.estado === "revocado")
+        partes.push(YS.el("p", { class: "texto-suave texto-chico", text: "Si antes respondiste BAJA por WhatsApp, además de activarlos acá respondé ALTA al mismo número." }));
+
+    // El texto: a la vista cuando hay que decidir; plegado si ya está activo.
+    if (e.version && Array.isArray(e.texto)) {
+        const texto = YS.el("div", { class: "wa-texto", role: "group", "aria-label": "Texto del consentimiento de los avisos por WhatsApp" });
+        YS.whatsapp.dibujarTexto(texto, e);
+        partes.push(activo
+            ? YS.el("details", { class: "wa-detalle" }, YS.el("summary", { text: "Ver el texto que aceptaste" }), texto)
+            : texto);
+    }
+
+    if (!e.disponible && !activo)
+        partes.push(YS.el("div", { class: "ui-alerta ui-alerta--info", text: YS.whatsapp.motivo(e.motivo) ?? "Por ahora no podés activar los avisos por WhatsApp." }));
+
+    if (e.disponible && !activo) {
+        const casilla = YS.el("input", { type: "checkbox", id: "aceptoAvisosWhatsApp", autocomplete: "off" });
+        const boton = YS.el("button", {
+            type: "button", class: "ui-btn ui-btn--primary", id: "btnActivarWhatsApp", disabled: true,
+            text: pausado ? "Activar para este número" : "Activar avisos", on: { click: activarAvisosWhatsApp }
+        });
+        casilla.addEventListener("change", () => { boton.disabled = !casilla.checked; });
+        partes.push(YS.el("div", { class: "wa-acciones" },
+            YS.el("label", { class: "ui-check", for: "aceptoAvisosWhatsApp" }, casilla,
+                YS.el("span", { text: "Leí el texto y quiero recibir avisos de mis turnos por WhatsApp" })),
+            boton));
+        // La otra forma: escribirle primero a la clínica. Solo si la API tiene el número, y no a quien acaba de desactivar los avisos.
+        const contacto = e.estado === "revocado" ? null : YS.whatsapp.contacto(e);
+        if (contacto) partes.push(contacto);
+    }
+    if (activo || pausado)
+        partes.push(YS.el("div", { class: "wa-acciones" },
+            YS.el("button", { type: "button", class: "ui-btn", id: "btnDesactivarWhatsApp", text: "Dejar de recibir avisos por WhatsApp", on: { click: desactivarAvisosWhatsApp } })));
+
+    tarjeta.replaceChildren(...partes);
+}
+
+// Después de pedir o confirmar un turno: si todavía no decidió nada sobre los avisos por WhatsApp, se le cuentan (YS.whatsapp.sugerirTrasUnTurno).
+// No se espera ni puede romper el flujo del turno, que ya terminó. "Ver cómo activarlos" lleva al perfil: acá no se activa nada.
+function sugerirAvisosWhatsApp() {
+    YS.whatsapp.sugerirTrasUnTurno({ alActivar: () => mostrarSeccion("perfil") });
+}
+
+async function activarAvisosWhatsApp() {
+    const casilla = document.getElementById("aceptoAvisosWhatsApp");
+    const boton = document.getElementById("btnActivarWhatsApp");
+    if (!casilla?.checked || !_estadoWhatsApp?.version) return;   // sin el tilde de la persona no se manda nada
+    boton.disabled = true;
+    try {
+        const res = await YS.fetch("/consentimiento-whatsapp/aceptar", { method: "POST", json: { version: _estadoWhatsApp.version } });
+        if (res.ok) toast("Listo: vas a recibir los avisos de tus turnos por WhatsApp.");
+        else toast(await YS.leerMensaje(res, "No se pudieron activar los avisos por WhatsApp."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    }
+    await renderAvisosWhatsApp();   // también si falló: si el texto cambió mientras tanto, se lee de nuevo el vigente
+}
+
+async function desactivarAvisosWhatsApp() {
+    if (!await confirmar("¿Dejar de recibir avisos de tus turnos por WhatsApp? Los vas a seguir viendo dentro de YoSoy.",
+        { titulo: "Avisos por WhatsApp", textoConfirmar: "Dejar de recibirlos", textoCancelar: "Volver" })) return;
+    try {
+        const res = await YS.fetch("/consentimiento-whatsapp/revocar", { method: "POST" });
+        if (res.ok) toast("Listo: dejaste de recibir avisos por WhatsApp.");
+        else toast(await YS.leerMensaje(res, "No se pudieron desactivar los avisos por WhatsApp."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    }
+    await renderAvisosWhatsApp();
 }
 
 function renderSesion() {
@@ -1011,6 +1127,7 @@ async function confirmarTurnoPaciente(idTurno) {
                 dibujarCalendario();
                 document.getElementById("panelTurno").classList.remove("visible");
             } else mostrarSeccion(YS.shell.actual);
+            sugerirAvisosWhatsApp();
         } else if (r.status === 409) {
             // RN-02: falta firmar el consentimiento de telemedicina.
             if (await confirmar("Antes de confirmar el turno tenés que firmar el consentimiento informado para atención por telemedicina. ¿Querés firmarlo ahora?",

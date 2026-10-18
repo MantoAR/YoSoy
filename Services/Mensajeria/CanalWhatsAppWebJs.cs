@@ -25,18 +25,26 @@ public class CanalWhatsAppWebJs : IMessageChannel
 
     public string Nombre => "WhatsApp";
 
-    public async Task<ResultadoEnvio> EnviarAsync(string telefonoDestino, string texto)
+    public Task<ResultadoEnvio> EnviarAsync(string telefonoDestino, string texto) =>
+        EnviarAsync(telefonoDestino, texto, OpcionesEnvio.Ninguna);
+
+    public async Task<ResultadoEnvio> EnviarAsync(string telefonoDestino, string texto, OpcionesEnvio opciones)
     {
         try
         {
-            var respuesta = await _http.PostAsJsonAsync("enviar", new { telefono = telefonoDestino, texto });
+            // "optIn": true viaja SOLO cuando el paciente tiene una aceptación vigente (ConsentimientoWhatsApp): whatsapp-service cuenta únicamente
+            // el valor true exacto y, sin él, decide por su cuenta (le manda solo a quien le escribió primero al número de la clínica).
+            // Nunca se manda optIn:false: la ausencia es lo mismo y no deja dudas de que "no" no es una constancia.
+            var respuesta = opciones.OptIn
+                ? await _http.PostAsJsonAsync("enviar", new { telefono = telefonoDestino, texto, optIn = true })
+                : await _http.PostAsJsonAsync("enviar", new { telefono = telefonoDestino, texto });
             var cuerpo = await respuesta.Content.ReadFromJsonAsync<RespuestaEnviar>();
 
             if (!respuesta.IsSuccessStatusCode || cuerpo is null || !cuerpo.Exito)
             {
                 var error = cuerpo?.Error ?? $"whatsapp-service respondió {(int)respuesta.StatusCode}.";
                 _log.LogWarning("whatsapp-service no aceptó el envío: {Error}", error);
-                return new ResultadoEnvio(false, Error: error);
+                return new ResultadoEnvio(false, Error: error, Codigo: cuerpo?.Codigo);
             }
 
             return new ResultadoEnvio(true, IdExterno: cuerpo.IdExterno);
@@ -48,13 +56,15 @@ public class CanalWhatsAppWebJs : IMessageChannel
         }
     }
 
-    // JsonPropertyName explícito en los tres: el deserializador por default de
+    // JsonPropertyName explícito en todos: el deserializador por default de
     // System.Text.Json es sensible a mayúsculas (comprobado a mano) — sin esto,
     // "exito"/"idExterno" en minúscula de whatsapp-service nunca pisan estas
     // propiedades en PascalCase y EnviarAsync trataría cualquier envío exitoso
-    // como un fallo en silencio.
+    // como un fallo en silencio. "codigo" solo viene cuando whatsapp-service rechaza el pedido
+    // (sin_consentimiento, baja, telefono_invalido, tope_diario...).
     private record RespuestaEnviar(
         [property: JsonPropertyName("exito")] bool Exito,
         [property: JsonPropertyName("idExterno")] string? IdExterno,
-        [property: JsonPropertyName("error")] string? Error);
+        [property: JsonPropertyName("error")] string? Error,
+        [property: JsonPropertyName("codigo")] string? Codigo = null);
 }

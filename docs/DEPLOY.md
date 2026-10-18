@@ -232,7 +232,7 @@ sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -b -f 65001 -i ~/a
 
 ```bash
 sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT COUNT(*) AS tablas FROM sys.tables"
-# 44
+# 45  (44 hasta la migración 16, add_consentimiento_whatsapp.sql: si todavía no se la aplicaste, tiene que dar 44)
 ```
 
 **Registrar:** anotá qué migración se aplicó, cuándo y sobre qué commit en la tabla "Migraciones aplicadas" de
@@ -243,8 +243,8 @@ sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT COUNT(*
 Una base que todavía no existe (servidor nuevo o reconstruido) se arma en este orden, siempre con el login administrador de
 SQL Server (no `yosoy_app`) y con `-I -b -f 65001`:
 
-1. **`docs/produccion/01-produccion.sql`**, contra `master`: crea la base `yosoy` (el nombre va fijo en el script) y las 44
-   tablas, con el resultado de todas las migraciones. Se corre **una sola vez**, en un servidor donde `yosoy` no exista.
+1. **`docs/produccion/01-produccion.sql`**, contra `master`: crea la base `yosoy` (el nombre va fijo en el script) y las 45
+   tablas, con el resultado de todas las migraciones (la 16, del consentimiento de WhatsApp, incluida). Se corre **una sola vez**, en un servidor donde `yosoy` no exista.
 2. **`migrations/seed_catalogos.sql`**, contra `yosoy`: los catálogos que el esquema no trae y sin los cuales la app no sirve.
    Son 15 especialidades (sin ellas el combo del registro de profesional queda vacío), los 4 estados de turno con id fijo
    (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado: el código usa los números) y el tipo de consentimiento de
@@ -268,6 +268,46 @@ sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT (SELECT
 
 El seed **no** va en la base de pruebas de los tests de integración: ahí los tests crean sus propios datos (ver
 [`DESARROLLO_LOCAL.md`](DESARROLLO_LOCAL.md), "Correr los tests de integración").
+
+## Consentimiento de WhatsApp (migración 16): orden del despliegue
+
+La versión con el consentimiento de WhatsApp ([`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) agrega una tabla
+(`ConsentimientoWhatsApp`) y cambia lo que la API le manda al servicio de WhatsApp. **El orden importa:**
+
+1. **Backup de la base** (sección "Migraciones").
+2. **Aplicar `migrations/add_consentimiento_whatsapp.sql`** a `yosoy`, con el login administrador y `-I -b -f 65001` (es el mismo comando de
+   "Aplicar la migración", con este archivo). Es idempotente, solo **agrega** una tabla, dos claves foráneas y dos índices, y no toca ningún
+   dato. **Antes** de publicar la API: la API nueva lee y escribe esa tabla (la anterior la ignora, así que aplicarla antes no corta nada).
+   **Verificar:** la consulta que trae el encabezado del script da `1, 2, 2`, y `SELECT COUNT(*) FROM sys.tables` da `45`.
+3. **Variables** (todas opcionales, en `/opt/yosoy/config/.env`; nombres en [`SERVIDOR.md`](SERVIDOR.md), "Variables de entorno"):
+   `Mensajeria__WhatsAppNumeroClinica` (el número que atiende `whatsapp-service`; **sin él no se muestra ningún link `wa.me`**) y, si querés
+   otro saludo, `Mensajeria__WhatsAppTextoInicio` (por defecto `Hola`). La versión del texto del consentimiento
+   (`Mensajeria__ConsentimientoWhatsApp__VersionTexto`) queda en `v0-provisorio`: no hace falta tocarla.
+4. **Publicar la API** (pasos 1 a 4 de arriba).
+5. **Probar** con un paciente de prueba, mirando el log:
+   - `curl -s https://<dominio>/consentimiento-whatsapp/texto` devuelve `"disponible":true` y `"version":"v0-provisorio"`.
+   - En el registro aparece el bloque "Avisos por WhatsApp (opcional)" con la casilla **sin tildar**; en el perfil, la tarjeta "Avisos por
+     WhatsApp" en **Desactivados**. Activar y desactivar desde el perfil anda, y la tarjeta cambia de estado sin recargar.
+   - El log no trae teléfonos: `sudo journalctl -u yosoy-api --since '10 minutes ago' --no-pager | grep -E '[0-9]{10}'` no tiene que mostrar
+     el número de ningún paciente.
+   - Si cargaste `WhatsAppNumeroClinica`: el perfil muestra "Abrir WhatsApp" y el link abre un chat con **ese** número (comprobalo con el
+     teléfono en la mano). Si no lo cargaste, no tiene que verse ningún link.
+6. **El servicio de WhatsApp** ([más abajo](#despliegue-de-whatsapp-service-con-baileys-flujo-manual)) se despliega **después** de esta API, no
+   antes: una vez prendido Baileys, los avisos salen según lo que acepta cada paciente.
+
+**Si algo falla**
+
+- **Sin la tabla** (la migración no se aplicó), la API arranca igual: aceptar y revocar contestan error y los avisos por WhatsApp quedan en
+  "Error" y no salen (se prefiere no mandar a mandar sin saber si hay consentimiento); los avisos de la campanita y del mail siguen.
+- **Rollback de la API** (sección "Rollback"): la API anterior ignora la tabla, y **no hay que borrarla** (es el registro de quién aceptó
+  recibir WhatsApp; el encabezado de la migración dice qué hacer si de verdad hace falta). **Ojo:** la API anterior **no conoce las
+  revocaciones**, así que si ya hay pacientes que revocaron y se vuelve atrás, apagá el canal (`Mensajeria__CanalActivo=Simulado`, reiniciar
+  la API) hasta volver a desplegar esta versión.
+
+**Antes de usarlo con pacientes reales:** el texto `v0-provisorio` es un borrador que **no validó** el equipo legal. Un texto nuevo es una
+versión nueva (un archivo `Services/Mensajeria/Consentimiento/<versión>.txt` y `Mensajeria__ConsentimientoWhatsApp__VersionTexto`); **al
+cambiar de versión, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar** (es a propósito). Conviene hacerlo antes
+de que haya aceptaciones que perder.
 
 ## Cambios de configuración
 
@@ -329,8 +369,10 @@ servidor: [`SERVIDOR.md`](SERVIDOR.md). Qué se decidió, qué falta y qué te t
 1. **`main` actualizado y limpio** en la PC, y anotá el commit que vas a desplegar.
 2. **Pruebas del servicio** (Node 22 o más nuevo): `cd whatsapp-service && npm test`. Todas pasan, sin red y sin WhatsApp.
 3. **El número dedicado**, con WhatsApp ya activo en un teléfono que tengas a mano para escanear el QR.
-4. **Decisión sobre el consentimiento.** Con la API como está, solo reciben WhatsApp los pacientes que le escribieron primero al número
-   de la clínica (ver `PROGRESO_BAILEYS.md`, "Pasos manuales"). Decidilo antes de prender el canal.
+4. **Consentimiento.** La API con el consentimiento de WhatsApp (migración 16: [más arriba](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue))
+   manda `optIn:true` **solo a quien aceptó**; sin ella, con Baileys solo reciben WhatsApp quienes le escribieron primero al número de la
+   clínica. Desplegá **primero** esa API con su migración y recién después prendé este canal. Y **antes de usarlo con pacientes reales**, el texto
+   del consentimiento (`v0-provisorio`) tiene que estar validado por el equipo legal (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales").
 5. **Topes iniciales bajos** para un número nuevo (abajo, paso 5). Después se suben de a poco, durante semanas.
 6. **Horario.** Reiniciar el servicio corta WhatsApp unos segundos; los mensajes que estén en la cola se pierden.
 

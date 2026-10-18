@@ -171,9 +171,12 @@ Lo que ve la API cuando se rechaza (`POST /enviar` → `{ "exito": false, "error
 | 429 | `tope_diario`, `limite_destinatario` | se llegó a un tope |
 | 503 | `no_conectado`, `cola_llena`, `reiniciando` | el servicio no puede aceptarlo ahora |
 
-> **Ojo con el despliegue:** la API todavía **no manda `optIn`**. Con Baileys, entonces, los avisos y recordatorios solo salen
-> a quien le escribió primero al número de la clínica; al resto se le rechaza con `403 sin_consentimiento` (queda en el log de la
-> API). Cómo se resuelve es una decisión de producto: ver `docs/PROGRESO_BAILEYS.md`, "Pasos manuales".
+> **Lo que manda la API (consentimiento de WhatsApp):** `"optIn": true` **solo cuando el paciente aceptó** recibir avisos (tabla
+> `ConsentimientoWhatsApp`: lo acepta al registrarse o desde su perfil, para ese número y con el texto que vio, y lo puede revocar; ver
+> `docs/PROGRESO_CONSENTIMIENTO_WHATSAPP.md`). A quien **nunca decidió** le manda el aviso **sin** `optIn`: acá decide este servicio, y solo sale
+> si esa persona le escribió primero al número de la clínica (por ejemplo desde el link `wa.me` que muestra el panel); si no, se rechaza con
+> `403 sin_consentimiento` y la API lo anota como "Omitido". A quien **revocó** (o escribió BAJA) la API ni lo intenta. Con una API anterior a esa
+> versión, que no manda `optIn`, con Baileys solo reciben los que escribieron primero.
 
 ### Baileys: qué se escribe en el log (y qué nunca)
 

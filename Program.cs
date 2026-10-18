@@ -477,7 +477,7 @@ var EsMailValido = (string mail) =>
     try { return new System.Net.Mail.MailAddress(mail).Address == mail; }
     catch { return false; }
 };
-app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
+app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppService consentimientoWhatsApp) =>
 {
     if (string.IsNullOrWhiteSpace(req.Nombre))
         return Results.BadRequest(new { mensaje = "El nombre es obligatorio." });
@@ -490,6 +490,13 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
         return Results.BadRequest(new { mensaje = errorContrasena });
     if (string.IsNullOrWhiteSpace(req.Mail) || !EsMailValido(req.Mail))
         return Results.BadRequest(new { mensaje = "El mail es obligatorio y tiene que tener un formato válido." });
+
+    // Avisos por WhatsApp: la casilla NUNCA viene tildada por defecto; solo cuenta un true explícito, con la versión del texto que la persona
+    // leyó. Se valida ANTES de crear la cuenta (celular argentino válido, mayor de edad, texto vigente): así no queda una cuenta creada con el
+    // registro a medias porque el teléfono no servía.
+    var pideWhatsApp = req.AceptaWhatsApp == true;
+    if (pideWhatsApp && consentimientoWhatsApp.ValidarAceptacionEnRegistro(req.Telefono, req.FechaNacimiento, req.VersionTextoWhatsApp) is { } errorWhatsApp)
+        return ConsentimientoWhatsAppEndpoints.Error(errorWhatsApp);
 
     var paciente = new Paciente
     {
@@ -508,12 +515,18 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req) =>
 
     paciente.IdPaciente = idPacienteNuevo;
     paciente.Estado = "Activo";
+
+    // La aceptación queda a nombre del usuario recién creado (la propia persona). Si no se pudo registrar, la cuenta igual existe y puede aceptar
+    // desde su perfil: la respuesta lo dice ("pedido" y "estado") para que la pantalla se lo avise.
+    var aceptoWhatsApp = pideWhatsApp
+        && consentimientoWhatsApp.AceptarEnRegistro(idPacienteNuevo, idUsuarioNuevo, req.Telefono, req.VersionTextoWhatsApp);
     return Results.Created("/pacientes", new
     {
         idPaciente = idPacienteNuevo,
         idUsuario  = idUsuarioNuevo,
         paciente.Nombre, paciente.Dni, paciente.FechaNacimiento,
-        paciente.Domicilio, paciente.Telefono, paciente.Mail, paciente.Estado
+        paciente.Domicilio, paciente.Telefono, paciente.Mail, paciente.Estado,
+        consentimientoWhatsApp = new { pedido = pideWhatsApp, estado = aceptoWhatsApp ? "acepta" : "sin-decision" }
     });
 }).RequireRateLimiting("registro");
 
@@ -2112,6 +2125,7 @@ app.MapConsentimiento();
 app.MapCasos();
 app.MapVideo();
 app.MapConsentimientoVideo();
+app.MapConsentimientoWhatsApp();
 
 app.Run();
 
