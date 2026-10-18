@@ -9,6 +9,11 @@
 - [API REST](#api-rest)
 - [Cómo ejecutar el proyecto](#cómo-ejecutar-el-proyecto)
 - [Autenticación con JWT (rama Cambios-Agus-jwt)](#autenticación-con-jwt-rama-cambios-agus-jwt)
+- [Circuito de atención](#circuito-de-atención-consentimientos-opcionales-ia-y-evolución-por-enfoque)
+- [Roles, permisos y errores (etapa 1)](#roles-permisos-y-errores-etapa-1)
+- [Acceso por módulo y auditoría (etapa 2)](#acceso-por-módulo-y-auditoría-etapa-2)
+- [Reparto de funciones entre módulos (etapa 3)](#reparto-de-funciones-entre-módulos-etapa-3)
+- [Alta de usuarios del equipo](#alta-de-usuarios-del-equipo)
 - [Mensajería: chatbot de reservas y recordatorios](#mensajería-chatbot-de-reservas-y-recordatorios)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Como usar git desde CMD](#como-usar-git-desde-cmd)
@@ -139,8 +144,12 @@ cd YoSoy
    | 13 | `add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` (notas internas, etiquetas y respuestas rápidas de la bandeja de chats) — requiere el 5 | Sí |
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
    | 15 | `add_atencion_consentimientos_ia_evolucion.sql` | Consentimientos opcionales (IA de expresiones, transcripción, WhatsApp) y su revocación; `ConfiguracionProfesional`; `SalaSesion` y `SesionFuncion` (interruptores de la sala); evolución por enfoque (`Evolucion.Enfoque`, `ContenidoJson`, `Estado`, `FechaFirma`, `HashContenido`…), `EvolucionAddendum` y los triggers que impiden modificar o borrar una evolución firmada — requiere el 6 y el 9. Ver [Circuito de atención](#circuito-de-atención-consentimientos-opcionales-ia-y-evolución-por-enfoque) | Sí |
+   | 16 | `add_permisos_especialidades_errores.sql` | Roles, permisos y privilegios (`Rol.Clave`, `Permiso`, `Privilegio`, `PermisoPrivilegio`, `UsuarioPermiso`, `UsuarioPrivilegio`, vista `vw_UsuarioAccesos`); `Usuario.Nombre`/`Apellido`/`Cuil`; matrícula de especialista y catálogo de especialidades; `Organizacion`, `ConfiguracionOrganizacion`; `LogError` y `VersionEsquema`. Carga los permisos de los usuarios existentes — requiere de la 1 a la 15. Ver [Roles, permisos y errores](#roles-permisos-y-errores-etapa-1) | Sí |
+   | 17 | `add_auditoria_inalterable.sql` | `LogAuditoria.Categoria` (`Administrativa`/`Clinica`), `Hash` y `HashAnterior` (cadena de hashes), triggers que impiden modificar o borrar `LogAuditoria` y `LogError`, `sp_VerificarCadenaAuditoria` — requiere el 16. Ver [Acceso por módulo y auditoría](#acceso-por-módulo-y-auditoría-etapa-2) | Sí |
+   | 18 | `add_privilegio_agendas_auditoria_permisos.sql` | Privilegio **Gestión de agendas** (solo para CRM) y triggers que registran en la auditoría administrativa cada alta o baja de rol, permiso o privilegio de un usuario, aunque se haga directo en la base — requiere el 16 y el 17. Ver [Reparto de funciones](#reparto-de-funciones-entre-módulos-etapa-3) | Sí |
+   | 19 | `add_alta_equipo_invitaciones.sql` | `Usuario.Telefono` y tabla `InvitacionCuenta` (hash del token del mail de invitación, vence a las 72 horas, un uso) para el alta de usuarios del equipo — requiere el 16 al 18. Ver [Alta de usuarios del equipo](#alta-de-usuarios-del-equipo) | Sí |
 
-   Las 15 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 17 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash
@@ -148,10 +157,15 @@ cd YoSoy
    ```
    (o abrirlos y ejecutarlos en SQL Server Management Studio). `-f 65001` hace falta para que los acentos se guarden bien.
 
-3. Configurar la cadena de conexión en `Conexion.cs`:
-```csharp
-private static string cadena = "Server=TU_SERVIDOR;Database=yosoy;Trusted_Connection=True;TrustServerCertificate=True;";
+3. Configurar la cadena de conexión. Lo recomendado es no tocar el código y guardarla en
+   user-secrets (en el servidor, la variable de entorno `ConnectionStrings__YoSoy`):
+```bash
+dotnet user-secrets set "ConnectionStrings:YoSoy" "Server=TU_SERVIDOR;Database=yosoy;Trusted_Connection=True;TrustServerCertificate=True;"
 ```
+   Si no está configurada, se usa la cadena que trae `Conexion.cs`, como antes.
+
+   Al arrancar, la consola de `dotnet run` dice si la base está al día o qué migración le
+   falta (ver [Roles, permisos y errores](#roles-permisos-y-errores-etapa-1)).
 
 4. Ejecutar el proyecto
 ```bash
@@ -301,6 +315,187 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 | GET | `/historiasclinicas/{id}/addenda`, `/historiasclinicas/{id}/integridad` | Profesional asociado, Configurador |
 
 Pruebas nuevas: `FuncionesSesionServiceTests` y `EvolucionEnfoquesTests` (sin base de datos).
+
+## Roles, permisos y errores (etapa 1)
+
+> **Estado:** octubre 2026. Requiere la migración 16. Es la etapa 1 de la propuesta de roles,
+> permisos y módulos: deja las tablas y los datos listos **sin cambiar lo que ve nadie**. El
+> login sigue decidiendo el rol como antes; el cambio de acceso llega en la etapa 2.
+
+### Roles, permisos y privilegios
+Tres niveles que asigna el Configurador:
+
+| Nivel | Qué es | Valores iniciales (`Clave`) |
+|---|---|---|
+| Rol | El área de trabajo | `profesional`, `crm`, `facturacion`, `configurador` |
+| Permiso | El nivel dentro del rol; cada uno es un espacio de trabajo al ingresar | `profesional` y `auditor` (rol profesional); `crm`; `facturacion`; `configurador` |
+| Privilegio | Una capacidad que se suma a un permiso | `admision` (solo en `profesional` o `auditor`) |
+
+La base garantiza la cadena con claves foráneas: no hay permiso sin su rol ni privilegio en
+un permiso que no lo admite (`PermisoPrivilegio`). El trigger `TR_UsuarioPermiso_RequiereProfesional`
+(RN-17) impide dar el rol Profesional a un usuario sin ficha con matrícula y especialidad.
+
+La migración carga a los usuarios que ya existen con el mismo acceso que hoy: profesionales →
+permiso `profesional`; usuarios que no son paciente ni profesional → `configurador`. Nadie
+recibe `auditor` ni `admision` automáticamente. Para ver qué tiene cada usuario:
+```sql
+SELECT * FROM vw_UsuarioAccesos;
+```
+
+### Especialidades
+`Especialidad` suma `Disciplina`, `Tipo` (`Especialidad` / `Servicio`) y
+`RequiereMatriculaEspecialista`. Las filas que en realidad son servicios de derivación
+("Admision", "Atencion Domiciliaria", etc.) pasan a `Servicio`: siguen sirviendo a las reglas
+de derivación, pero no se ofrecen como especialidad de un profesional. Las especialidades de
+psicología son las seis del Reglamento de Especialidades del Colegio de Psicólogos de Córdoba
+(Res. Junta de Gobierno 083/16); las disciplinas, las de la Ley 26.657, art. 8. Al final, la migración lista los profesionales a completar (sin
+matrícula o con un servicio como especialidad).
+
+### Errores con código
+Todo error de la API (excepción o respuesta 5xx) recibe un código como `7F3A-91C2`. La
+pantalla lo muestra ("…Código: 7F3A-91C2.") y el detalle queda en:
+- la tabla `LogError`: `SELECT * FROM LogError WHERE Codigo = '7F3A-91C2';`
+- el archivo `logs/errores-AAAAMMDD.log` (una línea JSON por error), por si la base no responde;
+- la consola de `dotnet run`.
+
+No se guarda el cuerpo de los pedidos; DNI, CUIL, teléfonos y correos se enmascaran.
+En Desarrollo, la respuesta incluye además un `detalle` corto para no tener que ir a la base.
+Código: `Services/RegistroErrores.cs`.
+
+### Versión de esquema
+`VersionEsquema` registra cada migración aplicada (las 1 a 15 las detecta la 16 por los
+objetos que crean). Además, la API revisa al arrancar y, si a la base le falta una migración,
+responde **503** con un mensaje que dice cuál falta, en lugar de un error 500 suelto. Se
+recupera sola a los 30 segundos de correr la migración, sin reiniciar. Si la base no responde,
+no bloquea nada. Se puede apagar con `"Esquema": { "Verificar": false }`.
+Código: `Services/VerificadorEsquema.cs`. **Cada migración nueva se agrega a esa lista con su
+marcador** (la prueba `VerificadorEsquemaTests` falla si un archivo de `migrations/` no está).
+
+Pruebas nuevas: `VerificadorEsquemaTests` y `RegistroErroresTests`. Guía paso a paso:
+[`docs/PRUEBA_ETAPA1_PERMISOS.md`](docs/PRUEBA_ETAPA1_PERMISOS.md).
+
+---
+
+## Acceso por módulo y auditoría (etapa 2)
+
+> **Estado:** octubre 2026. Requiere las migraciones 16 y 17. Es la etapa 2 de la propuesta de
+> roles, permisos y módulos. El reparto de funciones del Configurador está en la
+> [etapa 3](#reparto-de-funciones-entre-módulos-etapa-3).
+
+### Ingreso
+- La pantalla de ingreso tiene una pestaña por rol: **Paciente**, **Profesional**, **CRM**,
+  **Facturación** (Administración de facturación y pagos) y **Configurador**. La pestaña viaja
+  al servidor (`POST /login` con `modulo`): si el usuario tiene ese rol, entra directo; si no,
+  recibe 403 con "Tu usuario no tiene el rol …".
+- Para el equipo, el acceso sale de los roles, permisos y privilegios de la migración 16, ya no
+  de "no es paciente ni profesional → configurador". Un usuario sin rol ni permiso recibe
+  **403** con el aviso "Tu usuario todavía no tiene permisos asignados…" y no obtiene token.
+- Cada rol es un **módulo**. Profesional y Profesional auditor son el mismo módulo (pestaña
+  Profesional). Quien tiene más de un rol entra por la pestaña que elige y después cambia con
+  **Cambiar de módulo**, en el menú del usuario, sin volver a iniciar sesión.
+- `POST /login` devuelve lo de siempre (`rol`, `idUsuario`, `idProfesional`, `token`) más
+  `modulo`, `modulos`, `permisos` y `privilegios`. Si se llama sin `modulo` y el usuario tiene
+  más de uno, devuelve `requiereModulo: true` y un **token de selección** de 5 minutos, sin roles,
+  que solo sirve para `POST /sesion/modulo { modulo }`. Ese endpoint es también el de
+  **Cambiar de módulo**.
+- El token de trabajo lleva el módulo, un claim de rol por permiso (el auditor lleva
+  `profesional` y `auditor`) y uno `privilegio` por privilegio. `Identidad` suma `Modulo`,
+  `Permisos`, `Privilegios`, `EsAuditor` y `TienePrivilegio(...)`.
+- El módulo Facturación todavía no tiene pantalla: quien lo elige ve
+  `Pantalla_Modulo/en_construccion.html` (CRM tiene la suya desde la etapa 3).
+
+### Auditoría
+- **Administrativa** (`Categoria = 'Administrativa'`): cada ingreso, ingreso fallido (con el
+  motivo), bloqueo y cambio de módulo, además de las altas y bajas que ya se registraban.
+- **Clínica** (`Categoria = 'Clinica'`): cada apertura o consulta de historia clínica,
+  evoluciones, eventos de crisis, sesiones, interacciones de IA, informe de admisión y los
+  listados completos, con **en qué calidad** se accedió (`como tratante`, `como auditor`,
+  `como configurador`) y desde qué módulo. Nunca el contenido.
+- **Inalterable** (migración 17): un trigger rechaza cualquier `UPDATE` o `DELETE` sobre
+  `LogAuditoria` y `LogError` (RN-18), cada registro guarda el hash del anterior, y
+  `EXEC sp_VerificarCadenaAuditoria;` dice si la cadena está íntegra o en qué registro se rompió.
+- La tercera capa es un usuario de base sin permisos de administrador para la API:
+  `Scripts/crear_usuario_aplicacion.sql`. **Obligatorio en producción.**
+
+Pruebas nuevas: `AccesoPorModuloTests`. Las pruebas que antes borraban filas de `LogAuditoria`
+al terminar ya no lo hacen (la base no lo permite). Guía paso a paso:
+[`docs/PRUEBA_ETAPA2_ACCESO.md`](docs/PRUEBA_ETAPA2_ACCESO.md).
+
+---
+
+## Reparto de funciones entre módulos (etapa 3)
+
+> **Estado:** octubre 2026. Requiere las migraciones 16, 17 y 18. Guía paso a paso:
+> [`docs/PRUEBA_ETAPA3_REPARTO.md`](docs/PRUEBA_ETAPA3_REPARTO.md).
+
+El Configurador tenía funciones que no le corresponden (historias clínicas, reportes, admisión,
+chats). En esta etapa cada función pasa al módulo, permiso o privilegio que la definió la
+organización, y **el servidor lo controla en cada endpoint** (`Services/Politicas.cs`): ocultar
+un menú no protege nada.
+
+| Quién | Qué hace | Qué ya no puede |
+| --- | --- | --- |
+| **Configurador** | Usuarios (Permisos, Cuentas, Solicitudes de registro, Recuperación de contraseña), Configuración (roles, especialidades, grupos, reglas de derivación, coberturas) y la **auditoría administrativa** (cuentas, ingresos, cambios de permisos) | Historias clínicas, evoluciones, eventos de crisis, interacciones de IA, reportes, admisión, asignaciones, turnos, agendas y chats |
+| **Profesional** | Lo suyo: sus pacientes, su agenda, sus casos, la sala | Pacientes que no atiende |
+| **Profesional + Admisión** (privilegio) | Admisiones, primera entrevista (con su propia sesión, ya no como "ADM-001"), solicitudes de cambio de profesional, asignaciones; lee la historia de los pacientes **mientras están en admisión** | — |
+| **Profesional auditor** | Todo lo del profesional, más: lectura de **todas** las historias clínicas, evoluciones, eventos de crisis e interacciones de IA, reportes de la organización y la **auditoría clínica** | Escribir en historias de pacientes que no atiende |
+| **CRM y atención al cliente** | Chats, escalamientos, etiquetas, casos y derivaciones de casos (antes, el grupo CRM del Configurador) | Historias clínicas (nunca) |
+| **CRM + Gestión de agendas** (privilegio, migración 18) | Turnos y horarios de trabajo de todos los profesionales | — |
+
+- **Panel de gestión:** `Pantalla_Configurador/dashboard.html` lo usan el Configurador, CRM y
+  las secciones Admisión y Auditoría del módulo Profesional. Cada módulo ve solo lo suyo; en el
+  panel profesional, los grupos Admisión y Auditoría aparecen si la sesión tiene el privilegio o
+  el permiso.
+- **Permisos por usuario** (Configurador › Usuarios › Permisos): módulo, permisos y
+  privilegios de cada persona del equipo. `GET /usuarios/accesos`, `GET|PUT /usuarios/{id}/accesos`.
+  Reglas (`Services/AccesosEdicion.cs`): Profesional y Profesional auditor exigen ficha con
+  matrícula (RN-17); un privilegio solo va sobre un permiso que lo admite; nadie se quita su
+  propio permiso de Configurador; Facturación todavía no se asigna desde la pantalla. Los
+  cambios rigen desde el próximo ingreso de esa persona.
+- **Auditoría en dos partes:** `GET /auditoria` devuelve la administrativa al Configurador y la
+  clínica al auditor; la categoría la decide el servidor por el token. Cuentan como clínicos
+  también los registros de asignaciones, derivaciones, admisión, reportes y turnos (así los
+  registros viejos, que ya no se pueden corregir, quedan del lado correcto). Los cambios de
+  permisos los registra la base con triggers (migración 18): con el usuario que los hizo desde
+  la pantalla, o con el inicio de sesión de SQL Server si se hicieron a mano.
+- **Agujero cerrado:** los seis endpoints `/reportes/profesional/...` y
+  `/reportes/paciente/{id}/evolucion-emocional` **no pedían sesión** (cualquiera podía leer las
+  emociones registradas de un paciente). Ahora: el propio profesional o el auditor.
+- `/pacientes/{id}/informe-admision`: del equipo, solo Admisión, el auditor o quien atiende al
+  paciente (antes, cualquier usuario del equipo).
+- La barra superior saluda con `GET /sesion/yo` (sirve para cualquier módulo).
+
+Pruebas nuevas: `RedistribucionEtapa3Tests` (políticas y reglas del editor, sin base) y casos
+nuevos en `CierreSeguridadTests`, `PertenenciaConversacionTests` y `FuncionesSesionServiceTests`.
+Las pruebas de chats usan ahora un token de CRM. Matriz completa de lo que cambió:
+[`docs/MATRIZ_ENDPOINTS.md`](docs/MATRIZ_ENDPOINTS.md), sección "Etapa 3".
+
+---
+
+## Alta de usuarios del equipo
+
+> **Estado:** octubre 2026. Requiere la migración 19. Guía: [`docs/PRUEBA_ALTA_EQUIPO.md`](docs/PRUEBA_ALTA_EQUIPO.md).
+
+- **Configurador › Usuarios › Registrar usuario:** nombre, apellido, CUIL (con dígito
+  verificador), teléfono, email, usuario y rol. Si es **Profesional**, se elige *Profesional*
+  (ve solo sus pacientes) o *Profesional auditor* (todos los pacientes, reportes y registros),
+  se le puede agregar **Admisión**, y se cargan matrícula, jurisdicción y especialidad principal
+  (RN-17). CRM puede llevar **Gestión de agendas**. Cuenta, ficha, permisos e invitación se
+  crean en una sola transacción (`Services/AltaEquipo.cs`, `POST /usuarios/equipo`).
+- **Invitación por mail:** la cuenta queda *Pendiente* y no puede ingresar hasta que la persona
+  abre el link (`PANTALLAS/activar-cuenta.html`), confirma y elige su contraseña (8 o más, con
+  letras y números). El link sirve una vez y vence a las 72 horas; en la base solo queda el hash
+  del token. *Reenviar invitación* (Usuarios › Permisos) anula el link anterior. Si el mail no
+  sale y el entorno es Development, la respuesta muestra el link para probar; en producción no.
+- **Configurador › Usuarios › Privilegios:** cada privilegio con quién lo tiene, y agregarlo o
+  quitarlo a quien tiene un rol que lo admite (`GET /privilegios`,
+  `POST|DELETE /usuarios/{id}/privilegios`). Mismas reglas y auditoría que el editor de permisos.
+- Todo queda en la auditoría administrativa: alta, invitación reenviada, cuenta activada y cada
+  permiso o privilegio (triggers de la migración 18).
+- Pendiente: las contraseñas siguen con SHA-256 sin sal (igual que el resto de las cuentas);
+  pasar todas a PBKDF2 antes de producción.
+
+---
 
 ## Mensajería: chatbot de reservas y recordatorios
 
@@ -565,9 +760,3 @@ git add nombre_carpeta/
 > **Recomendación:** hacer `git pull` siempre antes de empezar a trabajar para tener la última versión del proyecto.
 
 ---
-
-## Materia
-
-**Práctica Profesionalizante I**
-Docente: Fernando Loza
-Carrera: Tecnicatura Superior en Análisis de Sistemas de Computación — 42NMS (AS) 2-25

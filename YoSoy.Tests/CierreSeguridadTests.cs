@@ -22,6 +22,8 @@ public class CierreSeguridadTests : IAsyncLifetime
 
     private WebApplicationFactory<Program> _factory = null!;
     private HttpClient _asociado = null!, _ajeno = null!, _configurador = null!, _sinToken = null!;
+    // Etapa 3: el auditor es un profesional NO asociado al paciente 1, con el permiso auditor.
+    private HttpClient _auditor = null!, _crm = null!;
     private int? _idHistoriaCreada;
 
     public async Task InitializeAsync()
@@ -31,6 +33,9 @@ public class CierreSeguridadTests : IAsyncLifetime
         _asociado = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: IdProfesionalAsociado));
         _ajeno = ClienteCon(emisor.Emitir(4, Roles.Profesional, idProfesional: IdProfesionalAjeno));
         _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
+        _auditor = ClienteCon(emisor.EmitirModulo(4, new SesionModulo(Modulos.Profesional,
+            new[] { Roles.Auditor, Roles.Profesional }, Array.Empty<string>(), IdProfesionalAjeno)));
+        _crm = ClienteCon(emisor.Emitir(1, Roles.Crm));
         _sinToken = _factory.CreateClient();
 
         using var con = Conexion.ObtenerConexion();
@@ -57,14 +62,8 @@ public class CierreSeguridadTests : IAsyncLifetime
             borrar.Parameters.AddWithValue("@Id", idHistoria);
             await borrar.ExecuteNonQueryAsync();
         }
-        using (var con = Conexion.ObtenerConexion())
-        {
-            await con.OpenAsync();
-            using var limpiarAuditoria = new SqlCommand(
-                "DELETE FROM LogAuditoria WHERE Entidad = 'HistoriaClinica' AND IdEntidad = @Id", con);
-            limpiarAuditoria.Parameters.AddWithValue("@Id", IdPaciente);
-            await limpiarAuditoria.ExecuteNonQueryAsync();
-        }
+        // Etapa 2 (migración 17): la auditoría es de solo agregar, la base rechaza el DELETE.
+        // Los registros que deja esta prueba quedan, como cualquier otro acceso real.
         _factory.Dispose();
     }
 
@@ -87,9 +86,69 @@ public class CierreSeguridadTests : IAsyncLifetime
     public async Task Historia_clinica_profesional_ajeno_recibe_404_no_403() =>
         Assert.Equal(HttpStatusCode.NotFound, (await _ajeno.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
 
+    // Etapa 3 (16/10): el Configurador deja de ver historias clínicas; las ve el auditor.
     [Fact]
-    public async Task Historia_clinica_configurador_la_ve_igual() =>
-        Assert.Equal(HttpStatusCode.OK, (await _configurador.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
+    public async Task Historia_clinica_el_configurador_ya_no_la_ve() =>
+        Assert.Equal(HttpStatusCode.Forbidden, (await _configurador.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
+
+    [Fact]
+    public async Task Historia_clinica_crm_no_la_ve() =>
+        Assert.Equal(HttpStatusCode.Forbidden, (await _crm.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
+
+    [Fact]
+    public async Task Historia_clinica_el_auditor_la_ve_aunque_no_atienda_al_paciente() =>
+        Assert.Equal(HttpStatusCode.OK, (await _auditor.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
+
+    [Fact]
+    public async Task El_auditor_lee_pero_no_escribe_en_la_historia_de_un_paciente_que_no_atiende()
+    {
+        var r = await _auditor.PostAsJsonAsync("/eventoscrisis", new { idPaciente = IdPaciente, nivelRiesgo = "Bajo", acciones = "prueba etapa 3" });
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+    }
+
+    [Fact]
+    public async Task Listados_clinicos_completos_solo_para_el_auditor()
+    {
+        foreach (var ruta in new[] { "/historiasclinicas", "/evoluciones", "/eventoscrisis", "/interaccionesia" })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await _configurador.GetAsync(ruta)).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await _asociado.GetAsync(ruta)).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await _auditor.GetAsync(ruta)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task La_apertura_del_auditor_queda_auditada_como_auditor()
+    {
+        await _auditor.GetAsync($"/pacientes/{IdPaciente}/historiaclinica");
+        using var con = Conexion.ObtenerConexion();
+        await con.OpenAsync();
+        using var cmd = new SqlCommand(
+            "SELECT TOP 1 Detalle, Categoria FROM LogAuditoria WHERE Entidad = 'HistoriaClinica' AND IdUsuario = 4 ORDER BY IdLog DESC", con);
+        using var r = await cmd.ExecuteReaderAsync();
+        Assert.True(await r.ReadAsync());
+        Assert.Contains("como auditor", r.GetString(0));
+        Assert.Equal("Clinica", r.GetString(1));
+    }
+
+    [Fact]
+    public async Task Auditoria_cada_uno_ve_su_parte()
+    {
+        var administrativa = await _configurador.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/auditoria?cantidad=200");
+        Assert.DoesNotContain(administrativa!, d => d.GetProperty("entidad").GetString() == "HistoriaClinica");
+        var clinica = await _auditor.GetFromJsonAsync<System.Text.Json.JsonElement[]>("/auditoria?cantidad=200");
+        Assert.DoesNotContain(clinica!, d => d.GetProperty("accion").GetString() == "Ingreso");
+        Assert.Equal(HttpStatusCode.Forbidden, (await _asociado.GetAsync("/auditoria")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _crm.GetAsync("/auditoria")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Permisos_por_usuario_solo_los_edita_el_configurador()
+    {
+        Assert.Equal(HttpStatusCode.OK, (await _configurador.GetAsync("/usuarios/accesos")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _auditor.GetAsync("/usuarios/accesos")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _crm.PutAsJsonAsync("/usuarios/4/accesos", new { permisos = new[] { "crm" } })).StatusCode);
+    }
 
     [Fact]
     public async Task Apertura_de_historia_clinica_queda_auditada_solo_con_ids()
@@ -169,6 +228,24 @@ public class CierreSeguridadTests : IAsyncLifetime
     [Fact]
     public async Task Reportes_atenciones_sin_token_da_401() =>
         Assert.Equal(HttpStatusCode.Unauthorized, (await _sinToken.GetAsync("/reportes/atenciones")).StatusCode);
+
+    [Fact]
+    public async Task Reportes_atenciones_de_toda_la_organizacion_son_del_auditor()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, (await _configurador.GetAsync("/reportes/atenciones")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _auditor.GetAsync("/reportes/atenciones")).StatusCode);
+    }
+
+    // Etapa 3: estos reportes no pedían sesión (emociones de pacientes a la vista de cualquiera).
+    [Fact]
+    public async Task Reportes_del_profesional_exigen_sesion_y_ser_el_propio_o_auditor()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _sinToken.GetAsync($"/reportes/profesional/{IdProfesionalAsociado}/kpis")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _ajeno.GetAsync($"/reportes/profesional/{IdProfesionalAsociado}/kpis")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _asociado.GetAsync($"/reportes/profesional/{IdProfesionalAsociado}/kpis")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _auditor.GetAsync($"/reportes/profesional/{IdProfesionalAsociado}/kpis")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _ajeno.GetAsync($"/reportes/paciente/{IdPaciente}/evolucion-emocional")).StatusCode);
+    }
 
     [Fact]
     public async Task Reportes_atenciones_profesional_no_puede_pedir_el_alcance_de_otro() =>

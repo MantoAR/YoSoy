@@ -65,9 +65,8 @@ public class RegistroPublicoProfesionalTests
             using var con = Conexion.ObtenerConexion();
             con.Open();
 
-            using var cmdDelLog = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'Profesional' AND Detalle LIKE @d", con);
-            cmdDelLog.Parameters.AddWithValue("@d", "%" + marca);
-            await cmdDelLog.ExecuteNonQueryAsync();
+            // LogAuditoria no se borra: es de solo agregar desde la migración 17 (la marca de
+            // esta corrida es única, así que la cuenta de arriba no se confunde con otras).
 
             using var cmdDelProf = new SqlCommand("DELETE FROM Profesional WHERE Matricula = @m", con);
             cmdDelProf.Parameters.AddWithValue("@m", marca);

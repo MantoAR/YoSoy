@@ -115,6 +115,29 @@
 }
 .clave-temporal code { flex: 1; font-family: var(--mono); font-size: var(--fs-lg); font-weight: 600; color: var(--text); letter-spacing: .04em; }
 
+/* ── Permisos por usuario (etapa 3) ─────────────── */
+.editor-permisos-modulo { border: 1px solid var(--border); border-radius: var(--r-lg); padding: 10px 14px 12px; margin: 0 0 12px; }
+.editor-permisos-modulo legend { padding: 0 6px; }
+.editor-permisos-fila { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.editor-permisos-privilegios { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.editor-permisos-desc { margin: 2px 0 6px 23px; }
+
+/* ── Registrar usuario y Privilegios (18/10) ─────── */
+.alta-usuario { max-width: 860px; }
+.alta-roles { display: grid; gap: 10px; }
+.alta-opciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.alta-opcion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; }
+.alta-opcion > span { display: flex; flex-direction: column; gap: 2px; }
+.alta-opcion:has(input:checked) { border-color: var(--accent); background: var(--surface-2); }
+.link-invitacion { font-size: var(--fs-sm) !important; overflow-wrap: anywhere; letter-spacing: 0 !important; font-weight: 500 !important; }
+.privilegio { max-width: 860px; }
+.privilegio-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.privilegio-lista li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.privilegio-persona { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.privilegio-persona .secundario { font-size: var(--fs-sm); color: var(--text-3, var(--text-2)); }
+.privilegio-agregar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.privilegio-agregar .ui-campo { min-width: 320px; margin: 0; }
+
 /* ── Ventana angosta (la app es para PC; esto evita que se rompa) ── */
 @media (max-width: 900px) {
     .split-view { flex-direction: column; height: auto; }

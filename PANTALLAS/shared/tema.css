@@ -753,3 +753,17 @@ body.ui-sin-scroll { overflow: hidden; }
 @keyframes ui-aparece-fondo { from { opacity: 0; } to { opacity: 1; } }
 @keyframes ui-toast-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes ui-toast-sale { to { opacity: 0; transform: translateY(8px); } }
+
+/* ── Elección de módulo (etapa 2 de roles y permisos) ─────────
+   La usan la pantalla de ingreso y el diálogo "Cambiar de módulo" del menú del usuario. */
+.ys-modulos { display: flex; flex-direction: column; gap: 8px; }
+.ys-modulo-opcion {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+    padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--r-md);
+    background: var(--surface); color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.ys-modulo-opcion:hover, .ys-modulo-opcion:focus-visible {
+    border-color: var(--accent-border); background: var(--accent-soft); outline: none;
+}
+.ys-modulo-opcion:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
+.ys-modulo-opcion.cargando { opacity: .6; pointer-events: none; }

@@ -921,7 +921,7 @@ async function guardarPreferencias() {
     else toast(r ? await YS.leerMensaje(r, 'No se pudieron guardar.') : 'No se pudo conectar con el servidor.', 'error');
 }
 
-function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
+function urlLinkPublico(slug) { return `${YS.API}/reservar/${slug}`; }
 
 async function toggleLinkPublico(activo) {
     try {
@@ -1677,7 +1677,7 @@ async function pacientes() {
             { id: 'nuevos', texto: 'Asignaciones nuevas', pasa: p => p.estadoAsignacion === 'Nueva' }
         ],
         ordenInicial: { col: 0 },
-        vacio: { icono: 'pacientes', titulo: 'Todavía no tenés pacientes asignados', texto: 'Te los asigna el equipo de admisión o el configurador.' },
+        vacio: { icono: 'pacientes', titulo: 'Todavía no tenés pacientes asignados', texto: 'Te los asigna el equipo de admisión.' },
         columnas: [
             { titulo: 'Paciente', orden: p => YS.normalizar(p.nombre),
               html: p => `<span class="ui-flex">${YS.avatar(p.nombre, p.idPaciente, 'sm')}<span class="principal">${YS.esc(p.nombre)}</span>` +
@@ -1717,7 +1717,7 @@ async function casos() {
             { id: 'todos', texto: 'Todos', pasa: () => true }
         ],
         ordenInicial: { col: 2, desc: true },
-        vacio: { icono: 'portapapeles', titulo: 'Todavía no tenés casos asignados', texto: 'Te los asigna el sistema o el configurador cuando entra una admisión.' },
+        vacio: { icono: 'portapapeles', titulo: 'Todavía no tenés casos asignados', texto: 'Te los asigna el sistema o CRM cuando entra una admisión.' },
         columnas: [
             { titulo: 'Paciente', orden: cs => YS.normalizar(cs.nombrePaciente),
               html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, 'sm')}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },

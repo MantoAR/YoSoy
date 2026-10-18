@@ -76,7 +76,9 @@
     }
 
     window.expirarSesion = function () {
-        localStorage.clear();
+        // Conserva las preferencias (ys-pref-*, por ejemplo el módulo preferido).
+        if (window.YS?.sesion?.limpiar) YS.sesion.limpiar();
+        else Object.keys(localStorage).filter(k => !k.startsWith("ys-pref-")).forEach(k => localStorage.removeItem(k));
         window.location.href = INDEX_URL;
     };
 

@@ -16,7 +16,7 @@ using Microsoft.Extensions.DependencyInjection;
 public class ChatsGestionTests : IAsyncLifetime
 {
     private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _configurador = null!, _profesional = null!, _sinToken = null!;
+    private HttpClient _crm = null!, _profesional = null!, _sinToken = null!;
     private int _idConversacion;
     private readonly string _telefono = "1199" + DateTime.Now.Ticks.ToString()[^7..];
 
@@ -25,7 +25,7 @@ public class ChatsGestionTests : IAsyncLifetime
         _factory = new WebApplicationFactory<Program>();
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
 
-        _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
+        _crm = ClienteCon(emisor.Emitir(1, Roles.Crm));
         _profesional = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: 1));
         _sinToken = _factory.CreateClient();
 
@@ -35,9 +35,9 @@ public class ChatsGestionTests : IAsyncLifetime
         var conv = await _sinToken.GetFromJsonAsync<JsonElement>($"/mensajeria/simulado/conversacion?telefono={_telefono}");
         _idConversacion = conv.GetProperty("idConversacion").GetInt32();
 
-        // Escalada y sin asignar: visible para cualquier profesional + Configurador (ver
+        // Escalada y sin asignar: visible para cualquier profesional + CRM (ver
         // VisibilidadConversacion). Recién creada por el bot queda "Activa" sin paciente
-        // identificado - ahí solo entraría el Configurador, y esta clase prueba permisos
+        // identificado - ahí solo entraría CRM (etapa 3; antes el Configurador), y esta clase prueba permisos
         // de notas/asignación entre profesionales, no la pertenencia en sí (eso lo cubre
         // PertenenciaConversacionTests).
         using var con = Conexion.ObtenerConexion();
@@ -92,7 +92,7 @@ public class ChatsGestionTests : IAsyncLifetime
     [Fact]
     public async Task Reabrir_una_conversacion_que_no_esta_cerrada_responde_400()
     {
-        var r = await _configurador.PutAsync($"/mensajeria/conversaciones/{_idConversacion}/reabrir", null);
+        var r = await _crm.PutAsync($"/mensajeria/conversaciones/{_idConversacion}/reabrir", null);
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
     }
 
@@ -109,14 +109,14 @@ public class ChatsGestionTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, negado.StatusCode);
 
         // El administrador sí, aunque no sea el autor.
-        var borrado = await _configurador.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}");
+        var borrado = await _crm.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}");
         Assert.Equal(HttpStatusCode.NoContent, borrado.StatusCode);
     }
 
     [Fact]
     public async Task Respuesta_rapida_global_y_propia_no_se_cruzan_entre_roles()
     {
-        var global = await _configurador.PostAsJsonAsync("/mensajeria/respuestas-rapidas", new { titulo = "T1", texto = "Texto 1" });
+        var global = await _crm.PostAsJsonAsync("/mensajeria/respuestas-rapidas", new { titulo = "T1", texto = "Texto 1" });
         global.EnsureSuccessStatusCode();
         var idGlobal = (await global.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("idRespuestaRapida").GetInt32();
 
@@ -129,12 +129,12 @@ public class ChatsGestionTests : IAsyncLifetime
             var profesionalTocaGlobal = await _profesional.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idGlobal}", new { titulo = "x", texto = "y" });
             Assert.Equal(HttpStatusCode.Forbidden, profesionalTocaGlobal.StatusCode);
 
-            var configuradorTocaPropia = await _configurador.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idPropia}", new { titulo = "x", texto = "y" });
-            Assert.Equal(HttpStatusCode.Forbidden, configuradorTocaPropia.StatusCode);
+            var crmTocaPropia = await _crm.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idPropia}", new { titulo = "x", texto = "y" });
+            Assert.Equal(HttpStatusCode.Forbidden, crmTocaPropia.StatusCode);
         }
         finally
         {
-            await _configurador.DeleteAsync($"/mensajeria/respuestas-rapidas/{idGlobal}");
+            await _crm.DeleteAsync($"/mensajeria/respuestas-rapidas/{idGlobal}");
             await _profesional.DeleteAsync($"/mensajeria/respuestas-rapidas/{idPropia}");
             using var con = Conexion.ObtenerConexion();
             await con.OpenAsync();

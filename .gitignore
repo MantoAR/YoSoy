@@ -12,3 +12,6 @@ docs/capturas-cambios-agus/
 docs/pruebas-ui-cambios-agus/
 .app-stdout.log
 .app-stderr.log
+
+# Registro de errores local (Services/RegistroErrores.cs)
+logs/

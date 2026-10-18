@@ -53,6 +53,46 @@ public class EmailService
         smtp.Disconnect(true);
     }
 
+    /// <summary>Base de los links que van en los mails (Email:AppUrl).</summary>
+    public string AppUrl => _appUrl.TrimEnd('/');
+
+    // Invitación a un usuario del equipo que dio de alta el Configurador: confirmar la cuenta
+    // y elegir la contraseña. Los datos van escapados (los cargó una persona).
+    public void EnviarInvitacionEquipo(string destinatario, string? nombre, string username, string link, DateTime vence)
+    {
+        string E(string? t) => System.Net.WebUtility.HtmlEncode(t ?? "");
+        var mensaje = new MimeMessage();
+        mensaje.From.Add(MailboxAddress.Parse(_from));
+        mensaje.To.Add(MailboxAddress.Parse(destinatario));
+        mensaje.Subject = "Confirmá tu cuenta en YoSoy";
+
+        var builder = new BodyBuilder
+        {
+            TextBody = $"Hola {nombre},\n\nTe dieron de alta en YoSoy. Tu usuario es: {username}\n" +
+                       $"Para confirmar tu cuenta y elegir tu contraseña, entrá a:\n{link}\n\n" +
+                       $"El link sirve una sola vez y vence el {vence:dd/MM/yyyy} a las {vence:HH:mm}.\n" +
+                       "Si no esperabas este mail, ignoralo.",
+            HtmlBody = $@"
+<div style=""font-family:Arial,sans-serif;max-width:480px;margin:auto"">
+  <h2 style=""color:#2c3e50"">Te dieron de alta en YoSoy</h2>
+  <p>Hola <strong>{E(nombre)}</strong>,</p>
+  <p>Tu usuario es: <strong>{E(username)}</strong></p>
+  <p>Para confirmar tu cuenta y elegir tu contraseña, hacé clic en el botón:</p>
+  <a href=""{E(link)}"" style=""display:inline-block;padding:12px 24px;background:#2980b9;color:#fff;text-decoration:none;border-radius:6px;margin:16px 0"">
+    Confirmar mi cuenta
+  </a>
+  <p style=""font-size:12px;color:#888"">El link sirve una sola vez y vence el {vence:dd/MM/yyyy} a las {vence:HH:mm}. Si no esperabas este mail, ignoralo.</p>
+</div>"
+        };
+        mensaje.Body = builder.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        smtp.Connect(_host, _port, SecureSocketOptions.StartTls);
+        smtp.Authenticate(_from, _pass);
+        smtp.Send(mensaje);
+        smtp.Disconnect(true);
+    }
+
     // Aviso genérico de texto (recordatorios y avisos de turnos del módulo de mensajería).
     // El texto se escapa: puede incluir datos cargados por usuarios.
     public void EnviarAviso(string destinatario, string asunto, string texto)

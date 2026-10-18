@@ -7,6 +7,11 @@
 // (que no está en UsuarioProfesional) también caía en "administrador" por el mismo
 // motivo — ahora el rol se lee del token/claims, así que un paciente nunca es admin ni
 // profesional acá.
+//
+// Etapa 3 de roles y permisos: "administrador" de casos, derivaciones de casos y chats pasa a
+// ser el módulo CRM (antes era el Configurador, que ya no opera nada de esto). La
+// configuración del ruteo (grupos y reglas de derivación) sigue siendo del Configurador:
+// para eso está EsConfigurador().
 public static class AutorizacionCasos
 {
     public static (bool EsAdministrador, int? IdProfesional) Resolver(HttpContext ctx)
@@ -14,9 +19,13 @@ public static class AutorizacionCasos
         var identidad = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
         return identidad switch
         {
-            { EsConfigurador: true } => (true, null),
+            { EsCrm: true } => (true, null),
             { EsProfesional: true } => (false, identidad.IdProfesional),
-            _ => (false, null)   // paciente o sin identidad: ni admin ni profesional
+            _ => (false, null)   // paciente, configurador o sin identidad: ni admin ni profesional
         };
     }
+
+    /// <summary>Grupos y reglas de derivación: configuración de la organización.</summary>
+    public static bool EsConfigurador(HttpContext ctx) =>
+        ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.EsConfigurador == true;
 }

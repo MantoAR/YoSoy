@@ -26,7 +26,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     private const int IdProfesionalB = 2;   // no asociado al paciente 1
 
     private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _a = null!, _b = null!, _configurador = null!, _sinToken = null!, _paciente = null!;
+    private HttpClient _a = null!, _b = null!, _crm = null!, _sinToken = null!, _paciente = null!;
     private static int _contador;
 
     public Task InitializeAsync()
@@ -39,7 +39,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
         // que coincidir con el del Usuario real: son claims independientes.
         _a = ClienteCon(emisor.Emitir(2, Roles.Profesional, idProfesional: IdProfesionalA));
         _b = ClienteCon(emisor.Emitir(4, Roles.Profesional, idProfesional: IdProfesionalB));
-        _configurador = ClienteCon(emisor.Emitir(1, Roles.Configurador));
+        _crm = ClienteCon(emisor.Emitir(1, Roles.Crm));
         _paciente = ClienteCon(emisor.Emitir(3, Roles.Paciente, idPaciente: 1));
         _sinToken = _factory.CreateClient();
         return Task.CompletedTask;
@@ -87,7 +87,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
         await con.OpenAsync();
         foreach (var sql in new[]
         {
-            "DELETE FROM LogAuditoria WHERE Entidad = 'Conversacion' AND IdEntidad = @Id",
+            // LogAuditoria no se borra: es de solo agregar desde la migración 17.
             "DELETE FROM NotificacionInterna WHERE IdConversacion = @Id",
             "DELETE FROM NotaInternaConversacion WHERE IdConversacion = @Id",
             "DELETE FROM ConversacionEtiqueta WHERE IdConversacion = @Id",
@@ -103,14 +103,14 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Conversacion_asignada_a_uno_es_404_para_el_otro_profesional_y_200_para_el_dueno_y_configurador()
+    public async Task Conversacion_asignada_a_uno_es_404_para_el_otro_profesional_y_200_para_el_dueno_y_crm()
     {
         var id = await CrearConversacion(EstadoConversacion.DerivadaHumano, idProfesionalAsignado: IdProfesionalA);
         try
         {
             Assert.Equal(HttpStatusCode.OK, (await _a.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await _b.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await _configurador.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await _crm.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await _sinToken.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             // Mensajes, notas y notificaciones de esa conversación tampoco se le revelan a B.
             Assert.Equal(HttpStatusCode.NotFound, (await _b.GetAsync($"/mensajeria/conversaciones/{id}/mensajes")).StatusCode);
@@ -127,7 +127,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
         {
             Assert.Equal(HttpStatusCode.OK, (await _a.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await _b.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await _configurador.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await _crm.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
         }
         finally { await BorrarConversacion(id); }
     }
@@ -141,7 +141,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
         {
             Assert.Equal(HttpStatusCode.OK, (await _a.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await _b.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
-            Assert.Equal(HttpStatusCode.OK, (await _configurador.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await _crm.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
         }
         finally { await BorrarConversacion(id); }
     }
@@ -231,7 +231,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Reasignar_por_configurador_mueve_la_visibilidad_al_nuevo_profesional()
+    public async Task Reasignar_por_crm_mueve_la_visibilidad_al_nuevo_profesional()
     {
         var id = await CrearConversacion(EstadoConversacion.DerivadaHumano, idProfesionalAsignado: IdProfesionalA);
         try
@@ -239,7 +239,7 @@ public class PertenenciaConversacionTests : IAsyncLifetime
             Assert.Equal(HttpStatusCode.OK, (await _a.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await _b.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
 
-            var reasignar = await _configurador.PutAsJsonAsync($"/mensajeria/conversaciones/{id}/asignar",
+            var reasignar = await _crm.PutAsJsonAsync($"/mensajeria/conversaciones/{id}/asignar",
                 new { idProfesional = IdProfesionalB, motivoCategoria = "CargaEquilibrada" });
             Assert.Equal(HttpStatusCode.NoContent, reasignar.StatusCode);
 
@@ -305,6 +305,20 @@ public class PertenenciaConversacionTests : IAsyncLifetime
     {
         var id = await CrearConversacion(EstadoConversacion.Urgente);
         try { Assert.Equal(HttpStatusCode.Forbidden, (await _paciente.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode); }
+        finally { await BorrarConversacion(id); }
+    }
+
+    // Etapa 3: los chats pasaron al módulo CRM; el Configurador ya no los opera ni los lee.
+    [Fact]
+    public async Task El_configurador_ya_no_entra_a_las_conversaciones()
+    {
+        var configurador = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>().Emitir(1, Roles.Configurador));
+        var id = await CrearConversacion(EstadoConversacion.Urgente);
+        try
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await configurador.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await configurador.GetAsync("/mensajeria/conversaciones")).StatusCode);
+        }
         finally { await BorrarConversacion(id); }
     }
 }

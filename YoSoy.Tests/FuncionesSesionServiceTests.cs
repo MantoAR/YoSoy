@@ -28,6 +28,9 @@ public class FuncionesSesionServiceTests
     private static readonly Identidad Paciente1 = new(200, Roles.Paciente, 1, null);
     private static readonly Identidad OtroPaciente = new(201, Roles.Paciente, 2, null);
     private static readonly Identidad Configurador = new(1, Roles.Configurador, null, null);
+    // Etapa 3: la entrevista de admisión la hace un profesional con el privilegio Admisión.
+    private static readonly Identidad Admision20 = new(102, Roles.Profesional, null, 20)
+        { Permisos = new[] { Roles.Profesional }, Privilegios = new[] { Privilegios.Admision } };
 
     public FuncionesSesionServiceTests()
     {
@@ -101,12 +104,25 @@ public class FuncionesSesionServiceTests
     }
 
     [Fact]
-    public void El_configurador_maneja_la_sala_de_la_entrevista_de_admision()
+    public void Admision_maneja_la_sala_de_la_entrevista_de_admision()
     {
         ConsentirTranscripcion();
-        var r = _s.Cambiar(Configurador, "ADM-1", FuncionesSesion.Transcripcion, true);
+        var r = _s.Cambiar(Admision20, "ADM-1", FuncionesSesion.Transcripcion, true);
         Assert.True(r.Ok);
         Assert.True(Activa(r, FuncionesSesion.Transcripcion));
+    }
+
+    [Fact]
+    public void Etapa3_el_configurador_ya_no_entra_a_ninguna_sala()
+    {
+        Assert.Equal(404, _s.Consultar(Configurador, "ADM-1").Status);
+        Assert.Equal(404, _s.Consultar(Configurador, "SALA-1").Status);
+    }
+
+    [Fact]
+    public void Admision_no_entra_a_las_salas_de_turnos_de_otros()
+    {
+        Assert.Equal(404, _s.Consultar(Admision20, "SALA-1").Status);
     }
 
     [Fact]

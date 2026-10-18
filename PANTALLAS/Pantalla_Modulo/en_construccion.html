@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Módulo en construcción</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="../shared/tema.css?v=etapa3">
+    <link rel="stylesheet" href="../shared/acceso.css?v=etapa3">
+</head>
+<!--
+    Etapa 2 de roles y permisos: el módulo Facturación ya se puede asignar desde la
+    base (permisos de la migración 16), pero su pantalla llega en la etapa 7 (CRM tiene la suya
+    desde la etapa 3, en el panel de gestión). Esta
+    página es adonde entra quien lo elige, para poder probar los permisos desde ya.
+-->
+<body class="acceso">
+    <main class="acceso-tarjeta" aria-labelledby="titulo">
+        <div class="acceso-marca">
+            <img src="../Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="">
+            <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+        </div>
+        <h1 class="acceso-modulo-titulo" id="titulo">Módulo</h1>
+        <p class="ui-muted" id="texto">Este módulo se habilita en una próxima etapa. Tus permisos ya están asignados.</p>
+
+        <section id="otros" class="oculto mt-16" aria-labelledby="tituloOtros">
+            <h2 class="texto-fuerte mt-8" id="tituloOtros">Mientras tanto, podés ir a:</h2>
+            <div class="ys-modulos mt-8" id="listaModulos"></div>
+        </section>
+        <div class="ui-alerta ui-alerta--danger mt-12 oculto" id="error" role="alert"></div>
+
+        <button type="button" class="ui-btn ui-btn--ghost mt-16" id="btnSalir">Cerrar sesión</button>
+    </main>
+
+    <script src="../shared/ui.js?v=etapa3"></script>
+    <script>
+        (function () {
+            if (!localStorage.getItem("token")) { location.replace(YS.rutas.login); return; }
+            const actual = decodeURIComponent(location.hash.slice(1)) || YS.sesion.modulo();
+            const info = YS.sesion.modulos().find(m => m.clave === actual);
+            document.getElementById("titulo").textContent = info ? info.nombre : "Módulo";
+            document.title = "YoSoy · " + (info ? info.nombre : "Módulo");
+
+            const otros = YS.sesion.modulos().filter(m => m.clave !== actual);
+            const lista = document.getElementById("listaModulos");
+            otros.forEach(m => {
+                const b = YS.el("button", {
+                    class: "ys-modulo-opcion", type: "button",
+                    html: `<span class="texto-fuerte">${YS.esc(m.nombre)}</span><span class="texto-chico ui-muted">${YS.esc(m.descripcion || "")}</span>`
+                });
+                b.addEventListener("click", async () => {
+                    b.classList.add("cargando");
+                    try { await YS.sesion.elegirModulo(m.clave); }
+                    catch (err) {
+                        b.classList.remove("cargando");
+                        const e = document.getElementById("error");
+                        e.textContent = err.message;
+                        e.classList.remove("oculto");
+                    }
+                });
+                lista.appendChild(b);
+            });
+            document.getElementById("otros").classList.toggle("oculto", otros.length === 0);
+            document.getElementById("btnSalir").addEventListener("click", () => YS.sesion.cerrar());
+        })();
+    </script>
+</body>
+</html>

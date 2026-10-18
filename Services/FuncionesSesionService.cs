@@ -4,8 +4,8 @@
 //
 // Reglas:
 // - Encender exige que el paciente de la sala tenga el consentimiento de esa función vigente.
-// - Enciende solo el profesional asignado al paciente de la sala, o el Configurador
-//   (entrevista de admisión).
+// - Enciende solo el profesional asignado al paciente de la sala, o, en la entrevista de
+//   admisión, un profesional con el privilegio Admisión (etapa 3; antes el Configurador).
 // - Apagar lo puede hacer también el propio paciente, en cualquier momento: es su derecho
 //   y no necesita permiso de nadie.
 // - Si el paciente revoca el consentimiento con la función encendida, el estado que
@@ -42,15 +42,18 @@ public class FuncionesSesionService
     private readonly IAtencionRepositorio _repo;
     public FuncionesSesionService(IAtencionRepositorio repo) => _repo = repo;
 
-    /// <summary>¿Puede esta identidad ver el estado de la sala? Paciente de la sala, su profesional o el Configurador.</summary>
+    /// <summary>¿Puede esta identidad ver el estado de la sala? Paciente de la sala, su profesional o Admisión (entrevista).</summary>
     public bool PuedeVer(Identidad yo, SalaInfo sala) =>
-        yo.EsConfigurador
+        EsEntrevistaDeAdmision(yo, sala)
         || (yo.EsPaciente && yo.IdPaciente == sala.IdPaciente)
         || (yo.EsProfesional && yo.IdProfesional is int p && (sala.IdProfesional == p || _repo.EsProfesionalDelPaciente(p, sala.IdPaciente)));
 
     private bool PuedeEncender(Identidad yo, SalaInfo sala) =>
-        yo.EsConfigurador
+        EsEntrevistaDeAdmision(yo, sala)
         || (yo.EsProfesional && yo.IdProfesional is int p && (sala.IdProfesional == p || _repo.EsProfesionalDelPaciente(p, sala.IdPaciente)));
+
+    private static bool EsEntrevistaDeAdmision(Identidad yo, SalaInfo sala) =>
+        yo.HaceAdmision && sala.Origen == "Admision";
 
     public IReadOnlyList<EstadoFuncion> Estado(SalaInfo sala)
     {

@@ -1,5 +1,24 @@
 const API = YS.API;   // mismo origen que la página (shared/ui.js)
 
+// Etapa 3 de roles y permisos: esta pantalla es el panel de GESTIÓN y la usan tres módulos,
+// cada uno con sus propias secciones (el menú lo arma shared/shell.js con los permisos y
+// privilegios de la sesión; el servidor vuelve a controlar cada pedido):
+//   - Configurador: usuarios, permisos, configuración y auditoría administrativa.
+//   - CRM y atención al cliente: chats, casos, derivaciones de casos y etiquetas; con Gestión
+//     de agendas, también turnos y horarios de todos.
+//   - Profesional: con Admisión, admisiones, solicitudes de cambio y asignaciones; si es
+//     auditor, reportes de la organización, lecturas clínicas y auditoría clínica.
+const MODULO = ["configurador", "crm", "profesional"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
+const SECCIONES_POR_MODULO = {
+    configurador: ["inicio", "altausuario", "permisos", "privilegios", "usuarios", "solicitudes", "recuperacion", "roles", "especialidades", "grupos", "reglasderivacion", "coberturas", "auditoria"],
+    crm: ["inicio", "chats", "escalamientos", "etiquetas", "casos", "casosderivaciones",
+          ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
+    profesional: [
+        ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones", "derivaciones", "asignaciones"] : []),
+        ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
+    ]
+};
+
 // Avisos y confirmaciones del sistema de diseño (shared/ui.js). Los botones de la
 // confirmación conservan los ids confirmSi / confirmNo.
 function toast(msg, tipo = "ok", duracion = 3500) {
@@ -65,7 +84,7 @@ async function confirmarModalCaso() {
     finally { boton.disabled = false; }
 }
 
-const SOLO_LECTURA = ["evoluciones", "eventoscrisis"];
+const SOLO_LECTURA = ["evoluciones", "eventoscrisis", "interaccionesia"];
 
 const campos = {
     turnos:          ["idPaciente", "idProfesional", "idEstadoTurno", "fecha", "hora", "modalidad", "motivo"],
@@ -97,7 +116,8 @@ const columnas = {
 };
 
 const titulos = {
-    usuarios:        "Usuarios",
+    usuarios:        "Cuentas",
+    asignaciones:    "Asignaciones",
     solicitudes:     "Solicitudes de Registro",
     derivaciones:    "Solicitudes de Cambio de Profesional",
     turnos:          "Turnos",
@@ -118,8 +138,7 @@ let filaEnEdicion = null;
 
 // ── NAVEGACIÓN ───────────────────────────────────────────────
 // Cada sección del menú superior (shared/shell.js) se dibuja en #contenido.
-const SECCIONES = ["inicio", "chats", "casos", "casosderivaciones", "escalamientos", "usuarios", "solicitudes", "derivaciones", "recuperacion", "auditoria", "admisiones",
-    "reportes", "turnos", "agendas", "evoluciones", "eventoscrisis", "roles", "especialidades", "grupos", "reglasderivacion", "etiquetas", "coberturas", "interaccionesia"];
+const SECCIONES = SECCIONES_POR_MODULO[MODULO];
 
 // La bandeja (js/bandeja.js) la carga shared/shell.js solo si la mensajería está disponible, en
 // paralelo con el resto del arranque: si se navega a Chats o Escalamientos antes de que termine
@@ -144,7 +163,8 @@ document.addEventListener("ys:chats-ir-a-pagina", () => {
 });
 
 async function mostrarTab(tab, params = {}) {
-    if (!SECCIONES.includes(tab)) tab = "inicio";
+    if (!SECCIONES.includes(tab)) tab = SECCIONES.includes("inicio") ? "inicio" : SECCIONES[0];
+    if (!tab) { sinSecciones(); return; }
     YS.shell.marcar(tab);
 
     const vistaChats = document.getElementById("vistaChatsCRM");
@@ -158,8 +178,8 @@ async function mostrarTab(tab, params = {}) {
     vistaChats.classList.add("oculto");
     document.getElementById("contenido").classList.remove("oculto");
 
-    if (tab === 'inicio') { inicioConfigurador(); return; }
-    if (tab === 'reportes') { reportes(); return; }
+    if (tab === 'inicio') { MODULO === "crm" ? inicioCrm() : inicioConfigurador(); return; }
+    if (tab === 'reportesgenerales') { reportes(); return; }
     if (tab === 'admisiones') { admisiones(); return; }
     tabActual = tab;
 
@@ -167,7 +187,11 @@ async function mostrarTab(tab, params = {}) {
     contenido.innerHTML = YS.cargando();
 
     try {
-        if (tab === "usuarios")     return await renderUsuarios(contenido, params);
+        if (tab === "usuarios" || tab === "asignaciones") return await renderUsuarios(contenido, params, tab);
+        if (tab === "permisos")     return await renderPermisos(contenido);
+        if (tab === "altausuario")  return await renderAltaUsuario(contenido);
+        if (tab === "privilegios")  return await renderPrivilegios(contenido);
+        if (tab === "auditoriaclinica") return await renderAuditoria(contenido, 1, tab);
         if (tab === "solicitudes")  return await renderSolicitudes(contenido);
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
         if (tab === "auditoria")    return await renderAuditoria(contenido);
@@ -189,15 +213,21 @@ async function mostrarTab(tab, params = {}) {
 }
 
 // ── USUARIOS ─────────────────────────────────────────────────
-async function renderUsuarios(c, params = {}) {
+// Dos modos (etapa 3):
+//   - "usuarios" (Configurador › Cuentas): altas, bajas y link público. Sin relaciones: quién
+//     atiende a quién es información de salud y el Configurador no la necesita.
+//   - "asignaciones" (Profesional con Admisión): las relaciones paciente-profesional,
+//     asignar y cambiar de profesional.
+async function renderUsuarios(c, params = {}, modo = "usuarios") {
+    window._modoUsuarios = modo;
     const [pacientes, profesionales] = await Promise.all([
-        YS.fetch(`/pacientes`).then(r => r.json()),
-        YS.fetch(`/profesionales`).then(r => r.json()),
+        YS.api(`/pacientes`),
+        YS.api(`/profesionales`),
     ]);
 
     const pacProfs = {};
     const profPacs = {};
-    await Promise.all(pacientes.map(async p => {
+    if (modo === "asignaciones") await Promise.all(pacientes.map(async p => {
         const profs = await YS.fetch(`/pacientes/${p.idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
         pacProfs[p.idPaciente] = new Set(profs.map(pr => pr.idProfesional));
         profs.forEach(pr => {
@@ -213,7 +243,7 @@ async function renderUsuarios(c, params = {}) {
     window._mostrarDadosDeBaja = false;
     window._filtroUsuarios = "";
 
-    if (YS.shell.actual !== "usuarios") return;
+    if (YS.shell.actual !== modo) return;
     const buscador = YS.el("input", { class: "ui-input", type: "search", id: "buscarUsuarios",
         placeholder: "Buscar por nombre, DNI o matrícula", "aria-label": "Buscar pacientes y profesionales" });
     buscador.addEventListener("input", YS.debounce(() => { window._filtroUsuarios = YS.normalizar(buscador.value); renderCardsUsuarios(); }, 120));
@@ -279,8 +309,9 @@ function renderCardsUsuarios() {
     // Si lo elegido sigue en la lista (p. ej. después de buscar) se mantiene la selección
     if (window._pacSeleccionado && document.getElementById(`pac-${window._pacSeleccionado}`)) seleccionarPaciente(window._pacSeleccionado);
     else if (window._profSeleccionado && document.getElementById(`prof-${window._profSeleccionado}`)) seleccionarProfesional(window._profSeleccionado);
-    else document.getElementById("splitInfo").innerHTML =
-        '<span class="ui-muted">Elegí un paciente o un profesional para ver con quién está relacionado y sus acciones.</span>';
+    else document.getElementById("splitInfo").innerHTML = window._modoUsuarios === "asignaciones"
+        ? '<span class="ui-muted">Elegí un paciente o un profesional para ver con quién está relacionado y asignar.</span>'
+        : '<span class="ui-muted">Elegí un paciente o un profesional para ver sus acciones. Los permisos del equipo están en Usuarios › Permisos.</span>';
 }
 
 function toggleDadosDeBaja() {
@@ -310,17 +341,20 @@ function seleccionarPaciente(idPac) {
     const pac = window._pacientes.find(p => p.idPaciente === idPac);
     const nombres = [...relacionados].map(idP => YS.nombreCompleto(window._profesionales.find(p => p.idProfesional === idP)) || `#${idP}`);
     const inactivo = pac?.estado === "Inactivo";
-    const botones = [
+    const asignando = window._modoUsuarios === "asignaciones";
+    const botones = (asignando ? [
         !inactivo && relacionados.size ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalCambioDirecto(${idPac})">Cambiar profesional</button>` : "",
-        !inactivo ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>` : "",
+        !inactivo ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalAsignar(${idPac})">Asignar profesional</button>` : ""
+    ] : [
         inactivo
             ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="darDeAltaPaciente(${idPac})">Dar de alta</button>`
             : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaPaciente(${idPac})">Dar de baja</button>`
-    ].join("");
+    ]).join("");
+    const texto = !asignando ? `· DNI ${YS.esc(pac?.dni ?? "-")}` : relacionados.size
+        ? `tiene asignado${relacionados.size === 1 ? "" : "s"}: ${YS.esc(nombres.join(", "))}.`
+        : "no tiene profesionales asignados.";
     document.getElementById("splitInfo").innerHTML = `
-        <div class="split-info-texto"><strong>${YS.esc(pac?.nombre)}</strong> ${relacionados.size
-            ? `tiene asignado${relacionados.size === 1 ? "" : "s"}: ${YS.esc(nombres.join(", "))}.`
-            : "no tiene profesionales asignados."}</div>
+        <div class="split-info-texto"><strong>${YS.esc(pac?.nombre)}</strong> ${texto}</div>
         <div class="split-info-acciones">${botones}</div>`;
 }
 
@@ -332,16 +366,18 @@ function seleccionarProfesional(idProf) {
 
     const prof = window._profesionales.find(p => p.idProfesional === idProf);
     const nombres = [...relacionados].map(idPac => window._pacientes.find(p => p.idPaciente === idPac)?.nombre ?? `#${idPac}`);
-    const boton = prof?.estado === "Inactivo"
+    const asignando = window._modoUsuarios === "asignaciones";
+    const boton = asignando ? "" : prof?.estado === "Inactivo"
         ? `<button class="ui-btn ui-btn--sm ui-btn--ok" onclick="darDeAltaProfesional(${idProf})">Dar de alta</button>`
         : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
-    const botonLink = prof?.linkPublicoActivo
+    const botonLink = !asignando && prof?.linkPublicoActivo
         ? `<button class="ui-btn ui-btn--sm" onclick="apagarLinkPublicoAdmin(${idProf})">Apagar link público</button>` : "";
+    const texto = !asignando ? `· Mat. ${YS.esc(prof?.matricula ?? "-")}` : relacionados.size
+        ? `atiende a: ${YS.esc(nombres.join(", "))}.`
+        : "no tiene pacientes asignados.";
     document.getElementById("splitInfo").innerHTML = `
-        <div class="split-info-texto"><strong>${YS.esc(YS.nombreCompleto(prof))}</strong> ${relacionados.size
-            ? `atiende a: ${YS.esc(nombres.join(", "))}.`
-            : "no tiene pacientes asignados."}
-            ${prof?.linkPublicoActivo ? ' <span class="ui-chip ui-chip--ok">Link público activo</span>' : ""}</div>
+        <div class="split-info-texto"><strong>${YS.esc(YS.nombreCompleto(prof))}</strong> ${texto}
+            ${!asignando && prof?.linkPublicoActivo ? ' <span class="ui-chip ui-chip--ok">Link público activo</span>' : ""}</div>
         <div class="split-info-acciones">${boton}${botonLink}</div>`;
 }
 
@@ -623,7 +659,7 @@ async function confirmarAceptarDeriv() {
         const idProf = parseInt(document.getElementById("selectProfAsignar").value);
         if (!idProf) { YS.form.marcar("selectProfAsignar", "Elegí un profesional."); return; }
         pedido = { url: `${API}/pacientes/${window._cambioPaciente}/profesionales`, method: "POST", body: { idProfesional: idProf },
-                   ok: "Profesional asignado.", error: "No se pudo asignar el profesional.", volver: "usuarios" };
+                   ok: "Profesional asignado.", error: "No se pudo asignar el profesional.", volver: "asignaciones" };
     } else if (window._modoDirecto) {
         const idOrigen  = parseInt(document.getElementById("selectProfOrigen").value);
         const idDestino = parseInt(document.getElementById("selectProfDestino").value);
@@ -631,7 +667,7 @@ async function confirmarAceptarDeriv() {
         if (!idDestino) { YS.form.marcar("selectProfDestino", "Elegí el nuevo profesional."); return; }
         pedido = { url: `${API}/derivaciones/cambio-directo`, method: "POST",
                    body: { idPaciente: window._cambioPaciente, idProfesionalOrigen: idOrigen, idProfesionalDestino: idDestino, motivo },
-                   ok: "Cambio hecho. El nuevo profesional quedó asignado.", error: "No se pudo hacer el cambio.", volver: "usuarios" };
+                   ok: "Cambio hecho. El nuevo profesional quedó asignado.", error: "No se pudo hacer el cambio.", volver: "asignaciones" };
     } else {
         const idProf = parseInt(document.getElementById("selectProfDeriv").value);
         if (!idProf) { YS.form.marcar("selectProfDeriv", "Elegí un profesional."); return; }
@@ -901,21 +937,21 @@ async function cerrarSesion() {
     await YS.sesion.cerrar();
 }
 
-async function renderAuditoria(c, pagina = 1) {
-    const [datos, usuarios] = await Promise.all([
-        YS.fetch(`/auditoria?pagina=${pagina}&cantidad=50`).then(r => r.json()),
-        YS.fetch(`/usuarios`).then(r => r.json()).catch(() => [])
-    ]);
-    if (YS.shell.actual !== "auditoria") return;
-    YS.shell.encabezado({ subtitulo: `Página ${pagina} · los más recientes primero` });
-    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("auditoria") }]);
+// Etapa 3: la misma vista sirve para las dos auditorías. Qué registros llegan lo decide el
+// servidor según el módulo (Configurador: administrativa; Profesional auditor: clínica).
+// No hay botones para modificar ni borrar: la base no lo permite (RN-18).
+async function renderAuditoria(c, pagina = 1, tab = "auditoria") {
+    const datos = await YS.api(`/auditoria?pagina=${pagina}&cantidad=50`);
+    if (YS.shell.actual !== tab) return;
+    YS.shell.encabezado({ subtitulo: `Página ${pagina} · los más recientes primero · solo lectura, nadie puede modificar ni borrar estos registros` });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab(tab) }]);
 
-    const nombreUsuario = new Map(usuarios.map(u => [u.idUsuario, u.username]));
+    const nombreUsuario = new Map(datos.filter(d => d.nombreUsuario).map(d => [d.idUsuario, d.nombreUsuario]));
 
     const anterior = YS.el("button", { class: "ui-btn ui-btn--sm", type: "button", text: "Más recientes", disabled: pagina <= 1,
-        on: { click: () => renderAuditoria(c, pagina - 1) } });
+        on: { click: () => renderAuditoria(c, pagina - 1, tab) } });
     const siguiente = YS.el("button", { class: "ui-btn ui-btn--sm", type: "button", text: "Más antiguos", disabled: datos.length < 50,
-        on: { click: () => renderAuditoria(c, pagina + 1) } });
+        on: { click: () => renderAuditoria(c, pagina + 1, tab) } });
     YS.tabla(c, {
         filas: datos, porPagina: 0, unidad: ["registro en esta página", "registros en esta página"],
         placeholder: "Buscar en esta página (acción, entidad, detalle, usuario)",
@@ -928,7 +964,8 @@ async function renderAuditoria(c, pagina = 1) {
             { titulo: "Entidad", html: d => celda(d.entidad), orden: d => d.entidad || "" },
             { titulo: "ID", html: d => d.idEntidad != null ? `<span class="ui-muted ui-num">#${YS.esc(d.idEntidad)}</span>` : celda(null) },
             { titulo: "Detalle", html: d => celdaLarga(d.detalle) },
-            { titulo: "Usuario", html: d => celda(nombreUsuario.get(d.idUsuario) ? nombreUsuario.get(d.idUsuario) : `#${d.idUsuario}`), orden: d => nombreUsuario.get(d.idUsuario) || "" }
+            { titulo: "Usuario", html: d => celda(d.idUsuario == null ? "Sin sesión" : nombreUsuario.get(d.idUsuario) || `#${d.idUsuario}`), orden: d => nombreUsuario.get(d.idUsuario) || "" },
+            { titulo: "Módulo", html: d => celda(d.espacio), orden: d => d.espacio || "" }
         ]
     });
 }
@@ -990,7 +1027,7 @@ async function reportes() {
         .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(p.nombre) + '</option>'; })
         .join('');
 
-    if (YS.shell.actual !== "reportes") return;
+    if (YS.shell.actual !== "reportesgenerales") return;
     c.innerHTML =
         '<div class="tarjeta">' +
         '<h3 class="tarjeta-titulo">Atenciones por profesional</h3>' +
@@ -1357,16 +1394,11 @@ async function verHCAdmision(idPaciente) {
         '</div>';
 }
 
+// Etapa 3: la entrevista la hace un profesional con el privilegio Admisión, con su propia
+// sesión. Antes el Configurador reemplazaba el idProfesional guardado en el navegador por el
+// del profesional "ADM-001" para poder entrar a la sala; eso ya no hace falta.
 async function iniciarEntrevistaVideo(codigoSala) {
     if (codigoSala === "" || codigoSala === "null" || codigoSala === "-") { toast("Este informe no tiene codigo de sala.", "warn"); return; }
-    let idAdm = null;
-    try {
-        const profs = await (await YS.fetch("/profesionales")).json();
-        const adm = profs.find(function(p) { return p.matricula === "ADM-001"; });
-        if (adm !== undefined) idAdm = adm.idProfesional;
-    } catch(e) {}
-    if (idAdm === null) { toast("Falta crear el profesional admisionista (ADM-001).", "error"); return; }
-    localStorage.setItem("idProfesional", idAdm);
     window.open("../Pantalla_Profesional/sesion_video.html?sala=" + encodeURIComponent(codigoSala), "_blank");
 }
 
@@ -1375,7 +1407,7 @@ async function iniciarEntrevistaVideo(codigoSala) {
 // ya pasó a otra sección mientras se cargaban los datos (para no pisarla).
 function encabezadoListado(tab, cantidad, palabra = "registros", extra = "") {
     if (YS.shell.actual !== tab) return false;
-    const singular = { registros: "registro", pendientes: "pendiente", solicitudes: "solicitud" };
+    const singular = { registros: "registro", pendientes: "pendiente", solicitudes: "solicitud", "usuarios del equipo": "usuario del equipo" };
     const texto = `${cantidad} ${cantidad === 1 ? (singular[palabra] || palabra) : palabra}`;
     YS.shell.encabezado({ subtitulo: [texto, extra].filter(Boolean).join(" · ") });
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab(tab) }]);
@@ -1386,64 +1418,99 @@ function encabezadoListado(tab, cantidad, palabra = "registros", extra = "") {
 async function inicioConfigurador() {
     const c = document.getElementById("contenido");
     c.innerHTML = YS.esqueleto.bloques(4);
-    YS.shell.usuario.then(u => {
-        if (YS.shell.actual === "inicio")
-            YS.shell.encabezado({ titulo: u.nombre ? `Hola, ${u.nombre}` : "Inicio", subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
-    });
+    saludar();
 
     const pedir = ruta => YS.api(ruta).catch(() => null);
-    const [solicitudes, derivaciones, recuperacion, informes, pacientes, profesionales, turnos] = await Promise.all([
-        pedir("/profesionales/solicitudes"), pedir("/derivaciones/detalle"), pedir("/recuperacion-password/pendientes"),
-        pedir("/informes-admision-detalle"), pedir("/pacientes"), pedir("/profesionales"), pedir("/turnos")
+    const [solicitudes, recuperacion, accesos, pacientes, profesionales] = await Promise.all([
+        pedir("/profesionales/solicitudes"), pedir("/recuperacion-password/pendientes"), pedir("/usuarios/accesos"),
+        pedir("/pacientes"), pedir("/profesionales")
     ]);
+    if (YS.shell.actual !== "inicio") return;
+
+    const cuenta = (lista, filtro = () => true) => Array.isArray(lista) ? lista.filter(filtro).length : null;
+    c.innerHTML = `
+        <div class="ui-titulo-seccion texto-chico ui-muted">Para revisar</div>
+        <div class="ui-stats">
+            ${tarjetaInicio("solicitudes", "Solicitudes de registro", "usuario-mas", cuenta(solicitudes), "Profesionales esperando aprobación", true)}
+            ${tarjetaInicio("recuperacion", "Recuperación de contraseña", "candado", cuenta(recuperacion), "Pedidos de contraseña temporal", true)}
+            ${tarjetaInicio("permisos", "Usuarios sin permisos", "escudo", cuenta(accesos, a => a.sinPermisos), "No ven nada hasta que les asignes un módulo", true)}
+            ${tarjetaInicio("permisos", "Invitaciones sin confirmar", "usuario-mas", cuenta(accesos, a => a.estado === "Pendiente"), "Todavía no eligieron su contraseña", true)}
+        </div>
+        <div class="ui-titulo-seccion texto-chico ui-muted">Cuentas</div>
+        <div class="ui-stats">
+            ${tarjetaInicio("permisos", "Usuarios del equipo", "escudo", cuenta(accesos), "Con o sin permisos asignados")}
+            ${tarjetaInicio("usuarios", "Pacientes activos", "pacientes", cuenta(pacientes, p => p.estado !== "Inactivo"), "Sin contar los dados de baja")}
+            ${tarjetaInicio("usuarios", "Profesionales activos", "usuario", cuenta(profesionales, p => p.estado === "Activo"), "Con cuenta aprobada")}
+        </div>
+        <div class="inicio-ir-auditoria">
+            <a class="ui-btn ui-btn--sm" href="#auditoria">${YS.icono("lista")}Ver auditoría administrativa</a>
+        </div>`;
+}
+
+// ── INICIO de CRM y atención al cliente ─────────────────────
+async function inicioCrm() {
+    const c = document.getElementById("contenido");
+    c.innerHTML = YS.esqueleto.bloques(4);
+    saludar();
+
+    const pedir = ruta => YS.api(ruta).catch(() => null);
+    const conAgendas = YS.sesion.tienePrivilegio("gestion_agendas");
     const conChats = (await YS.shell.capacidades)?.mensajeria;
-    const chats = conChats ? await pedir("/mensajeria/conversaciones") : null;
+    const [derivaciones, casos, chats, turnos] = await Promise.all([
+        pedir("/casosderivaciones/pendientes"), pedir("/casos?sinAsignar=true"),
+        conChats ? pedir("/mensajeria/conversaciones") : null, conAgendas ? pedir("/turnos") : null
+    ]);
     if (YS.shell.actual !== "inicio") return;
 
     const cuenta = (lista, filtro = () => true) => Array.isArray(lista) ? lista.filter(filtro).length : null;
     const hoy = new Date();
-    const tarjeta = (seccion, etiqueta, icono, valor, pie, alerta = false) => `
-        <a class="ui-stat${alerta && valor ? " ui-stat--warn" : ""}" href="#${seccion}">
-            <span class="ui-stat-etiqueta">${YS.icono(icono)}${YS.esc(etiqueta)}</span>
-            <span class="ui-stat-valor">${valor ?? "—"}</span>
-            <span class="ui-stat-pie">${YS.esc(pie)}</span>
-        </a>`;
-    const nRegistro = cuenta(solicitudes);
-    const nCambio = cuenta(derivaciones, d => d.estado === "Pendiente");
-    const nRecuperacion = cuenta(recuperacion);
-    const nAdmision = cuenta(informes, a => ["Pendiente", "En entrevista", "Rechazado"].includes(a.estado));
-    const nTurnosHoy = cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3);
-    const nPacientes = cuenta(pacientes, p => p.estado !== "Inactivo");
-    const nProfesionales = cuenta(profesionales, p => p.estado === "Activo");
-    const nChatsSinLeer = cuenta(chats, ch => ch.noLeidos > 0);
-    const nChatsDerivados = cuenta(chats, ch => ch.estado === "DerivadaHumano" || ch.estado === "Urgente");
-    const nChatsUrgentes = cuenta(chats, ch => ch.estado === "Urgente");
+    const nUrgentes = cuenta(chats, ch => ch.estado === "Urgente");
     const tarjetaChats = (filtro, etiqueta, valor, pie, peligro) => `
         <button class="ui-stat${valor ? (peligro ? " ui-stat--danger" : " ui-stat--warn") : ""}" type="button" onclick="irAChatsFiltrados('${filtro}')">
             <span class="ui-stat-etiqueta">${YS.icono("chat")}${YS.esc(etiqueta)}</span>
             <span class="ui-stat-valor">${valor ?? "—"}</span>
             <span class="ui-stat-pie">${YS.esc(pie)}</span>
         </button>`;
-
     c.innerHTML = `
         <div class="ui-titulo-seccion texto-chico ui-muted">Para revisar</div>
         <div class="ui-stats">
-            ${tarjeta("solicitudes", "Solicitudes de registro", "usuario-mas", nRegistro, "Profesionales esperando aprobación", true)}
-            ${tarjeta("derivaciones", "Solicitudes de cambio", "flechas", nCambio, "Pacientes que pidieron otro profesional", true)}
-            ${tarjeta("recuperacion", "Recuperación de contraseña", "candado", nRecuperacion, "Pedidos de contraseña temporal", true)}
-            ${tarjeta("admisiones", "Admisiones por resolver", "portapapeles", nAdmision, "Pendientes, en entrevista o rechazadas", true)}
-            ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", nChatsSinLeer, "Conversaciones con mensajes nuevos") : ""}
-            ${conChats ? tarjetaChats("derivadas", "Chats escalados", nChatsDerivados, nChatsUrgentes ? `${nChatsUrgentes} urgente${nChatsUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nChatsUrgentes > 0) : ""}
+            ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", cuenta(chats, ch => ch.noLeidos > 0), "Conversaciones con mensajes nuevos") : ""}
+            ${conChats ? tarjetaChats("derivadas", "Chats escalados", cuenta(chats, ch => ch.estado === "DerivadaHumano" || ch.estado === "Urgente"),
+                nUrgentes ? `${nUrgentes} urgente${nUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nUrgentes > 0) : ""}
+            ${tarjetaInicio("casosderivaciones", "Derivaciones por confirmar", "flechas", cuenta(derivaciones), "Casos con grupo y profesional sugeridos", true)}
+            ${tarjetaInicio("casos", "Casos sin asignar", "portapapeles", cuenta(casos), "Todavía sin profesional", true)}
         </div>
-        <div class="ui-titulo-seccion texto-chico ui-muted">Hoy en YoSoy</div>
+        ${conAgendas ? `
+        <div class="ui-titulo-seccion texto-chico ui-muted">Hoy</div>
         <div class="ui-stats">
-            ${tarjeta("turnos", "Turnos de hoy", "reloj", nTurnosHoy, "Sin contar los cancelados")}
-            ${tarjeta("usuarios", "Pacientes activos", "pacientes", nPacientes, "Sin contar los dados de baja")}
-            ${tarjeta("usuarios", "Profesionales activos", "usuario", nProfesionales, "Con cuenta aprobada")}
-        </div>
-        <div class="inicio-ir-auditoria">
-            <a class="ui-btn ui-btn--sm" href="#auditoria">${YS.icono("lista")}Ver auditoría completa</a>
-        </div>`;
+            ${tarjetaInicio("turnos", "Turnos de hoy", "reloj", cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3), "Sin contar los cancelados")}
+        </div>` : ""}`;
+}
+
+function saludar() {
+    YS.shell.usuario.then(u => {
+        if (YS.shell.actual === "inicio")
+            YS.shell.encabezado({ titulo: u.nombre ? `Hola, ${u.nombre}` : "Inicio", subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
+    });
+}
+
+function tarjetaInicio(seccion, etiqueta, icono, valor, pie, alerta = false) {
+    return `
+        <a class="ui-stat${alerta && valor ? " ui-stat--warn" : ""}" href="#${seccion}">
+            <span class="ui-stat-etiqueta">${YS.icono(icono)}${YS.esc(etiqueta)}</span>
+            <span class="ui-stat-valor">${valor ?? "—"}</span>
+            <span class="ui-stat-pie">${YS.esc(pie)}</span>
+        </a>`;
+}
+
+// Un usuario del módulo Profesional sin Admisión ni auditor no tiene nada en esta pantalla:
+// vuelve a su panel (por ejemplo, si le quitaron el privilegio y tenía guardado el link).
+function sinSecciones() {
+    if (MODULO === "profesional") { location.replace(YS.rutas.profesional); return; }
+    document.getElementById("contenido").innerHTML = YS.vacio({
+        icono: "escudo", titulo: "No tenés secciones de gestión",
+        texto: "Admisión y Auditoría se habilitan con el privilegio o el permiso correspondiente."
+    });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1916,7 +1983,373 @@ async function confirmarCorregirDerivacion(id) {
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
 }
 
+// ══════════════════════════════════════════════════════════════
+// REGISTRAR USUARIO DEL EQUIPO (18/10)
+// ══════════════════════════════════════════════════════════════
+// El Configurador da de alta a quien va a trabajar con el sistema. Si es Profesional, elige
+// Profesional o Profesional auditor, puede agregarle Admisión, y carga matrícula y
+// especialidad. Le llega un mail para confirmar la cuenta y elegir su contraseña. Las reglas
+// las vuelve a aplicar el servidor (Services/AltaEquipo.cs).
+function cuilValido(cuil) {
+    const d = String(cuil || "").replace(/\D/g, "");
+    if (d.length !== 11 || !["20", "23", "24", "27"].includes(d.slice(0, 2))) return false;
+    const pesos = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+    const suma = pesos.reduce((s, p, i) => s + p * Number(d[i]), 0);
+    const r = 11 - (suma % 11);
+    return (r === 11 ? 0 : r === 10 ? -1 : r) === Number(d[10]);
+}
+
+function sugerirUsuario(nombre, apellido) {
+    const limpio = t => YS.normalizar(String(t || "").trim().split(/\s+/)[0] || "").replace(/[^a-z0-9]/g, "");
+    return [limpio(nombre), limpio(apellido)].filter(Boolean).join(".");
+}
+
+async function renderAltaUsuario(c) {
+    let opciones = { especialidades: [] };
+    try { opciones = await YS.api("/usuarios/equipo/opciones"); } catch (e) { toast(e.message, "error"); }
+    if (YS.shell.actual !== "altausuario") return;
+    YS.shell.encabezado({ subtitulo: "Le llega un mail para confirmar su cuenta y elegir la contraseña. Hasta entonces no puede ingresar." });
+    const esp = opciones.especialidades.map(e => `<option value="${e.idEspecialidad}">${YS.esc(e.nombre)}</option>`).join("");
+    c.innerHTML = `
+        <form id="formAlta" class="tarjeta alta-usuario" novalidate>
+            <h3 class="tarjeta-titulo">Datos de la persona</h3>
+            <div class="ui-form-grid">
+                <div class="ui-campo"><label for="altaNombre">Nombre</label><input id="altaNombre" class="ui-input" autocomplete="off" maxlength="100"></div>
+                <div class="ui-campo"><label for="altaApellido">Apellido</label><input id="altaApellido" class="ui-input" autocomplete="off" maxlength="100"></div>
+                <div class="ui-campo"><label for="altaCuil">CUIL</label><input id="altaCuil" class="ui-input" inputmode="numeric" placeholder="20-12345678-6" maxlength="13">
+                    <div class="ui-campo-ayuda">11 dígitos; se controla el dígito verificador.</div></div>
+                <div class="ui-campo"><label for="altaTelefono">Teléfono de contacto</label><input id="altaTelefono" class="ui-input" inputmode="tel" placeholder="351 555-1234" maxlength="30"></div>
+                <div class="ui-campo"><label for="altaMail">Email</label><input id="altaMail" class="ui-input" type="email" maxlength="100">
+                    <div class="ui-campo-ayuda">Ahí le llega la invitación para confirmar la cuenta.</div></div>
+                <div class="ui-campo"><label for="altaUsuario">Usuario</label><input id="altaUsuario" class="ui-input" autocomplete="off" maxlength="50">
+                    <div class="ui-campo-ayuda">Con este usuario va a ingresar. Se sugiere nombre.apellido.</div></div>
+            </div>
+
+            <h3 class="tarjeta-titulo mt-16">Rol</h3>
+            <div class="alta-roles">
+                <fieldset class="editor-permisos-modulo">
+                    <legend><label class="ui-check"><input type="checkbox" id="altaRolProfesional"> <span class="texto-fuerte">Profesional</span></label></legend>
+                    <div id="altaBloqueProfesional" class="oculto">
+                        <div class="alta-opciones">
+                            <label class="alta-opcion"><input type="radio" name="altaTipoProf" value="profesional" checked>
+                                <span><span class="texto-fuerte">Profesional</span><span class="texto-chico ui-muted">Ve solo los pacientes que atiende.</span></span></label>
+                            <label class="alta-opcion"><input type="radio" name="altaTipoProf" value="auditor">
+                                <span><span class="texto-fuerte">Profesional auditor</span><span class="texto-chico ui-muted">Ve todos los pacientes, los reportes de atención y los registros (logs) de accesos clínicos.</span></span></label>
+                        </div>
+                        <label class="ui-check mt-8"><input type="checkbox" id="altaAdmision"> Privilegio: Admisión
+                            <span class="texto-chico ui-muted">(informes de admisión, primera entrevista, asignaciones y solicitudes de cambio)</span></label>
+                        <div class="ui-form-grid mt-12">
+                            <div class="ui-campo"><label for="altaMatricula">Matrícula</label><input id="altaMatricula" class="ui-input" maxlength="50" placeholder="MP 1234"></div>
+                            <div class="ui-campo"><label for="altaJurisdiccion">Jurisdicción de la matrícula</label><input id="altaJurisdiccion" class="ui-input" maxlength="60" value="Córdoba"></div>
+                            <div class="ui-campo"><label for="altaEspecialidad">Especialidad principal</label>
+                                <select id="altaEspecialidad" class="ui-select"><option value="">Elegí la especialidad</option>${esp}</select></div>
+                        </div>
+                    </div>
+                </fieldset>
+                <fieldset class="editor-permisos-modulo">
+                    <legend><label class="ui-check"><input type="checkbox" id="altaRolCrm"> <span class="texto-fuerte">CRM y atención al cliente</span></label></legend>
+                    <div id="altaBloqueCrm" class="oculto">
+                        <label class="ui-check"><input type="checkbox" id="altaAgendas"> Privilegio: Gestión de agendas
+                            <span class="texto-chico ui-muted">(turnos y horarios de todos los profesionales; nunca historias clínicas)</span></label>
+                    </div>
+                </fieldset>
+                <fieldset class="editor-permisos-modulo">
+                    <legend><label class="ui-check"><input type="checkbox" id="altaRolConfigurador"> <span class="texto-fuerte">Configurador</span></label></legend>
+                    <div class="texto-chico ui-muted">Usuarios, permisos, configuración y auditoría administrativa. Sin acceso clínico.</div>
+                </fieldset>
+            </div>
+            <div id="altaErrorRol" class="ui-alerta ui-alerta--danger mt-8 oculto" role="alert"></div>
+            <div class="ui-flex mt-16">
+                <button type="submit" class="ui-btn ui-btn--primary" id="altaGuardar">${YS.icono("usuario-mas")}Registrar y enviar invitación</button>
+            </div>
+        </form>
+        <div id="altaResultado"></div>`;
+
+    const $ = id => document.getElementById(id);
+    const sync = () => {
+        $("altaBloqueProfesional").classList.toggle("oculto", !$("altaRolProfesional").checked);
+        $("altaBloqueCrm").classList.toggle("oculto", !$("altaRolCrm").checked);
+        $("altaErrorRol").classList.add("oculto");
+    };
+    ["altaRolProfesional", "altaRolCrm", "altaRolConfigurador"].forEach(id => $(id).addEventListener("change", sync));
+    let usuarioEditado = false;
+    $("altaUsuario").addEventListener("input", () => { usuarioEditado = true; });
+    const sugerir = () => { if (!usuarioEditado) $("altaUsuario").value = sugerirUsuario($("altaNombre").value, $("altaApellido").value); };
+    $("altaNombre").addEventListener("input", sugerir);
+    $("altaApellido").addEventListener("input", sugerir);
+    $("formAlta").addEventListener("submit", e => { e.preventDefault(); guardarAltaUsuario(); });
+    $("altaNombre").focus();
+}
+
+async function guardarAltaUsuario() {
+    const $ = id => document.getElementById(id);
+    const esProf = $("altaRolProfesional").checked;
+    const reglas = [
+        { id: "altaNombre", requerido: "Completá el nombre." },
+        { id: "altaApellido", requerido: "Completá el apellido." },
+        { id: "altaCuil", requerido: "Completá el CUIL.", validar: v => cuilValido(v) ? null : "El CUIL no es válido (revisá el último dígito)." },
+        { id: "altaTelefono", requerido: "Completá un teléfono de contacto.", patron: /^[0-9+()\- ]{6,30}$/, mensajePatron: "Solo números, espacios, guiones o +." },
+        { id: "altaMail", requerido: "Completá el email.", patron: /^[^@\s]+@[^@\s]+\.[^@\s]+$/, mensajePatron: "El email no es válido." },
+        { id: "altaUsuario", requerido: "Completá el usuario.", patron: /^[a-z0-9._-]{3,50}$/, mensajePatron: "En minúsculas, sin espacios: letras, números, punto o guion." }
+    ];
+    if (esProf) reglas.push(
+        { id: "altaMatricula", requerido: "Completá la matrícula." },
+        { id: "altaJurisdiccion", requerido: "Indicá la jurisdicción." },
+        { id: "altaEspecialidad", requerido: "Elegí la especialidad principal." });
+    const datosOk = YS.form.validar(reglas);
+
+    const permisos = [];
+    const privilegios = [];
+    if (esProf) {
+        const tipo = document.querySelector('input[name="altaTipoProf"]:checked').value;
+        permisos.push(tipo);
+        if ($("altaAdmision").checked) privilegios.push({ permiso: tipo, privilegio: "admision" });
+    }
+    if ($("altaRolCrm").checked) {
+        permisos.push("crm");
+        if ($("altaAgendas").checked) privilegios.push({ permiso: "crm", privilegio: "gestion_agendas" });
+    }
+    if ($("altaRolConfigurador").checked) permisos.push("configurador");
+    const errorRol = $("altaErrorRol");
+    if (!permisos.length) { errorRol.textContent = "Elegí al menos un rol: sin rol, la persona no ve nada al ingresar."; errorRol.classList.remove("oculto"); }
+    if (!datosOk || !permisos.length) return;
+
+    const boton = $("altaGuardar");
+    boton.classList.add("cargando");
+    try {
+        const res = await YS.fetch("/usuarios/equipo", { method: "POST", json: {
+            nombre: $("altaNombre").value, apellido: $("altaApellido").value, cuil: $("altaCuil").value,
+            telefono: $("altaTelefono").value, mail: $("altaMail").value, username: $("altaUsuario").value,
+            permisos, privilegios,
+            matricula: esProf ? $("altaMatricula").value : null,
+            jurisdiccionMatricula: esProf ? $("altaJurisdiccion").value : null,
+            idEspecialidad: esProf ? parseInt($("altaEspecialidad").value) || null : null
+        } });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo registrar el usuario."), "error"); return; }
+        const r = await res.json();
+        $("formAlta").classList.add("oculto");
+        mostrarResultadoInvitacion($("altaResultado"), r, true);
+    } catch (e) { toast(e.message, "error"); }
+    finally { boton.classList.remove("cargando"); }
+}
+
+// Muestra si salió el mail y, en desarrollo, el link cuando no salió.
+function mostrarResultadoInvitacion(cont, r, esAlta) {
+    const vence = new Date(r.vence).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+    cont.innerHTML = `
+        <div class="tarjeta">
+            <div class="ui-alerta ui-alerta--${r.mailEnviado ? "ok" : "warn"} ui-alerta--bloque">
+                <strong>${esAlta ? `Usuario ${YS.esc(r.username)} registrado.` : "Invitación generada."}</strong>
+                <p class="mb-0 mt-8">${r.mailEnviado
+                    ? `Le enviamos la invitación${r.mail ? " a " + YS.esc(r.mail) : ""}. El link vence el ${YS.esc(vence)}.`
+                    : `${YS.esc(r.motivoMail || "No se pudo enviar el mail.")} La cuenta quedó creada y pendiente de confirmar.`}</p>
+            </div>
+            ${r.linkActivacion ? `
+            <p class="mt-12 mb-4 texto-chico ui-muted">Solo en desarrollo: link de la invitación (vence el ${YS.esc(vence)}). Abrilo en otra ventana o mandáselo a la persona.</p>
+            <div class="clave-temporal"><code class="link-invitacion">${YS.esc(r.linkActivacion)}</code>
+                <button class="ui-btn ui-btn--sm" type="button" id="btnCopiarLink">Copiar</button></div>` : ""}
+            ${esAlta ? `<div class="ui-flex mt-16">
+                <button class="ui-btn ui-btn--primary" type="button" onclick="mostrarTab('altausuario')">Registrar otro</button>
+                <a class="ui-btn" href="#permisos">Ver usuarios y permisos</a></div>` : ""}
+        </div>`;
+    document.getElementById("btnCopiarLink")?.addEventListener("click", () => YS.copiar(r.linkActivacion, "Link copiado"));
+}
+
+async function reenviarInvitacion(idUsuario) {
+    const u = (window._ultimosAccesos || []).find(x => x.idUsuario === idUsuario);
+    if (!await confirmar(`¿Reenviar la invitación a ${u?.username || "este usuario"}? El link anterior deja de servir.`,
+        { titulo: "Reenviar invitación", textoConfirmar: "Reenviar" })) return;
+    try {
+        const res = await YS.fetch(`/usuarios/${idUsuario}/invitacion`, { method: "POST" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo reenviar la invitación."), "error"); return; }
+        const r = await res.json();
+        const cuerpo = YS.el("div");
+        mostrarResultadoInvitacion(cuerpo, r, false);
+        YS.modal({ titulo: "Invitación", cuerpo, acciones: [{ texto: "Listo", tipo: "primary", foco: true, alClick: c => c.cerrar() }] });
+    } catch (e) { toast(e.message, "error"); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// PRIVILEGIOS (18/10): a quién se le agrega cada uno
+// ══════════════════════════════════════════════════════════════
+async function renderPrivilegios(c) {
+    const datos = await YS.api("/privilegios");
+    if (YS.shell.actual !== "privilegios") return;
+    YS.shell.encabezado({ subtitulo: "Un privilegio se suma a un rol. Los cambios rigen desde el próximo ingreso de cada persona." });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("privilegios") }]);
+    const persona = u => `<span class="principal">${YS.esc(u.username)}</span>${u.nombreCompleto ? `<span class="secundario">${YS.esc(u.nombreCompleto)}</span>` : ""}`;
+    c.innerHTML = datos.map(p => `
+        <section class="tarjeta privilegio" aria-labelledby="priv-${YS.esc(p.clave)}">
+            <div class="ui-entre">
+                <h3 class="tarjeta-titulo mb-0" id="priv-${YS.esc(p.clave)}">${YS.esc(p.nombre)}</h3>
+                <span class="texto-chico ui-muted">Se agrega a: ${p.permisos.map(x => YS.esc(x.nombre)).join(", ")}</span>
+            </div>
+            ${p.descripcion ? `<p class="texto-suave mt-8">${YS.esc(p.descripcion)}</p>` : ""}
+            <h4 class="mt-12 mb-8">Lo tienen (${p.loTienen.length})</h4>
+            ${p.loTienen.length ? `<ul class="privilegio-lista">${p.loTienen.map(u => `
+                <li><span class="privilegio-persona">${persona(u)}</span><span class="ui-chip ui-chip--neutral">${YS.esc(u.permiso)}</span>
+                    ${u.estado === "Pendiente" ? '<span class="ui-chip ui-chip--warn">Sin confirmar</span>' : ""}
+                    <button class="ui-btn ui-btn--sm ui-btn--danger" type="button" onclick="quitarPrivilegio(${u.idUsuario}, '${YS.esc(p.clave)}', '${YS.esc(p.nombre)}')">Quitar</button></li>`).join("")}</ul>`
+                : '<p class="ui-muted texto-chico">Nadie todavía.</p>'}
+            <div class="privilegio-agregar mt-12">
+                ${p.candidatos.length ? `
+                <div class="ui-campo"><label for="cand-${YS.esc(p.clave)}">Agregar a</label>
+                    <select id="cand-${YS.esc(p.clave)}" class="ui-select"><option value="">Elegí a quién</option>${p.candidatos.map(u =>
+                        `<option value="${u.idUsuario}">${YS.esc(u.username)}${u.nombreCompleto ? " — " + YS.esc(u.nombreCompleto) : ""} (${YS.esc(u.permiso)})</option>`).join("")}</select></div>
+                <button class="ui-btn ui-btn--primary" type="button" onclick="agregarPrivilegio('${YS.esc(p.clave)}')">Agregar</button>`
+                : `<p class="ui-muted texto-chico mb-0">No hay a quién agregarlo: todos los que tienen ${p.permisos.map(x => YS.esc(x.nombre)).join(" o ")} ya lo tienen, o no hay usuarios con ese rol.</p>`}
+            </div>
+        </section>`).join("") || YS.vacio({ icono: "candado", titulo: "No hay privilegios configurados" });
+}
+
+async function agregarPrivilegio(clave) {
+    const sel = document.getElementById("cand-" + clave);
+    const id = parseInt(sel?.value);
+    if (!id) { YS.form.marcar(sel, "Elegí a quién se lo agregás."); return; }
+    try {
+        const res = await YS.fetch(`/usuarios/${id}/privilegios`, { method: "POST", json: { privilegio: clave } });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo agregar el privilegio."), "error"); return; }
+        toast("Privilegio agregado. Rige desde el próximo ingreso de esa persona.");
+        mostrarTab("privilegios");
+    } catch (e) { toast(e.message, "error"); }
+}
+
+async function quitarPrivilegio(idUsuario, clave, nombre) {
+    if (!await confirmar(`¿Quitarle el privilegio ${nombre}?`, { titulo: "Quitar privilegio", textoConfirmar: "Quitar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/usuarios/${idUsuario}/privilegios/${encodeURIComponent(clave)}`, { method: "DELETE" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo quitar el privilegio."), "error"); return; }
+        toast("Privilegio quitado.", "warn");
+        mostrarTab("privilegios");
+    } catch (e) { toast(e.message, "error"); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ETAPA 3: PERMISOS POR USUARIO (Configurador › Usuarios › Permisos)
+// ══════════════════════════════════════════════════════════════
+// Módulo (rol) → permisos → privilegios, como los definió la organización. Las reglas las
+// vuelve a aplicar el servidor (Services/AccesosEdicion.cs); acá solo se ayuda a no
+// equivocarse. Cada cambio queda en la auditoría administrativa.
+async function renderPermisos(c) {
+    const datos = await YS.api("/usuarios/accesos");
+    window._ultimosAccesos = datos;
+    if (YS.shell.actual !== "permisos") return;
+    YS.shell.acciones([
+        { texto: "Registrar usuario", icono: "usuario-mas", tipo: "primary", alClick: () => { location.hash = "#altausuario"; } },
+        { texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("permisos") }
+    ]);
+    YS.shell.encabezado({ subtitulo: `${datos.length} usuario${datos.length === 1 ? "" : "s"} del equipo · los cambios rigen desde el próximo ingreso de cada persona` });
+
+    YS.tabla(c, {
+        filas: datos, unidad: ["usuario", "usuarios"], placeholder: "Buscar por usuario, nombre, permiso o matrícula",
+        buscar: u => [u.username, u.nombreCompleto, u.permisos, u.privilegios, u.matricula, u.especialidad].join(" "),
+        filtros: [
+            { id: "todos", texto: "Todos", pasa: () => true },
+            { id: "sin", texto: "Sin permisos", pasa: u => u.sinPermisos },
+            { id: "pendientes", texto: "Sin confirmar", pasa: u => u.estado === "Pendiente" }
+        ],
+        vacio: { icono: "escudo", titulo: "No hay usuarios del equipo", texto: "Las cuentas de paciente no llevan permisos y no aparecen acá." },
+        columnas: [
+            { titulo: "Usuario", orden: u => YS.normalizar(u.username || ""),
+              html: u => `<span class="ui-flex">${YS.avatar(u.nombreCompleto || u.username, u.idUsuario, "sm")}<span><span class="principal">${YS.esc(u.username)}</span><span class="secundario">${YS.esc(u.nombreCompleto || u.matricula ? [u.nombreCompleto, u.matricula ? "Mat. " + u.matricula : ""].filter(Boolean).join(" · ") : "")}</span></span></span>` },
+            { titulo: "Permisos", html: u => u.sinPermisos ? '<span class="ui-chip ui-chip--warn">Sin permisos</span>' : celda(u.permisos), orden: u => u.permisos || "" },
+            { titulo: "Privilegios", html: u => celda(u.privilegios), orden: u => u.privilegios || "" },
+            { titulo: "Cuenta", html: u => chipEstadoCuenta(u.estado), orden: u => u.estado || "" },
+            { titulo: "", clase: "acciones", html: u => (u.estado === "Pendiente"
+                ? `<button class="ui-btn ui-btn--sm" type="button" onclick="reenviarInvitacion(${u.idUsuario})">Reenviar invitación</button> ` : "")
+                + `<button class="ui-btn ui-btn--sm" type="button" onclick="abrirEditorPermisos(${u.idUsuario})">Editar permisos</button>` }
+        ]
+    });
+}
+
+async function abrirEditorPermisos(idUsuario) {
+    let datos;
+    try { datos = await YS.api(`/usuarios/${idUsuario}/accesos`); }
+    catch (e) { toast(e.message, "error"); return; }
+    const fila = (window._ultimosAccesos || []).find(u => u.idUsuario === idUsuario);
+    const tiene = new Set(datos.permisos);
+    const tienePriv = new Set(datos.privilegios.map(p => p.privilegio));
+    const cuerpo = YS.el("div", { class: "editor-permisos" });
+
+    if (datos.esPaciente) {
+        cuerpo.innerHTML = '<p class="ui-alerta ui-alerta--info"><span>Es una cuenta de paciente: no lleva permisos del equipo.</span></p>';
+        YS.modal({ titulo: "Permisos", cuerpo, tamano: "chico", acciones: [{ texto: "Cerrar", alClick: c => c.cerrar() }] });
+        return;
+    }
+
+    const avisos = [];
+    if (!datos.tieneFichaProfesional) avisos.push("Profesional y Profesional auditor necesitan una ficha de profesional con matrícula vinculada a esta cuenta (RN-17).");
+    if (datos.esUnoMismo) avisos.push("Es tu propia cuenta: no podés quitarte el permiso de Configurador.");
+    cuerpo.innerHTML = (avisos.length ? `<div class="ui-alerta ui-alerta--info mb-12"><span>${avisos.map(YS.esc).join("<br>")}</span></div>` : "") +
+        datos.modulos.map(m => {
+            // Privilegios del módulo, una sola vez aunque los admitan dos permisos (Admisión
+            // vale para Profesional y para Profesional auditor).
+            const privilegios = [];
+            m.permisos.forEach(p => p.privilegios.forEach(v => { if (!privilegios.some(x => x.clave === v.clave)) privilegios.push(v); }));
+            const permisos = m.permisos.map(p => {
+                const requiereFicha = p.clave === "profesional" || p.clave === "auditor";
+                const bloqueado = (requiereFicha && !datos.tieneFichaProfesional && !tiene.has(p.clave))
+                    || (datos.esUnoMismo && p.clave === "configurador" && tiene.has(p.clave));
+                return `<label class="ui-check"><input type="checkbox" data-permiso="${YS.esc(p.clave)}" data-modulo="${YS.esc(m.clave)}"
+                    ${tiene.has(p.clave) ? "checked" : ""} ${bloqueado ? "disabled" : ""}> ${YS.esc(p.nombre)}</label>`;
+            }).join("");
+            const privs = privilegios.map(v => `
+                <label class="ui-check" title="${YS.esc(v.descripcion || "")}"><input type="checkbox" data-privilegio="${YS.esc(v.clave)}" data-modulo="${YS.esc(m.clave)}"
+                    ${tienePriv.has(v.clave) ? "checked" : ""}> Privilegio: ${YS.esc(v.nombre)}</label>
+                ${v.descripcion ? `<div class="texto-chico ui-muted editor-permisos-desc">${YS.esc(v.descripcion)}</div>` : ""}`).join("");
+            return `
+                <fieldset class="editor-permisos-modulo">
+                    <legend class="texto-fuerte">${YS.esc(m.nombre)}</legend>
+                    <div class="texto-chico ui-muted mb-8">${YS.esc(m.descripcion || "")}</div>
+                    <div class="editor-permisos-fila">${permisos}</div>
+                    ${privs ? `<div class="editor-permisos-privilegios">${privs}</div>` : ""}
+                </fieldset>`;
+        }).join("") +
+        '<p class="texto-chico ui-muted mt-8">Los cambios rigen desde el próximo ingreso (o cambio de módulo) de esta persona, y quedan en la auditoría administrativa.</p>';
+
+    // Un privilegio solo se puede marcar si hay un permiso del módulo que lo admite.
+    const sincronizar = () => datos.modulos.forEach(m => {
+        const marcados = [...cuerpo.querySelectorAll(`input[data-permiso][data-modulo="${m.clave}"]:checked`)].map(i => i.dataset.permiso);
+        cuerpo.querySelectorAll(`input[data-privilegio][data-modulo="${m.clave}"]`).forEach(i => {
+            const admite = m.permisos.some(p => marcados.includes(p.clave) && p.privilegios.some(v => v.clave === i.dataset.privilegio));
+            i.disabled = !admite;
+            if (!admite) i.checked = false;
+        });
+    });
+    cuerpo.addEventListener("change", sincronizar);
+    sincronizar();
+
+    YS.modal({
+        titulo: `Permisos de ${fila?.username || "#" + idUsuario}`, cuerpo,
+        acciones: [
+            { texto: "Cancelar" },
+            { texto: "Guardar", tipo: "primary", foco: true, alClick: async ctrl => {
+                const permisos = [...cuerpo.querySelectorAll("input[data-permiso]:checked")].map(i => i.dataset.permiso);
+                const privilegios = [];
+                cuerpo.querySelectorAll("input[data-privilegio]:checked").forEach(i => {
+                    const m = datos.modulos.find(x => x.clave === i.dataset.modulo);
+                    // Va sobre el primer permiso marcado del módulo que lo admite.
+                    const sobre = m.permisos.find(p => permisos.includes(p.clave) && p.privilegios.some(v => v.clave === i.dataset.privilegio));
+                    if (sobre) privilegios.push({ permiso: sobre.clave, privilegio: i.dataset.privilegio });
+                });
+                if (!permisos.length && !await confirmar("Sin ningún permiso, esta persona no va a ver nada al ingresar. ¿Guardar igual?",
+                    { titulo: "Usuario sin permisos", textoConfirmar: "Guardar sin permisos", peligro: true })) return;
+                try {
+                    const res = await YS.fetch(`/usuarios/${idUsuario}/accesos`, { method: "PUT", json: { permisos, privilegios } });
+                    if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudieron guardar los permisos."), "error"); return; }
+                    ctrl.cerrar(true);
+                    toast("Permisos guardados. Rigen desde el próximo ingreso de esta persona.");
+                    mostrarTab("permisos");
+                } catch (e) { toast(e.message, "error"); }
+            } }
+        ]
+    });
+}
+
 YS.shell.iniciar({
-    rol: "configurador", navegar: (id, params) => mostrarTab(id, params),
-    chats: { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }
+    rol: MODULO, pagina: "gestion", navegar: (id, params) => mostrarTab(id, params),
+    // Chats como sección propia solo en CRM; el profesional usa el cajón de siempre.
+    chats: MODULO === "crm"
+        ? { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }
+        : undefined
 });

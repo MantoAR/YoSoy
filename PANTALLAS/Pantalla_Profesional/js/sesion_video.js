@@ -1,4 +1,4 @@
-// Sala de video del profesional (y del Configurador en la entrevista de admisión).
+// Sala de video del profesional (también la entrevista de admisión, con el privilegio Admisión).
 //
 // Circuito de atención (octubre 2026):
 // - La sala la abre el servidor (POST /salas o generar-sala del turno) y queda registrada
