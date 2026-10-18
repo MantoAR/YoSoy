@@ -10,7 +10,7 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
   - Se pausa el uso saliente por el riesgo de bloqueo de una API no oficial: **lo que quede de WhatsApp tiene que ser de bajo riesgo**.
 - **Límites duros:** no se leen ni imprimen `.env`, `whatsapp.env`, `signaling.env` ni `video.env`; sin deploy, sin `sudo`, sin tocar el VPS ni la
   base `yosoy`, sin aplicar migraciones; **nada se conecta ni se manda a WhatsApp real**; sin merge a `main` ni `--force`. Un commit por etapa.
-- **Última actualización:** 2026-10-18, tras la etapa 2 (sin recordatorios por WhatsApp).
+- **Última actualización:** 2026-10-18, tras la etapa 3 (revisión de los flujos salientes).
 
 ## Estado de las etapas
 
@@ -18,8 +18,8 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
 |---|---|---|---|
 | — | Auditoría de todos los flujos de WhatsApp y este archivo | **hecho** | `86be1ac` |
 | 1 | Sacar whatsapp-web.js (servicio, API, docs, VPS) | **hecho** | `0ae4dfd` |
-| 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | (este commit) |
-| 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | pendiente | |
+| 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | `341807f` |
+| 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | **hecho** | (este commit) |
 | 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | pendiente | |
 | 5 | Anti-bloqueo de lo que quede | pendiente | |
 
@@ -236,6 +236,52 @@ Lo que **no** sale por WhatsApp, para que no haya dudas:
   9 pruebas distintas, entre ellas las que miran que no salga ningún pedido al servicio).
 - **Adaptadas:** `PlantillasWhatsAppTests` (cuatro plantillas; ya no hay una de recordatorio), `ConsentimientoWhatsAppEnviosTests`, `CorreoNoConfiguradoTests` (espera `Email` y `App`) y los cuatro dobles de `IRecordatorioDAO`.
 - `Scripts\correr-tests.ps1` contra `yosoy_test`: **1430 de 1430** (eran 1406: entran los 27 casos del archivo nuevo y salen 3 netos de los que probaban el recordatorio por WhatsApp en las pruebas adaptadas). `npm test` en `whatsapp-service`: sin cambios (389: 383 pasan, 6 saltadas, 0 fallas).
+
+## Etapa 3: el resto de los flujos salientes (solo se listan y se recomienda)
+
+Esta etapa **no cambia código**: clasifica lo que sigue saliendo por WhatsApp después de la etapa 2, dice qué riesgo tiene cada cosa y qué conviene. **No borré ni pausé nada de esto sin avisarte.**
+
+### Qué sigue saliendo por WhatsApp hoy
+
+| # | Flujo | ¿Responde a un mensaje de la persona? | ¿Automático? | ¿Masivo? | Qué hay puesto | Veredicto |
+|---|---|---|---|---|---|---|
+| S6 | Respuestas del asistente | **Sí**: solo se arma como respuesta a un mensaje entrante (webhook o chat simulado) | Sí, pero dentro de una conversación que la persona empezó | No: uno o pocos mensajes por cada mensaje que ella mandó | Servicio: solo a quien escribió primero, BAJA gana, topes, pausas, "escribiendo..." | **Se deja.** Etapa 5: se agrega una traba más en la API |
+| S7 | Respuesta manual del equipo (bandeja) | Sí, normalmente | No: la escribe una persona | No | Las mismas protecciones del servicio | **Se deja** (decide una persona) |
+| S8 | Aviso "el equipo cerró esta conversación" | Debería serlo, pero **no lo garantiza hoy**: sale aunque la persona nunca haya escrito (la conversación pudo crearla un aviso de turno) | Sí: texto fijo al apretar "Cerrar" | No (uno por clic) | Solo las del servicio | **Etapa 5:** solo si la persona escribió en esa conversación |
+| S9 | Aviso "el equipo reabrió esta conversación" | ídem | ídem | No | ídem | **Etapa 5:** ídem |
+| S2 | "Recibimos tu solicitud de turno" | **No** | **Sí, por evento** (`POST /turnos/solicitar`, `POST /public/profesionales/{slug}/reservar`) | No es un envío programado ni un lote: sale de a uno, cuando alguien pide un turno | Consentimiento (ver abajo), topes, pausas, "escribiendo...", textos mínimos (día y hora) | **Decisión tuya** (abajo) |
+| S3 | "Te propusieron un turno" (con el link) | **No** | **Sí, por evento** (`POST /turnos/profesional-solicitar`) | No | ídem | **Decisión tuya** |
+| S4 | "Tu turno quedó confirmado" | **No** | **Sí, por evento** (`PUT /turnos/{id}`, `PUT /turnos/{id}/confirmar-paciente`) | No, pero **puede salir en ráfaga** (un profesional que confirma una agenda entera) | ídem | **Decisión tuya** |
+| S5 | "Tu turno fue cancelado" | **No** | **Sí, por evento** (`PUT /turnos/{id}/cancelar`, `PUT /turnos/{id}`) | No | ídem | **Decisión tuya** |
+
+Ya no queda **nada programado**: sin el recordatorio no hay un reloj que mande mensajes. Lo que queda automático sale siempre porque alguien hizo algo (pidió, confirmó, canceló o escribió).
+
+### Los cuatro avisos de turno (S2 a S5): por qué los marco
+
+Son la única salida que **empieza una conversación** (no responde a nada) y por eso la única que queda fuera de la regla "una respuesta automática solo dentro de una conversación que empezó la persona" de la etapa 5.
+Lo que los acota hoy:
+
+- **Quién los recibe:** `IPoliticaEnvioWhatsApp` decide por paciente. *Revocó* → no se manda nada (ni se arma la conversación). *Aceptó* (consentimiento vigente, de este número y de este texto) → el servicio recibe `optIn: true` y **puede escribirle sin que ella haya escrito antes**. *Sin decisión* → no hay `optIn`: el servicio solo le escribe si ella le escribió primero al número (en los últimos 365 días) y si no, lo rechaza (`sin_consentimiento`, el aviso queda `Omitido`).
+- **Qué dicen:** solo el día y la hora (nada del profesional, la especialidad ni el motivo): `PlantillasWhatsApp`, vigilado por pruebas.
+- **Cuánto:** los topes del servicio (100 por día, 40 por hora, 3 por persona), pausas al azar de 4 a 9 s, una pausa larga cada 8 a 14 mensajes, "escribiendo..." y una cola de 50 que descarta lo que lleva más de 3 horas esperando. Una ráfaga se **espacia o se descarta**; no sale de golpe.
+- Si el canal falla (o la persona pidió la baja), el aviso queda `Omitido` o `Error` en la tabla `Recordatorio`; **no hay un reloj que lo reintente** (el único que reintentaba era el del recordatorio).
+
+El riesgo que queda es el de siempre con una API no oficial: **mensajes que abre el negocio a personas que no le escribieron** (aunque hayan aceptado en un formulario). Es poco volumen, pero es justo lo que el bloqueo mira, y vos dijiste que lo saliente se pausa.
+
+### Recomendación
+
+1. **Dejar el código y el consentimiento como están, pero poner un interruptor:** `Mensajeria:AvisosPorWhatsApp` (por defecto **`false`**, variable `Mensajeria__AvisosPorWhatsApp`). Con `false`, `NotificadorTurnos.EnviarChat` devuelve `Omitido` ("Los avisos por WhatsApp están pausados.") **antes** de consultar el consentimiento o armar la conversación,
+   igual que la segunda traba del recordatorio (etapa 2). Es una pausa **reversible con una variable y un reinicio**, no se borra nada y las pruebas existentes siguen valiendo (con el interruptor en `true` hacen lo mismo que hoy). Son unas 30 líneas con sus pruebas.
+2. Si pausás los avisos, **la campanita queda como único aviso de turno fuera del recordatorio** (los avisos por evento no tienen canal de mail). Si querés que el paciente se entere sin entrar a la app, la solución barata es **agregar `Email` a `CanalesEvento`**: `EnviarMail` ya existe y es el mismo que usa el recordatorio. Es decisión de producto, no la tomé.
+3. **Mientras no haya interruptor, nada cambia:** los cuatro avisos siguen saliendo solo a quien aceptó o ya escribió. Si preferís **sacarlos del todo** (en vez de pausar), también es fácil, pero lo dejo para cuando me lo pidas: borrarlos deja sin uso a medio consentimiento (etapa 4).
+
+**No hice nada de esto** (ni el interruptor ni el mail): el encargo era listar y recomendar. Decime y lo agrego en una etapa aparte.
+
+### Lo que no cambia
+
+- Las respuestas del asistente y las de una persona del equipo (S6 y S7) se dejan: responden dentro de una conversación y las acota el servicio.
+- El chat simulado (E4) sigue usando el canal activo (H7): está acotado a la propia máquina y el servicio exige constancia de esa persona.
+- `CanalWhatsAppCloud` (la API oficial de Meta, sin usar) se deja: es la salida natural si algún día se quiere volver a mandar avisos de forma legítima.
 
 ## Pasos manuales para Agustín
 
