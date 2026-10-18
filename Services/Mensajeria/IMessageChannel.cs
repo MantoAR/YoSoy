@@ -5,7 +5,10 @@ public record ResultadoEnvio(bool Exito, string? IdExterno = null, string? Error
 // Lo que un canal necesita saber además del texto y el destino.
 //  · OptIn: el paciente aceptó recibir WhatsApp (ConsentimientoWhatsApp vigente). Solo se pone en true con esa aceptación; el canal real se lo
 //    avisa a whatsapp-service con "optIn": true. Sin eso, whatsapp-service le manda solo a quien le escribió primero al número de la clínica.
-public record OpcionesEnvio(bool OptIn = false)
+//  · IniciaElNegocio: el mensaje NO responde a nada que la persona haya escrito: lo manda la clínica por un hecho (los avisos de turno de
+//    NotificadorTurnos). Es la única excepción a la regla de ServicioMensajes: un mensaje automático (del asistente o del sistema) solo sale
+//    dentro de una conversación en la que la persona ya escribió. Por defecto es false: todo mensaje automático nuevo queda sujeto a la regla.
+public record OpcionesEnvio(bool OptIn = false, bool IniciaElNegocio = false)
 {
     public static readonly OpcionesEnvio Ninguna = new();
 }

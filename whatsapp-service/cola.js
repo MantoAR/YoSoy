@@ -83,16 +83,18 @@ class ColaEnvios {
         if (conexion && NO_DISPONIBLES.has(conexion)) {
             return { ok: false, estado: 503, codigo: "no_conectado", error: `WhatsApp no está disponible en este momento (${conexion}).` };
         }
+        let enConversacion = false;                // la persona escribió hace poco: rige el tope de una conversación (limites.js)
         if (this._consentimiento) {
             const permiso = this._consentimiento.permite(telefono, { optIn: meta.optIn === true });
             if (!permiso.ok) return this._rechazar(telefono, permiso);
+            enConversacion = permiso.enConversacion === true;
         }
         if (this._pendientes.length >= this._capacidad) {
             return { ok: false, estado: 503, codigo: "cola_llena", error: "Cola llena, probá de nuevo en unos minutos." };
         }
         let huella = null;
         if (this._limites) {
-            const lugar = this._limites.reservar(telefono);
+            const lugar = this._limites.reservar(telefono, { enConversacion });
             if (!lugar.ok) return this._rechazar(telefono, lugar);
             huella = lugar.huella;
         }

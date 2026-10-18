@@ -100,7 +100,7 @@ test("las ventanas de QR que se abren solas son entre 1 y 5 (por defecto 2)", ()
 
 test("las protecciones de envío tienen valores prudentes por defecto", () => {
     assert.deepEqual(leerConfigEnvio({}), {
-        topeDiario: 100, topePorHora: 40, topePorPersona: 3, diasDeConsentimiento: 365,
+        topeDiario: 100, topePorHora: 40, topePorPersona: 3, topeEnConversacion: 30, diasDeConsentimiento: 365,
         zonaHoraria: "America/Argentina/Buenos_Aires", pausaMinSeg: 4, pausaMaxSeg: 9, simularEscritura: true
     });
     const c = leerConfig(base({ WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA }));
@@ -109,16 +109,22 @@ test("las protecciones de envío tienen valores prudentes por defecto", () => {
 
 test("los topes, la vigencia, la zona horaria y las pausas se configuran y se validan", () => {
     const e = leerConfigEnvio({
-        WHATSAPP_TOPE_DIARIO: "30", WHATSAPP_TOPE_POR_HORA: "10", WHATSAPP_TOPE_POR_PERSONA: "1", WHATSAPP_CONSENTIMIENTO_DIAS: "90",
+        WHATSAPP_TOPE_DIARIO: "30", WHATSAPP_TOPE_POR_HORA: "10", WHATSAPP_TOPE_POR_PERSONA: "1", WHATSAPP_TOPE_EN_CONVERSACION: "12", WHATSAPP_CONSENTIMIENTO_DIAS: "90",
         WHATSAPP_ZONA_HORARIA: "America/Argentina/Cordoba", WHATSAPP_PAUSA_MIN_S: "6", WHATSAPP_PAUSA_MAX_S: "6", WHATSAPP_SIMULAR_ESCRITURA: "0"
     });
-    assert.deepEqual(e, { topeDiario: 30, topePorHora: 10, topePorPersona: 1, diasDeConsentimiento: 90, zonaHoraria: "America/Argentina/Cordoba", pausaMinSeg: 6, pausaMaxSeg: 6, simularEscritura: false });
+    assert.deepEqual(e, {
+        topeDiario: 30, topePorHora: 10, topePorPersona: 1, topeEnConversacion: 12, diasDeConsentimiento: 90,
+        zonaHoraria: "America/Argentina/Cordoba", pausaMinSeg: 6, pausaMaxSeg: 6, simularEscritura: false
+    });
 
     const envio = extra => base({ WHATSAPP_BAILEYS_SESSION_PATH: ABSOLUTA, ...extra });
     falla(envio({ WHATSAPP_TOPE_DIARIO: "0" }), /WHATSAPP_TOPE_DIARIO tiene que estar entre 1 y 1000/);
     falla(envio({ WHATSAPP_TOPE_DIARIO: "1001" }), /WHATSAPP_TOPE_DIARIO tiene que estar entre 1 y 1000/);
     falla(envio({ WHATSAPP_TOPE_POR_HORA: "mucho" }), /WHATSAPP_TOPE_POR_HORA tiene que ser un número entero/);
     falla(envio({ WHATSAPP_TOPE_POR_PERSONA: "21" }), /WHATSAPP_TOPE_POR_PERSONA tiene que estar entre 1 y 20/);
+    falla(envio({ WHATSAPP_TOPE_EN_CONVERSACION: "0" }), /WHATSAPP_TOPE_EN_CONVERSACION tiene que estar entre 1 y 200/);
+    falla(envio({ WHATSAPP_TOPE_EN_CONVERSACION: "201" }), /WHATSAPP_TOPE_EN_CONVERSACION tiene que estar entre 1 y 200/);
+    falla(envio({ WHATSAPP_TOPE_EN_CONVERSACION: "muchos" }), /WHATSAPP_TOPE_EN_CONVERSACION tiene que ser un número entero/);
     falla(envio({ WHATSAPP_CONSENTIMIENTO_DIAS: "0" }), /WHATSAPP_CONSENTIMIENTO_DIAS tiene que estar entre 1 y 3650/);
     falla(envio({ WHATSAPP_ZONA_HORARIA: "Marte/Olimpo" }), /WHATSAPP_ZONA_HORARIA no es una zona horaria válida/);
     falla(envio({ WHATSAPP_PAUSA_MIN_S: "10", WHATSAPP_PAUSA_MAX_S: "5" }), /WHATSAPP_PAUSA_MAX_S \(5\) no puede ser menor que WHATSAPP_PAUSA_MIN_S \(10\)/);

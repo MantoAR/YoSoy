@@ -108,6 +108,34 @@ test("con Baileys, quien escribe primero queda anotado ANTES de reenviar a la AP
     await backend.cerrar();
 }));
 
+test("con los topes por defecto, una charla con el asistente no se corta a los 3 mensajes; un aviso suelto a otra persona sí tiene el tope chico", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const reloj = new RelojFalso();
+    const backend = await crearBackend(configBaileys(carpeta), { info() {}, error() {} }, { cargarBaileys: async () => falso.fachada, reenviar: () => {}, reloj });
+    backend.iniciar();
+    await esperarHasta(() => falso.sockets.length === 1, { descripcion: "el socket" });
+    await reloj.avanzar(0);
+    falso.ultimo.abrir();
+    const cola = crearColaParaBackend(backend, log);
+    assert.equal(backend.opcionesDeCola.limites.resumen().topePorDestinatario, 3);
+    assert.equal(backend.opcionesDeCola.limites.resumen().topeEnConversacion, 30);
+
+    // Ella escribe y el asistente le contesta: pedir un turno lleva cinco mensajes, no tres.
+    falso.ultimo.recibir({ de: "5491155550001@s.whatsapp.net", texto: "hola", id: "C1" });
+    for (let i = 1; i <= 8; i++) assert.equal(cola.encolar("1155550001", `respuesta ${i}`).ok, true, `respuesta ${i}`);
+
+    // A otra persona que nunca escribió, solo un aviso que ella aceptó: el tope de siempre.
+    assert.equal(cola.encolar("1166667777", "aviso 1", { optIn: true }).ok, true);
+    assert.equal(cola.encolar("1166667777", "aviso 2", { optIn: true }).ok, true);
+    assert.equal(cola.encolar("1166667777", "aviso 3", { optIn: true }).ok, true);
+    const cuarto = cola.encolar("1166667777", "aviso 4", { optIn: true });
+    assert.equal(cuarto.codigo, "limite_destinatario");
+    assert.match(cuarto.error, /ya se le mandaron 3 mensajes hoy/);
+
+    cola.detener();
+    await backend.cerrar();
+}));
+
 test("al apagar, datos.cerrar() espera a los dos archivos: los consentimientos y los contadores", conCarpeta(async carpeta => {
     const falso = fachadaFalsa();
     const backend = await crearBackend(configBaileys(carpeta), { info() {}, error() {} }, { cargarBaileys: async () => falso.fachada, reenviar: () => {} });

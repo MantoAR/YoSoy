@@ -15,12 +15,16 @@ const { huellaDeTelefono, interpretarComando, ocultarNumeros } = require("./priv
 
 const UN_DIA_MS = 24 * 60 * 60 * 1000;
 const MAX_CONTACTOS = 50000;        // tope de entradas del archivo: al pasarlo se olvidan primero las constancias más viejas
+// "Está conversando": la persona escribió hace menos de esto (la ventana de atención al cliente de WhatsApp). Solo cambia el tope de mensajes por
+// persona (ver limites.js): una conversación con el asistente lleva más mensajes que un aviso suelto.
+const HORAS_DE_CONVERSACION = 24;
 
 class RegistroDeConsentimiento {
-    constructor({ almacen, clave, diasDeVigencia = 365, reloj = { ahora: () => Date.now() }, log, maxContactos = MAX_CONTACTOS }) {
+    constructor({ almacen, clave, diasDeVigencia = 365, horasDeConversacion = HORAS_DE_CONVERSACION, reloj = { ahora: () => Date.now() }, log, maxContactos = MAX_CONTACTOS }) {
         this._almacen = almacen;
         this._clave = clave;
         this._vigenciaMs = diasDeVigencia * UN_DIA_MS;
+        this._conversacionMs = Math.min(horasDeConversacion * 60 * 60 * 1000, this._vigenciaMs);   // nunca más que la vigencia
         this._reloj = reloj;
         this._log = log;
         this._maxContactos = maxContactos;
@@ -40,7 +44,9 @@ class RegistroDeConsentimiento {
         return this._contactos.size;
     }
 
-    // ¿Se le puede escribir a este teléfono? { ok:true, via } o { ok:false, estado, codigo, error }.
+    // ¿Se le puede escribir a este teléfono? { ok:true, via, huella, enConversacion } o { ok:false, estado, codigo, error }.
+    // enConversacion: la persona escribió hace menos de HORAS_DE_CONVERSACION (con o sin optIn): el mensaje es parte de una conversación que
+    // ella empezó o retomó, no un aviso suelto. Lo usa la cola para elegir el tope de mensajes por persona.
     permite(telefono, { optIn = false } = {}) {
         const huella = huellaDeTelefono(telefono, this._clave);
         if (huella === null) {
@@ -50,8 +56,9 @@ class RegistroDeConsentimiento {
         if (c?.baja) {
             return { ok: false, estado: 403, codigo: "baja", error: "La persona pidió no recibir más mensajes por WhatsApp (BAJA)." };
         }
-        if (optIn === true) return { ok: true, via: "optin_api", huella };
-        if (c && this._reloj.ahora() - c.ultimo <= this._vigenciaMs) return { ok: true, via: "escribio_primero", huella };
+        const enConversacion = c !== undefined && this._reloj.ahora() - c.ultimo <= this._conversacionMs;
+        if (optIn === true) return { ok: true, via: "optin_api", huella, enConversacion };
+        if (c && this._reloj.ahora() - c.ultimo <= this._vigenciaMs) return { ok: true, via: "escribio_primero", huella, enConversacion };
         return {
             ok: false, estado: 403, codigo: "sin_consentimiento",
             error: "No hay constancia de que la persona acepte recibir WhatsApp: no le escribió a este número y la API no marcó optIn."
@@ -102,4 +109,4 @@ class RegistroDeConsentimiento {
     }
 }
 
-module.exports = { RegistroDeConsentimiento, MAX_CONTACTOS };
+module.exports = { RegistroDeConsentimiento, MAX_CONTACTOS, HORAS_DE_CONVERSACION };

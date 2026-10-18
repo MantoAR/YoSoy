@@ -42,6 +42,7 @@ public class RecordatoriosSinWhatsAppTests
         public void ActualizarEstadoEnvio(int idMensaje, string estado) => Todos.Single(x => x.IdMensaje == idMensaje).EstadoEnvio = estado;
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
+        public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
     }
 
     // El aviso con el teléfono y el mail del paciente (FakeDatos no los carga), y la campanita con su texto.

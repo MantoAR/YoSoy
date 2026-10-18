@@ -164,9 +164,17 @@ con `optIn:true`: eso lo decide la API.
 | Tope | Por defecto | Variable | Al llegar |
 |---|---|---|---|
 | Mensajes por día (en la zona horaria de la clínica) | 100 | `WHATSAPP_TOPE_DIARIO` (1 a 1000) | `429 tope_diario`, hasta mañana |
-| Mensajes por persona y por día | 3 | `WHATSAPP_TOPE_POR_PERSONA` (1 a 20) | `429 limite_destinatario` |
+| Mensajes por persona y por día (un aviso suelto) | 3 | `WHATSAPP_TOPE_POR_PERSONA` (1 a 20) | `429 limite_destinatario` |
+| Mensajes por persona y por día, **si ella está conversando** (escribió hace menos de 24 horas) | 30 | `WHATSAPP_TOPE_EN_CONVERSACION` (1 a 200) | `429 limite_destinatario` |
 | Mensajes por hora | 40 | `WHATSAPP_TOPE_POR_HORA` (1 a 500) | los aceptados esperan en la cola hasta que se libere lugar |
 | Cola | 50 pendientes | — | `503 cola_llena` |
+
+**Dos topes por persona, según si está conversando.** Un aviso suelto (algo que la clínica le manda a quien no le escribió hoy) se corta
+en 3 por día: ninguna persona recibe una ráfaga, aunque la API se equivoque y repita un envío. Pero una charla con el asistente
+(pedir un turno lleva cinco mensajes o más) pasa de 3 enseguida, y un tope de 3 la cortaría a la mitad. Por eso, si la persona **escribió
+hace menos de 24 horas**, rige el tope de una conversación (30 por día). Los dos topes cuentan los mismos mensajes del día: no se suman. Lo
+decide el servicio con lo que ya sabe (cuándo le escribió la persona): la API no tiene que avisarle nada. Los topes por día y por hora
+siguen valiendo para todo.
 
 Los mensajes que esperan en la cola ya cuentan contra el tope del día, así que todo lo que se acepta se puede mandar hoy. Un envío
 que falla devuelve su lugar. **Para un número nuevo conviene empezar bajo** (por ejemplo `WHATSAPP_TOPE_DIARIO=30`) y subir de a
@@ -274,7 +282,8 @@ Si una variable está definida en la unit y en `whatsapp.env`, vale la de `whats
 | `WHATSAPP_BAILEYS_BUSCAR_VERSION` | apagado | `1` pide la última versión conocida al arrancar (un pedido a `raw.githubusercontent.com`). |
 | `WHATSAPP_TOPE_DIARIO` | `100` (1 a 1000) | Mensajes por día. Para un número nuevo, empezar en 30. |
 | `WHATSAPP_TOPE_POR_HORA` | `40` (1 a 500) | Mensajes por hora; los que se pasan esperan en la cola. |
-| `WHATSAPP_TOPE_POR_PERSONA` | `3` (1 a 20) | Mensajes por persona y por día. |
+| `WHATSAPP_TOPE_POR_PERSONA` | `3` (1 a 20) | Mensajes por persona y por día (un aviso suelto). |
+| `WHATSAPP_TOPE_EN_CONVERSACION` | `30` (1 a 200) | Mensajes por persona y por día si ella está conversando (escribió hace menos de 24 horas). Nunca menos que el de arriba. |
 | `WHATSAPP_CONSENTIMIENTO_DIAS` | `365` (1 a 3650) | Cuánto vale que la persona le haya escrito primero al número. |
 | `WHATSAPP_ZONA_HORARIA` | `America/Argentina/Buenos_Aires` | Zona en la que cambia el día para el tope diario. |
 | `WHATSAPP_PAUSA_MIN_S`, `WHATSAPP_PAUSA_MAX_S` | `4` y `9` | Pausa al azar entre mensajes, en segundos. |

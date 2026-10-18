@@ -10,7 +10,7 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
   - Se pausa el uso saliente por el riesgo de bloqueo de una API no oficial: **lo que quede de WhatsApp tiene que ser de bajo riesgo**.
 - **Límites duros:** no se leen ni imprimen `.env`, `whatsapp.env`, `signaling.env` ni `video.env`; sin deploy, sin `sudo`, sin tocar el VPS ni la
   base `yosoy`, sin aplicar migraciones; **nada se conecta ni se manda a WhatsApp real**; sin merge a `main` ni `--force`. Un commit por etapa.
-- **Última actualización:** 2026-10-18, tras la etapa 4 (evaluación del consentimiento).
+- **Última actualización:** 2026-10-18, tras la etapa 5 (anti-bloqueo): las cinco etapas están hechas. Lo que falta es tuyo: ver "Pasos manuales para Agustín" y "Qué falta".
 
 ## Estado de las etapas
 
@@ -20,8 +20,8 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
 | 1 | Sacar whatsapp-web.js (servicio, API, docs, VPS) | **hecho** | `0ae4dfd` |
 | 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | `341807f` |
 | 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | **hecho** | `e25061f` |
-| 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | **hecho** | (este commit) |
-| 5 | Anti-bloqueo de lo que quede | pendiente | |
+| 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | **hecho** | `e9f0962` |
+| 5 | Anti-bloqueo de lo que quede | **hecho** | (este commit) |
 
 ## Cómo retomar
 
@@ -137,6 +137,7 @@ Lo que **no** sale por WhatsApp, para que no haya dudas:
    teléfono. Está acotado (solo desde la propia máquina; el servicio exige constancia de esa persona) pero conviene saberlo.
 8. **Cerrar y reabrir una conversación mandan un texto fijo** aunque la persona nunca haya escrito (S8 y S9): se cubre en la etapa 5.
 9. **`CanalWhatsAppCloud`** es un enchufe sin usar para la API oficial de Meta. Se deja (está en la hoja de ruta del `README.md`).
+10. **El tope de 3 mensajes por persona y por día cortaba al asistente a la mitad** (lo vi en la etapa 5, al revisar los topes contra lo que queda). Contaba también las respuestas del asistente, y pedir un turno lleva unos cinco mensajes. Se corrigió en la etapa 5 con un tope más alto cuando la persona está conversando; los avisos sueltos siguen con el de 3.
 
 ## Etapa 1: sacar whatsapp-web.js
 
@@ -345,23 +346,88 @@ Borrar el módulo entero: reglas, DAO, endpoints, pantallas, texto, pruebas y do
 - `WHATSAPP_CONSENTIMIENTO_DIAS` (por defecto 365) es cuánto vale en el servicio "me escribió primero". Es la perilla para acortar la ventana de las respuestas tardías si se quiere más cuidado (etapa 5).
 - Lo que se decidió en el consentimiento sobre el **teléfono sin verificar** (cualquiera puede tildar la casilla con el celular de otro) sigue pendiente (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Qué falta", punto 1): con los avisos pausados, deja de ser un riesgo.
 
+## Etapa 5: anti-bloqueo de lo que queda
+
+Dos cosas: comprobar que las protecciones del servicio siguen puestas (y probadas) ahora que Baileys es el único motor, y asegurar que **una respuesta automática solo sale dentro de una conversación que empezó la persona**. En el camino apareció un problema real entre los topes y el asistente (hallazgo 10).
+
+### Las protecciones que siguen puestas
+
+Todas viven en `whatsapp-service` y vienen **prendidas por defecto**; la cola no se arma sin ellas (`crearColaParaBackend` lanza un error, etapa 1). Sin cambios de valores, salvo el tope por persona (abajo).
+
+| Protección | Por defecto | Dónde | Quién la traba |
+|---|---|---|---|
+| Solo a quien escribió primero (365 días) o aceptó (`optIn`); la BAJA gana sobre todo | `WHATSAPP_CONSENTIMIENTO_DIAS=365` | `consentimiento.js` | `consentimiento.test.js` y la prueba de punta a punta de `backend.test.js` |
+| Tope por día / por hora | 100 / 40 (lo que pasa la hora espera en la cola) | `limites.js` | `cola.test.js`, `consentimiento.test.js` |
+| Tope por persona y por día | 3 (aviso suelto) · **30 si está conversando** | `limites.js` | pruebas nuevas, abajo |
+| Pausa entre mensajes | 4 a 9 s al azar | `cola.js` | `backend.test.js` (los valores que arma el backend), `cola.test.js` |
+| Pausa larga | 30 a 75 s cada 8 a 14 mensajes | `cola.js` | `backend.test.js`, `cola.test.js` |
+| "escribiendo..." antes de cada mensaje | prendido (hasta 4 s; `WHATSAPP_SIMULAR_ESCRITURA=0` lo apaga) | `baileys/servicio.js` | `config.test.js` (por defecto), `backend.test.js`, `baileys-servicio.test.js` |
+| Cola | 50 pendientes; lo que lleva más de 3 horas esperando se descarta | `cola.js` | `cola.test.js` |
+
+### Hallazgo 10: el tope por persona (3 por día) cortaba al asistente a la mitad
+
+Con Baileys como único motor, **el tope de 3 mensajes por persona y por día contaba también las respuestas del asistente**. Pedir un turno lleva unos cinco mensajes (menú, profesional, horarios, confirmación...), así que la cuarta respuesta del día recibía un `429 limite_destinatario` y la charla quedaba muerta:
+la persona no recibía nunca la confirmación. Hasta ahora no se había visto porque en producción corre el servicio viejo (sin topes) y Baileys no está desplegado. Es exactamente lo que **dejaría de andar el día del cambio**.
+
+**Qué hice (el cambio más chico que lo resuelve):** el servicio ahora distingue si la persona **está conversando** —escribió hace menos de 24 horas, algo que ya sabe por su registro de "escribió primero"— y en ese caso rige un tope más alto (**30 por día**, `WHATSAPP_TOPE_EN_CONVERSACION`, de 1 a 200). Para un **aviso suelto** (la clínica le manda algo a quien no escribió hoy) **sigue el tope de 3**.
+Los dos topes cuentan los mismos mensajes del día (no se suman) y los topes por día y por hora siguen valiendo para todo. La API no tiene que avisar nada. Con `WHATSAPP_TOPE_EN_CONVERSACION=3` se vuelve a lo de antes.
+Alternativa que **no** tomé: subir `WHATSAPP_TOPE_POR_PERSONA` a 20, que afloja también el tope de los avisos sueltos.
+
+**Ojo con los topes generales:** las respuestas del asistente gastan los mismos topes de día y de hora. Con los iniciales recomendados (30 por día, 10 por hora) alcanza para unas seis charlas de pedir un turno por día. `DEPLOY.md` (paso 5) ya lo avisa: subilos de a poco según lo que reciba el consultorio.
+
+### La regla de la API: una respuesta automática solo dentro de una conversación que empezó la persona
+
+- **Dónde:** en `ServicioMensajes`, el único punto por el que sale todo. Un mensaje de origen **`Bot`** o **`Sistema`** se manda solo si la persona **ya escribió en esa conversación** (hay al menos un mensaje entrante: `IMensajeChatDAO.TieneMensajeEntrante`). Si no, **no se guarda ni se manda**: la llamada devuelve un error con el código `sin_conversacion_iniciada` y queda una línea en el log (solo el número de conversación y el origen; sin teléfono ni texto).
+- **A quién alcanza hoy:** el aviso de **"el equipo cerró esta conversación"** y el de **"reabrió"** (S8 y S9), que antes salían aunque la persona nunca hubiera escrito (conversaciones que armó un aviso de turno). Cerrar y reabrir funcionan igual para el equipo (cambia el estado y se audita); solo que a la persona no le llega nada. Las **respuestas del asistente** (S6) siempre cumplen la regla, porque el mensaje de la persona se guarda antes de contestar: la regla es una red de seguridad por si algún camino nuevo se olvidara.
+- **Las excepciones, por nombre y una por una:** (1) **el equipo** (`Humano`): lo escribe una persona, que decide, y el servicio de WhatsApp igual exige consentimiento; (2) **los cuatro avisos de turno por evento**, que declaran `OpcionesEnvio.IniciaElNegocio` (S2 a S5, etapa 3). Por defecto `IniciaElNegocio` es `false`: **todo mensaje automático nuevo queda sujeto a la regla** si no se declara. Una prueba falla si otro archivo que no sea `NotificadorTurnos` usa la excepción.
+- **`optIn` no es una excepción:** aceptar los avisos no es escribir. Se prueba aparte.
+- **Vale igual para el canal simulado** (lo que se prueba es lo que corre).
+
+### Decisiones y límites
+
+1. **"Escribió alguna vez" y no "escribió hace poco"** en la API. La ventana de tiempo ya la pone el servicio (`WHATSAPP_CONSENTIMIENTO_DIAS`, 365 por defecto): si querés que **solo se le pueda contestar dentro de las 24 horas** de su último mensaje, ponelo en `1`. No lo hice por defecto porque una respuesta humana de la secretaría al día siguiente es normal en un consultorio y se rechazaría (`403 sin_consentimiento`).
+2. **El mensaje bloqueado no se guarda**: la tabla `MensajeChat` solo admite `Pendiente`, `Enviado` y `Error` (sin migraciones no puedo agregar un estado), y guardarlo como `Error` mostraría en la bandeja un aviso del sistema que la persona nunca iba a recibir.
+3. **No toqué** los textos, el consentimiento, los avisos de turno (S2 a S5) ni las tablas.
+4. **Los valores por defecto siguen siendo una opinión, no un dato de WhatsApp** (WhatsApp no publica sus umbrales) y **no se probaron contra WhatsApp real**: las pruebas usan reloj falso y socket simulado.
+
+### Pruebas de esta etapa
+
+- **Servicio** (`npm test`): **398 pruebas, 392 pasan, 6 saltadas (permisos POSIX), 0 fallas** (eran 389). Nuevas: el registro dice cuándo una persona está conversando (con y sin `optIn`, el límite exacto de las 24 horas, y que nunca supere la vigencia ni se informe si pidió la baja), los topes distinguen conversación de aviso suelto (se cuentan juntos, lo que espera en la cola cuenta, un envío que falla devuelve el lugar), la cola le pasa a los topes lo que dice el consentimiento, la configuración (valor por defecto y límites de `WHATSAPP_TOPE_EN_CONVERSACION`) y **de punta a punta con los valores por defecto**: una charla de ocho respuestas pasa, y un aviso con `optIn` a otra persona se corta en el cuarto.
+  **8 mutaciones**, todas detectadas (la cola que no pasa el dato, la ventana igual a la vigencia, siempre el tope grande o siempre el chico, conversar con un tope menor que un aviso, el backend sin pasar el tope, `optIn` que siempre "conversa", el valor por defecto en 3).
+- **API** (`Scripts\correr-tests.ps1`): **1448 de 1448** (eran 1430: entran los 18 casos de `RespuestasAutomaticasTests.cs`). Archivo nuevo `RespuestasAutomaticasTests.cs`: en memoria (con y sin mensaje entrante, para cada origen y cada opción; que lo que mandó antes la clínica no cuente; que cuente solo esa conversación; el log sin teléfono ni texto; que solo `NotificadorTurnos` use la excepción) y **la aplicación entera contra la base de pruebas**, con el canal de WhatsApp reemplazado por uno que anota cada envío:
+  el asistente contesta, cerrar y reabrir mandan su aviso si la persona escribió y **no mandan nada si la conversación la armó un aviso** (con otra conversación que sí tiene mensajes de la persona, para que no se confundan), y el equipo puede responder.
+  **10 mutaciones**, todas detectadas, incluidas las del acceso a datos (que cuente cualquier dirección o cualquier conversación): sin la regla, la regla también para el equipo, sin la excepción de los avisos, el notificador sin declararla, `Sistema` como no automático, `optIn` como excepción, guardar igual el mensaje bloqueado y perder el código del error.
+- **Adaptadas:** `ServicioMensajesOpcionesTests` (modelan opciones y el código de rechazo, no el origen), los dobles de `IMensajeChatDAO` y las pruebas del notificador (ahora también comprueban `IniciaElNegocio`).
+
 ## Pasos manuales para Agustín
 
 En este orden. Nada de esto lo hice yo: lo que toca producción o el teléfono del número es tuyo.
 
-1. **Antes de publicar la API: mirá el valor de `Mensajeria__CanalActivo` en el servidor.** Con esto se imprime solo esa línea:
+1. **Abrir y revisar el PR** (`refactor/whatsapp-solo-baileys` contra `main`; el link de compare, con título y descripción, está en el mensaje final). Son la auditoría y cinco etapas, un commit cada una. No hay migraciones.
+2. **Antes de publicar la API: mirá el valor de `Mensajeria__CanalActivo` en el servidor.** Con esto se imprime solo esa línea:
    `sudo grep -n '^Mensajeria__CanalActivo=' /opt/yosoy/config/.env`. Si dice **`WhatsAppWebJs`**, cambialo a `Baileys` (anda igual con el servicio viejo) o a `Simulado`; si no, la API **no arranca**.
    Detalle: `docs/DEPLOY.md`, "WhatsApp en la API".
-2. **Después, desplegar el servicio nuevo y vincular el número** (`docs/DEPLOY.md`, "Despliegue de whatsapp-service (Baileys)"): instalar al lado, backup, corte, topes iniciales bajos, vincular y probar con tu teléfono.
-3. **Cuando lleve unos días estable, limpiar lo viejo** (`DEPLOY.md`, "10. Limpieza de lo viejo"): ya **no hace falta instalar ni mantener** en el VPS
+3. **Publicar la API** con el flujo de siempre. Desde ese momento **el recordatorio de 24 h sale solo por mail y campanita** (nada por WhatsApp), y cerrar o reabrir una conversación le manda el aviso a la persona solo si ella escribió.
+4. **Desplegar el servicio nuevo y vincular el número** (`docs/DEPLOY.md`, "Despliegue de whatsapp-service (Baileys)"): instalar al lado, backup, corte, topes iniciales bajos, vincular y probar con tu teléfono.
+   **Dos cosas para tener presentes:** (a) **el asistente gasta los mismos topes** de día y de hora (con 30 por día, unas seis charlas de pedir turno): subilos de a poco según lo que reciba el consultorio; (b) hay un tope por persona nuevo, `WHATSAPP_TOPE_EN_CONVERSACION` (30 por defecto; no hace falta tocarlo).
+5. **Decidir** qué hacer con los cuatro avisos de turno por WhatsApp (etapa 3: la recomendación es una llave `Mensajeria:AvisosPorWhatsApp` apagada por defecto, y decidir si también salen por mail) y, según eso, con el consentimiento de WhatsApp (etapa 4: dejarlo dormido, simplificarlo o sacarlo). **No hace falta decidir para publicar:** mientras tanto los avisos siguen saliendo solo a quien aceptó o escribió primero.
+6. **Cuando lleve unos días estable, limpiar lo viejo** (`DEPLOY.md`, "10. Limpieza de lo viejo"): ya **no hace falta instalar ni mantener** en el VPS
    - **Chromium y sus paquetes** (`libnss3`, `libatk1.0-0t64`, `libatk-bridge2.0-0t64`, `libgtk-3-0t64`, `libgbm1`, `libasound2t64`): opcional, con `apt remove --dry-run` primero (algunas las usan otros programas);
    - **`/opt/yosoy/whatsapp/sesion`**: la sesión vieja de whatsapp-web.js, **una credencial** (desvinculá antes el dispositivo viejo desde el teléfono);
    - **`/opt/yosoy/whatsapp/cache`**: el Chromium de Puppeteer y su perfil (la carpeta se vacía y queda solo para la caché de npm);
    - **`app-anterior-<fecha>`** y el backup de la unit y del `whatsapp.env` viejos, pasados unos días;
    - las **variables viejas** de `whatsapp.env`: `WHATSAPP_BACKEND`, `WHATSAPP_SESSION_PATH`, `WHATSAPP_WEB_VERSION`, `WHATSAPP_DEBUG` y `PUPPETEER_*` (el servicio las nombra en el log al arrancar; solo nombres);
    - cualquier ajuste de AppArmor o de `kernel.apparmor_restrict_unprivileged_userns` que hayas hecho para el sandbox de Chromium (el servicio viejo arrancaba con `--no-sandbox`, así que probablemente ninguno).
-4. **En tu PC**: si tenías una carpeta `.wwebjs_auth` o `.wwebjs_cache` de pruebas viejas dentro de `whatsapp-service/`, borrala (era la sesión de una cuenta). No encontré ninguna en este árbol.
+7. **En tu PC**: si tenías una carpeta `.wwebjs_auth` o `.wwebjs_cache` de pruebas viejas dentro de `whatsapp-service/`, borrala (era la sesión de una cuenta). No encontré ninguna en este árbol.
 
 ## Qué falta / pendiente de decisión
 
-(Se completa etapa por etapa.)
+1. **Los cuatro avisos de turno por WhatsApp** (solicitud, propuesta, confirmación, cancelación): son lo único que abre una conversación sin que la persona haya escrito (solo con consentimiento). Opciones y recomendación: etapa 3. Si se pausan, la campanita queda como único aviso de turno (a menos que se agregue el mail a esos avisos).
+2. **El consentimiento de WhatsApp** (etapa 4): dejarlo dormido (recomendado), simplificarlo o sacarlo. En cualquier caso, **el texto `v0-provisorio` promete un recordatorio que ya no existe**; antes de usarlo con pacientes reales hay que publicar una versión nueva con el equipo legal.
+3. **Un paciente sin mail** (el registro público lo exige, pero la columna admite `NULL`) **ya no se entera del recordatorio** si no entra a la app: antes le llegaba por WhatsApp.
+4. **`BotReservasService.ResponderRecordatorio`** (el "1 = asisto, 2 = no puedo") quedó como código heredado para las conversaciones que ya estaban esperando esa respuesta. Se puede borrar cuando esas conversaciones hayan vencido.
+5. **Ventana de tiempo para las respuestas automáticas:** la API pide que la persona haya escrito *alguna vez* en la conversación, y el servicio la acota con `WHATSAPP_CONSENTIMIENTO_DIAS` (365). Si querés que solo se pueda contestar dentro de las 24 horas de su último mensaje, ponelo en `1` (el costo: una respuesta humana al día siguiente se rechaza).
+6. **Nada de esto se probó contra WhatsApp real** (límite de la tarea): ni los topes, ni las pausas, ni el "escribiendo...". Los valores por defecto son una opinión prudente, no un dato de WhatsApp; el primer despliegue es la primera vez que algo corre contra el servicio de verdad, y hay que hacerlo con el teléfono del número en la mano.
+7. **El chat simulado usa el canal activo** (H7): con `Baileys`, un pedido local al simulador hace que el asistente le conteste por WhatsApp real a ese teléfono (acotado: solo desde la propia máquina, y el servicio exige constancia de esa persona).
+8. **`CanalWhatsAppCloud`** (la API oficial de Meta) sigue siendo un enchufe sin usar: es la salida natural si algún día se quiere volver a mandar avisos de forma legítima.
+9. **En el VPS hoy corre el servicio viejo** (`whatsapp-web.js` + Chromium): todo lo de este PR es código en `main` y no está desplegado.

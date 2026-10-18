@@ -97,7 +97,9 @@ public class NotificadorWhatsAppConsentimientoTests
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Single(a.Salientes);
-        Assert.True(Assert.Single(a.E.Mensajes.OpcionesDeEnvio).OptIn);
+        var opciones = Assert.Single(a.E.Mensajes.OpcionesDeEnvio);
+        Assert.True(opciones.OptIn);
+        Assert.True(opciones.IniciaElNegocio);   // un aviso de turno no responde a nada: no está sujeto a la regla de las respuestas automáticas
         Assert.Equal("Enviado", a.Chat.Estado);
     }
 
@@ -109,7 +111,9 @@ public class NotificadorWhatsAppConsentimientoTests
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Single(a.Salientes);
-        Assert.False(Assert.Single(a.E.Mensajes.OpcionesDeEnvio).OptIn);
+        var opciones = Assert.Single(a.E.Mensajes.OpcionesDeEnvio);
+        Assert.False(opciones.OptIn);
+        Assert.True(opciones.IniciaElNegocio);
         Assert.Equal("Enviado", a.Chat.Estado);
     }
 
@@ -396,6 +400,7 @@ public class ServicioMensajesOpcionesTests
         public void ActualizarEstadoEnvio(int idMensaje, string estado) => Todos.Single(x => x.IdMensaje == idMensaje).EstadoEnvio = estado;
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
+        public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -426,8 +431,8 @@ public class ServicioMensajesOpcionesTests
     {
         var (servicio, _, canal, c) = Armar();
 
-        await servicio.EnviarAsync(c, "con", "Sistema", new OpcionesEnvio(OptIn: true));
-        await servicio.EnviarAsync(c, "sin", "Sistema");
+        await servicio.EnviarAsync(c, "con", "Humano", new OpcionesEnvio(OptIn: true));
+        await servicio.EnviarAsync(c, "sin", "Humano");
 
         Assert.Equal(new[] { true, false }, canal.Envios.Select(e => e.Opciones.OptIn));
         Assert.Equal(new[] { "con", "sin" }, canal.Envios.Select(e => e.Texto));
@@ -439,9 +444,9 @@ public class ServicioMensajesOpcionesTests
         var (servicio, mensajes, canal, c) = Armar();
         canal.Resultado = new ResultadoEnvio(false, Error: "no", Codigo: "sin_consentimiento");
 
-        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema");
+        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
         canal.Resultado = new ResultadoEnvio(true, "x", Codigo: "algo");
-        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema");
+        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
 
         Assert.Equal(("Error", "sin_consentimiento"), (rechazado.EstadoEnvio, rechazado.CodigoDeError));
         Assert.Equal(("Enviado", (string?)null), (enviado.EstadoEnvio, enviado.CodigoDeError));

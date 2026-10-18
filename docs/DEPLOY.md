@@ -486,6 +486,11 @@ sudo stat -c '%a %U:%G %n' /opt/yosoy/config/whatsapp.env          # sigue en 60
 (Esas dos variables y las demás: `whatsapp-service/README.md`, "Baileys: protecciones contra el bloqueo del número".) No se imprime el
 archivo: tiene el secreto.
 
+**Ojo: las respuestas del asistente gastan estos mismos topes** (cada mensaje cuenta, sea un aviso o una respuesta). Pedir un turno por el asistente lleva
+unos cinco mensajes: con 30 por día alcanza para unas seis charlas, y con 10 por hora, a la tercera charla de esa hora los mensajes esperan en la cola. Si el consultorio recibe más,
+subí `WHATSAPP_TOPE_DIARIO` de a poco: contestarle a quien **escribe primero** es el tráfico de menor riesgo. Por persona hay dos topes: 3 por día para un aviso suelto y
+30 si ella está conversando (escribió hace menos de 24 horas; `WHATSAPP_TOPE_EN_CONVERSACION`), así una charla no se corta a la mitad.
+
 ## 6. Arrancar y verificar (todavía sin vincular)
 
 ```bash

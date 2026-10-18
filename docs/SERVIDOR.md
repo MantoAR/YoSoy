@@ -247,7 +247,7 @@ defecto en [`VIDEOLLAMADAS.md`](VIDEOLLAMADAS.md)):
 **`/opt/yosoy/config/whatsapp.env`** (WhatsApp): `Mensajeria__WhatsApp__Secreto` (secreto compartido con la API) y
 `API_BASE_URL` (`http://127.0.0.1:5000`). La unit (`whatsapp-service/deploy/whatsapp-service.service`) agrega
 `WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys`; y en `whatsapp.env` se pueden poner, opcionales, los topes y las pausas
-(`WHATSAPP_TOPE_DIARIO`, `WHATSAPP_TOPE_POR_HORA`, `WHATSAPP_TOPE_POR_PERSONA`, `WHATSAPP_CONSENTIMIENTO_DIAS`, `WHATSAPP_ZONA_HORARIA`,
+(`WHATSAPP_TOPE_DIARIO`, `WHATSAPP_TOPE_POR_HORA`, `WHATSAPP_TOPE_POR_PERSONA`, `WHATSAPP_TOPE_EN_CONVERSACION`, `WHATSAPP_CONSENTIMIENTO_DIAS`, `WHATSAPP_ZONA_HORARIA`,
 `WHATSAPP_PAUSA_MIN_S`, `WHATSAPP_PAUSA_MAX_S`, `WHATSAPP_SIMULAR_ESCRITURA`, `WHATSAPP_BAILEYS_VENTANAS_QR`...): lista completa y valores
 por defecto en `whatsapp-service/README.md`. Las variables del servicio viejo (`WHATSAPP_BACKEND`, `WHATSAPP_SESSION_PATH`, `WHATSAPP_WEB_VERSION`, `WHATSAPP_DEBUG` y `PUPPETEER_*`)
 ya no se leen: si quedaron, el servicio las avisa en el log (solo los nombres) y se pueden borrar. En la API: `Mensajeria__CanalActivo` (`Simulado` o `Baileys`; `WhatsAppWebJs` ya

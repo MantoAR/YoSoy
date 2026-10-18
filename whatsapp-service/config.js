@@ -124,6 +124,7 @@ function leerConfigEnvio(env = process.env) {
         topeDiario: entero(env, "WHATSAPP_TOPE_DIARIO", 100, { min: 1, max: 1000 }),
         topePorHora: entero(env, "WHATSAPP_TOPE_POR_HORA", 40, { min: 1, max: 500 }),
         topePorPersona: entero(env, "WHATSAPP_TOPE_POR_PERSONA", 3, { min: 1, max: 20 }),
+        topeEnConversacion: entero(env, "WHATSAPP_TOPE_EN_CONVERSACION", 30, { min: 1, max: 200 }),
         diasDeConsentimiento: entero(env, "WHATSAPP_CONSENTIMIENTO_DIAS", 365, { min: 1, max: 3650 }),
         zonaHoraria: zonaHoraria(env, "WHATSAPP_ZONA_HORARIA", "America/Argentina/Buenos_Aires"),
         pausaMinSeg,

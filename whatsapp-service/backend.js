@@ -43,7 +43,7 @@ async function crearBackend(config, log, deps = {}) {
     });
     await consentimiento.cargar();
     const limites = new LimiteDeEnvios({
-        topeDiario: envio.topeDiario, topePorHora: envio.topePorHora, topePorDestinatario: envio.topePorPersona,
+        topeDiario: envio.topeDiario, topePorHora: envio.topePorHora, topePorDestinatario: envio.topePorPersona, topeEnConversacion: envio.topeEnConversacion,
         zonaHoraria: envio.zonaHoraria, clave, log, ...(reloj ? { reloj } : {}),
         almacen: crearAlmacenJson(path.join(sesion.dirDatos, "envios.json"), { log, nombre: "los contadores de envío" })
     });

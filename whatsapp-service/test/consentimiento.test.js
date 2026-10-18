@@ -144,10 +144,47 @@ test("por defecto NO se envía: sin constancia, 403 sin_consentimiento", conCarp
 
 test("optIn:true de la API alcanza; cualquier otra cosa (1, 'true', 'si') no", conCarpeta(async (raiz, { log }) => {
     const { r } = await registro(raiz, log);
-    assert.deepEqual(Object.assign({}, r.permite(TEL, { optIn: true })), { ok: true, via: "optin_api", huella: huellaDeTelefono(TEL, CLAVE) });
+    assert.deepEqual(Object.assign({}, r.permite(TEL, { optIn: true })), { ok: true, via: "optin_api", huella: huellaDeTelefono(TEL, CLAVE), enConversacion: false });
     for (const falso of [1, "true", "si", {}, false, undefined, null]) {
         assert.equal(r.permite(TEL, { optIn: falso }).codigo, "sin_consentimiento", String(falso));
     }
+}));
+
+test("enConversacion: la persona escribió hace menos de un día, con o sin optIn; pasado el día, ya no", conCarpeta(async (raiz, { log }) => {
+    const { r, reloj } = await registro(raiz, log);
+    assert.equal(r.permite(TEL, { optIn: true }).enConversacion, false, "si nunca escribió, el optIn de la API no la pone en conversación");
+
+    r.alMensajeEntrante(TEL, "hola");
+    assert.equal(r.permite(TEL).enConversacion, true);
+    assert.equal(r.permite(TEL, { optIn: true }).enConversacion, true, "con optIn también: lo que cuenta es que escribió");
+    reloj.avanzar(24 * HORA);
+    assert.equal(r.permite(TEL).enConversacion, true, "a las 24 horas exactas todavía");
+
+    reloj.avanzar(1);
+    const res = r.permite(TEL);
+    assert.equal(res.ok, true, "se le puede seguir escribiendo: escribió primero hace menos de un año");
+    assert.equal(res.enConversacion, false, "pero ya no está conversando");
+    r.alMensajeEntrante(TEL, "hola de nuevo");
+    assert.equal(r.permite(TEL).enConversacion, true, "un mensaje nuevo la vuelve a poner en conversación");
+    assert.equal(r.permite(OTRO).enConversacion, undefined, "y a otra persona, que no está autorizada, no se le informa nada");
+}));
+
+test("la ventana de conversación nunca es más larga que la vigencia de la constancia", conCarpeta(async (raiz, { log }) => {
+    const { r, reloj } = await registro(raiz, log, { diasDeVigencia: 1, horasDeConversacion: 72 });
+    r.alMensajeEntrante(TEL, "hola");
+    reloj.avanzar(DIA);
+    assert.equal(r.permite(TEL).enConversacion, true);
+    reloj.avanzar(1);
+    assert.equal(r.permite(TEL, { optIn: true }).enConversacion, false, "pasó la vigencia de 1 día: no sigue conversando aunque la ventana fuera de 72 horas");
+}));
+
+test("la baja manda: una persona que pidió la baja no está en conversación porque no se le puede escribir", conCarpeta(async (raiz, { log }) => {
+    const { r } = await registro(raiz, log);
+    r.alMensajeEntrante(TEL, "hola");
+    r.alMensajeEntrante(TEL, "BAJA");
+    const res = r.permite(TEL, { optIn: true });
+    assert.equal(res.ok, false);
+    assert.equal(res.enConversacion, undefined);
 }));
 
 test("optIn de la API no se acumula: se evalúa en cada pedido", conCarpeta(async (raiz, { log }) => {
@@ -408,6 +445,56 @@ test("el resumen informa lo necesario para /salud", conCarpeta(async (raiz, { lo
     mandar(l, "1155550001");
     l.reservar("1155550002");
     assert.deepEqual(l.resumen(), {
-        dia: "2026-10-16", enviadosHoy: 1, enEspera: 1, topeDiario: 5, enviadosUltimaHora: 1, topePorHora: 3, topePorDestinatario: 2
+        dia: "2026-10-16", enviadosHoy: 1, enEspera: 1, topeDiario: 5, enviadosUltimaHora: 1, topePorHora: 3, topePorDestinatario: 2, topeEnConversacion: 2
     });
 }));
+
+test("tope por persona: conversando rige un tope más alto que para un aviso suelto, y los mensajes del día se cuentan juntos", conCarpeta(async (raiz, { log }) => {
+    const { l } = await limites(raiz, log, { topeDiario: 99, topePorHora: 99, topePorDestinatario: 2, topeEnConversacion: 4 });
+    const mandarEn = (telefono, enConversacion) => {
+        const r = l.reservar(telefono, { enConversacion });
+        if (r.ok) l.confirmar(r.huella);
+        return r;
+    };
+    // Un aviso suelto: dos en el día y listo.
+    assert.equal(mandarEn(TEL, false).ok, true);
+    assert.equal(mandarEn(TEL, false).ok, true);
+    const suelto = mandarEn(TEL, false);
+    assert.equal(suelto.estado, 429);
+    assert.equal(suelto.codigo, "limite_destinatario");
+    assert.match(suelto.error, /ya se le mandaron 2 mensajes hoy/);
+
+    // La misma persona, ahora conversando: hasta 4 en el día, contando los 2 que ya recibió.
+    assert.equal(mandarEn(TEL, true).ok, true);
+    assert.equal(mandarEn(TEL, true).ok, true);
+    const conversando = mandarEn(TEL, true);
+    assert.equal(conversando.estado, 429);
+    assert.equal(conversando.codigo, "limite_destinatario");
+    assert.match(conversando.error, /ya se le mandaron 4 mensajes hoy/);
+
+    // A otra persona no le afecta, y a ella le corresponde el tope de un aviso suelto.
+    assert.equal(mandarEn(OTRO, false).ok, true);
+    assert.equal(l.resumen().topeEnConversacion, 4);
+}));
+
+test("lo que espera en la cola cuenta para el tope de una conversación, y lo que no sale devuelve su lugar", conCarpeta(async (raiz, { log }) => {
+    const { l } = await limites(raiz, log, { topeDiario: 99, topePorHora: 99, topePorDestinatario: 1, topeEnConversacion: 3 });
+    const a = l.reservar(TEL, { enConversacion: true });
+    const b = l.reservar(TEL, { enConversacion: true });
+    const c = l.reservar(TEL, { enConversacion: true });
+    assert.deepEqual([a.ok, b.ok, c.ok], [true, true, true]);
+    assert.equal(l.reservar(TEL, { enConversacion: true }).codigo, "limite_destinatario", "tres reservados: el cuarto no entra");
+    l.liberar(c.huella);                                                // uno no salió: devuelve el lugar
+    assert.equal(l.reservar(TEL, { enConversacion: true }).ok, true);
+}));
+
+test("sin topeEnConversacion rige el de siempre, y uno menor que el de un aviso suelto se sube a ese (conversar nunca es menos)", () => {
+    const sinAlmacen = { leer: async () => null, guardar() {}, cerrar: async () => {} };
+    const armarLimites = extra => new LimiteDeEnvios({
+        topeDiario: 99, topePorHora: 99, zonaHoraria: "America/Argentina/Buenos_Aires", clave: CLAVE, almacen: sinAlmacen,
+        reloj: relojManual(), log: { info() {}, error() {} }, ...extra
+    });
+    assert.equal(armarLimites({ topePorDestinatario: 2 }).resumen().topeEnConversacion, 2);
+    assert.equal(armarLimites({ topePorDestinatario: 5, topeEnConversacion: 3 }).resumen().topeEnConversacion, 5);
+    assert.equal(armarLimites({ topePorDestinatario: 3, topeEnConversacion: 30 }).resumen().topeEnConversacion, 30);
+});

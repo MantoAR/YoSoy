@@ -243,7 +243,9 @@ public class NotificadorTurnos : INotificadorTurnos
         c.FechaUltimaActividad = Ahora;
         _conversaciones.Guardar(c);
 
-        var m = _mensajes.EnviarAsync(c, texto, "Sistema", new OpcionesEnvio(OptIn: permiso == PermisoEnvioWhatsApp.ConConsentimiento))
+        // IniciaElNegocio: un aviso de turno no responde a nada que la persona haya escrito (a diferencia de las respuestas del asistente y los
+        // avisos de cerrar y reabrir, que ServicioMensajes solo deja salir dentro de una conversación que ella empezó). Lo acota el consentimiento.
+        var m = _mensajes.EnviarAsync(c, texto, "Sistema", new OpcionesEnvio(OptIn: permiso == PermisoEnvioWhatsApp.ConConsentimiento, IniciaElNegocio: true))
             .GetAwaiter().GetResult();
         if (m.EstadoEnvio == "Enviado") return ("Enviado", null);
         // whatsapp-service rechazó el aviso porque la persona no aceptó recibir WhatsApp (o pidió la baja): no es una falla ni se reintenta.
