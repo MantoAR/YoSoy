@@ -312,7 +312,7 @@ de que haya aceptaciones que perder.
 
 ## WhatsApp en la API: `Mensajeria__CanalActivo` y recordatorios
 
-Esta versión de la API cambia dos cosas de WhatsApp (qué se decidió y por qué: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)):
+Esta versión de la API cambia tres cosas de WhatsApp (qué se decidió y por qué: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)):
 
 1. **`Mensajeria__CanalActivo` solo acepta `Simulado` y `Baileys`.** `WhatsAppWebJs` (el nombre del motor viejo) **ya no existe, y la API no arranca** con ese valor:
    falla al empezar con un mensaje que dice qué cambiar. **Antes de publicar**, mirá qué tiene el servidor (esto imprime solo esa línea, no el resto del archivo):
@@ -324,7 +324,11 @@ Esta versión de la API cambia dos cosas de WhatsApp (qué se decidió y por qu�
    - Si dice `Simulado` o `Baileys`, o no hay ninguna línea: no hay nada que cambiar.
 2. **No hay recordatorios por WhatsApp.** El recordatorio de 24 horas sale solo por **mail y campanita** (como hasta ahora); nada lo manda por WhatsApp, ni por configuración
    ni por defecto. Las filas viejas de `Recordatorio` con canal `Chat` quedan como historial (no se tocan). Los avisos por evento (solicitud, turno propuesto, confirmado y
-   cancelado) siguen por WhatsApp según el consentimiento: ver el archivo de progreso.
+   cancelado) dependen de la llave del punto 3.
+3. **Los cuatro avisos de turno por evento NO salen por WhatsApp por defecto.** La llave `Mensajeria__AvisosPorWhatsApp` viene **apagada**. Apagada: no sale ninguno
+   por WhatsApp (el mail y la campanita siguen igual) y todo el consentimiento de WhatsApp queda dormido (no se ofrece en el registro ni en el perfil, no hay link
+   `wa.me`). Las respuestas del asistente a quien le escribe **no** dependen de esta llave. Para prenderla: `Mensajeria__AvisosPorWhatsApp=true` en el `.env` y reiniciar la API,
+   con la migración 16 aplicada antes ([Consentimiento de WhatsApp](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue)).
 
 Orden recomendado: **(1)** el valor de `Mensajeria__CanalActivo` en `.env`, **(2)** publicar la API (secciones de arriba), **(3)** recién después desplegar el servicio nuevo y
 vincular el número ([más abajo](#despliegue-de-whatsapp-service-baileys)).

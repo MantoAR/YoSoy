@@ -3,7 +3,8 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Servicio único de avisos automáticos:
 ///  - Por evento (solicitud recibida, turno agendado por el profesional, confirmado,
-///    cancelado): chat (canal activo) + campanita del paciente (Notificacion).
+///    cancelado): chat (canal activo, SOLO si Mensajeria:AvisosPorWhatsApp está prendido: por defecto no sale
+///    ninguno por WhatsApp) + campanita del paciente (Notificacion).
 ///  - Recordatorio 24 h (lo dispara RecordatorioBackgroundService): mail + campanita. NUNCA por
 ///    WhatsApp: el uso saliente de WhatsApp está pausado y un recordatorio es lo programado y masivo.
 ///  - Avisos internos (urgencia, derivación, paciente que no asistirá): NotificacionInterna
@@ -226,6 +227,10 @@ public class NotificadorTurnos : INotificadorTurnos
 
     private (string, string?) EnviarChat(TurnoAviso t, string texto)
     {
+        // La llave de los avisos por WhatsApp, ANTES que cualquier otra cosa: apagada (por defecto) no se consulta el consentimiento (que es la tabla
+        // ConsentimientoWhatsApp), no se arma la conversación y no se toca el canal. El mail y la campanita no dependen de esto.
+        if (!Op.AvisosPorWhatsApp) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
+
         // Consentimiento de WhatsApp (ConsentimientoWhatsApp): si el paciente revocó, no se manda nada, y ni se arma la conversación. Con una
         // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
         // decide él (solo le escribe a quien le escribió primero al número de la clínica).

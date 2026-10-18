@@ -8,6 +8,16 @@ public class MensajeriaOptions
     // whatsapp-service, que usa Baileys: el único motor de WhatsApp). "WhatsAppWebJs" ya no existe: la aplicación no arranca con ese valor.
     public string CanalActivo { get; set; } = "Simulado";
 
+    // Los cuatro avisos de turno por evento (solicitud recibida, turno propuesto, confirmado y cancelado) POR WHATSAPP. APAGADO por defecto: el uso
+    // saliente de WhatsApp está pausado por el riesgo de que bloqueen el número (es una API no oficial) y estos avisos son lo único que abre una
+    // conversación sin que la persona haya escrito. Apagado:
+    //  · no sale ninguno por WhatsApp (el mail y la campanita siguen igual);
+    //  · TODO el consentimiento de WhatsApp queda dormido: no se ofrece en el registro ni en el perfil, no hay link wa.me ni sugerencia después de
+    //    un turno, y la API no toca la tabla ConsentimientoWhatsApp (se puede publicar sin haber aplicado la migración 16).
+    // No afecta a las respuestas del asistente a quien le escribe, ni a las del equipo. Para encenderlo: Mensajeria__AvisosPorWhatsApp=true, con la
+    // migración 16 aplicada ANTES (docs/DEPLOY.md, "Consentimiento de WhatsApp").
+    public bool AvisosPorWhatsApp { get; set; }
+
     // URL base de whatsapp-service para las rutas de administración (estado/desvincular,
     // ver WhatsAppAdminService) — siempre loopback, no es secreta. A diferencia del canal de
     // envío (CanalBaileys, URL fija en el código: solo se registra con CanalActivo "Baileys"),
