@@ -3,6 +3,10 @@
 Punto de retoma de la tarea "consentimiento de WhatsApp (opciones A + B)". Si se corta una sesión, **este archivo manda**: dice qué
 está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan a Agustín.
 
+> **Nota (2026-10-18):** después de esta tarea la clase `CanalWhatsAppWebJs` pasó a llamarse `CanalBaileys` (se sacó whatsapp-web.js) y **la API dejó de mandar recordatorios por
+> WhatsApp** (siguen por mail y campanita): donde este archivo habla de "recordatorios" por WhatsApp o de `CanalWhatsAppWebJs`, ya no rige. Qué se decidió sobre el consentimiento a
+> partir de eso: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md).
+
 - **Rama:** `feat/consentimiento-whatsapp`, creada desde `origin/main` (316f530, PR #42: el canal Baileys, apagado por defecto).
   Sin merge a `main`.
 - **Decisión de producto (Agustín):** (A) consentimiento explícito en el registro y el perfil del paciente, y (B) un link `wa.me` para

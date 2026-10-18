@@ -96,20 +96,15 @@ test("el QR se tapa entero y también por partes (la referencia y las tres clave
     assert.equal(partes[0], M.qr1);
     assert.ok(partes.length === 5 && partes.every(p => p.length >= 20));
     const salida = [];
-    const log = logParaBackend({ backend: "baileys", secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) }, () => [M.qr1]);
+    const log = logParaBackend({ secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) }, () => [M.qr1]);
     log.error(`falló con ${M.qr1.split(",")[1]} adentro`);
     log.info(M.qr1);
     assert.deepEqual(salida, ["falló con [secreto] adentro", "[secreto]"]);
 });
 
-test("con whatsapp-web.js el log es el de siempre, sin filtro (no cambia lo que ve quien opera el servicio hoy)", () => {
-    const base = { info() {}, error() {} };
-    assert.equal(logParaBackend({ backend: "webjs", secreto: M.secreto }, base), base);
-});
-
-test("con Baileys el filtro tapa también el secreto compartido de la configuración", () => {
+test("el filtro tapa también el secreto compartido de la configuración", () => {
     const salida = [];
-    const log = logParaBackend({ backend: "baileys", secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) });
+    const log = logParaBackend({ secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) });
     log.error(`fetch failed (X-Shared-Secret: ${M.secreto})`);
     assert.deepEqual(salida, ["fetch failed (X-Shared-Secret: [secreto])"]);
 });
@@ -125,7 +120,7 @@ test("el log del proceso escribe la hora y manda los errores a la salida de erro
 
 test("un reenvío a la API que falla con el secreto adentro del error no lo deja en el log", async () => {
     const salida = [];
-    const log = logParaBackend({ backend: "baileys", secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) });
+    const log = logParaBackend({ secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) });
     const reenviar = crearReenviador({
         apiBaseUrl: "http://127.0.0.1:5000", secreto: M.secreto, log,
         fetchFn: async (url, opciones) => { throw new Error(`fetch failed ${url} con ${opciones.headers["X-Shared-Secret"]} para ${M.telefonoCompleto}`); }
@@ -146,12 +141,10 @@ const ARCHIVOS = [
     ...fs.readdirSync(path.join(RAIZ, "baileys")).filter(f => f.endsWith(".js")).map(f => path.join(RAIZ, "baileys", f))
 ];
 const nombre = ruta => path.relative(RAIZ, ruta).replace(/\\/g, "/");
-// whatsapp.js es el backend de siempre (whatsapp-web.js): conserva su log tal cual (por ejemplo, el número propio de la clínica).
-const NUEVOS = ARCHIVOS.filter(ruta => nombre(ruta) !== "whatsapp.js");
 
 test("la guardia mira todos los archivos del servicio", () => {
     const nombres = ARCHIVOS.map(nombre);
-    for (const esperado of ["index.js", "cola.js", "servidor.js", "logs.js", "consentimiento.js", "limites.js", "baileys/servicio.js", "baileys/sesion.js", "baileys/logger.js", "vincular.js", "whatsapp.js"]) {
+    for (const esperado of ["index.js", "cola.js", "servidor.js", "logs.js", "consentimiento.js", "limites.js", "baileys/servicio.js", "baileys/sesion.js", "baileys/logger.js", "vincular.js"]) {
         assert.ok(nombres.includes(esperado), `falta ${esperado} en la guardia`);
     }
 });
@@ -168,7 +161,7 @@ test("ninguna llamada de log mete un teléfono, un texto, un QR, credenciales o 
 
 test("ninguna llamada de log vuelca un objeto entero (JSON.stringify, inspect): puede traer mensajes o claves", () => {
     const volcados = [];
-    for (const ruta of NUEVOS) {
+    for (const ruta of ARCHIVOS) {
         for (const llamada of extraerLlamadasDeLog(fs.readFileSync(ruta, "utf8"))) {
             if (/JSON\.stringify|\binspect\(|util\./.test(llamada.codigo)) volcados.push(`${nombre(ruta)}:${llamada.linea}`);
         }
@@ -390,7 +383,7 @@ test("escenario de la cola: consentimiento, baja, topes, fallas y descarte, con 
         const base = { info: m => lineas.push(`INFO ${m}`), error: m => lineas.push(`ERROR ${m}`) };
         let backend = null;
         const config = {
-            backend: "baileys", puerto: 3002, apiBaseUrl: "http://127.0.0.1:5000", secreto: M.secreto,
+            puerto: 3002, apiBaseUrl: "http://127.0.0.1:5000", secreto: M.secreto,
             baileys: {
                 sessionPath: path.join(raiz, "sesion"), versionWa: null, buscarVersionWa: false, maxVentanasQr: 2,
                 envio: { ...leerConfigEnvio({}), topeDiario: 3, simularEscritura: false }
@@ -446,7 +439,7 @@ test("escenario de la cola: consentimiento, baja, topes, fallas y descarte, con 
 
 test("escenario del HTTP: un error con teléfono y secreto adentro no sale en la respuesta ni queda sin filtrar en el log", async () => {
     const lineas = [];
-    const config = { backend: "baileys", secreto: M.secreto };
+    const config = { secreto: M.secreto };
     const log = logParaBackend(config, { info: m => lineas.push(m), error: m => lineas.push(m) });
     const servicio = {
         estado: async () => { throw new Error(`falló ${M.telefonoCompleto} con ${M.secreto} y ${M.texto}`); },

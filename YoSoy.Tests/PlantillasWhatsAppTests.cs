@@ -3,14 +3,14 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
-// Los avisos que salen SOLOS por WhatsApp (PlantillasWhatsApp) dicen el día y la hora de un turno y nada más: ni el nombre del profesional, ni la
-// especialidad, ni el motivo de la consulta, ni la modalidad. La campanita del panel (con sesión) sigue con el texto completo.
+// Los avisos que salen SOLOS por WhatsApp (PlantillasWhatsApp: solicitud, turno propuesto, confirmado y cancelado) dicen el día y la hora de un turno y
+// nada más: ni el nombre del profesional, ni la especialidad, ni el motivo de la consulta, ni la modalidad. La campanita del panel (con sesión) sigue con
+// el texto completo. El recordatorio NO está acá: no sale por WhatsApp (RecordatoriosSinWhatsAppTests).
 //  · Por la firma: ninguna plantilla recibe otra cosa que el momento del turno y el link de ingreso.
 //  · Por el texto: dicen el día y la hora, y no traen ninguna palabra que revele la atención.
 //  · De punta a punta: con un turno cargado de datos "marcados" (profesional, especialidad, modalidad, motivo, paciente), lo que sale por el
 //    chat no trae ninguna marca, y el chat recibe exactamente la plantilla. La campanita SÍ trae la del profesional: así se sabe que la marca,
 //    de colarse, se vería.
-//  · El recordatorio trae cómo darse de baja, y esa palabra es una baja de verdad para el servicio de WhatsApp.
 public class PlantillasWhatsAppTests
 {
     private static readonly DateTime Momento = new(2031, 3, 4, 10, 30, 0);
@@ -27,8 +27,7 @@ public class PlantillasWhatsAppTests
         (nameof(PlantillasWhatsApp.SolicitudRecibida), PlantillasWhatsApp.SolicitudRecibida(Momento)),
         (nameof(PlantillasWhatsApp.TurnoPropuesto), PlantillasWhatsApp.TurnoPropuesto(Momento, Url)),
         (nameof(PlantillasWhatsApp.TurnoConfirmado), PlantillasWhatsApp.TurnoConfirmado(Momento)),
-        (nameof(PlantillasWhatsApp.TurnoCancelado), PlantillasWhatsApp.TurnoCancelado(Momento)),
-        (nameof(PlantillasWhatsApp.Recordatorio), PlantillasWhatsApp.Recordatorio(Momento, Url))
+        (nameof(PlantillasWhatsApp.TurnoCancelado), PlantillasWhatsApp.TurnoCancelado(Momento))
     };
 
     // ───────────── La firma es la garantía ─────────────
@@ -38,8 +37,8 @@ public class PlantillasWhatsAppTests
     {
         var metodos = typeof(PlantillasWhatsApp).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly);
 
-        // Las cinco de hoy. Una plantilla nueva obliga a venir acá, y a decidir si lo que recibe puede salir por WhatsApp.
-        Assert.Equal(new[] { "Recordatorio", "SolicitudRecibida", "TurnoCancelado", "TurnoConfirmado", "TurnoPropuesto" },
+        // Las cuatro de hoy (no hay una de recordatorio: no sale por WhatsApp). Una plantilla nueva obliga a venir acá, y a decidir si lo que recibe puede salir por WhatsApp.
+        Assert.Equal(new[] { "SolicitudRecibida", "TurnoCancelado", "TurnoConfirmado", "TurnoPropuesto" },
             metodos.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
         foreach (var m in metodos)
         {
@@ -78,7 +77,6 @@ public class PlantillasWhatsAppTests
     public void Solo_las_que_lo_necesitan_traen_el_link_y_es_el_que_se_les_paso()
     {
         Assert.Contains(Url, PlantillasWhatsApp.TurnoPropuesto(Momento, Url));
-        Assert.Contains(Url, PlantillasWhatsApp.Recordatorio(Momento, Url));
         foreach (var texto in new[] { PlantillasWhatsApp.SolicitudRecibida(Momento), PlantillasWhatsApp.TurnoConfirmado(Momento), PlantillasWhatsApp.TurnoCancelado(Momento) })
             Assert.DoesNotContain("http", texto);
     }
@@ -106,15 +104,10 @@ public class PlantillasWhatsAppTests
     }
 
     [Fact]
-    public void El_recordatorio_dice_como_darse_de_baja_y_esa_palabra_es_una_baja_de_verdad()
+    public void No_hay_una_plantilla_de_recordatorio_porque_el_recordatorio_no_sale_por_WhatsApp()
     {
-        var recordatorio = PlantillasWhatsApp.Recordatorio(Momento, Url);
-
-        Assert.Contains("respondé BAJA", recordatorio);
-        Assert.True(ComandoWhatsApp.EsBaja("BAJA"));                                           // lo que el aviso pide que escriba, el servicio lo toma como baja
-        Assert.Contains(ComandoWhatsApp.Normalizar("BAJA"), ComandoWhatsApp.PalabrasDeBaja);
-        Assert.Contains("Respondé 1", recordatorio);                                             // y las respuestas del recordatorio siguen igual
-        Assert.Contains("2 si no podés asistir", recordatorio);
+        Assert.DoesNotContain(typeof(PlantillasWhatsApp).GetMethods(BindingFlags.Public | BindingFlags.Static),
+            m => m.Name.Contains("Recordatorio", StringComparison.OrdinalIgnoreCase));
     }
 
     // ───────────── De punta a punta con el notificador ─────────────
@@ -157,7 +150,7 @@ public class PlantillasWhatsAppTests
         public int? Reservar(int idTurno, string tipo, string canal, DateTime fechaProgramada, int maxIntentos) => 1;
         public void MarcarResultado(int idRecordatorio, string estado, string? error, DateTime ahora) { }
         public void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora) { }
-        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos) => new();
+        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos) => new();
     }
 
     private sealed class InternasNulas : INotificacionInternaDAO
@@ -201,8 +194,7 @@ public class PlantillasWhatsAppTests
         new object[] { "solicitud", BaseEnMemoria.Pendiente },
         new object[] { "propuesta", BaseEnMemoria.Pendiente },
         new object[] { "confirmado", BaseEnMemoria.Confirmado },
-        new object[] { "cancelado", BaseEnMemoria.Cancelado },
-        new object[] { "recordatorio", BaseEnMemoria.Confirmado }
+        new object[] { "cancelado", BaseEnMemoria.Cancelado }
     };
 
     private static void Disparar(Arnes a, string aviso)
@@ -213,7 +205,6 @@ public class PlantillasWhatsAppTests
             case "propuesta": a.Notificador.TurnoAgendadoPorProfesional(1, 10, a.Turno.Fecha, a.Turno.Hora); break;
             case "confirmado": a.Notificador.TurnoConfirmado(a.Turno.IdTurno); break;
             case "cancelado": a.Notificador.TurnoCancelado(a.Turno.IdTurno); break;
-            case "recordatorio": a.Notificador.EnviarRecordatorio24h(a.Turno.IdTurno); break;
             default: throw new ArgumentException(aviso);
         }
     }
@@ -224,7 +215,6 @@ public class PlantillasWhatsAppTests
         "propuesta" => PlantillasWhatsApp.TurnoPropuesto(momento, Url),
         "confirmado" => PlantillasWhatsApp.TurnoConfirmado(momento),
         "cancelado" => PlantillasWhatsApp.TurnoCancelado(momento),
-        "recordatorio" => PlantillasWhatsApp.Recordatorio(momento, Url),
         _ => throw new ArgumentException(aviso)
     };
 
@@ -255,14 +245,13 @@ public class PlantillasWhatsAppTests
         var campanita = Assert.Single(a.Datos.Campanita);
         Assert.Contains(MarcaProfesional, campanita.Mensaje);
         Assert.Contains(Formato.FechaHora(a.MomentoDelTurno), campanita.Mensaje);
-        Assert.DoesNotContain("BAJA", campanita.Mensaje);      // el aviso de la baja es del chat de WhatsApp, no de la campanita
     }
 
     [Fact]
     public void Con_cualquier_texto_en_los_datos_del_turno_el_chat_no_cambia()
     {
         // El chat no lee nada del turno salvo su momento: cambiar los datos no cambia el mensaje.
-        foreach (var aviso in new[] { "solicitud", "propuesta", "confirmado", "recordatorio" })
+        foreach (var aviso in new[] { "solicitud", "propuesta", "confirmado" })
         {
             var a = new Arnes(aviso == "solicitud" || aviso == "propuesta" ? BaseEnMemoria.Pendiente : BaseEnMemoria.Confirmado);
             var b = new Arnes(aviso == "solicitud" || aviso == "propuesta" ? BaseEnMemoria.Pendiente : BaseEnMemoria.Confirmado);

@@ -2,14 +2,14 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
 // Cliente admin hacia whatsapp-service: estado (con el QR adentro) y desvincular, para la
-// pantalla de WhatsApp del Configurador. Deliberadamente NO es CanalWhatsAppWebJs (que
+// pantalla de WhatsApp del Configurador. Deliberadamente NO es CanalBaileys (que
 // implementa IMessageChannel y solo se registra cuando Mensajeria:CanalActivo ya es
-// "WhatsAppWebJs", ver MensajeriaServiceCollectionExtensions) — esta pantalla tiene que
+// "Baileys", ver MensajeriaServiceCollectionExtensions) — esta pantalla tiene que
 // funcionar incluso con el canal todavía en "Simulado" (el default), porque su propósito es
 // justamente vincular el número ANTES de activar ese canal. Se registra sin condición.
 //
 // Cualquier falla de red (timeout, conexión rechazada) se traduce en EstadoWhatsApp.NoDisponible
-// o false, nunca una excepción sin capturar — mismo criterio que CanalWhatsAppWebJs.
+// o false, nunca una excepción sin capturar — mismo criterio que CanalBaileys.
 public class WhatsAppAdminService
 {
     private readonly HttpClient _http;
@@ -57,7 +57,7 @@ public class WhatsAppAdminService
     }
 
     // JsonPropertyName explícito en los cuatro: el deserializador por default de
-    // System.Text.Json es sensible a mayúsculas (ver CanalWhatsAppWebJs) — sin esto, los
+    // System.Text.Json es sensible a mayúsculas (ver CanalBaileys) — sin esto, los
     // nombres en minúscula de whatsapp-service no pisarían estas propiedades en PascalCase.
     private record RespuestaEstado(
         [property: JsonPropertyName("conectado")] bool Conectado,

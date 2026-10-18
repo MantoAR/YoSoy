@@ -11,9 +11,9 @@ using Microsoft.Extensions.DependencyInjection;
 // GET /mensajeria/whatsapp/estado, POST /mensajeria/whatsapp/desvincular y
 // POST /mensajeria/whatsapp/confirmar-vinculacion: solo rol Configurador (no Profesional),
 // mismo patrón de CierreSeguridadTests para 401/403/200. whatsapp-service se simula con el
-// mismo ServidorFalso (HttpListener local) que CanalWhatsAppWebJsTests —
+// mismo ServidorFalso (HttpListener local) que CanalBaileysTests —
 // Mensajeria:WhatsAppServiceUrl apunta ahí en vez del puerto 3002 real: confirma que
-// WhatsAppAdminService lee la URL de configuración (a diferencia de CanalWhatsAppWebJs, que
+// WhatsAppAdminService lee la URL de configuración (a diferencia de CanalBaileys, que
 // la tiene fija en el código) y por lo tanto es testeable sin tocar el puerto real.
 // El usuario Configurador de las pruebas de auditoría es PROPIO de cada prueba (DatosDePrueba): antes se
 // usaba el usuario 1 de la base de desarrollo, y sin él el INSERT de LogAuditoria (clave foránea a Usuario)

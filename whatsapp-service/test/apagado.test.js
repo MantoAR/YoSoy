@@ -108,7 +108,7 @@ test("si cerrar el servidor falla, se anota y el apagado sigue", async () => {
     assert.deepEqual(a.salidas, [0]);
 });
 
-test("con whatsapp-web.js (sin datos) alcanza con cerrar el cliente", async () => {
+test("si el backend no tiene datos que guardar (sin datos), alcanza con cerrar el cliente", async () => {
     const eventos = [];
     const a = armar({ wa: { cerrar: async () => { eventos.push("wa.cerrar"); } } });
     await a.apagar("SIGTERM");

@@ -210,6 +210,29 @@ test("tope por persona: la segunda vez en el día pasa, la tercera no", async ()
     assert.equal(r.codigo, "limite_destinatario");
 });
 
+test("si la persona está conversando rige el tope de una conversación; un aviso suelto sigue con el de siempre", async () => {
+    // El consentimiento dice quién escribió hace poco (consentimiento.js); la cola solo lo pasa a los topes.
+    const conversando = new Set(["1155550001"]);
+    const consentimiento = { permite: telefono => ({ ok: true, enConversacion: conversando.has(telefono) }) };
+    const c = conLimites({ consentimiento }, { topeDiario: 99, topePorDestinatario: 2, topeEnConversacion: 4 });
+
+    for (let i = 1; i <= 4; i++) assert.equal(c.cola.encolar("1155550001", `respuesta ${i}`).ok, true, `respuesta ${i}`);
+    const quinta = c.cola.encolar("1155550001", "respuesta 5");
+    assert.equal(quinta.estado, 429);
+    assert.equal(quinta.codigo, "limite_destinatario");
+
+    assert.equal(c.cola.encolar("1166667777", "aviso 1").ok, true);
+    assert.equal(c.cola.encolar("1166667777", "aviso 2").ok, true);
+    assert.equal(c.cola.encolar("1166667777", "aviso 3").codigo, "limite_destinatario", "quien no escribió hace poco sigue con el tope de un aviso suelto");
+});
+
+test("sin consentimiento que diga lo contrario, todo se trata como un aviso suelto (el tope chico)", async () => {
+    const consentimiento = { permite: () => ({ ok: true }) };
+    const c = conLimites({ consentimiento }, { topeDiario: 99, topePorDestinatario: 1, topeEnConversacion: 10 });
+    assert.equal(c.cola.encolar("1155550001", "uno").ok, true);
+    assert.equal(c.cola.encolar("1155550001", "dos").codigo, "limite_destinatario");
+});
+
 test("tope por hora: lo que se pasa espera en la cola y sale cuando se libera lugar", async () => {
     const c = conLimites({ espaciado: { minMs: 1000, maxMs: 2000 } }, { topeDiario: 99, topePorHora: 2 });
     encolarN(c, 3);
@@ -407,7 +430,8 @@ test("resumen() junta lo de la cola y lo de los topes", async () => {
     encolarN(c, 2);
     await drenar();
     assert.deepEqual(c.cola.resumen(), {
-        pendientes: 1, dia: "2026-10-16", enviadosHoy: 1, enEspera: 1, topeDiario: 10, enviadosUltimaHora: 1, topePorHora: 5, topePorDestinatario: 3
+        pendientes: 1, dia: "2026-10-16", enviadosHoy: 1, enEspera: 1, topeDiario: 10, enviadosUltimaHora: 1, topePorHora: 5, topePorDestinatario: 3,
+        topeEnConversacion: 3
     });
     assert.deepEqual(armar().cola.resumen(), { pendientes: 0 }, "sin topes, solo lo de la cola");
 });

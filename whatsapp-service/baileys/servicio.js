@@ -1,4 +1,4 @@
-// Backend de WhatsApp con Baileys (WhatsApp Web sin navegador). Misma interfaz que el de whatsapp-web.js (ver backend.js).
+// Backend de WhatsApp con Baileys (WhatsApp Web sin navegador): el único motor del servicio (ver backend.js).
 //
 // Estados (los que informa GET /salud y GET /estado):
 //   detenido           todavía no se llamó a iniciar(), o ya se apagó
@@ -190,7 +190,7 @@ class ServicioBaileys {
     }
 
     // Cierra la sesión en WhatsApp, borra las credenciales locales y deja un QR nuevo para vincular otro número
-    // (lo mismo que hace el servicio con whatsapp-web.js; es lo que dispara el botón del Configurador).
+    // (es lo que dispara el botón "Desvincular y cambiar número" del Configurador).
     async desvincular() {
         this._desvinculando = true;
         this._generacion++;                        // un intento de conectar que estuviera a medias queda descartado

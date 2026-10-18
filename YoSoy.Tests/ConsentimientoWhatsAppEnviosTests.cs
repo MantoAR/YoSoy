@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 // El consentimiento de WhatsApp en el camino de los mensajes, sin base ni red de verdad:
 //  · NotificadorTurnos: solo una aceptación vigente da optIn; si el paciente revocó no sale nada; un rechazo por falta de consentimiento
 //    queda "Omitido" y no "Error" (no se reintenta); el aviso va al número nacional de 10 dígitos.
-//  · CanalWhatsAppWebJs: "optIn": true viaja solo con la aceptación, y el código con el que whatsapp-service rechaza llega hasta arriba.
+//  · CanalBaileys: "optIn": true viaja solo con la aceptación, y el código con el que whatsapp-service rechaza llega hasta arriba.
 //  · ServicioMensajes: las opciones llegan al canal y el código de rechazo vuelve en el mensaje (sin guardarse ni salir en las respuestas).
 //  · BotReservasService: una BAJA se registra y no se contesta, y nada más cuenta como baja.
 public class NotificadorWhatsAppConsentimientoTests
@@ -55,7 +55,7 @@ public class NotificadorWhatsAppConsentimientoTests
 
         public void MarcarResultado(int idRecordatorio, string estado, string? error, DateTime ahora) => Resultados.Add((_canales[idRecordatorio], estado, error));
         public void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora) { }
-        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos) => new();
+        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos) => new();
     }
 
     private sealed class InternasNulas : INotificacionInternaDAO
@@ -97,7 +97,9 @@ public class NotificadorWhatsAppConsentimientoTests
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Single(a.Salientes);
-        Assert.True(Assert.Single(a.E.Mensajes.OpcionesDeEnvio).OptIn);
+        var opciones = Assert.Single(a.E.Mensajes.OpcionesDeEnvio);
+        Assert.True(opciones.OptIn);
+        Assert.True(opciones.IniciaElNegocio);   // un aviso de turno no responde a nada: no está sujeto a la regla de las respuestas automáticas
         Assert.Equal("Enviado", a.Chat.Estado);
     }
 
@@ -109,7 +111,9 @@ public class NotificadorWhatsAppConsentimientoTests
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Single(a.Salientes);
-        Assert.False(Assert.Single(a.E.Mensajes.OpcionesDeEnvio).OptIn);
+        var opciones = Assert.Single(a.E.Mensajes.OpcionesDeEnvio);
+        Assert.False(opciones.OptIn);
+        Assert.True(opciones.IniciaElNegocio);
         Assert.Equal("Enviado", a.Chat.Estado);
     }
 
@@ -140,12 +144,12 @@ public class NotificadorWhatsAppConsentimientoTests
     }
 
     [Fact]
-    public void Revocar_el_WhatsApp_no_apaga_los_otros_canales_ni_el_recordatorio_dentro_de_YoSoy()
+    public void Revocar_el_WhatsApp_no_apaga_los_otros_canales_dentro_de_YoSoy()
     {
         var a = new Arnes();
         a.E.WhatsApp.Permisos[1] = PermisoEnvioWhatsApp.Revocado;
 
-        a.Notificador.EnviarRecordatorio24h(a.Turno.IdTurno);
+        a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Equal("Omitido", a.Chat.Estado);
         Assert.Empty(a.E.Mensajes.Mensajes);
@@ -155,7 +159,6 @@ public class NotificadorWhatsAppConsentimientoTests
 
     [Theory]
     [InlineData("TurnoConfirmado")]
-    [InlineData("Recordatorio")]
     [InlineData("TurnoCancelado")]
     [InlineData("TurnoSolicitado")]
     public void Revocado_corta_todos_los_avisos_de_turno_por_WhatsApp(string aviso)
@@ -168,7 +171,6 @@ public class NotificadorWhatsAppConsentimientoTests
         switch (aviso)
         {
             case "TurnoConfirmado": a.Notificador.TurnoConfirmado(id); break;
-            case "Recordatorio": a.Notificador.EnviarRecordatorio24h(id); break;
             case "TurnoCancelado": a.Notificador.TurnoCancelado(id); break;
             default: a.Notificador.TurnoSolicitado(id); break;
         }
@@ -324,8 +326,8 @@ public class CanalWhatsAppOptInTests
         public void Dispose() { _cts.Cancel(); _listener.Stop(); _listener.Close(); }
     }
 
-    private static CanalWhatsAppWebJs Canal(string baseUrl) =>
-        new(new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(5) }, NullLogger<CanalWhatsAppWebJs>.Instance);
+    private static CanalBaileys Canal(string baseUrl) =>
+        new(new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(5) }, NullLogger<CanalBaileys>.Instance);
 
     [Fact]
     public async Task Con_OptIn_el_pedido_lleva_optIn_true_exacto_un_booleano()
@@ -398,6 +400,7 @@ public class ServicioMensajesOpcionesTests
         public void ActualizarEstadoEnvio(int idMensaje, string estado) => Todos.Single(x => x.IdMensaje == idMensaje).EstadoEnvio = estado;
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
+        public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -428,8 +431,8 @@ public class ServicioMensajesOpcionesTests
     {
         var (servicio, _, canal, c) = Armar();
 
-        await servicio.EnviarAsync(c, "con", "Sistema", new OpcionesEnvio(OptIn: true));
-        await servicio.EnviarAsync(c, "sin", "Sistema");
+        await servicio.EnviarAsync(c, "con", "Humano", new OpcionesEnvio(OptIn: true));
+        await servicio.EnviarAsync(c, "sin", "Humano");
 
         Assert.Equal(new[] { true, false }, canal.Envios.Select(e => e.Opciones.OptIn));
         Assert.Equal(new[] { "con", "sin" }, canal.Envios.Select(e => e.Texto));
@@ -441,9 +444,9 @@ public class ServicioMensajesOpcionesTests
         var (servicio, mensajes, canal, c) = Armar();
         canal.Resultado = new ResultadoEnvio(false, Error: "no", Codigo: "sin_consentimiento");
 
-        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema");
+        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
         canal.Resultado = new ResultadoEnvio(true, "x", Codigo: "algo");
-        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema");
+        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
 
         Assert.Equal(("Error", "sin_consentimiento"), (rechazado.EstadoEnvio, rechazado.CodigoDeError));
         Assert.Equal(("Enviado", (string?)null), (enviado.EstadoEnvio, enviado.CodigoDeError));

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Cada Mensajeria:IntervaloChequeoMinutos busca turnos Confirmados cuyo momento
 /// (Turno.Fecha + Turno.Hora) cae dentro de las próximas Mensajeria:RecordatorioHorasAntes
-/// horas y les manda el recordatorio por chat, mail y campanita. Es idempotente:
+/// horas y les manda el recordatorio por mail y campanita (nunca por WhatsApp). Es idempotente:
 /// correr varias veces no duplica avisos (índice único en Recordatorio).
 /// Un error en un turno se registra y no frena al resto ni al servicio.
 ///
@@ -55,7 +55,7 @@ public class RecordatorioBackgroundService : BackgroundService
         var ahora = _reloj.GetLocalNow().DateTime;
         var ids   = _recordatorios.TurnosConfirmadosSinRecordar(
             ahora, ahora.AddHours(op.RecordatorioHorasAntes),
-            NotificadorTurnos.CanalesRecordatorio.Length, op.MaxIntentosEnvio);
+            NotificadorTurnos.CanalesRecordatorio, op.MaxIntentosEnvio);
 
         foreach (var idTurno in ids)
             _notificador.EnviarRecordatorio24h(idTurno);   // nunca lanza

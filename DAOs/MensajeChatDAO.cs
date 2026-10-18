@@ -7,6 +7,9 @@ public interface IMensajeChatDAO
     void ActualizarEstadoEnvio(int idMensaje, string estado);
     List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje);
     List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad);
+
+    /// <summary>¿La persona escribió alguna vez en esta conversación? (hay al menos un mensaje entrante)</summary>
+    bool TieneMensajeEntrante(int idConversacion);
 }
 
 public class MensajeChatDAO : IMensajeChatDAO
@@ -38,6 +41,16 @@ public class MensajeChatDAO : IMensajeChatDAO
         cmd.Parameters.AddWithValue("@Estado", estado);
         cmd.Parameters.AddWithValue("@Id",     idMensaje);
         cmd.ExecuteNonQuery();
+    }
+
+    public bool TieneMensajeEntrante(int idConversacion)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT CASE WHEN EXISTS (SELECT 1 FROM MensajeChat WHERE IdConversacion = @IdConv AND Direccion = 'Entrante') THEN 1 ELSE 0 END", con);
+        cmd.Parameters.AddWithValue("@IdConv", idConversacion);
+        return Convert.ToInt32(cmd.ExecuteScalar()) == 1;
     }
 
     // desdeIdMensaje permite que el polling de la pantalla traiga solo lo nuevo.

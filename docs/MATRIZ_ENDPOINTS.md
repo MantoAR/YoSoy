@@ -85,8 +85,8 @@ nunca se la vuelve a servir, pero el *caché local* de esa sesión no se entera 
 | GET | `/mensajeria/conversaciones/{id}/mensajes` | Profesional, Configurador | **Sí — 404** | |
 | PUT | `/mensajeria/conversaciones/{id}/leida` | Profesional, Configurador | **Sí — 404** | |
 | POST | `/mensajeria/conversaciones/{id}/responder` | Profesional, Configurador | **Sí — 404** | Audita (acción + ids, nunca el texto). |
-| PUT | `/mensajeria/conversaciones/{id}/cerrar` | Profesional, Configurador | **Sí — 404** | Audita. |
-| PUT | `/mensajeria/conversaciones/{id}/reabrir` | Profesional, Configurador | **Sí — 404** | 400 si no estaba Cerrada. Audita. |
+| PUT | `/mensajeria/conversaciones/{id}/cerrar` | Profesional, Configurador | **Sí — 404** | Audita. Le manda el aviso de cierre a la persona **solo si ella escribió en esa conversación** (una respuesta automática no empieza una conversación); si no, cierra igual y no manda nada. |
+| PUT | `/mensajeria/conversaciones/{id}/reabrir` | Profesional, Configurador | **Sí — 404** | 400 si no estaba Cerrada. Audita. Igual que `cerrar`: el aviso a la persona sale solo si ella escribió en esa conversación. |
 | PUT | `/mensajeria/conversaciones/{id}/asignar` | **Solo Configurador** | — (Configurador ve todo) | Asigna directo `Conversacion.IdProfesionalAsignado`, sin que haga falta un caso abierto. 400 si la conversación no está escalada. Audita (ids). |
 | PUT | `/mensajeria/conversaciones/{id}/tomar` | Profesional | **Sí — 404** (más 400/409 propios) | Atómico: `UPDATE ... WHERE IdProfesionalAsignado IS NULL` — si dos la toman a la vez, una gana (204) y la otra pierde la carrera (**409**, "ya la tomó otra persona"), nunca dos dueños. 400 si no está escalada o si la pide un Configurador (usa `/asignar`). Ya asignada a quien la pide: 204 idempotente. Audita. |
 | PUT | `/mensajeria/conversaciones/{id}/devolver` | **Quien la tiene asignada, o Configurador** | **Sí — 404**, más 403 si no es el dueño ni Configurador | Vuelve a sin asignar. 400 si ya estaba sin asignar. Motivo de la misma lista cerrada que `/asignar` (`MotivoReasignacion.Categorias`). Audita. |

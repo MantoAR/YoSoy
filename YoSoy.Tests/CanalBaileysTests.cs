@@ -3,11 +3,11 @@ using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 
-// CanalWhatsAppWebJs: sin librería de mocking HTTP (no hay ninguna en este repo, ver
+// CanalBaileys: sin librería de mocking HTTP (no hay ninguna en este repo, ver
 // Fakes.cs para el patrón real — fakes a mano implementando las interfaces de la app).
 // Para este canal, que si necesita HTTP real para probarse, un HttpListener local liviano
 // simula whatsapp-service. Ningún test toca la base ni un WhatsApp real.
-public class CanalWhatsAppWebJsTests
+public class CanalBaileysTests
 {
     // Simula las respuestas de whatsapp-service en un puerto loopback real, sin arrancar
     // Node ni nada externo al proceso de test.
@@ -62,9 +62,9 @@ public class CanalWhatsAppWebJsTests
         }
     }
 
-    private static CanalWhatsAppWebJs CrearCanal(string baseUrl) =>
+    private static CanalBaileys CrearCanal(string baseUrl) =>
         new(new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(5) },
-            NullLogger<CanalWhatsAppWebJs>.Instance);
+            NullLogger<CanalBaileys>.Instance);
 
     [Fact]
     public async Task Envio_exitoso_devuelve_resultado_con_idExterno()

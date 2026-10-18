@@ -1,4 +1,5 @@
-// Selección del backend (backend.js): cada librería se carga solo si se elige, y los dos backends cumplen la misma interfaz.
+// El backend de WhatsApp (backend.js): Baileys es el único motor. Se arma con el consentimiento, los topes y el ritmo de envío, y la cola no se
+// arma sin esas protecciones.
 require("./helpers/sin-red");
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -15,7 +16,6 @@ const { conRutaDentroDeLaAplicacion } = require("./helpers/dentro-de-la-aplicaci
 
 const log = { info() {}, error() {} };
 const configBaileys = sessionPath => ({
-    backend: "baileys",
     puerto: 3002,
     apiBaseUrl: "http://127.0.0.1:5000",
     secreto: "S3CRETO",
@@ -31,19 +31,17 @@ function conCarpeta(cuerpo) {
     };
 }
 
-// La interfaz que usa servidor.js / index.js, en común para los dos backends.
-const INTERFAZ = ["iniciar", "cerrar", "estado", "enviar", "desvincular", "recuperar"];
+// La interfaz que usa servidor.js / index.js.
+const INTERFAZ = ["iniciar", "cerrar", "estado", "enviar", "desvincular", "recuperar", "salud", "vincular"];
 
-const cargadas = () => Object.keys(require.cache).filter(ruta => /whatsapp-web\.js|puppeteer/.test(ruta));
-
-test("con backend baileys se arma un ServicioBaileys, sin iniciarlo ni abrir sockets, y NO se carga whatsapp-web.js", conCarpeta(async carpeta => {
+test("se arma un ServicioBaileys, sin iniciarlo ni abrir sockets, y no se carga nada de whatsapp-web.js ni de Puppeteer", conCarpeta(async carpeta => {
     const falso = fachadaFalsa();
     const backend = await crearBackend(configBaileys(carpeta), log, { cargarBaileys: async () => falso.fachada, reenviar: () => {} });
 
     assert.ok(backend instanceof ServicioBaileys);
     assert.equal(backend.salud().estado, "detenido");
     assert.equal(falso.sockets.length, 0);
-    assert.deepEqual(cargadas(), [], "con baileys no hay Puppeteer ni whatsapp-web.js en memoria");
+    assert.deepEqual(Object.keys(require.cache).filter(ruta => /whatsapp-web\.js|puppeteer/.test(ruta)), [], "no hay Puppeteer ni whatsapp-web.js en memoria");
     assert.ok(fs.statSync(carpeta).isDirectory(), "la carpeta de la sesión quedó creada y lista");
     assert.equal(backend._maxVentanasQr, 3, "el cupo de ventanas de QR de la configuración llega al servicio");
     assert.equal(backend._simularEscritura, true, "y 'escribiendo...' viene prendido");
@@ -110,6 +108,34 @@ test("con Baileys, quien escribe primero queda anotado ANTES de reenviar a la AP
     await backend.cerrar();
 }));
 
+test("con los topes por defecto, una charla con el asistente no se corta a los 3 mensajes; un aviso suelto a otra persona sí tiene el tope chico", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const reloj = new RelojFalso();
+    const backend = await crearBackend(configBaileys(carpeta), { info() {}, error() {} }, { cargarBaileys: async () => falso.fachada, reenviar: () => {}, reloj });
+    backend.iniciar();
+    await esperarHasta(() => falso.sockets.length === 1, { descripcion: "el socket" });
+    await reloj.avanzar(0);
+    falso.ultimo.abrir();
+    const cola = crearColaParaBackend(backend, log);
+    assert.equal(backend.opcionesDeCola.limites.resumen().topePorDestinatario, 3);
+    assert.equal(backend.opcionesDeCola.limites.resumen().topeEnConversacion, 30);
+
+    // Ella escribe y el asistente le contesta: pedir un turno lleva cinco mensajes, no tres.
+    falso.ultimo.recibir({ de: "5491155550001@s.whatsapp.net", texto: "hola", id: "C1" });
+    for (let i = 1; i <= 8; i++) assert.equal(cola.encolar("1155550001", `respuesta ${i}`).ok, true, `respuesta ${i}`);
+
+    // A otra persona que nunca escribió, solo un aviso que ella aceptó: el tope de siempre.
+    assert.equal(cola.encolar("1166667777", "aviso 1", { optIn: true }).ok, true);
+    assert.equal(cola.encolar("1166667777", "aviso 2", { optIn: true }).ok, true);
+    assert.equal(cola.encolar("1166667777", "aviso 3", { optIn: true }).ok, true);
+    const cuarto = cola.encolar("1166667777", "aviso 4", { optIn: true });
+    assert.equal(cuarto.codigo, "limite_destinatario");
+    assert.match(cuarto.error, /ya se le mandaron 3 mensajes hoy/);
+
+    cola.detener();
+    await backend.cerrar();
+}));
+
 test("al apagar, datos.cerrar() espera a los dos archivos: los consentimientos y los contadores", conCarpeta(async carpeta => {
     const falso = fachadaFalsa();
     const backend = await crearBackend(configBaileys(carpeta), { info() {}, error() {} }, { cargarBaileys: async () => falso.fachada, reenviar: () => {} });
@@ -141,15 +167,17 @@ test("con Baileys, los mensajes que no son de una persona (grupos, propios, hist
     await backend.cerrar();
 }));
 
-test("con whatsapp-web.js la cola es la de siempre: sin consentimiento ni topes", async () => {
+test("la cola NO se arma sin consentimiento ni topes: un backend sin esas protecciones no puede mandarle a cualquiera", () => {
     const enviados = [];
-    const backendWebjs = { enviar: async (telefono, texto) => { enviados.push([telefono, texto]); } };      // no trae opcionesDeCola
-    const cola = crearColaParaBackend(backendWebjs, { info() {}, error() {} });
-    assert.equal(cola.encolar("1155550001", "hola").ok, true, "se acepta a cualquiera, como hasta ahora");
-    await esperarHasta(() => enviados.length === 1, { descripcion: "el envío" });
-    assert.deepEqual(enviados, [["1155550001", "hola"]]);
-    assert.deepEqual(cola.resumen(), { pendientes: 0 });
-    cola.detener();
+    const enviar = async (telefono, texto) => { enviados.push([telefono, texto]); };
+    const consentimiento = { permite: () => ({ ok: true }) };
+    const limites = { reservar: () => ({ ok: true, huella: "h" }) };
+
+    assert.throws(() => crearColaParaBackend({ enviar }, log), /no trae consentimiento ni topes de envío/);                      // nada
+    assert.throws(() => crearColaParaBackend({ enviar, opcionesDeCola: {} }, log), /no se arma la cola/);                        // vacías
+    assert.throws(() => crearColaParaBackend({ enviar, opcionesDeCola: { consentimiento } }, log), /no se arma la cola/);        // sin topes
+    assert.throws(() => crearColaParaBackend({ enviar, opcionesDeCola: { limites } }, log), /no se arma la cola/);               // sin consentimiento
+    assert.deepEqual(enviados, []);
 });
 
 test("si Baileys no se puede cargar, el error sube (index.js lo informa y sale)", conCarpeta(async carpeta => {
@@ -188,14 +216,6 @@ test("una carpeta de sesión con archivos ajenos frena el arranque y no toca nad
     assert.deepEqual(fs.readdirSync(carpeta), ["notas.txt"]);
 }));
 
-test("el backend baileys cumple la interfaz que usa el servidor, y además informa su salud", () => {
+test("el backend cumple la interfaz que usa el servidor, incluidas la salud y la vinculación a pedido", () => {
     for (const metodo of INTERFAZ) assert.equal(typeof ServicioBaileys.prototype[metodo], "function", metodo);
-    assert.equal(typeof ServicioBaileys.prototype.salud, "function");
-});
-
-test("el backend de whatsapp-web.js (el de siempre) cumple la misma interfaz y no tiene salud() propia: /salud sigue siendo {ok:true}", () => {
-    const { ServicioWhatsApp } = require("../whatsapp");   // carga la librería, pero no crea ningún cliente
-    for (const metodo of INTERFAZ) assert.equal(typeof ServicioWhatsApp.prototype[metodo], "function", metodo);
-    assert.equal(ServicioWhatsApp.prototype.salud, undefined);
-    assert.equal(ServicioWhatsApp.prototype.vincular, undefined);
 });

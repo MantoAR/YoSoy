@@ -6,7 +6,7 @@ public interface IRecordatorioDAO
     int? Reservar(int idTurno, string tipo, string canal, DateTime fechaProgramada, int maxIntentos);
     void MarcarResultado(int idRecordatorio, string estado, string? error, DateTime ahora);
     void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora);
-    List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos);
+    List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos);
 }
 
 public class RecordatorioDAO : IRecordatorioDAO
@@ -83,15 +83,20 @@ public class RecordatorioDAO : IRecordatorioDAO
 
     /// <summary>
     /// Turnos en estado Confirmado cuyo momento (Fecha + Hora) cae en [desde, hasta]
-    /// y a los que todavía les falta algún canal del recordatorio Turno24h.
+    /// y a los que todavía les falta algún canal (de <paramref name="canales"/>) del recordatorio Turno24h.
     /// Un canal está resuelto si quedó Enviado u Omitido, o si agotó los intentos.
+    /// Solo se cuentan las filas de los canales pedidos: una fila vieja de otro canal (por ejemplo, el "Chat" de cuando los recordatorios
+    /// también salían por WhatsApp) no puede hacer pasar por resuelto a un canal que todavía falta.
     /// </summary>
-    public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos)
+    public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos)
     {
         var lista = new List<int>();
+        if (canales.Count == 0) return lista;   // sin canales no hay nada que mandar
+
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(@"
+        var nombres = string.Join(", ", canales.Select((_, i) => "@Canal" + i));
+        var cmd = new SqlCommand($@"
             SELECT t.IdTurno
             FROM Turno t
             JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno
@@ -99,12 +104,14 @@ public class RecordatorioDAO : IRecordatorioDAO
               AND CAST(t.Fecha AS DATETIME) + CAST(t.Hora AS DATETIME) BETWEEN @Desde AND @Hasta
               AND (SELECT COUNT(*) FROM Recordatorio r
                    WHERE r.IdTurno = t.IdTurno AND r.Tipo = 'Turno24h'
+                     AND r.Canal IN ({nombres})
                      AND (r.Estado IN ('Enviado', 'Omitido') OR r.Intentos >= @Max)) < @Canales
             ORDER BY t.Fecha, t.Hora", con);
         cmd.Parameters.AddWithValue("@Desde",   desde);
         cmd.Parameters.AddWithValue("@Hasta",   hasta);
         cmd.Parameters.AddWithValue("@Max",     maxIntentos);
-        cmd.Parameters.AddWithValue("@Canales", cantidadCanales);
+        cmd.Parameters.AddWithValue("@Canales", canales.Count);
+        for (var i = 0; i < canales.Count; i++) cmd.Parameters.AddWithValue("@Canal" + i, canales[i]);
         using var r = cmd.ExecuteReader();
         while (r.Read()) lista.Add((int)r["IdTurno"]);
         return lista;

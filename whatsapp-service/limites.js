@@ -1,6 +1,8 @@
 // Topes de envío para no parecer un bot de spam ante WhatsApp (solo con Baileys):
 //   - por día (en la zona horaria de la clínica): al llegar, no se acepta ningún pedido más hasta el día siguiente;
-//   - por persona y por día: ningún paciente recibe una ráfaga, aunque la API se equivoque y repita un envío;
+//   - por persona y por día: ningún paciente recibe una ráfaga, aunque la API se equivoque y repita un envío. El tope es chico para un aviso
+//     suelto (topePorDestinatario) y más alto si la persona está conversando (topeEnConversacion: escribió hace menos de un día; una
+//     charla con el asistente lleva varios mensajes);
 //   - por hora: al llegar, los mensajes ya aceptados esperan en la cola a que se libere lugar.
 // Los contadores se guardan en datos/envios.json: un reinicio del servicio NO devuelve el cupo del día. Por persona se guarda la
 // huella del teléfono, no el teléfono (ver privacidad.js).
@@ -20,10 +22,11 @@ function diaEnZona(ahoraMs, zonaHoraria) {
 }
 
 class LimiteDeEnvios {
-    constructor({ topeDiario, topePorHora, topePorDestinatario, zonaHoraria, clave, almacen, reloj = { ahora: () => Date.now() }, log }) {
+    constructor({ topeDiario, topePorHora, topePorDestinatario, topeEnConversacion = topePorDestinatario, zonaHoraria, clave, almacen, reloj = { ahora: () => Date.now() }, log }) {
         this._topeDiario = topeDiario;
         this._topePorHora = topePorHora;
         this._topePorDestinatario = topePorDestinatario;
+        this._topeEnConversacion = Math.max(topeEnConversacion, topePorDestinatario);     // conversando nunca es menos que un aviso suelto
         this._zona = zonaHoraria;
         this._clave = clave;
         this._almacen = almacen;
@@ -49,7 +52,8 @@ class LimiteDeEnvios {
     }
 
     // Pide lugar para un mensaje a este teléfono. { ok:true, huella } o { ok:false, estado:429, codigo, error }.
-    reservar(telefono) {
+    // enConversacion: la persona escribió hace poco (ver consentimiento.js): rige el tope de una conversación y no el de un aviso suelto.
+    reservar(telefono, { enConversacion = false } = {}) {
         this._cambioDeDia();
         const huella = huellaDeTelefono(telefono, this._clave);
         if (huella === null) return { ok: false, estado: 400, codigo: "telefono_invalido", error: "El teléfono no es válido." };
@@ -58,8 +62,9 @@ class LimiteDeEnvios {
             return { ok: false, estado: 429, codigo: "tope_diario", error: `Se llegó al tope de ${this._topeDiario} mensajes por día; se vuelve a poder mañana.` };
         }
         const deEstaPersona = (this._porDestinatario.get(huella) ?? 0) + (this._reservadosPor.get(huella) ?? 0);
-        if (deEstaPersona >= this._topePorDestinatario) {
-            return { ok: false, estado: 429, codigo: "limite_destinatario", error: `A esta persona ya se le mandaron ${this._topePorDestinatario} mensajes hoy; se vuelve a poder mañana.` };
+        const topeDeEstaPersona = enConversacion ? this._topeEnConversacion : this._topePorDestinatario;
+        if (deEstaPersona >= topeDeEstaPersona) {
+            return { ok: false, estado: 429, codigo: "limite_destinatario", error: `A esta persona ya se le mandaron ${topeDeEstaPersona} mensajes hoy; se vuelve a poder mañana.` };
         }
         this._reservados++;
         this._reservadosPor.set(huella, (this._reservadosPor.get(huella) ?? 0) + 1);
@@ -99,7 +104,8 @@ class LimiteDeEnvios {
             topeDiario: this._topeDiario,
             enviadosUltimaHora: this._ultimos.length,
             topePorHora: this._topePorHora,
-            topePorDestinatario: this._topePorDestinatario
+            topePorDestinatario: this._topePorDestinatario,
+            topeEnConversacion: this._topeEnConversacion
         };
     }
 

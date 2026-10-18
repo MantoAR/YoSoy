@@ -95,7 +95,7 @@ las marcas de tiempo de auditoría y el bloqueo del login se corren (los horario
 | `caddy` | Reverse proxy. HTTPS real, certificado de Let's Encrypt con renovación automática. **Caddy 2.7 o más nuevo** (la 2.6 no valida `video.caddy`). | 80, 443 | `caddy` | `/etc/caddy/Caddyfile` y `/etc/caddy/video.caddy` |
 | `signaling-server` | Socket.IO de las videollamadas (Node 22), en `/opt/yosoy/signaling/app`. `MemoryMax=256M`. | `127.0.0.1:3001` | `yosoy` | `/opt/yosoy/config/signaling.env`; unit en `deploy/signaling-server.service` |
 | `coturn` | STUN/TURN del video. Paquete de Ubuntu. | 3478 (UDP/TCP), 49160–49200 (UDP) | `turnserver` | `/etc/turnserver.conf` (640 `root:turnserver`); modelo en `deploy/coturn/turnserver.conf` |
-| `whatsapp-service` | Puente HTTP interno hacia WhatsApp. Hoy: whatsapp-web.js + Chromium, `MemoryMax=2G`. Con Baileys (propuesto, **no desplegado**: ver "WhatsApp con Baileys", abajo): sin navegador, `MemoryMax=512M`. En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; units en `whatsapp-service/deploy/` |
+| `whatsapp-service` | Puente HTTP interno hacia WhatsApp con **Baileys** (WhatsApp Web sin navegador): es el único motor del código. **El que corre hoy en el VPS todavía es el viejo** (whatsapp-web.js + Chromium, `MemoryMax=2G`) hasta que se despliegue el nuevo (ver "WhatsApp (whatsapp-service con Baileys)", abajo); el nuevo no usa navegador y lleva `MemoryMax=512M`. En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; unit en `whatsapp-service/deploy/whatsapp-service.service` |
 | `mssql-server` | SQL Server 2025, edición Express. | 1433 | `mssql` | — |
 | `fail2ban` | Ver arriba. | — | `root` | — |
 
@@ -121,30 +121,30 @@ recibe `/socket.io/*`. El WebSocket no necesita ninguna directiva: Caddy 2 reenv
 
 Antes de recargar: `sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`.
 
-### WhatsApp con Baileys (propuesto, todavía no desplegado)
+### WhatsApp (whatsapp-service con Baileys)
 
-`whatsapp-service` tiene dos backends detrás de la misma interfaz HTTP; la API no se entera de cuál es. Lo de la derecha es lo que
-cambia al pasar a Baileys (WhatsApp Web sin navegador, no oficial). Nada de esto está en el servidor: el paso a paso, con backup y
-rollback, es [`DEPLOY.md`](DEPLOY.md), "Despliegue de whatsapp-service con Baileys".
+`whatsapp-service` usa **Baileys** (WhatsApp Web sin navegador, no oficial) como único motor: `whatsapp-web.js`, Puppeteer y Chromium se sacaron del código
+([`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)). **Lo que corre hoy en el VPS todavía es el servicio viejo**: nada de lo nuevo está en el
+servidor. El paso a paso para reemplazarlo, con backup, limpieza de lo viejo y rollback, es [`DEPLOY.md`](DEPLOY.md), "Despliegue de whatsapp-service (Baileys)".
 
-| | Hoy (whatsapp-web.js) | Con Baileys |
+| | Hoy en el VPS (servicio viejo) | Versión nueva (Baileys) |
 |---|---|---|
 | Librería | whatsapp-web.js + Chromium | `@whiskeysockets/baileys` 6.7.24 (versión exacta), sin navegador |
-| Unit | `whatsapp-service/deploy/whatsapp-service.service` | `whatsapp-service/deploy/whatsapp-service-baileys.service`, se instala con el mismo nombre (`whatsapp-service.service`) |
+| Unit | la que está instalada (queda de backup al reemplazarla) | `whatsapp-service/deploy/whatsapp-service.service` (se instala con el mismo nombre) |
 | Memoria | `MemoryMax=2G` | `MemoryMax=512M` (a confirmar con la primera conexión real) |
 | Sesión | `/opt/yosoy/whatsapp/sesion` | `/opt/yosoy/whatsapp/sesion-baileys` (700; adentro, `datos/` con los consentimientos y los contadores de envío) |
 | Escribe en disco | `sesion/` y `cache/` | solo `sesion-baileys/` |
-| Canal en la API | `Mensajeria__CanalActivo=WhatsAppWebJs` | `Mensajeria__CanalActivo=Baileys` (es la misma clase) |
+| Canal en la API | `Mensajeria__CanalActivo=WhatsAppWebJs` (valor que **ya no existe** en la API) | `Mensajeria__CanalActivo=Baileys` |
+| Protecciones contra el bloqueo | solo 3 a 5 segundos entre mensajes: **sin consentimiento, sin topes** | consentimiento, topes por día / hora / persona, pausas al azar y "escribiendo..." |
 | Salud | `GET /salud` → `{ "ok": true }` | `GET /salud` → 200 si está conectado y 503 si no, con el estado, el motivo y lo de la cola |
 
-Con Baileys el servicio solo escribe a quien aceptó (le escribió primero al número o la API marcó `optIn`), con pausas, topes por día,
-por hora y por persona, y sin teléfonos ni textos en el log (`whatsapp-service/README.md`). Es un **número dedicado de la clínica**: Baileys
-no es la API oficial y WhatsApp puede bloquearlo. La API (versión con el consentimiento de WhatsApp, migración 16:
-[`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) manda `optIn:true` **solo a quien aceptó** (en el registro o en su
-perfil; revocable); a quien nunca decidió le manda sin `optIn` y el servicio decide (solo sale si esa persona le escribió primero al número, por
-ejemplo desde el link `wa.me` que muestra el panel si está cargado `Mensajeria__WhatsAppNumeroClinica`); a quien revocó, o escribió BAJA, no le
-manda nada. Los avisos que salen solos dicen el día y la hora y nada más. **El texto del consentimiento es provisorio** (`v0-provisorio`) hasta
-que lo valide el equipo legal.
+El servicio nuevo solo le escribe a quien aceptó (le escribió primero al número o la API marcó `optIn`), con pausas, topes por día, por hora y por persona, y sin
+teléfonos ni textos en el log (`whatsapp-service/README.md`). Es un **número dedicado de la clínica**: Baileys no es la API oficial y WhatsApp puede bloquearlo.
+**La API no manda recordatorios por WhatsApp** (siguen por mail y campanita): por WhatsApp salen las respuestas del asistente y del equipo y los avisos por evento. La API
+(versión con el consentimiento de WhatsApp, migración 16: [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) manda `optIn:true` **solo a quien
+aceptó** (en el registro o en su perfil; revocable); a quien nunca decidió le manda sin `optIn` y el servicio decide (solo sale si esa persona le escribió primero al número, por
+ejemplo desde el link `wa.me` que muestra el panel si está cargado `Mensajeria__WhatsAppNumeroClinica`); a quien revocó, o escribió BAJA, no le manda nada. Los avisos que salen
+solos dicen el día y la hora y nada más. **El texto del consentimiento es provisorio** (`v0-provisorio`) hasta que lo valide el equipo legal.
 
 ## Carpetas
 
@@ -156,7 +156,7 @@ Todo bajo `/opt/yosoy/`, dueño `yosoy`:
 | `/opt/yosoy/app-anterior-<fecha>/` | Copias de la app anterior que deja cada despliegue (para el rollback). Se pueden borrar pasados unos días. | — |
 | `/opt/yosoy/config/` | Los archivos de variables: `.env`, `video.env`, `signaling.env`, `whatsapp.env`. Valores reales, cargados a mano o por `generar-secretos.sh`, nunca en el repo. | carpeta `750`; archivos `600` |
 | `/opt/yosoy/signaling/` | `app/`: el `signaling-server` (con su `node_modules`). | — |
-| `/opt/yosoy/whatsapp/` | `app/` (el servicio), `sesion/` (la sesión de whatsapp-web.js: **es una credencial**) y `cache/` (Chromium). Con Baileys (propuesto), además `sesion-baileys/` (**credencial**; adentro `datos/`: consentimientos y contadores) y, en un despliegue, `app-nueva/` y `app-anterior-<fecha>/`. | `sesion` y `cache` `750`; `sesion-baileys` `700` |
+| `/opt/yosoy/whatsapp/` | `app/` (el servicio), `sesion-baileys/` (la sesión de Baileys: **es una credencial**; adentro `datos/`: consentimientos y contadores), `cache/` (solo la caché de npm para instalar) y, en un despliegue, `app-nueva/` y `app-anterior-<fecha>/`. **Del servicio viejo** (whatsapp-web.js) todavía pueden quedar `sesion/` (**credencial**) y, dentro de `cache/`, Chromium: se borran en "Limpieza de lo viejo" de [`DEPLOY.md`](DEPLOY.md). | `sesion-baileys` `700`; `cache` `750` |
 | `/opt/yosoy/backups/` | Backups de la app, la configuración y las reglas de UFW antes de cada despliegue grande (`video-<fecha>/`) y de la base. | `700` |
 
 Fuera de `/opt`: `/etc/caddy/` (`Caddyfile`, `video.caddy`), `/etc/turnserver.conf`,
@@ -245,11 +245,13 @@ defecto en [`VIDEOLLAMADAS.md`](VIDEOLLAMADAS.md)):
 `SIGNALING_MAX_HANDSHAKES_POR_MIN`, `SIGNALING_MAX_EVENTOS_POR_*` (ver `signaling-server/README.md`).
 
 **`/opt/yosoy/config/whatsapp.env`** (WhatsApp): `Mensajeria__WhatsApp__Secreto` (secreto compartido con la API) y
-`API_BASE_URL` (`http://127.0.0.1:5000`). Con Baileys, la unit propuesta agrega `WHATSAPP_BACKEND=baileys` y
+`API_BASE_URL` (`http://127.0.0.1:5000`). La unit (`whatsapp-service/deploy/whatsapp-service.service`) agrega
 `WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys`; y en `whatsapp.env` se pueden poner, opcionales, los topes y las pausas
-(`WHATSAPP_TOPE_DIARIO`, `WHATSAPP_TOPE_POR_HORA`, `WHATSAPP_TOPE_POR_PERSONA`, `WHATSAPP_CONSENTIMIENTO_DIAS`, `WHATSAPP_ZONA_HORARIA`,
+(`WHATSAPP_TOPE_DIARIO`, `WHATSAPP_TOPE_POR_HORA`, `WHATSAPP_TOPE_POR_PERSONA`, `WHATSAPP_TOPE_EN_CONVERSACION`, `WHATSAPP_CONSENTIMIENTO_DIAS`, `WHATSAPP_ZONA_HORARIA`,
 `WHATSAPP_PAUSA_MIN_S`, `WHATSAPP_PAUSA_MAX_S`, `WHATSAPP_SIMULAR_ESCRITURA`, `WHATSAPP_BAILEYS_VENTANAS_QR`...): lista completa y valores
-por defecto en `whatsapp-service/README.md`. En la API: `Mensajeria__CanalActivo` (`Simulado`, `WhatsAppWebJs` o `Baileys`), en `.env`.
+por defecto en `whatsapp-service/README.md`. Las variables del servicio viejo (`WHATSAPP_BACKEND`, `WHATSAPP_SESSION_PATH`, `WHATSAPP_WEB_VERSION`, `WHATSAPP_DEBUG` y `PUPPETEER_*`)
+ya no se leen: si quedaron, el servicio las avisa en el log (solo los nombres) y se pueden borrar. En la API: `Mensajeria__CanalActivo` (`Simulado` o `Baileys`; `WhatsAppWebJs` ya
+no existe y la API no arranca con él), en `.env`.
 
 ## Verificación rápida (solo lectura)
 
@@ -268,7 +270,7 @@ sudo ls -la /opt/yosoy                                # app, config, signaling, 
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:5000/    # 302 .../pantallas/index.html
 sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Video:'   # "/video/acceso habilitado."
 sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Zona horaria de la clínica'   # America/Argentina/Buenos_Aires, -03:00:00
-# Solo con Baileys (cuando se despliegue):
+# Con el servicio de Baileys (cuando se despliegue):
 curl -s http://127.0.0.1:3002/salud                   # 200 y "estado":"conectado"; 503 con el estado y el motivo si no
 sudo stat -c '%a %U:%G %n' /opt/yosoy/whatsapp/sesion-baileys /opt/yosoy/whatsapp/sesion-baileys/datos    # 700 yosoy:yosoy
 sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]{7,}'    # no tiene que devolver nada: sin teléfonos completos
@@ -282,12 +284,12 @@ sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]
   (`uname -r` contra `/boot`).
 - **Backup de la base y del código fuera del servidor:** antes de dar de baja este VPS en algún momento, hace falta
   un backup de `yosoy` y del código desplegado que no dependa de que el servidor siga existiendo. Además, la
-  **clave de cifrado de las emociones** y la **sesión de WhatsApp** (`/opt/yosoy/whatsapp/sesion`) no se pueden
-  regenerar: tienen que estar respaldadas fuera. (La de Baileys, `sesion-baileys/`, sí se puede rehacer escaneando un QR: respaldarla o no
-  es una decisión pendiente, ver `PROGRESO_BAILEYS.md`; si se respalda, cifrada.)
-- **WhatsApp con Baileys:** desplegarlo (número dedicado, topes iniciales bajos) y probar el apagado y la memoria reales. Todo en
-  [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_BAILEYS.md`](PROGRESO_BAILEYS.md). El consentimiento ya está resuelto en el código (las opciones A y B
-  de esa decisión: ver el punto siguiente); falta aplicarlo.
+  **clave de cifrado de las emociones** no se puede regenerar: tiene que estar respaldada fuera. (La sesión de WhatsApp sí se puede rehacer escaneando un QR: la de Baileys,
+  `sesion-baileys/`, respaldarla o no es una decisión pendiente, ver `PROGRESO_BAILEYS.md`; si se respalda, cifrada. La vieja, `sesion/`, se borra con la limpieza de lo viejo.)
+- **WhatsApp con Baileys (único motor):** desplegarlo (número dedicado, topes iniciales bajos), probar el apagado y la memoria reales y, cuando esté estable, **limpiar lo
+  viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché). Antes, mirar que `Mensajeria__CanalActivo` en el `.env` no sea `WhatsAppWebJs` (la API no
+  arranca con ese valor). Todo en [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md). El consentimiento ya está resuelto en el
+  código (las opciones A y B de esa decisión: ver el punto siguiente); falta aplicarlo.
 - **Consentimiento de WhatsApp:** aplicar la migración 16 **antes** de publicar la API, cargar `Mensajeria__WhatsAppNumeroClinica` si se
   quiere el link `wa.me`, y **validar el texto con el equipo legal** antes de usarlo con pacientes reales (`v0-provisorio` es un borrador).
   Pasos y orden: [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp"; qué se decidió y qué falta: [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md).

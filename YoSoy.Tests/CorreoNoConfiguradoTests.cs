@@ -192,7 +192,7 @@ public class CorreoNoConfiguradoTests
             Resultados.Add((_canales[idRecordatorio], estado, error));
 
         public void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora) { }
-        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos) => new();
+        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos) => new();
     }
 
     private sealed class InternasNulas : INotificacionInternaDAO
@@ -250,7 +250,7 @@ public class CorreoNoConfiguradoTests
     {
         var (recordatorios, _, _) = AvisarElRecordatorio();
 
-        Assert.Equal(new[] { "Chat", "Email", "App" }, recordatorios.Resultados.Select(r => r.Canal).ToArray());
+        Assert.Equal(new[] { "Email", "App" }, recordatorios.Resultados.Select(r => r.Canal).ToArray());   // el recordatorio ya no pasa por WhatsApp ("Chat")
         Assert.Equal("Enviado", recordatorios.Resultados.Single(r => r.Canal == "App").Estado);   // la campanita sigue andando
     }
 

@@ -5,7 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 
-// Interoperabilidad con el servicio de WhatsApp REAL: lo que manda CanalWhatsAppWebJs (la API en .NET) lo recibe el código de verdad de
+// Interoperabilidad con el servicio de WhatsApp REAL: lo que manda CanalBaileys (la API en .NET) lo recibe el código de verdad de
 // whatsapp-service/servidor.js (crearApp: el mismo Express, la misma validación del secreto y del cuerpo), con una cola de mentira que
 // anota lo que le llega. Prueba, de punta a punta de la frontera entre los dos programas, que "optIn": true llega como optIn true y que sin
 // él llega como false, y que el código con el que el servicio rechaza vuelve hasta el resultado del envío. El servicio no conecta nada con
@@ -116,11 +116,11 @@ public class CanalWhatsAppInteropNodeTests
         if (!servidor.Proceso.HasExited) { try { servidor.Proceso.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } }
     }
 
-    private static CanalWhatsAppWebJs Canal(int puerto)
+    private static CanalBaileys Canal(int puerto)
     {
         var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{puerto}/"), Timeout = TimeSpan.FromSeconds(10) };
         http.DefaultRequestHeaders.Add("X-Shared-Secret", Secreto);
-        return new CanalWhatsAppWebJs(http, NullLogger<CanalWhatsAppWebJs>.Instance);
+        return new CanalBaileys(http, NullLogger<CanalBaileys>.Instance);
     }
 
     [FactConExpressDelServicio]
@@ -182,7 +182,7 @@ public class CanalWhatsAppInteropNodeTests
         try
         {
             await EsperarQueEscuche(puerto, servidor);
-            var sinSecreto = new CanalWhatsAppWebJs(new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{puerto}/") }, NullLogger<CanalWhatsAppWebJs>.Instance);
+            var sinSecreto = new CanalBaileys(new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{puerto}/") }, NullLogger<CanalBaileys>.Instance);
 
             var r = await sinSecreto.EnviarAsync("1155550001", "hola", new OpcionesEnvio(OptIn: true));
 

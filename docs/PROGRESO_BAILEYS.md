@@ -3,6 +3,11 @@
 Punto de retoma de la tarea larga "canal de WhatsApp con Baileys". Si se corta una sesión, **este archivo manda**: dice qué
 está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan a Agustín.
 
+> **Archivo histórico (2026-10-18).** Cuando se escribió, `whatsapp-web.js` todavía era el motor por defecto y Baileys se agregaba al lado. Después **se sacó
+> whatsapp-web.js por completo** (Baileys es el único motor, `WHATSAPP_BACKEND`, `WhatsAppWebJs` y `whatsapp.js` ya no existen, y la clase `CanalWhatsAppWebJs` de la API
+> pasó a llamarse `CanalBaileys`), y la API **ya no manda recordatorios por WhatsApp**: ver [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md).
+> Lo que sigue describe la tarea tal como se hizo: donde habla de dos backends, de `webjs` o de `WhatsAppWebJs`, ya no rige.
+
 - **Rama:** `feat/whatsapp-baileys`, creada desde `origin/main` (b3c94af, PR #41). Sin merge a `main`.
 - **Decisión de producto (Agustín):** Baileys (WhatsApp Web no oficial) en vez de la API oficial: más simple y menos RAM.
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.

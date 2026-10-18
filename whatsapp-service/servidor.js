@@ -1,16 +1,15 @@
 // La app HTTP de whatsapp-service (Express), separada de index.js para poder probarla con un backend falso.
-// Es la interfaz que usa la API de YoSoy (CanalWhatsAppWebJs y WhatsAppAdminService): no cambia según el backend.
+// Es la interfaz que usa la API de YoSoy (CanalBaileys y WhatsAppAdminService).
 //
-//   GET  /salud        sin secreto, solo loopback. Con Baileys: 200 si está conectado y 503 si no, con el estado (conectado,
-//                      iniciando, reconectando, requiere_vincular, requiere_atencion), el motivo, desde cuándo, los intentos de
-//                      reconexión, el tiempo en marcha del proceso y lo de la cola y los topes. Sin teléfonos ni textos.
-//                      Con whatsapp-web.js, { ok: true } mientras el proceso responda, como siempre.
-//   GET  /estado       { conectado, numero, qrPendiente, qr } (más campos extra según el backend). Pide secreto.
+//   GET  /salud        sin secreto, solo loopback. 200 si está conectado y 503 si no, con el estado (conectado, iniciando,
+//                      reconectando, requiere_vincular, requiere_atencion), el motivo, desde cuándo, los intentos de reconexión,
+//                      el tiempo en marcha del proceso y lo de la cola y los topes. Sin teléfonos ni textos.
+//   GET  /estado       { conectado, numero, qrPendiente, qr, estado, motivo }. Pide secreto.
 //   POST /enviar       { telefono, texto, optIn? } → { exito, idExterno } o { exito:false, error, codigo }. Pide secreto.
-//                      Con Baileys puede rechazar el pedido: 400 telefono_invalido · 403 sin_consentimiento / baja ·
+//                      Puede rechazar el pedido: 400 telefono_invalido · 403 sin_consentimiento / baja ·
 //                      429 tope_diario / limite_destinatario · 503 no_conectado / cola_llena / reiniciando.
 //   POST /desvincular  Pide secreto. Responde apenas valida, sin esperar al reinicio.
-//   POST /vincular     Solo Baileys: abre una ventana de vinculación por QR (el QR se ve en GET /estado). Pide secreto.
+//   POST /vincular     Abre una ventana de vinculación por QR (el QR se ve en GET /estado). Pide secreto.
 //                      409 si no corresponde (ya hay un número vinculado, todavía se está conectando...).
 //
 // El secreto es X-Shared-Secret (Mensajeria__WhatsApp__Secreto), comparado en tiempo constante.
@@ -50,7 +49,6 @@ function crearApp({ servicio, cola, secreto, log, uptime = () => process.uptime(
 
     app.get("/salud", (req, res) => {
         res.set("Cache-Control", "no-store");
-        if (typeof servicio.salud !== "function") return res.json({ ok: true });
         const salud = servicio.salud();
         const cuerpo = { ...salud, uptimeSegundos: Math.round(uptime()), ...(typeof cola?.resumen === "function" ? { cola: cola.resumen() } : {}) };
         res.status(salud.ok ? 200 : 503).json(cuerpo);
@@ -90,9 +88,6 @@ function crearApp({ servicio, cola, secreto, log, uptime = () => process.uptime(
 
     app.post("/vincular", asincrono(async (req, res) => {
         if (!autorizado(req)) return res.status(401).json({ exito: false, error: "Secreto inválido." });
-        if (typeof servicio.vincular !== "function") {
-            return res.status(404).json({ exito: false, error: "Este backend no tiene vinculación a pedido." });
-        }
         res.set("Cache-Control", "no-store");
         const resultado = await servicio.vincular();
         res.status(resultado.exito === false ? 409 : 200).json({ exito: true, ...resultado });

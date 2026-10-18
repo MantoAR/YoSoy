@@ -19,44 +19,47 @@ public static class MensajeriaServiceCollectionExtensions
         // Esta línea solo cubre a quien use AddMensajeria sin él.
         services.TryAddSingleton(TimeProvider.System);
 
-        // Canal activo elegido por configuración: Simulado (por defecto), o WhatsApp por whatsapp-service ("Baileys" o
-        // "WhatsAppWebJs"). CanalWhatsAppCloud existe pero todavía no se registra (ver el TODO en esa clase).
+        // Canal activo elegido por configuración: Simulado (por defecto) o WhatsApp por whatsapp-service ("Baileys", el único motor de
+        // WhatsApp). "WhatsAppWebJs" ya no existe (se sacó whatsapp-web.js): con ese valor la aplicación no arranca, y el mensaje dice qué
+        // poner. CanalWhatsAppCloud existe pero todavía no se registra (ver el TODO en esa clase).
         var canal = config.GetSection(MensajeriaOptions.Seccion)["CanalActivo"] ?? "Simulado";
         switch (canal)
         {
             case "Simulado":
                 services.AddSingleton<IMessageChannel, CanalSimulado>();
                 break;
-            case "WhatsAppWebJs":
             case "Baileys":
-                // "WhatsAppWebJs" y "Baileys" son el MISMO canal desde acá: los dos hablan con whatsapp-service por la misma interfaz
-                // HTTP (/enviar, /estado, /desvincular) y no saben qué librería hay detrás. Cuál usa el servicio lo decide su propia
-                // variable WHATSAPP_BACKEND (ver whatsapp-service/README.md); este valor es solo la forma de decir "salir por WhatsApp".
-                // Se conservan los dos nombres para que un servidor que ya tiene Mensajeria__CanalActivo=WhatsAppWebJs siga arrancando.
+                // CanalBaileys habla con whatsapp-service por HTTP (/enviar, /estado, /desvincular) y no sabe nada de la librería.
                 //
                 // whatsapp-service solo escucha en loopback (ver whatsapp-service/README.md) —
                 // nunca una URL configurable desde afuera. AddHttpClient<T> registra el canal
                 // mismo como transient; se envuelve en un singleton para que todo lo que
                 // inyecta IMessageChannel (NotificadorTurnos, BotReservasService, ambos
                 // singleton) reciba siempre la misma instancia, como con CanalSimulado.
-                services.AddHttpClient<CanalWhatsAppWebJs>((sp, http) =>
+                services.AddHttpClient<CanalBaileys>((sp, http) =>
                 {
                     http.BaseAddress = new Uri("http://127.0.0.1:3002/");
                     http.Timeout = TimeSpan.FromSeconds(10);
                     AgregarSecretoWhatsApp(http, sp);
                 });
-                services.AddSingleton<IMessageChannel>(sp => sp.GetRequiredService<CanalWhatsAppWebJs>());
+                services.AddSingleton<IMessageChannel>(sp => sp.GetRequiredService<CanalBaileys>());
                 break;
+            case "WhatsAppWebJs":
+                // El valor del motor que se sacó: se rechaza con un mensaje propio (un servidor que todavía lo tiene en el .env tiene que saber qué cambiar).
+                throw new InvalidOperationException(
+                    "Mensajeria:CanalActivo = \"WhatsAppWebJs\" ya no existe: WhatsApp Web JS (whatsapp-web.js) se sacó y el único motor de WhatsApp es Baileys. " +
+                    "Poné Mensajeria__CanalActivo=Baileys (o \"Simulado\", si no querés que salga nada por WhatsApp) en el .env del servidor. " +
+                    "Los valores válidos son \"Simulado\" y \"Baileys\".");
             default:
                 throw new InvalidOperationException(
-                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\", \"Baileys\" y \"WhatsAppWebJs\".");
+                    $"Mensajeria:CanalActivo = \"{canal}\" no está disponible. Los valores válidos son \"Simulado\" y \"Baileys\".");
         }
 
         // WhatsAppAdminService (pantalla de WhatsApp del Configurador: estado/QR/desvincular)
         // se registra siempre, sin condición con CanalActivo — a diferencia del canal de
         // envío de arriba, tiene que poder usarse para vincular el número ANTES de activar
-        // "WhatsAppWebJs". La URL sale de MensajeriaOptions (configurable, a diferencia de la
-        // de CanalWhatsAppWebJs) para poder apuntar los tests a un listener falso.
+        // "Baileys". La URL sale de MensajeriaOptions (configurable, a diferencia de la
+        // de CanalBaileys) para poder apuntar los tests a un listener falso.
         services.AddHttpClient<WhatsAppAdminService>((sp, http) =>
         {
             var opciones = sp.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
@@ -109,7 +112,7 @@ public static class MensajeriaServiceCollectionExtensions
 
     // whatsapp-service exige este secreto en /enviar, /estado y /desvincular (ver
     // whatsapp-service/index.js) — mismo valor que valida el webhook entrante
-    // (Endpoints/MensajeriaEndpoints.cs). Sin esto, CanalWhatsAppWebJs.EnviarAsync y
+    // (Endpoints/MensajeriaEndpoints.cs). Sin esto, CanalBaileys.EnviarAsync y
     // WhatsAppAdminService recibirían 401 en cada pedido.
     private static void AgregarSecretoWhatsApp(HttpClient http, IServiceProvider sp)
     {
