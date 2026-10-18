@@ -1,10 +1,9 @@
 // Carga de Baileys y "fachada" con lo poquito que usa este servicio.
 //
 // Baileys es ESM puro ("type": "module"), y este servicio es CommonJS: se carga con import() dinámico, y SOLO acá. Nada más del
-// servicio importa la librería; el resto recibe la fachada. Eso tiene tres consecuencias buscadas:
+// servicio importa la librería; el resto recibe la fachada. Eso tiene dos consecuencias buscadas:
 //   - los tests le pasan una fachada falsa y nunca se abre una conexión real a WhatsApp;
-//   - un cambio de versión de la librería se nota en un solo lugar (y lo vigila test/contrato-baileys.test.js);
-//   - con WHATSAPP_BACKEND=webjs (el valor por defecto) la librería ni se carga.
+//   - un cambio de versión de la librería se nota en un solo lugar (y lo vigila test/contrato-baileys.test.js).
 //
 // Cargar la librería NO abre ninguna conexión: eso recién pasa cuando alguien llama a makeWASocket.
 "use strict";

@@ -12,11 +12,14 @@ function crearLog() {
     return { lineas, info: m => lineas.push(`INFO ${m}`), error: m => lineas.push(`ERROR ${m}`) };
 }
 
+// Un backend con la interfaz completa, como el real (ServicioBaileys): estado, salud, enviar, desvincular y vincular.
 function servicioFalso(extra = {}) {
     return {
         llamadas: { desvincular: 0, vincular: 0 },
         async estado() { return { conectado: true, numero: "5491100000000", qrPendiente: false, qr: null }; },
+        salud() { return { ok: true, canal: "baileys", estado: "conectado" }; },
         async desvincular() { this.llamadas.desvincular++; },
+        async vincular() { this.llamadas.vincular++; return { estado: "conectado", qrPendiente: false }; },
         async enviar() {},
         ...extra
     };
@@ -38,14 +41,6 @@ async function conServidor({ servicio = servicioFalso(), cola, log = crearLog(),
 }
 
 // ---------- Salud ----------
-
-test("GET /salud sin secreto y con un backend sin salud() responde {ok:true}, igual que siempre", async () => {
-    await conServidor({}, async ({ pedir }) => {
-        const r = await pedir("/salud", { secreto: null });
-        assert.equal(r.status, 200);
-        assert.deepEqual(await r.json(), { ok: true });
-    });
-});
 
 test("GET /salud con un backend que informa su estado: 200 si está bien y 503 si no, con el estado, el tiempo en marcha y la cola", async () => {
     let salud = { ok: true, canal: "baileys", estado: "conectado" };
@@ -77,14 +72,6 @@ test("GET /salud no se cachea, no pide secreto y no trae teléfonos ni textos", 
         assert.deepEqual(cuerpo.cola, { pendientes: 2, dia: "2026-10-16", enviadosHoy: 7, enEspera: 2, topeDiario: 100, enviadosUltimaHora: 7, topePorHora: 40, topePorDestinatario: 3 });
         assert.equal(typeof cuerpo.uptimeSegundos, "number");
         assert.doesNotMatch(JSON.stringify(cuerpo), /\d{7,}/, "ningún número que parezca un teléfono");
-    });
-});
-
-test("GET /salud con whatsapp-web.js (sin salud()) sigue siendo {ok:true}, también sin cabeceras raras", async () => {
-    await conServidor({}, async ({ pedir }) => {
-        const r = await pedir("/salud", { secreto: null });
-        assert.equal(r.headers.get("cache-control"), "no-store");
-        assert.deepEqual(await r.json(), { ok: true });
     });
 });
 
@@ -230,12 +217,12 @@ test("si desvincular falla, se loguea y el pedido igual respondió bien (ya hab�
     });
 });
 
-test("POST /vincular: 401 sin secreto, 404 si el backend no lo soporta, y con soporte devuelve el estado", async () => {
-    await conServidor({}, async ({ pedir }) => {
+test("POST /vincular: 401 sin secreto (y sin llamar al servicio), y con secreto devuelve el estado", async () => {
+    const sinSecreto = servicioFalso();
+    await conServidor({ servicio: sinSecreto }, async ({ pedir }) => {
         assert.equal((await pedir("/vincular", { metodo: "POST", secreto: null })).status, 401);
-        const r = await pedir("/vincular", { metodo: "POST" });
-        assert.equal(r.status, 404);
-        assert.equal((await r.json()).exito, false);
+        assert.equal((await pedir("/vincular", { metodo: "POST", secreto: "otro" })).status, 401);
+        assert.equal(sinSecreto.llamadas.vincular, 0);
     });
 
     const servicio = servicioFalso({ vincular: async () => ({ estado: "requiere_vincular", qrPendiente: false }) });

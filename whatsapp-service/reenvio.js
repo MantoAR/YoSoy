@@ -1,5 +1,4 @@
 // Reenvío de los mensajes entrantes a la API de YoSoy: POST {API_BASE_URL}/mensajeria/whatsapp/entrante con el secreto compartido.
-// Es lo mismo que hace whatsapp.js (_reenviarSinBloquear) para whatsapp-web.js, para que los dos backends hablen igual con la API.
 //
 // Nunca bloquea el procesamiento del próximo evento (timeout corto propio, el error solo se loguea) y, por privacidad, el log
 // no incluye el texto del mensaje ni el cuerpo de la respuesta: solo el estado HTTP o el motivo del fallo, con los números enmascarados.

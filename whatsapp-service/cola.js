@@ -1,13 +1,13 @@
 // Cola de envío: /enviar responde apenas se encola, no cuando WhatsApp confirma la
-// entrega. Necesario para que una ráfaga de recordatorios (NotificadorTurnos manda
-// varios turnos juntos) no haga que el HttpClient del lado .NET (timeout 10s) venza
+// entrega. Necesario para que una ráfaga de mensajes (por ejemplo, varios avisos de turno
+// juntos) no haga que el HttpClient del lado .NET (timeout 10s) venza
 // esperando el turno de un mensaje atrás en la cola, dispare un reintento
 // (MaxIntentosEnvio=3) y termine mandando el mismo mensaje dos veces de verdad.
 // Con esto, "encolado" (Exito:true) y "entregado" son cosas distintas — mismo
 // criterio laxo que ya usa el canal Simulado del lado .NET (tampoco confirma lectura).
 //
-// Con whatsapp-web.js la cola es la de siempre: un mensaje cada 3 a 5 segundos. Con Baileys (WhatsApp puede bloquear el número si
-// parece un bot) se le agregan, por opciones, las protecciones de la etapa 5:
+// WhatsApp puede bloquear el número si parece un bot, así que la cola del servicio lleva, por opciones, estas protecciones (el servicio las
+// arma siempre: crearColaParaBackend no arma una cola sin ellas):
 //   - consentimiento: solo se acepta el envío a quien aceptó recibir mensajes (consentimiento.js); si no, 403;
 //   - topes de envío: por día, por persona y por hora (limites.js); al pasarse del día o de la persona, 429;
 //   - ritmo humano: pausa al azar entre mensajes y, cada tanto, una pausa larga;
@@ -17,7 +17,7 @@ const { ocultarNumeros } = require("./privacidad");
 const CAPACIDAD_MAXIMA = 50;
 const ESPACIADO_MIN_MS = 3000;
 const ESPACIADO_JITTER_MS = 2000;
-const MAX_ANTIGUEDAD_MS = 3 * 60 * 60 * 1000;      // un recordatorio que lleva más de 3 horas esperando ya no sirve: se descarta
+const MAX_ANTIGUEDAD_MS = 3 * 60 * 60 * 1000;      // un aviso que lleva más de 3 horas esperando ya no sirve: se descarta
 const ESPERA_DE_CONEXION_MS = 1000;
 const NO_DISPONIBLES = new Set(["requiere_vincular", "requiere_atencion", "detenido"]);
 
@@ -208,10 +208,14 @@ class ColaEnvios {
     }
 }
 
-// La cola de un backend: con Baileys lleva el consentimiento, los topes y el ritmo (las opciones las arma backend.js); con
-// whatsapp-web.js, que no trae opciones, es la de siempre.
+// La cola de un backend, con el consentimiento, los topes y el ritmo que arma backend.js (opcionesDeCola). Si el backend no los trae NO se
+// arma la cola: una cola "pelada" aceptaría mandarle a cualquiera sin límite, que es justo lo que bloquea un número de WhatsApp.
 function crearColaParaBackend(backend, log) {
-    return new ColaEnvios((telefono, texto, meta) => backend.enviar(telefono, texto, meta), log, backend.opcionesDeCola ?? {});
+    const opciones = backend.opcionesDeCola;
+    if (!opciones || !opciones.consentimiento || !opciones.limites) {
+        throw new Error("El backend de WhatsApp no trae consentimiento ni topes de envío: no se arma la cola de envíos sin esas protecciones.");
+    }
+    return new ColaEnvios((telefono, texto, meta) => backend.enviar(telefono, texto, meta), log, opciones);
 }
 
 module.exports = { ColaEnvios, crearColaParaBackend, CAPACIDAD_MAXIMA, MAX_ANTIGUEDAD_MS };

@@ -176,7 +176,7 @@ test("lo que 'escribe' tiene tope (4 s) y el azar lo mueve entre 80 % y 120 %", 
     assert.equal(await medir(() => 1), 4800, "4000 · 1,2");
 });
 
-conEntorno("sin activarlo (lo que pasa en las pruebas y con whatsapp-web.js) no hay 'escribiendo...' ni espera", { registrada: true }, async e => {
+conEntorno("sin activarlo (lo que pasa en las pruebas) no hay 'escribiendo...' ni espera", { registrada: true }, async e => {
     const sock = await e.iniciar();
     sock.abrir();
     await e.servicio.enviar("1122334455", "hola");

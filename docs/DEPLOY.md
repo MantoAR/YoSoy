@@ -100,7 +100,8 @@ el servidor: [`SERVIDOR.md`](SERVIDOR.md). Las videollamadas (signaling, coturn,
    `docs/produccion/`: `git diff <commit-anterior>..HEAD --stat -- migrations docs/produccion`. Si los hay, las
    migraciones van **antes** que la API (sección "Migraciones" abajo).
 4. **¿Hay variables nuevas?** Se cargan en `/opt/yosoy/config/*.env` **antes** de arrancar la versión nueva (sección
-   "Cambios de configuración").
+   "Cambios de configuración"). Y mirá que `Mensajeria__CanalActivo` no sea `WhatsAppWebJs`: ese valor ya no existe y la API no arranca con él
+   (sección "WhatsApp en la API").
 5. **Horario.** La API se reinicia: unos segundos sin servicio. Mejor en horas de poco uso.
 
 ## 1. Publicar en la PC
@@ -309,6 +310,25 @@ versión nueva (un archivo `Services/Mensajeria/Consentimiento/<versión>.txt` y
 cambiar de versión, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar** (es a propósito). Conviene hacerlo antes
 de que haya aceptaciones que perder.
 
+## WhatsApp en la API: `Mensajeria__CanalActivo` y recordatorios
+
+Esta versión de la API cambia dos cosas de WhatsApp (qué se decidió y por qué: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)):
+
+1. **`Mensajeria__CanalActivo` solo acepta `Simulado` y `Baileys`.** `WhatsAppWebJs` (el nombre del motor viejo) **ya no existe, y la API no arranca** con ese valor:
+   falla al empezar con un mensaje que dice qué cambiar. **Antes de publicar**, mirá qué tiene el servidor (esto imprime solo esa línea, no el resto del archivo):
+   ```bash
+   sudo grep -n '^Mensajeria__CanalActivo=' /opt/yosoy/config/.env
+   ```
+   - Si dice **`WhatsAppWebJs`**: cambialo a `Baileys`. La API le habla al servicio por HTTP y no sabe qué motor hay detrás: con el servicio viejo sigue andando igual. O a
+     `Simulado` si no querés que salga nada por WhatsApp (el chat simulado y la bandeja siguen andando).
+   - Si dice `Simulado` o `Baileys`, o no hay ninguna línea: no hay nada que cambiar.
+2. **No hay recordatorios por WhatsApp.** El recordatorio de 24 horas sale solo por **mail y campanita** (como hasta ahora); nada lo manda por WhatsApp, ni por configuración
+   ni por defecto. Las filas viejas de `Recordatorio` con canal `Chat` quedan como historial (no se tocan). Los avisos por evento (solicitud, turno propuesto, confirmado y
+   cancelado) siguen por WhatsApp según el consentimiento: ver el archivo de progreso.
+
+Orden recomendado: **(1)** el valor de `Mensajeria__CanalActivo` en `.env`, **(2)** publicar la API (secciones de arriba), **(3)** recién después desplegar el servicio nuevo y
+vincular el número ([más abajo](#despliegue-de-whatsapp-service-baileys)).
+
 ## Cambios de configuración
 
 - Las variables están en `/opt/yosoy/config/` (`.env`, `video.env`, `signaling.env`, `whatsapp.env`), con permisos
@@ -325,7 +345,7 @@ de que haya aceptaciones que perder.
 | Componente | Cómo se actualiza |
 |---|---|
 | `signaling-server` | Reemplazar `/opt/yosoy/signaling/app`, `npm ci --omit=dev` y reiniciar el servicio. Paso b de [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md). |
-| `whatsapp-service` | `whatsapp-service/README.md`. Reiniciarlo corta la sesión de WhatsApp unos segundos. Pasarlo a Baileys: [más abajo](#despliegue-de-whatsapp-service-con-baileys-flujo-manual). |
+| `whatsapp-service` | `whatsapp-service/README.md`. Reiniciarlo corta la sesión de WhatsApp unos segundos. Desplegarlo (Baileys, único motor) y limpiar lo viejo: [más abajo](#despliegue-de-whatsapp-service-baileys). |
 | Caddy | Editar `/etc/caddy/Caddyfile` o `video.caddy`, **validar** (`sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`) y recién ahí `sudo systemctl reload caddy`. |
 | coturn | `/etc/turnserver.conf`; el secreto lo escribe `generar-secretos.sh`. |
 
@@ -347,34 +367,39 @@ de que haya aceptaciones que perder.
 - Si la versión cambió algo del servidor (puertos, servicios, carpetas, variables), actualizar
   [`SERVIDOR.md`](SERVIDOR.md).
 
-# Despliegue de whatsapp-service con Baileys (flujo manual)
+# Despliegue de whatsapp-service (Baileys)
 
-Cómo se pasa `whatsapp-service` a **Baileys** (WhatsApp Web sin navegador, no oficial) en el VPS. Es manual, como el de la API.
-Qué hace el servicio y todas sus variables: [`whatsapp-service/README.md`](../whatsapp-service/README.md). Cómo está armado el
-servidor: [`SERVIDOR.md`](SERVIDOR.md). Qué se decidió, qué falta y qué te toca a vos: [`PROGRESO_BAILEYS.md`](PROGRESO_BAILEYS.md).
+Cómo se despliega `whatsapp-service` en el VPS. **Baileys** (WhatsApp Web sin navegador, no oficial) es el **único motor**: `whatsapp-web.js`, Puppeteer y
+Chromium se sacaron del código. Es manual, como el de la API. Qué hace el servicio y todas sus variables:
+[`whatsapp-service/README.md`](../whatsapp-service/README.md). Cómo está armado el servidor: [`SERVIDOR.md`](SERVIDOR.md). Qué se decidió y qué te toca
+a vos: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md) y [`PROGRESO_BAILEYS.md`](PROGRESO_BAILEYS.md).
 
-> **Estado: todavía no se desplegó.** Todo se probó con un socket simulado y la red bloqueada; **nada corrió contra WhatsApp**. El
-> primer despliegue es también la primera vez que habla con WhatsApp de verdad: hacelo con tiempo y con el teléfono del número
-> dedicado a mano.
+> **Estado: todavía no se desplegó.** Según [`SERVIDOR.md`](SERVIDOR.md), el servicio que corre hoy en el VPS es el **viejo** (whatsapp-web.js + Chromium,
+> `MemoryMax=2G`): este flujo lo reemplaza y, al final ("10. Limpieza de lo viejo"), se saca lo que ya no hace falta. Todo se probó con un socket simulado y
+> la red bloqueada; **nada corrió contra WhatsApp**. El primer despliegue es también la primera vez que habla con WhatsApp de verdad: hacelo con tiempo y
+> con el teléfono del número dedicado a mano.
 
 - **Número dedicado de la clínica, nunca un teléfono personal.** Baileys no es la API oficial y **WhatsApp puede bloquear el
-  número** (riesgo asumido). Por eso el servicio solo escribe a quien aceptó, con pausas y topes.
+  número** (riesgo asumido). Por eso el servicio solo le escribe a quien le escribió primero o aceptó, con pausas y topes.
+- **Sin recordatorios por WhatsApp.** La API ya no los manda (siguen por mail y campanita); lo que sale por WhatsApp son las respuestas del asistente y
+  del equipo y los avisos por evento (ver [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)).
 - **Sin secretos en este archivo.** Ningún comando de acá imprime un secreto; si alguno lo hiciera, pará.
-- **En el VPS** se trabaja como `agustin` (con `sudo`). Los pasos tienen verificación y hay rollback al final.
-- Con Baileys **no hace falta Chromium** ni sus paquetes; si el servicio nunca se instaló, seguí
-  `whatsapp-service/README.md` para Node 22 y las carpetas, salteando lo de Chromium.
+- **En el VPS** se trabaja como `agustin` (con `sudo`). Los pasos tienen verificación y hay rollback.
+- **No hace falta Chromium** ni sus paquetes. Si el servicio nunca se instaló, seguí `whatsapp-service/README.md` ("Primer deploy").
 
 ## Antes de empezar
 
 1. **`main` actualizado y limpio** en la PC, y anotá el commit que vas a desplegar.
 2. **Pruebas del servicio** (Node 22 o más nuevo): `cd whatsapp-service && npm test`. Todas pasan, sin red y sin WhatsApp.
 3. **El número dedicado**, con WhatsApp ya activo en un teléfono que tengas a mano para escanear el QR.
-4. **Consentimiento.** La API con el consentimiento de WhatsApp (migración 16: [más arriba](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue))
-   manda `optIn:true` **solo a quien aceptó**; sin ella, con Baileys solo reciben WhatsApp quienes le escribieron primero al número de la
-   clínica. Desplegá **primero** esa API con su migración y recién después prendé este canal. Y **antes de usarlo con pacientes reales**, el texto
-   del consentimiento (`v0-provisorio`) tiene que estar validado por el equipo legal (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales").
-5. **Topes iniciales bajos** para un número nuevo (abajo, paso 5). Después se suben de a poco, durante semanas.
-6. **Horario.** Reiniciar el servicio corta WhatsApp unos segundos; los mensajes que estén en la cola se pierden.
+4. **El valor de `Mensajeria__CanalActivo` en la API** ([WhatsApp en la API](#whatsapp-en-la-api-mensajeria__canalactivo-y-recordatorios)): la API nueva no
+   arranca con `WhatsAppWebJs`. Publicá primero esa API (con `Baileys` o `Simulado`), y recién después este servicio.
+5. **Consentimiento.** La API con el consentimiento de WhatsApp (migración 16: [más arriba](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue))
+   manda `optIn:true` **solo a quien aceptó**; sin ella, solo reciben WhatsApp quienes le escribieron primero al número de la clínica. Desplegá **primero** esa
+   API con su migración y recién después prendé este canal. Y **antes de usarlo con pacientes reales**, el texto del consentimiento (`v0-provisorio`) tiene
+   que estar validado por el equipo legal (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales").
+6. **Topes iniciales bajos** para un número nuevo (abajo, paso 5). Después se suben de a poco, durante semanas.
+7. **Horario.** Reiniciar el servicio corta WhatsApp unos segundos; los mensajes que estén en la cola se pierden.
 
 ## 1. Empaquetar en la PC
 
@@ -399,15 +424,16 @@ sudo tar -xzf ~/whatsapp-service-$FECHA.tar.gz -C /opt/yosoy/whatsapp/app-nueva
 sudo chown -R yosoy:yosoy /opt/yosoy/whatsapp/app-nueva
 sudo -u yosoy bash -c '
   cd /opt/yosoy/whatsapp/app-nueva &&
-  HOME=/opt/yosoy/whatsapp/cache PUPPETEER_SKIP_DOWNLOAD=1 \
+  HOME=/opt/yosoy/whatsapp/cache \
   npm ci --omit=dev --cache /opt/yosoy/whatsapp/cache/npm
 '
-ls /opt/yosoy/whatsapp/app-nueva/index.js /opt/yosoy/whatsapp/app-nueva/deploy/whatsapp-service-baileys.service
+ls /opt/yosoy/whatsapp/app-nueva/index.js /opt/yosoy/whatsapp/app-nueva/deploy/whatsapp-service.service
 ```
 
-`PUPPETEER_SKIP_DOWNLOAD=1` evita bajar otro Chromium (el viejo sigue en `cache/`, por si hace falta volver). `npm ci` usa el
-`package-lock.json` tal cual: instala Baileys en la versión exacta (6.7.24) con `libsignal` desde el registro, sin dependencias
-por git. Probá el código nuevo **en Linux** (acá se corren las pruebas de permisos que en Windows se saltean), todavía sin tocar nada de lo que corre:
+`npm ci` usa el `package-lock.json` tal cual: instala Baileys en la versión exacta (6.7.24) con `libsignal` desde el registro, sin dependencias por git y
+**sin bajar ningún Chromium** (son 207 paquetes, no 429). Si en el VPS no existe `/opt/yosoy/whatsapp/cache`, crealo antes
+(`sudo install -d -o yosoy -g yosoy /opt/yosoy/whatsapp/cache`): es solo la caché de npm para instalar. Probá el código nuevo **en Linux** (acá se corren las
+pruebas de permisos que en Windows se saltean), todavía sin tocar nada de lo que corre:
 
 ```bash
 sudo -u yosoy bash -c 'cd /opt/yosoy/whatsapp/app-nueva && npm test 2>&1 | tail -n 12'
@@ -420,13 +446,13 @@ Las pruebas usan carpetas temporales y la red de pruebas bloqueada: no tocan la 
 
 ```bash
 sudo mkdir -p /opt/yosoy/backups/whatsapp-$FECHA
-sudo cp -a /etc/systemd/system/whatsapp-service.service /opt/yosoy/backups/whatsapp-$FECHA/       # la unit actual
+sudo cp -a /etc/systemd/system/whatsapp-service.service /opt/yosoy/backups/whatsapp-$FECHA/       # la unit actual (la vieja)
 sudo cp -a /opt/yosoy/config/whatsapp.env /opt/yosoy/backups/whatsapp-$FECHA/                     # copia, sin imprimirla
 sudo ls -la /opt/yosoy/backups/whatsapp-$FECHA/                                                   # los dos archivos, whatsapp.env en 600
 ```
 
-El código viejo no se copia: se **renombra** en el paso 4 (`app-anterior-$FECHA`), que es su backup. La sesión de whatsapp-web.js
-(`/opt/yosoy/whatsapp/sesion`) no se toca nunca en este flujo. Si el servicio no estaba instalado, no hay nada que respaldar: salteá
+El código viejo no se copia: se **renombra** en el paso 4 (`app-anterior-$FECHA`), que es su backup. La sesión del servicio viejo
+(`/opt/yosoy/whatsapp/sesion`) no se toca en este flujo: se borra recién en el paso 10. Si el servicio no estaba instalado, no hay nada que respaldar: salteá
 este paso y los de `app-anterior`.
 
 ## 4. Corte y reemplazo
@@ -439,14 +465,14 @@ sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys
 sudo systemctl stop whatsapp-service
 sudo mv /opt/yosoy/whatsapp/app /opt/yosoy/whatsapp/app-anterior-$FECHA
 sudo mv /opt/yosoy/whatsapp/app-nueva /opt/yosoy/whatsapp/app
-sudo cp /opt/yosoy/whatsapp/app/deploy/whatsapp-service-baileys.service /etc/systemd/system/whatsapp-service.service
+sudo cp /opt/yosoy/whatsapp/app/deploy/whatsapp-service.service /etc/systemd/system/whatsapp-service.service
 sudo sed -i 's/\r$//' /etc/systemd/system/whatsapp-service.service     # por si el archivo llegó con finales de línea de Windows
 sudo systemd-analyze verify /etc/systemd/system/whatsapp-service.service          # sin errores (puede avisar de cosas ajenas)
 sudo systemctl daemon-reload
 ```
 
-La unit dice `WHATSAPP_BACKEND=baileys` y la carpeta de la sesión. El secreto compartido sigue en `/opt/yosoy/config/whatsapp.env`
-(el mismo archivo, no se cambia). **No arranques todavía**: primero los topes.
+La unit tiene la carpeta de la sesión y el límite de memoria nuevo. El secreto compartido sigue en `/opt/yosoy/config/whatsapp.env` (el mismo archivo, no se
+cambia). **No arranques todavía**: primero los topes.
 
 ## 5. Topes iniciales
 
@@ -471,13 +497,14 @@ sudo ss -ltnp | grep ':3002 '                                               # 12
 sudo stat -c '%a %U:%G %n' /opt/yosoy/whatsapp/sesion-baileys /opt/yosoy/whatsapp/sesion-baileys/datos      # 700 yosoy:yosoy los dos
 sudo journalctl -u whatsapp-service --since '10 minutes ago' --no-pager
 # "Carpeta de la sesión de WhatsApp lista", "se abre una ventana de vinculación por QR (1 de 2)"; sin excepciones.
+# Si dice "Aviso: estas variables de entorno ya no se usan ...", son variables del servicio viejo que quedaron (solo los nombres): se sacan en el paso 10.
 sudo journalctl -u whatsapp-service -o cat | grep -E '[0-9]{7,}'            # no tiene que devolver nada (ni teléfonos ni códigos QR)
 sudo systemd-analyze security whatsapp-service --no-pager | tail -n 3       # el puntaje de exposición, a título informativo
 ```
 
 Si el servicio no arranca, mirá el `journalctl`: los problemas de configuración (carpeta de la sesión mal puesta, API_BASE_URL, una
-variable inválida) dicen qué variable es y salen en la primera línea. Si el servicio se cae en bucle, systemd lo deja de intentar a
-los 5 intentos en 5 minutos (a propósito: no hay que golpear a WhatsApp en bucle).
+variable inválida, un `WHATSAPP_BACKEND=webjs` que quedó) dicen qué variable es y salen en la primera línea. Si el servicio se cae en bucle, systemd lo deja de
+intentar a los 5 intentos en 5 minutos (a propósito: no hay que golpear a WhatsApp en bucle).
 
 ## 7. Vincular el número dedicado
 
@@ -502,7 +529,7 @@ Mensajeria__CanalActivo=Baileys
 
 Y `sudo systemctl restart yosoy-api`; mirá el `journalctl` (sin excepciones). La API y `whatsapp-service` ya comparten el secreto por el
 drop-in `whatsapp.conf`. **Probá primero con tu propio teléfono**: escribile un mensaje al número de la clínica (así queda con
-constancia) y pedí un turno o un recordatorio de prueba. Mirá que el mensaje salga con las pausas, que el log no tenga teléfonos
+constancia) y mirá que el asistente conteste. Revisá que el mensaje salga con las pausas, que el log no tenga teléfonos
 completos ni texto de mensajes, y que `curl -s http://127.0.0.1:3002/salud` cuente el envío en `cola.enviadosHoy`.
 
 ## 9. Apagado
@@ -510,9 +537,46 @@ completos ni texto de mensajes, y que `curl -s http://127.0.0.1:3002/salud` cuen
 `sudo systemctl stop whatsapp-service` tiene que terminar en 1 a 3 segundos (no los 20 de `TimeoutStopSec`), y el journal tiene que decir
 `SIGTERM recibido, apagando...` y `Apagado completo.`. Al volver a arrancar, `/salud` vuelve a `conectado` **sin pedir QR**.
 
-## 10. Rollback
+## 10. Limpieza de lo viejo (whatsapp-web.js y Chromium)
 
-Vuelve al servicio de whatsapp-web.js. La sesión de Baileys **no se borra** (queda por si se vuelve a intentar).
+**Solo cuando el servicio nuevo lleve unos días estable** y ya no pienses volver atrás (el rollback del paso 11 necesita lo que acá se borra). Es todo manual y no
+urge: lo viejo no estorba, solo ocupa lugar y es superficie que mantener.
+
+1. **Desvincular el dispositivo viejo del teléfono**, antes de borrar nada: en el teléfono del número de la clínica, WhatsApp → Ajustes → Dispositivos
+   vinculados. Quedan dos: el de Baileys (el que se usa) y el de whatsapp-web.js (suele figurar como un navegador). Cerrá el viejo: así se corta del lado de WhatsApp.
+2. **El código y los backups viejos:**
+   ```bash
+   sudo ls -d /opt/yosoy/whatsapp/app-anterior-* /opt/yosoy/backups/whatsapp-*     # mirá qué hay y de qué fecha
+   sudo rm -rf /opt/yosoy/whatsapp/app-anterior-$FECHA                             # el código viejo (con su node_modules y Chromium dentro)
+   ```
+   (`/opt/yosoy/backups/whatsapp-$FECHA` tiene la unit vieja y `whatsapp.env`: dejalo unos días más y después borralo con `sudo rm -rf`.)
+3. **La sesión vieja** (es una credencial de la cuenta: `LocalAuth` de whatsapp-web.js) y la **caché de Chromium**:
+   ```bash
+   sudo rm -rf /opt/yosoy/whatsapp/sesion                       # la sesión vieja. NO es la de Baileys (esa es sesion-baileys/)
+   sudo du -sh /opt/yosoy/whatsapp/cache/* /opt/yosoy/whatsapp/cache/.[a-z]* 2>/dev/null   # mirá qué ocupa: Chromium, su perfil y la caché de npm
+   sudo rm -rf /opt/yosoy/whatsapp/cache && sudo install -d -o yosoy -g yosoy /opt/yosoy/whatsapp/cache   # se vacía y queda lista para el próximo npm ci
+   ```
+4. **Las variables viejas** de `/opt/yosoy/config/whatsapp.env`: el log al arrancar te dijo sus nombres ("Aviso: estas variables de entorno ya no se usan"). Se
+   sacan sin imprimir el archivo:
+   ```bash
+   sudo sed -i '/^WHATSAPP_BACKEND=/d;/^WHATSAPP_SESSION_PATH=/d;/^WHATSAPP_WEB_VERSION=/d;/^WHATSAPP_DEBUG=/d;/^PUPPETEER_/d' /opt/yosoy/config/whatsapp.env
+   sudo stat -c '%a %U:%G %n' /opt/yosoy/config/whatsapp.env     # sigue en 600 yosoy:yosoy
+   sudo systemctl restart whatsapp-service && sleep 5 && sudo journalctl -u whatsapp-service --since '1 minute ago' --no-pager | grep -c 'ya no se usan'   # 0
+   ```
+5. **Los paquetes de Chromium** (opcional: son librerías, no servicios, y ocupan poco; sacarlos es solo orden). `libnss3` y `libasound2t64` los usan muchos programas, así
+   que **mirá primero qué se iría**:
+   ```bash
+   sudo apt remove --dry-run libatk1.0-0t64 libatk-bridge2.0-0t64 libgtk-3-0t64 libgbm1 libasound2t64 libnss3     # solo simula
+   ```
+   Si la lista incluye algo que no reconocés, **no sigas**. Si solo se van esas librerías: repetí el comando sin `--dry-run`.
+6. **AppArmor / sysctl:** si en algún momento tocaste `kernel.apparmor_restrict_unprivileged_userns` o un perfil de AppArmor para el sandbox de Chromium, ya no hace
+   falta (el servicio viejo arrancaba Chromium con `--no-sandbox`, así que probablemente no hayas tocado nada).
+7. Actualizar [`SERVIDOR.md`](SERVIDOR.md) (la fila de `whatsapp-service`, las carpetas y la memoria): ya describe el estado final.
+
+## 11. Rollback
+
+Vuelve al servicio **viejo** (whatsapp-web.js + Chromium). **Solo mientras no hayas hecho la limpieza del paso 10** (necesita `app-anterior-<fecha>`, la unit y el
+`whatsapp.env` del backup, y la sesión vieja). La sesión de Baileys **no se borra** (queda por si se vuelve a intentar).
 
 ```bash
 FECHA=20261016                       # la del backup; si abriste otra sesión: sudo ls -d /opt/yosoy/whatsapp/app-anterior-*
@@ -523,16 +587,15 @@ sudo cp -a /opt/yosoy/backups/whatsapp-$FECHA/whatsapp-service.service /etc/syst
 sudo cp -a /opt/yosoy/backups/whatsapp-$FECHA/whatsapp.env /opt/yosoy/config/whatsapp.env
 sudo systemctl daemon-reload
 sudo systemctl start whatsapp-service
-curl -s http://127.0.0.1:3002/salud               # {"ok":true}: el de whatsapp-web.js contesta así mientras el proceso responda
+curl -s http://127.0.0.1:3002/salud               # {"ok":true}: el viejo contesta así mientras el proceso responda
 ```
 
-Y en `/opt/yosoy/config/.env`: `Mensajeria__CanalActivo=WhatsAppWebJs` (o `Simulado` si no se va a usar WhatsApp), y
-`sudo systemctl restart yosoy-api`. La sesión de whatsapp-web.js (`/opt/yosoy/whatsapp/sesion`) no se tocó, así que debería seguir
-vinculada; si WhatsApp la cerró, vuelve a pedir QR como siempre (Configurador, "Vincular el chip"). **Nunca los dos servicios a la vez**: usan el
-mismo puerto y los dos contestarían los mensajes. El dispositivo de Baileys queda en la lista "Dispositivos vinculados" del teléfono:
-si no se va a usar más, desvincularlo desde ahí.
+**La API no se toca:** `Mensajeria__CanalActivo=Baileys` le habla al servicio por HTTP y no sabe qué motor hay detrás, así que anda igual con el viejo (o poné
+`Simulado` si no se va a usar WhatsApp) y `sudo systemctl restart yosoy-api`. La sesión vieja (`/opt/yosoy/whatsapp/sesion`) no se tocó, así que debería seguir
+vinculada; si WhatsApp la cerró, vuelve a pedir QR como siempre (Configurador, "Vincular el chip"). **Nunca los dos servicios a la vez**: usan el mismo puerto y los
+dos contestarían los mensajes. El dispositivo de Baileys queda en la lista "Dispositivos vinculados" del teléfono: si no se va a usar más, desvincularlo desde ahí.
 
-Cuando todo esté estable unos días, `app-anterior-<fecha>` y `app-baileys-<fecha>` se pueden borrar.
+Cuando todo esté estable unos días, `app-anterior-<fecha>` y `app-baileys-<fecha>` se pueden borrar (paso 10).
 
 ## Qué no hacer
 
@@ -544,6 +607,7 @@ Cuando todo esté estable unos días, `app-anterior-<fecha>` y `app-baileys-<fec
 - **No subir los topes de golpe** en un número nuevo.
 - **No imprimir ni pegar `whatsapp.env`**: tiene el secreto compartido con la API.
 - **No dejar `app-nueva/` a medias**: si algo falla antes del corte, borrala (`sudo rm -rf /opt/yosoy/whatsapp/app-nueva`) y empezá de nuevo.
+- **No correr los dos servicios a la vez** (el viejo y el nuevo): usan el mismo puerto y la misma cuenta de WhatsApp.
 
 ## Al terminar
 

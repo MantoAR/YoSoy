@@ -254,7 +254,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 ## Mensajería: chatbot de reservas y recordatorios
 
-> **Estado:** primera etapa. El chatbot funciona sobre un **chat simulado** tipo WhatsApp Web dentro de YoSoy. **No hay conexión con WhatsApp, Instagram ni Facebook**; el diseño deja preparado el lugar donde se enchufan (ver [Etapa siguiente](#etapa-siguiente)).
+> **Estado:** el chatbot funciona sobre un **chat simulado** tipo WhatsApp Web dentro de YoSoy y, con `Mensajeria__CanalActivo=Baileys`, por **WhatsApp** a través de `whatsapp-service` (Baileys es el único motor; **todavía no está desplegado**, ver `docs/DEPLOY.md`). **No hay conexión con Instagram ni Facebook**; el diseño deja preparado el lugar donde se enchufan (ver [Etapa siguiente](#etapa-siguiente)).
 
 ### Qué hace
 
@@ -319,7 +319,7 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 
 | Clave | Por defecto | Para qué sirve |
 |---|---|---|
-| `CanalActivo` | `Simulado` | Canal por el que salen los mensajes. Hoy es el único disponible. |
+| `CanalActivo` | `Simulado` | Canal por el que salen los mensajes: `Simulado` (no sale nada de la máquina) o `Baileys` (WhatsApp por `whatsapp-service`, el único motor: ver `whatsapp-service/README.md`). `WhatsAppWebJs` ya no existe: la aplicación no arranca con ese valor. |
 | `RecordatorioHorasAntes` | `24` | Ventana del recordatorio. |
 | `IntervaloChequeoMinutos` | `5` | Cada cuánto corre el servicio de recordatorios. |
 | `TimeoutConversacionMinutos` | `30` | Inactividad tras la cual el bot vuelve al menú. |

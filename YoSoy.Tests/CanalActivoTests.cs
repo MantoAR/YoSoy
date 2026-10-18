@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
-// Mensajeria:CanalActivo: "Simulado" (por defecto, no sale nada de la máquina) y WhatsApp por whatsapp-service con los dos nombres que
-// existen, "Baileys" y "WhatsAppWebJs". Los dos registran el MISMO canal HTTP (CanalWhatsAppWebJs): la API no sabe qué librería usa
-// whatsapp-service, solo habla su interfaz HTTP. Cualquier otro valor frena el arranque diciendo cuáles son los válidos.
+// Mensajeria:CanalActivo: "Simulado" (por defecto, no sale nada de la máquina) y "Baileys" (WhatsApp por whatsapp-service, que usa Baileys: el
+// único motor). "WhatsAppWebJs", el nombre del motor que se sacó, ya no existe: con ese valor, o con cualquier otro, la aplicación no arranca y el
+// mensaje dice cuáles son los válidos (y, para el valor viejo, qué poner).
 //
 // Ninguna prueba abre una conexión: el canal solo se registra en el contenedor de DI, nadie le manda nada a whatsapp-service.
 public class CanalActivoTests
@@ -39,18 +39,15 @@ public class CanalActivoTests
         Assert.IsType<CanalSimulado>(fabrica.Services.GetRequiredService<IMessageChannel>());
     }
 
-    [Theory]
-    [InlineData("Baileys")]
-    [InlineData("WhatsAppWebJs")]
-    public void Los_dos_nombres_de_WhatsApp_registran_el_mismo_canal_HTTP(string valor)
+    [Fact]
+    public void Baileys_registra_el_canal_HTTP_de_WhatsApp()
     {
-        using var fabrica = Fabrica(valor);
+        using var fabrica = Fabrica("Baileys");
 
         var canal = fabrica.Services.GetRequiredService<IMessageChannel>();
 
-        Assert.IsType<CanalWhatsAppWebJs>(canal);
-        // Las conversaciones se guardan con este nombre: es el mismo con cualquiera de los dos, así cambiar de uno a otro no
-        // parte en dos el historial de un paciente.
+        Assert.IsType<CanalBaileys>(canal);
+        // Las conversaciones se guardan con este nombre: no cambió al sacar el motor viejo, así el historial de un paciente no se parte en dos.
         Assert.Equal("WhatsApp", canal.Nombre);
         // Es un singleton: quien lo inyecta (NotificadorTurnos, BotReservasService) recibe siempre la misma instancia.
         Assert.Same(canal, fabrica.Services.GetRequiredService<IMessageChannel>());
@@ -58,7 +55,6 @@ public class CanalActivoTests
 
     [Theory]
     [InlineData("Baileys")]
-    [InlineData("WhatsAppWebJs")]
     [InlineData("Simulado")]
     public void La_pantalla_de_administracion_de_WhatsApp_se_registra_con_cualquier_canal(string valor)
     {
@@ -72,6 +68,7 @@ public class CanalActivoTests
     [InlineData("WhatsApp")]
     [InlineData("baileys")]
     [InlineData("Oficial")]
+    [InlineData("whatsappwebjs")]
     [InlineData("")]
     public void Un_valor_que_no_existe_frena_el_arranque_y_el_mensaje_lista_los_validos(string valor)
     {
@@ -86,7 +83,23 @@ public class CanalActivoTests
         Assert.Contains($"\"{valor}\"", mensajes);
         Assert.Contains("\"Simulado\"", mensajes);
         Assert.Contains("\"Baileys\"", mensajes);
-        Assert.Contains("\"WhatsAppWebJs\"", mensajes);
+        Assert.DoesNotContain("WhatsAppWebJs", mensajes);   // ya no es un valor válido: no se ofrece como opción
+    }
+
+    [Fact]
+    public void WhatsAppWebJs_ya_no_existe_la_aplicacion_no_arranca_y_el_mensaje_dice_que_poner()
+    {
+        using var fabrica = Fabrica("WhatsAppWebJs");
+
+        var ex = Record.Exception(() => fabrica.Services);
+
+        Assert.NotNull(ex);
+        var mensajes = string.Join(" | ", Cadena(ex!).Select(e => e.Message));
+        Assert.Contains("Mensajeria:CanalActivo", mensajes);
+        Assert.Contains("\"WhatsAppWebJs\" ya no existe", mensajes);
+        Assert.Contains("Mensajeria__CanalActivo=Baileys", mensajes);       // lo que hay que poner en el .env
+        Assert.Contains("\"Simulado\"", mensajes);                         // o esto, si no se quiere que salga nada por WhatsApp
+        Assert.Contains(".env", mensajes);
     }
 
     private static IEnumerable<Exception> Cadena(Exception ex)

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 // El consentimiento de WhatsApp en el camino de los mensajes, sin base ni red de verdad:
 //  · NotificadorTurnos: solo una aceptación vigente da optIn; si el paciente revocó no sale nada; un rechazo por falta de consentimiento
 //    queda "Omitido" y no "Error" (no se reintenta); el aviso va al número nacional de 10 dígitos.
-//  · CanalWhatsAppWebJs: "optIn": true viaja solo con la aceptación, y el código con el que whatsapp-service rechaza llega hasta arriba.
+//  · CanalBaileys: "optIn": true viaja solo con la aceptación, y el código con el que whatsapp-service rechaza llega hasta arriba.
 //  · ServicioMensajes: las opciones llegan al canal y el código de rechazo vuelve en el mensaje (sin guardarse ni salir en las respuestas).
 //  · BotReservasService: una BAJA se registra y no se contesta, y nada más cuenta como baja.
 public class NotificadorWhatsAppConsentimientoTests
@@ -324,8 +324,8 @@ public class CanalWhatsAppOptInTests
         public void Dispose() { _cts.Cancel(); _listener.Stop(); _listener.Close(); }
     }
 
-    private static CanalWhatsAppWebJs Canal(string baseUrl) =>
-        new(new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(5) }, NullLogger<CanalWhatsAppWebJs>.Instance);
+    private static CanalBaileys Canal(string baseUrl) =>
+        new(new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromSeconds(5) }, NullLogger<CanalBaileys>.Instance);
 
     [Fact]
     public async Task Con_OptIn_el_pedido_lleva_optIn_true_exacto_un_booleano()

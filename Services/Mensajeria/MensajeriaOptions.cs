@@ -4,14 +4,14 @@ public class MensajeriaOptions
 {
     public const string Seccion = "Mensajeria";
 
-    // Canal por el que salen los mensajes: "Simulado" (por defecto, no sale nada de la máquina) o WhatsApp a través de
-    // whatsapp-service: "Baileys" o "WhatsAppWebJs" (la misma interfaz HTTP; cuál es la librería lo decide whatsapp-service).
+    // Canal por el que salen los mensajes: "Simulado" (por defecto, no sale nada de la máquina) o "Baileys" (WhatsApp a través de
+    // whatsapp-service, que usa Baileys: el único motor de WhatsApp). "WhatsAppWebJs" ya no existe: la aplicación no arranca con ese valor.
     public string CanalActivo { get; set; } = "Simulado";
 
     // URL base de whatsapp-service para las rutas de administración (estado/desvincular,
     // ver WhatsAppAdminService) — siempre loopback, no es secreta. A diferencia del canal de
-    // envío (CanalWhatsAppWebJs, URL fija en el código: funciona sin que CanalActivo sea
-    // "WhatsAppWebJs" ni "Baileys"), esta sale de configuración para poder apuntar los tests a un listener
+    // envío (CanalBaileys, URL fija en el código: solo se registra con CanalActivo "Baileys"),
+    // esta sale de configuración para poder apuntar los tests a un listener
     // falso en vez del puerto 3002 real.
     public string WhatsAppServiceUrl { get; set; } = "http://127.0.0.1:3002/";
 

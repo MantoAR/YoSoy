@@ -1,4 +1,4 @@
-// La unit de systemd propuesta para Baileys (deploy/whatsapp-service-baileys.service) y la documentación que la acompaña. No se puede
+// La unit de systemd del servicio (deploy/whatsapp-service.service, con Baileys) y la documentación que la acompaña. No se puede
 // probar contra systemd (no corre acá), pero sí que el archivo diga lo que el servicio necesita y que los documentos digan lo mismo
 // que el código: las mismas variables, las mismas rutas, el mismo nombre de archivo.
 require("./helpers/sin-red");
@@ -11,8 +11,7 @@ const { leerConfig } = require("../config");
 
 const RAIZ = path.join(__dirname, "..");
 const RAIZ_REPO = path.resolve(RAIZ, "..");
-const RUTA_UNIT = path.join(RAIZ, "deploy", "whatsapp-service-baileys.service");
-const RUTA_UNIT_VIEJA = path.join(RAIZ, "deploy", "whatsapp-service.service");
+const RUTA_UNIT = path.join(RAIZ, "deploy", "whatsapp-service.service");
 const DOCS = path.join(RAIZ_REPO, "docs");
 const SIN_DOCS = !fs.existsSync(path.join(DOCS, "DEPLOY.md")) && "no está la carpeta docs/ (por ejemplo, en el servidor)";
 
@@ -60,12 +59,12 @@ test("corre como el usuario del servicio, en la carpeta de la aplicación, con n
 
 test("el secreto se lee del archivo de siempre y NO está escrito en la unit", () => {
     assert.equal(una("EnvironmentFile"), "/opt/yosoy/config/whatsapp.env", "sin el guion de adelante: si el archivo falta, no tiene que arrancar");
-    assert.deepEqual(Object.keys(entorno).sort(), ["NODE_ENV", "WHATSAPP_BACKEND", "WHATSAPP_BAILEYS_SESSION_PATH"]);
+    assert.deepEqual(Object.keys(entorno).sort(), ["NODE_ENV", "WHATSAPP_BAILEYS_SESSION_PATH"]);
     assert.doesNotMatch(unidadTexto, /secreto\s*=|password|passwd|token|api[_-]?key/i, "ningún secreto ni nombre de secreto asignado en la unit");
 });
 
-test("el backend es baileys y la sesión está en su carpeta propia, afuera de la aplicación", () => {
-    assert.equal(entorno.WHATSAPP_BACKEND, "baileys");
+test("la sesión está en su carpeta propia, afuera de la aplicación (y la unit ya no elige ningún motor)", () => {
+    assert.equal(entorno.WHATSAPP_BACKEND, undefined, "WHATSAPP_BACKEND ya no existe: el único motor es Baileys");
     assert.equal(entorno.WHATSAPP_BAILEYS_SESSION_PATH, SESION);
     assert.equal(entorno.NODE_ENV, "production");
     const relativa = path.posix.relative(una("WorkingDirectory"), SESION);
@@ -75,7 +74,7 @@ test("el backend es baileys y la sesión está en su carpeta propia, afuera de l
 
 test("lo único que puede escribir es la carpeta de la sesión (ProtectSystem=strict)", () => {
     assert.equal(una("ProtectSystem"), "strict");
-    assert.deepEqual(servicio.ReadWritePaths, [SESION], "ni la aplicación, ni la sesión de whatsapp-web.js, ni el caché");
+    assert.deepEqual(servicio.ReadWritePaths, [SESION], "ni la aplicación, ni la sesión vieja de whatsapp-web.js, ni el caché");
     assert.equal(una("UMask"), "0077");
 });
 
@@ -90,10 +89,8 @@ test("el endurecimiento: sin privilegios nuevos, sin home, sin dispositivos, sin
     assert.doesNotMatch(unidadTexto, /MemoryDenyWriteExecute\s*=\s*true/, "node (V8 con JIT) no arranca con MemoryDenyWriteExecute");
 });
 
-test("la memoria tiene tope, y es bastante menor que la de whatsapp-web.js con Chromium", () => {
+test("la memoria tiene tope: sin Chromium alcanza con 512M (el servicio viejo con whatsapp-web.js pedía 2G)", () => {
     assert.equal(una("MemoryMax"), "512M");
-    const vieja = leerUnidad(fs.readFileSync(RUTA_UNIT_VIEJA, "utf8")).Service;
-    assert.equal(vieja.MemoryMax[0], "2G");
 });
 
 test("si el proceso cae en bucle, systemd se rinde (no hay que volver a golpear a WhatsApp cada pocos segundos)", () => {
@@ -118,20 +115,18 @@ test("las variables WHATSAPP_ de la unit son las que lee config.js, y la configu
         assert.ok(fuenteConfig.includes(`"${nombre}"`), `config.js no lee ${nombre}`);
     }
     const config = leerConfig({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: "secreto-de-prueba", ...entorno });
-    assert.equal(config.backend, "baileys");
     assert.equal(config.baileys.sessionPath, path.resolve(SESION));
 });
 
-test("la unit de whatsapp-web.js de siempre sigue ahí (es el destino del rollback) y no se tocó el nombre del servicio", () => {
-    const vieja = leerUnidad(fs.readFileSync(RUTA_UNIT_VIEJA, "utf8")).Service;
-    assert.equal(vieja.WorkingDirectory[0], "/opt/yosoy/whatsapp/app");
-    assert.equal(vieja.EnvironmentFile[0], "/opt/yosoy/config/whatsapp.env");
-    assert.ok(vieja.Environment.some(e => e.startsWith("WHATSAPP_SESSION_PATH=")));
-    assert.ok(!vieja.Environment.some(e => e.startsWith("WHATSAPP_BACKEND=")), "sin la variable, el backend es el de siempre");
+test("la unit es la única de whatsapp-service y no trae nada de Chromium ni de whatsapp-web.js (y el servicio no se renombró)", () => {
+    assert.deepEqual(fs.readdirSync(path.join(RAIZ, "deploy")).sort(), ["whatsapp-service.service", "yosoy-api-whatsapp.conf"]);
+    const sinComentarios = unidadTexto.split("\n").filter(l => !l.trim().startsWith("#")).join("\n");
+    assert.doesNotMatch(sinComentarios, /puppeteer|chromium|WHATSAPP_SESSION_PATH|WHATSAPP_WEB_VERSION|WHATSAPP_DEBUG|Environment=HOME=/i);
+    assert.match(unidadTexto, /^Description=YoSoy WhatsApp service \(Baileys\)$/m);
 });
 
 test("git guarda las units de whatsapp-service con LF aunque estén en un Windows con autocrlf", { skip: !fs.existsSync(path.join(RAIZ_REPO, ".git")) && "no está el repositorio" }, () => {
-    const r = spawnSync("git", ["-C", RAIZ_REPO, "check-attr", "eol", "--", "whatsapp-service/deploy/whatsapp-service-baileys.service", "whatsapp-service/deploy/whatsapp-service.service"], { encoding: "utf8" });
+    const r = spawnSync("git", ["-C", RAIZ_REPO, "check-attr", "eol", "--", "whatsapp-service/deploy/whatsapp-service.service", "whatsapp-service/deploy/yosoy-api-whatsapp.conf"], { encoding: "utf8" });
     if (r.error) return;                                    // sin git no hay nada que comprobar
     assert.equal(r.status, 0);
     const lineas = r.stdout.trim().split(/\r?\n/);
@@ -162,29 +157,35 @@ test("el README dice los valores por defecto de los topes tal como están en el 
     }
 });
 
-test("DEPLOY.md describe el despliegue con el mismo nombre de unit, la misma carpeta de sesión y el rollback", { skip: SIN_DOCS }, () => {
+test("DEPLOY.md describe el despliegue con el mismo nombre de unit, la misma carpeta de sesión, la limpieza de lo viejo y el rollback", { skip: SIN_DOCS }, () => {
     const deploy = leer("DEPLOY.md");
-    for (const frase of ["Despliegue de whatsapp-service con Baileys", "whatsapp-service-baileys.service", SESION, "PUPPETEER_SKIP_DOWNLOAD=1",
-        "npm ci --omit=dev", "systemd-analyze verify", "Mensajeria__CanalActivo=Baileys", "app-anterior-$FECHA", "## 10. Rollback", "WHATSAPP_TOPE_DIARIO=30"]) {
+    for (const frase of ["Despliegue de whatsapp-service (Baileys)", "whatsapp-service.service", SESION,
+        "npm ci --omit=dev", "systemd-analyze verify", "Mensajeria__CanalActivo=Baileys", "app-anterior-$FECHA", "## 10. Limpieza de lo viejo (whatsapp-web.js y Chromium)",
+        "## 11. Rollback", "WHATSAPP_TOPE_DIARIO=30", "WhatsApp en la API: `Mensajeria__CanalActivo` y recordatorios", "WhatsAppWebJs"]) {
         assert.ok(deploy.includes(frase), `DEPLOY.md no menciona: ${frase}`);
     }
+    assert.ok(!deploy.includes("whatsapp-service-baileys.service"), "la unit ya no se llama así: se instala con su nombre, whatsapp-service.service");
     assert.ok(deploy.includes("sed -i 's/\\r$//'"), "DEPLOY.md saca los CR por si la unit llegó con finales de línea de Windows");
-    const seccion = deploy.slice(deploy.indexOf("# Despliegue de whatsapp-service con Baileys"));
+    const seccion = deploy.slice(deploy.indexOf("# Despliegue de whatsapp-service (Baileys)"));
     assert.ok(!/BEGIN (RSA|OPENSSH)|password\s*=|Secreto=[A-Za-z0-9]{8,}/i.test(seccion), "ningún secreto escrito en la sección nueva de DEPLOY.md");
     // Todas las veces que se nombra una carpeta de sesión nueva, es la misma que pone la unit.
     assert.deepEqual([...new Set(seccion.match(/\/opt\/yosoy\/whatsapp\/sesion-[a-z]+/g))], [SESION]);
-    // El comando que instala las dependencias en el servidor no baja Chromium (alcanza con que el texto lo mencione en otro lado).
-    assert.ok(seccion.includes("PUPPETEER_SKIP_DOWNLOAD=1 \\\n  npm ci --omit=dev"), "el npm ci del VPS lleva PUPPETEER_SKIP_DOWNLOAD=1");
+    // El comando que instala las dependencias en el servidor ya no necesita saltear la descarga de Chromium: no hay Puppeteer.
+    const instalacion = seccion.split("\n").filter(l => l.includes("npm ci --omit=dev") || l.includes("HOME=/opt/yosoy/whatsapp/cache"));
+    assert.ok(instalacion.length >= 2, "el npm ci del VPS está en la sección");
+    assert.ok(instalacion.every(l => !/PUPPETEER/.test(l)), "y no lleva ninguna variable de Puppeteer");
     // Los topes iniciales del paso 5 son bajos (más que los de por defecto).
     const topeInicial = Number(/WHATSAPP_TOPE_DIARIO=(\d+)/.exec(seccion)[1]);
     assert.ok(topeInicial < 100, `el tope inicial (${topeInicial}) tiene que ser menor que el de por defecto`);
 });
 
-test("SERVIDOR.md cuenta la misma unit y la misma carpeta, y aclara que todavía no está desplegado", { skip: SIN_DOCS }, () => {
+test("SERVIDOR.md cuenta la misma unit y la misma carpeta, y aclara que lo que corre hoy en el VPS sigue siendo el servicio viejo", { skip: SIN_DOCS }, () => {
     const servidor = leer("SERVIDOR.md");
-    for (const frase of ["WhatsApp con Baileys (propuesto, todavía no desplegado)", "whatsapp-service-baileys.service", SESION, "/salud"]) {
+    for (const frase of ["WhatsApp (whatsapp-service con Baileys)", "whatsapp-service/deploy/whatsapp-service.service", SESION, "/salud",
+        "Lo que corre hoy en el VPS todavía es el servicio viejo"]) {
         assert.ok(servidor.includes(frase), `SERVIDOR.md no menciona: ${frase}`);
     }
+    assert.ok(!servidor.includes("whatsapp-service-baileys.service"), "la unit ya no se llama así");
     const filaDeMemoria = servidor.split("\n").find(l => l.startsWith("| Memoria |"));
     assert.ok(filaDeMemoria?.includes(`MemoryMax=${una("MemoryMax")}`), "la tabla de SERVIDOR.md dice la memoria que pone la unit");
     assert.deepEqual([...new Set(servidor.match(/\/opt\/yosoy\/whatsapp\/sesion-[a-z]+/g))], [SESION], "y la misma carpeta de sesión en todos lados");

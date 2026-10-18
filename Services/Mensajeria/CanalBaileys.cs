@@ -1,9 +1,10 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 
-// Canal real: llama a whatsapp-service (Node) por HTTP, solo en loopback (ver whatsapp-service/README.md). Sirve igual para los
-// dos backends del servicio (whatsapp-web.js y Baileys): la interfaz HTTP es la misma, así que Mensajeria:CanalActivo acepta
-// "WhatsAppWebJs" y "Baileys" y registra esta misma clase (el nombre quedó por ser el primero que existió). Cualquier falla — timeout, 5xx, conexión
+// Canal real: llama a whatsapp-service (Node, con Baileys) por HTTP, solo en loopback (ver whatsapp-service/README.md). Se registra cuando
+// Mensajeria:CanalActivo es "Baileys". La API no sabe nada de la librería: habla la interfaz HTTP del servicio (/enviar, /estado, /desvincular).
+// (Esta clase se llamó CanalWhatsAppWebJs, por el primer motor que tuvo el servicio, whatsapp-web.js, que se sacó por completo.)
+// Cualquier falla — timeout, 5xx, conexión
 // rechazada, o un 503 porque la cola de whatsapp-service está llena — se traduce acá en
 // ResultadoEnvio(false, ...), nunca una excepción sin capturar: el resto de la cadena de
 // manejo de errores (ServicioMensajes, NotificadorTurnos.Seguro, MaxIntentosEnvio) ya la
@@ -12,12 +13,12 @@ using System.Text.Json.Serialization;
 // Exito:true en la respuesta de whatsapp-service significa "aceptado en su cola de
 // envío", no "entregado" — mismo criterio laxo que ya usa CanalSimulado (tampoco
 // confirma que un humano lo leyó).
-public class CanalWhatsAppWebJs : IMessageChannel
+public class CanalBaileys : IMessageChannel
 {
     private readonly HttpClient _http;
-    private readonly ILogger<CanalWhatsAppWebJs> _log;
+    private readonly ILogger<CanalBaileys> _log;
 
-    public CanalWhatsAppWebJs(HttpClient http, ILogger<CanalWhatsAppWebJs> log)
+    public CanalBaileys(HttpClient http, ILogger<CanalBaileys> log)
     {
         _http = http;
         _log  = log;

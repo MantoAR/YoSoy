@@ -2,13 +2,12 @@
   "name": "yosoy-whatsapp-service",
   "version": "1.0.0",
   "private": true,
-  "description": "Puente HTTP interno entre la API de YoSoy y WhatsApp, vía whatsapp-web.js o Baileys. No se expone a internet (ver README.md).",
+  "description": "Puente HTTP interno entre la API de YoSoy y WhatsApp, con Baileys (WhatsApp Web sin navegador). No se expone a internet (ver README.md).",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "vincular": "node vincular.js",
-    "test": "node --require ./test/helpers/sin-red.js --test --test-timeout=60000 \"test/*.test.js\"",
-    "postinstall": "patch-package"
+    "test": "node --require ./test/helpers/sin-red.js --test --test-timeout=60000 \"test/*.test.js\""
   },
   "engines": {
     "node": ">=22"
@@ -16,10 +15,8 @@
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.24",
     "express": "^4.19.2",
-    "patch-package": "8.0.1",
     "qrcode": "1.5.4",
-    "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "https://github.com/wwebjs/whatsapp-web.js/archive/064a3d5a5a3dce1281a6a12740b5a7051339d154.tar.gz"
+    "qrcode-terminal": "^0.12.0"
   },
   "overrides": {
     "libsignal": "6.0.0"

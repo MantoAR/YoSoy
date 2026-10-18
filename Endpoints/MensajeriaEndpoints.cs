@@ -82,7 +82,7 @@ public static class MensajeriaEndpoints
         // Grupo propio, no "g": exige Configurador específicamente (no Profesional), y a
         // propósito SIN RequiereMensajeriaHabilitada() — ese filtro depende de
         // ChatSimuladoHabilitado, una configuración independiente de si WhatsApp está
-        // vinculado (una clínica puede querer WhatsApp para recordatorios con el chat
+        // vinculado (una clínica puede querer WhatsApp para sus avisos y respuestas con el chat
         // simulado apagado; atarlos haría que esta pantalla diera 404 sin motivo).
         var wa = app.MapGroup("/mensajeria/whatsapp")
             .RequireAuthorization(p => p.RequireRole(Roles.Configurador));

@@ -1,13 +1,11 @@
 // Puente HTTP interno entre la API de YoSoy y WhatsApp. Solo escucha en loopback — ver README.md para qué hace falta instalado en
 // el VPS y cómo se vincula el número.
 //
-// Dos backends detrás de la misma interfaz HTTP (WHATSAPP_BACKEND):
-//   webjs   (por defecto) whatsapp-web.js + Chromium
-//   baileys WhatsApp Web sin navegador, más liviano
-// La lógica de cada uno está en whatsapp.js y baileys/; la app HTTP, en servidor.js; la configuración, en config.js.
+// El único motor es Baileys (WhatsApp Web sin navegador): baileys/ tiene la lógica de la conexión; backend.js arma el servicio con
+// el consentimiento y los topes de envío; la app HTTP está en servidor.js y la configuración, en config.js.
 "use strict";
 
-const { leerConfig, ErrorDeConfiguracion } = require("./config");
+const { leerConfig, variablesRetiradasPresentes, ErrorDeConfiguracion } = require("./config");
 const { crearBackend } = require("./backend");
 const { crearApp, escuchar } = require("./servidor");
 const { crearColaParaBackend } = require("./cola");
@@ -27,13 +25,21 @@ async function main() {
         process.exit(1);
     }
 
-    // Con Baileys el log filtra teléfonos y secretos (el compartido y el QR vigente); con whatsapp-web.js es el de siempre.
+    // Todo lo que se escribe pasa por un filtro de privacidad: los números de teléfono quedan enmascarados y los secretos (el
+    // compartido con la API y el QR vigente) tapados, aunque algún mensaje de error de una librería los repita.
     let wa;
     const log = logParaBackend(config, logBase, () => [wa?.qrTexto?.()]);
+
+    // Variables de whatsapp-web.js que quedaron en el entorno (por ejemplo en whatsapp.env): no hacen nada. Solo se dice el nombre.
+    const retiradas = variablesRetiradasPresentes(process.env);
+    if (retiradas.length > 0) {
+        log.info(`Aviso: estas variables de entorno ya no se usan (se sacó whatsapp-web.js y el único motor es Baileys): ${retiradas.join(", ")}. Se pueden borrar.`);
+    }
+
     try {
         wa = await crearBackend(config, log);
     } catch (err) {
-        log.error(`No se pudo preparar el backend de WhatsApp (${config.backend}): ${err?.message || err}`);
+        log.error(`No se pudo preparar WhatsApp (Baileys): ${err?.message || err}`);
         process.exit(1);
     }
 
@@ -41,7 +47,7 @@ async function main() {
     const app = crearApp({ servicio: wa, cola, secreto: config.secreto, log });
 
     const servidor = escuchar(app, config.puerto, () => {
-        log.info(`whatsapp-service escuchando en 127.0.0.1:${config.puerto} (backend ${config.backend})`);
+        log.info(`whatsapp-service escuchando en 127.0.0.1:${config.puerto} (Baileys)`);
         wa.iniciar();
     });
     servidor.on("error", err => {

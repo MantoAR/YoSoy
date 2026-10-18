@@ -1,8 +1,16 @@
-# Instalar en /etc/systemd/system/whatsapp-service.service — ver README.md para el
-# resto de la Etapa 2 (paquetes del sistema, creación de directorios, vinculación del chip).
+# Unit de whatsapp-service con Baileys (WhatsApp Web sin navegador): el único motor del servicio (whatsapp-web.js se sacó).
+# Se instala como /etc/systemd/system/whatsapp-service.service. El paso a paso, con backup, la limpieza de lo viejo y el rollback, está
+# en docs/DEPLOY.md, "Despliegue de whatsapp-service (Baileys)".
+# Todavía no corrió en el servidor real: antes de depender de ella, `systemd-analyze verify` y `systemd-analyze security
+# whatsapp-service`; si alguna opción de endurecimiento impidiera arrancar, se comenta esa línea y se sigue.
 [Unit]
-Description=YoSoy WhatsApp service (whatsapp-web.js)
-After=network.target
+Description=YoSoy WhatsApp service (Baileys)
+Wants=network-online.target
+After=network-online.target
+# Si falla 5 veces en 5 minutos, systemd deja de intentarlo: un proceso que cae en bucle volvería a conectarse a WhatsApp cada pocos
+# segundos, que es justo lo que no hay que hacer con un número que se puede bloquear. Hace falta que alguien mire el log.
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,27 +18,41 @@ User=yosoy
 Group=yosoy
 WorkingDirectory=/opt/yosoy/whatsapp/app
 ExecStart=/usr/bin/node index.js
+# Mensajeria__WhatsApp__Secreto (el secreto compartido con la API), API_BASE_URL y, si hace falta, las variables opcionales de
+# whatsapp-service/README.md (topes de envío, pausas, etc.). EnvironmentFile pisa a Environment: una variable definida en los dos
+# lados vale la del archivo.
 EnvironmentFile=/opt/yosoy/config/whatsapp.env
-Environment=WHATSAPP_SESSION_PATH=/opt/yosoy/whatsapp/sesion
-Environment=PUPPETEER_CACHE_DIR=/opt/yosoy/whatsapp/cache
-# Con ProtectSystem=strict, el home real de yosoy queda de solo lectura y Chromium
-# necesita poder escribir en $HOME (no solo en PUPPETEER_CACHE_DIR) — confirmado en el
-# VPS real en la Etapa 2. Mismo directorio que ya está en ReadWritePaths, sin agregar uno nuevo.
-Environment=HOME=/opt/yosoy/whatsapp/cache
+Environment=NODE_ENV=production
+# La sesión es una credencial de la cuenta: carpeta propia, 700, FUERA de la aplicación (cada despliegue reemplaza app/) y fuera de
+# cualquier repositorio. El servicio no arranca si no es suya, si tiene otros archivos o si no se puede escribir.
+Environment=WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys
 Restart=on-failure
-RestartSec=5
-# Con 768M llegó al tope real (con swap) durante la vinculación del chip en el VPS — ver
-# README.md, "Cuánta memoria hace falta". Con esto Chromium se mata por OOM antes de que
-# el apagado limpio (SIGTERM, TimeoutStopSec de abajo) llegue a correr.
-MemoryMax=2G
+RestartSec=10
+# Sin navegador, el proceso ocupa unos pocos cientos de MB. 512M corta una fuga antes de que le moleste a la API o a SQL Server, que
+# comparten la máquina. Confirmar con la primera conexión real ("Memory:" en `systemctl status whatsapp-service`) y ajustar si hace falta.
+MemoryMax=512M
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/yosoy/whatsapp/sesion /opt/yosoy/whatsapp/cache
+# Lo único que el servicio escribe en disco es la sesión: credenciales, consentimientos de los pacientes y contadores de envío.
+ReadWritePaths=/opt/yosoy/whatsapp/sesion-baileys
+ProtectHome=true
 PrivateTmp=true
-# index.js atiende SIGTERM (cierra el servidor HTTP, la cola y el cliente de WhatsApp con
-# un tope propio de 10s) — este valor le da margen de sobra antes de que systemd mande
-# SIGKILL. El default de systemd (90s) también hubiera alcanzado; se deja explícito y más
-# corto para no tardar tanto en un restart/stop normal.
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+# Habla con la red (WhatsApp, y la API por loopback) y con sockets locales; AF_NETLINK lo usa la resolución de nombres de glibc.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+CapabilityBoundingSet=
+# Todo lo que cree el proceso es solo del usuario yosoy (el propio servicio también lo fuerza con umask 077).
+UMask=0077
+# index.js atiende SIGTERM y SIGINT: deja de aceptar pedidos, espera hasta 5 s al envío en curso, suelta el socket de WhatsApp SIN
+# cerrar la sesión, guarda lo que quede por escribir y sale con 0, todo con un tope propio de 10 s. Este valor le da el doble de
+# margen antes de que systemd mande SIGKILL.
 TimeoutStopSec=20
 
 [Install]

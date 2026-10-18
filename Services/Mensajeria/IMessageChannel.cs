@@ -18,6 +18,6 @@ public interface IMessageChannel
     string Nombre { get; }
     Task<ResultadoEnvio> EnviarAsync(string telefonoDestino, string texto);
 
-    // Con opciones. Un canal que no las necesita (el simulado) no implementa esto y las ignora; CanalWhatsAppWebJs sí las usa.
+    // Con opciones. Un canal que no las necesita (el simulado) no implementa esto y las ignora; CanalBaileys sí las usa.
     Task<ResultadoEnvio> EnviarAsync(string telefonoDestino, string texto, OpcionesEnvio opciones) => EnviarAsync(telefonoDestino, texto);
 }

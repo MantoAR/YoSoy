@@ -1,8 +1,11 @@
 node_modules/
-.wwebjs_auth/
-.wwebjs_cache/
 .env
 .env.*
+
+# Restos de whatsapp-web.js (se sacó del servicio): su sesión (LocalAuth) y su caché eran una CREDENCIAL de la cuenta. Ya nada las crea, pero si
+# en alguna máquina quedó una carpeta vieja, que nunca llegue al repositorio por un descuido.
+.wwebjs_auth/
+.wwebjs_cache/
 
 # La sesión de Baileys vive fuera del repositorio (WHATSAPP_BAILEYS_SESSION_PATH). Los patrones por nombre (creds.json,
 # pre-key-*.json, ...) están en el .gitignore de la raíz.

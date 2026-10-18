@@ -33,39 +33,65 @@ test("sin el secreto compartido no arranca y lo dice, sin imprimir ningún secre
     assert.doesNotMatch(r.salida, new RegExp(SECRETO));
 });
 
-test("con WHATSAPP_BACKEND=baileys y sin carpeta de sesión no arranca y nombra la variable", () => {
-    const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BACKEND: "baileys" });
-    assert.equal(r.codigo, 1);
-    assert.match(r.salida, /Falta WHATSAPP_BAILEYS_SESSION_PATH/);
-    assert.doesNotMatch(r.salida, new RegExp(SECRETO));
+test("sin carpeta de sesión no arranca y nombra la variable (con o sin la vieja WHATSAPP_BACKEND=baileys)", () => {
+    for (const extra of [{}, { WHATSAPP_BACKEND: "baileys" }]) {
+        const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, ...extra });
+        assert.equal(r.codigo, 1);
+        assert.match(r.salida, /Falta WHATSAPP_BAILEYS_SESSION_PATH/);
+        assert.doesNotMatch(r.salida, new RegExp(SECRETO));
+    }
 });
 
-test("un WHATSAPP_BACKEND que no existe no arranca", () => {
-    const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BACKEND: "oficial" });
-    assert.equal(r.codigo, 1);
-    assert.match(r.salida, /WHATSAPP_BACKEND tiene que ser "webjs" o "baileys"/);
+test("WHATSAPP_BACKEND=webjs (u otro valor) ya no arranca: whatsapp-web.js se sacó y el único motor es Baileys", () => {
+    for (const valor of ["webjs", "oficial"]) {
+        const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BACKEND: valor });
+        assert.equal(r.codigo, 1);
+        assert.match(r.salida, new RegExp(`WHATSAPP_BACKEND="${valor}" ya no existe`));
+        assert.match(r.salida, /único motor es Baileys/);
+        assert.doesNotMatch(r.salida, new RegExp(SECRETO));
+    }
 });
 
-test("con baileys, el log del proceso tapa el secreto y enmascara los teléfonos aunque aparezcan en un mensaje de error", () => {
+test("si el entorno todavía trae variables de whatsapp-web.js, el arranque lo avisa con los nombres y nunca con los valores", () => {
+    // Se frena igual en la carpeta de la sesión (dentro del repositorio), pero antes avisa de las variables viejas.
+    const ruta = path.join(path.dirname(INDEX), "sesion-que-no-tiene-que-existir");
+    const r = arrancar({
+        API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BAILEYS_SESSION_PATH: ruta,
+        WHATSAPP_SESSION_PATH: "/valor/viejo/que-no-tiene-que-salir", PUPPETEER_CACHE_DIR: "/otro/valor/viejo", WHATSAPP_DEBUG: "1"
+    });
+    assert.equal(r.codigo, 1);
+    assert.match(r.salida, /Aviso: estas variables de entorno ya no se usan.*: WHATSAPP_SESSION_PATH, WHATSAPP_DEBUG, PUPPETEER_CACHE_DIR\./);
+    assert.doesNotMatch(r.salida, /valor\/viejo|otro\/valor/);
+    assert.equal(fs.existsSync(ruta), false, "y no se creó nada");
+});
+
+test("sin variables viejas no hay ningún aviso de variables retiradas", () => {
+    const ruta = path.join(path.dirname(INDEX), "sesion-que-no-tiene-que-existir");
+    const r = arrancar({ API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: SECRETO, WHATSAPP_BAILEYS_SESSION_PATH: ruta });
+    assert.equal(r.codigo, 1);
+    assert.doesNotMatch(r.salida, /ya no se usan/);
+});
+
+test("el log del proceso tapa el secreto y enmascara los teléfonos aunque aparezcan en un mensaje de error", () => {
     // Una carpeta de sesión DENTRO del repositorio se rechaza sin cargar la librería; el mensaje repite la ruta, y esta lleva el secreto
     // y un teléfono, para ver que lo que sale por la salida de errores del proceso real ya viene filtrado.
     const secretoLargo = "SECRETO-DE-PRUEBA-QUE-NO-PUEDE-SALIR-0123";
     const ruta = path.join(path.dirname(INDEX), `${secretoLargo}-5491122334455`);
     const r = arrancar({
         API_BASE_URL: "http://127.0.0.1:5000", Mensajeria__WhatsApp__Secreto: secretoLargo,
-        WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: ruta
+        WHATSAPP_BAILEYS_SESSION_PATH: ruta
     });
     assert.equal(r.codigo, 1);
-    assert.match(r.salida, /No se pudo preparar el backend de WhatsApp \(baileys\)/);
+    assert.match(r.salida, /No se pudo preparar WhatsApp \(Baileys\)/);
     assert.match(r.salida, /\[secreto\]-\*\*\*4455/, "el secreto tapado y el teléfono enmascarado, en la ruta que repite el mensaje");
     assert.doesNotMatch(r.salida, /SECRETO-DE-PRUEBA|5491122334455/);
     assert.equal(fs.existsSync(ruta), false, "y no se creó nada");
 });
 
-test("con baileys y la API en otra máquina sin HTTPS no arranca: el secreto no viaja en claro", () => {
+test("con la API en otra máquina sin HTTPS no arranca: el secreto no viaja en claro", () => {
     const r = arrancar({
         API_BASE_URL: "http://api.ejemplo.test:5000", Mensajeria__WhatsApp__Secreto: SECRETO,
-        WHATSAPP_BACKEND: "baileys", WHATSAPP_BAILEYS_SESSION_PATH: path.resolve(path.sep, "datos", "sesion")
+        WHATSAPP_BAILEYS_SESSION_PATH: path.resolve(path.sep, "datos", "sesion")
     });
     assert.equal(r.codigo, 1);
     assert.match(r.salida, /otra máquina sin HTTPS/);

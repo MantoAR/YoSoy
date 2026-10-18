@@ -1,9 +1,11 @@
 // Configuración del servicio: se lee del entorno una sola vez, se valida y se devuelve ya convertida. Un valor inválido corta el
 // arranque con un mensaje que dice QUÉ variable está mal; los mensajes nunca incluyen el valor de un secreto.
 //
-// Backends (WHATSAPP_BACKEND):
-//   webjs   (por defecto) whatsapp-web.js con Chromium: es lo que corre hoy, no cambia nada si la variable no está.
-//   baileys WhatsApp Web sin navegador (Baileys): más liviano. Necesita WHATSAPP_BAILEYS_SESSION_PATH.
+// El único motor de WhatsApp es Baileys (WhatsApp Web sin navegador). whatsapp-web.js (Puppeteer y Chromium) se sacó por completo:
+//   - WHATSAPP_BACKEND ya no elige nada. Sin la variable, o con "baileys" (como la dejaba la unit propuesta), todo sigue igual; con
+//     cualquier otro valor (por ejemplo "webjs") el servicio NO arranca: así nadie cree que está usando un motor que ya no existe.
+//   - Las variables de whatsapp-web.js (WHATSAPP_SESSION_PATH, WHATSAPP_WEB_VERSION, WHATSAPP_DEBUG, PUPPETEER_*) ya no se leen. Si el
+//     entorno todavía las trae, el arranque lo avisa (solo el nombre, nunca el valor) para que se limpien (variablesRetiradasPresentes).
 "use strict";
 
 const path = require("node:path");
@@ -15,7 +17,13 @@ class ErrorDeConfiguracion extends Error {
     }
 }
 
-const BACKENDS = ["webjs", "baileys"];
+const MOTOR = "baileys";
+
+// Variables que eran de whatsapp-web.js (y la que elegía el motor): ya no hacen nada.
+const VARIABLES_RETIRADAS = Object.freeze([
+    "WHATSAPP_BACKEND", "WHATSAPP_SESSION_PATH", "WHATSAPP_WEB_VERSION", "WHATSAPP_DEBUG",
+    "PUPPETEER_CACHE_DIR", "PUPPETEER_SKIP_DOWNLOAD", "PUPPETEER_EXECUTABLE_PATH"
+]);
 
 function texto(env, nombre) {
     const valor = env[nombre];
@@ -47,6 +55,20 @@ function validarApiBaseUrl(valor) {
         throw new ErrorDeConfiguracion("API_BASE_URL apunta a otra máquina sin HTTPS: el secreto compartido viajaría en claro. Usar https:// o la propia máquina (127.0.0.1).");
     }
     return valor.replace(/\/+$/, "");
+}
+
+// WHATSAPP_BACKEND ya no elige el motor: solo se tolera "baileys" (o que no esté). Cualquier otro valor corta el arranque.
+function validarMotor(env) {
+    const pedido = texto(env, "WHATSAPP_BACKEND");
+    if (pedido === undefined || pedido.toLowerCase() === MOTOR) return;
+    throw new ErrorDeConfiguracion(
+        `WHATSAPP_BACKEND="${pedido.slice(0, 40)}" ya no existe: WhatsApp Web JS (whatsapp-web.js) se sacó y el único motor es Baileys. ` +
+        "Borrá la variable (o dejala en \"baileys\").");
+}
+
+// Los nombres de las variables retiradas que el entorno todavía trae, para avisarlo en el arranque. Nunca devuelve un valor.
+function variablesRetiradasPresentes(env = process.env) {
+    return VARIABLES_RETIRADAS.filter(nombre => texto(env, nombre) !== undefined);
 }
 
 // "2.3000.1037753511" → [2, 3000, 1037753511] (el formato que espera makeWASocket).
@@ -91,7 +113,7 @@ function zonaHoraria(env, nombre, porDefecto) {
     return zona;
 }
 
-// Protecciones contra el bloqueo del número (etapa 5): topes, ritmo y consentimiento. Todo opcional, con valores prudentes.
+// Protecciones contra el bloqueo del número: topes, ritmo y consentimiento. Todo opcional, con valores prudentes.
 function leerConfigEnvio(env = process.env) {
     const pausaMinSeg = entero(env, "WHATSAPP_PAUSA_MIN_S", 4, { min: 1, max: 300 });
     const pausaMaxSeg = entero(env, "WHATSAPP_PAUSA_MAX_S", 9, { min: 1, max: 600 });
@@ -119,31 +141,14 @@ function leerConfig(env = process.env) {
     if (!apiBaseUrl) throw new ErrorDeConfiguracion("Falta API_BASE_URL en el entorno.");
     const secreto = env.Mensajeria__WhatsApp__Secreto;
     if (!secreto) throw new ErrorDeConfiguracion("Falta Mensajeria__WhatsApp__Secreto en el entorno.");
+    validarMotor(env);
 
-    const backend = (texto(env, "WHATSAPP_BACKEND") ?? "webjs").toLowerCase();
-    if (!BACKENDS.includes(backend)) {
-        throw new ErrorDeConfiguracion(`WHATSAPP_BACKEND tiene que ser "webjs" o "baileys" (y es "${backend}").`);
-    }
-
-    const config = {
-        backend,
+    return {
         puerto: leerPuerto(env),
-        apiBaseUrl,
+        apiBaseUrl: validarApiBaseUrl(apiBaseUrl),
         secreto,
-        debug: env.WHATSAPP_DEBUG === "1",
-        webjs: {
-            sessionPath: texto(env, "WHATSAPP_SESSION_PATH") ?? "./.wwebjs_auth",
-            webVersion: texto(env, "WHATSAPP_WEB_VERSION") ?? null
-        },
-        baileys: null
+        baileys: { ...leerConfigBaileys(env), envio: leerConfigEnvio(env) }
     };
-
-    if (backend === "baileys") {
-        config.apiBaseUrl = validarApiBaseUrl(apiBaseUrl);
-        config.baileys = { ...leerConfigBaileys(env), envio: leerConfigEnvio(env) };
-    }
-
-    return config;
 }
 
-module.exports = { leerConfig, leerConfigBaileys, leerConfigEnvio, leerPuerto, ErrorDeConfiguracion, BACKENDS, validarApiBaseUrl };
+module.exports = { leerConfig, leerConfigBaileys, leerConfigEnvio, leerPuerto, variablesRetiradasPresentes, ErrorDeConfiguracion, validarApiBaseUrl, VARIABLES_RETIRADAS };
