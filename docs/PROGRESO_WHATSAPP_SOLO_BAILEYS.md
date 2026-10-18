@@ -10,7 +10,7 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
   - Se pausa el uso saliente por el riesgo de bloqueo de una API no oficial: **lo que quede de WhatsApp tiene que ser de bajo riesgo**.
 - **Límites duros:** no se leen ni imprimen `.env`, `whatsapp.env`, `signaling.env` ni `video.env`; sin deploy, sin `sudo`, sin tocar el VPS ni la
   base `yosoy`, sin aplicar migraciones; **nada se conecta ni se manda a WhatsApp real**; sin merge a `main` ni `--force`. Un commit por etapa.
-- **Última actualización:** 2026-10-18, tras la etapa 3 (revisión de los flujos salientes).
+- **Última actualización:** 2026-10-18, tras la etapa 4 (evaluación del consentimiento).
 
 ## Estado de las etapas
 
@@ -19,8 +19,8 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
 | — | Auditoría de todos los flujos de WhatsApp y este archivo | **hecho** | `86be1ac` |
 | 1 | Sacar whatsapp-web.js (servicio, API, docs, VPS) | **hecho** | `0ae4dfd` |
 | 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | `341807f` |
-| 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | **hecho** | (este commit) |
-| 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | pendiente | |
+| 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | **hecho** | `e25061f` |
+| 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | **hecho** | (este commit) |
 | 5 | Anti-bloqueo de lo que quede | pendiente | |
 
 ## Cómo retomar
@@ -282,6 +282,68 @@ El riesgo que queda es el de siempre con una API no oficial: **mensajes que abre
 - Las respuestas del asistente y las de una persona del equipo (S6 y S7) se dejan: responden dentro de una conversación y las acota el servicio.
 - El chat simulado (E4) sigue usando el canal activo (H7): está acotado a la propia máquina y el servicio exige constancia de esa persona.
 - `CanalWhatsAppCloud` (la API oficial de Meta, sin usar) se deja: es la salida natural si algún día se quiere volver a mandar avisos de forma legítima.
+
+## Etapa 4: ¿tiene sentido seguir con el consentimiento de WhatsApp?
+
+Esta etapa **no cambia nada**: ni código, ni textos, ni migraciones, ni tablas (`ConsentimientoWhatsApp`, `migrations/add_consentimiento_whatsapp.sql` y `docs/produccion/01-produccion.sql` quedan como están).
+El consentimiento (PR #43) está en `main` y **no está desplegado**: no hay ninguna aceptación guardada en producción que se pueda perder.
+
+### Qué hay y quién lo usa hoy
+
+| Pieza | Para qué sirve | ¿La usa algo hoy? |
+|---|---|---|
+| Tabla `ConsentimientoWhatsApp` + migración | Constancia de cada aceptación y revocación: texto exacto (versión + SHA-256), número y quién | Sí: la leen los avisos de turno y la pantalla |
+| `ConsentimientoWhatsAppService`, DAO y endpoints (`/consentimiento-whatsapp/texto`, `/`, `/aceptar`, `/revocar`) | Aceptar, revocar, consultar | Sí: registro y perfil |
+| Texto `v0-provisorio.txt` (hash trabado por una prueba) | Lo que la persona lee antes de aceptar | Sí, pero **promete "un recordatorio antes de la fecha"** (hallazgo 4) |
+| Casilla del registro y tarjeta "Avisos por WhatsApp" del perfil | Pedir la aceptación (nunca tildada de antemano) | Sí |
+| `optIn: true` en `POST /enviar` | Deja que el servicio le escriba a quien aceptó **aunque no haya escrito primero** | Solo los cuatro avisos de turno (S2 a S5) |
+| BAJA / ALTA (servicio + `ComandoWhatsApp` en la API) | El servicio deja de escribirle; la API revoca la aceptación | Sí: también protege las respuestas del asistente |
+| Link `wa.me` (opción B) y `Mensajeria__WhatsAppNumeroClinica` | Que la persona **escriba primero**; no manda nada | Sí, y no depende de ningún aviso |
+| `TelefonoArgentino` | Validar el celular al aceptar y normalizar el número del aviso | Sí |
+
+### Qué cambió con las etapas anteriores
+
+1. **El recordatorio ya no sale por WhatsApp**, así que el texto que ve la persona ya no es del todo cierto (promete un recordatorio que no va a llegar). Corregirlo exige una **versión nueva** del texto y revisión del equipo legal (una versión publicada no se edita); por eso no lo toqué.
+2. **Pero no es cierto que ya no haya envíos salientes automáticos:** quedan los **cuatro avisos de turno por evento** (etapa 3). El consentimiento hoy es **lo único que les permite abrir una conversación** con alguien que no escribió primero. Mientras esos avisos existan, el consentimiento sigue teniendo un consumidor.
+3. **Si esos avisos se pausan** (la recomendación de la etapa 3), el consentimiento queda sin quien lo use y la casilla del registro **prometería avisos que no llegan**. Eso sí hay que resolverlo.
+4. Hay cosas que **no dependen de que haya avisos**: la BAJA/ALTA (el servicio la necesita para proteger las respuestas) y el link `wa.me` (la persona escribe primero).
+
+### Opciones
+
+**A. Dejarlo dormido** (recomendada)
+Todo el código, la tabla y la migración quedan. Con la llave `Mensajeria:AvisosPorWhatsApp` de la etapa 3 **apagada**: (1) los cuatro avisos quedan `Omitido`; (2) la oferta se esconde: el texto y el estado salen con `disponible: false`, que es lo que la interfaz ya sabe mostrar
+(el registro no dibuja el bloque y el perfil dice que los avisos no están disponibles por ahora); (3) la BAJA/ALTA y el link `wa.me` siguen andando.
+- **A favor:** no se borra nada (las 386 pruebas que trajo el PR #43, la constancia de auditoría y el trabajo con legal); se prende de nuevo con una variable; sin migraciones ni tablas; se va la promesa vacía; queda listo por si algún día se vuelve a mandar (por ejemplo con la API oficial de Meta).
+- **En contra:** código que no corre mientras la llave esté apagada (mantenimiento y pruebas); y **antes de volver a prender hay que rehacer el texto** con legal.
+- **Esfuerzo:** chico (la llave de la etapa 3 más que `Texto()` y `Obtener()` la respeten, con pruebas).
+
+**B. Simplificar**
+Quedarse solo con lo que sirve sin avisos: la BAJA/ALTA (con su registro en la base), el link `wa.me` y la validación del teléfono. Sacar la casilla del registro, la tarjeta del perfil, el `optIn`, el texto versionado y los endpoints de aceptar/revocar.
+- **A favor:** mucha menos superficie; sin avisos no hace falta pedir permiso, así que **no hay un texto legal que mantener**; no queda ninguna casilla que mienta.
+- **En contra:** se tira un trabajo recién hecho y probado; si los avisos vuelven hay que reconstruirlo (y es lo más delicado); toca la API, las dos pantallas y buena parte de las pruebas que trajo el PR #43; **la tabla queda sin uso** y no la puedo borrar (sin migraciones).
+- **Esfuerzo:** medio a grande.
+
+**C. Sacarlo todo**
+Borrar el módulo entero: reglas, DAO, endpoints, pantallas, texto, pruebas y docs, también la BAJA en la base.
+- **A favor:** el código más chico.
+- **En contra:** lo de B y además que la API ya no se enteraría de una BAJA (el servicio la respeta, pero el perfil, si algún día vuelve, mentiría); la tabla y la migración quedan sin dueño; rehacerlo después es lo más caro.
+- **Esfuerzo:** grande. No la recomiendo.
+
+### Recomendación
+
+**A**, y decidiendo primero qué hacer con los cuatro avisos (etapa 3):
+
+- Si los avisos **se pausan** → A: la oferta se esconde con la misma llave y no hay nada que decidir con legal por ahora.
+- Si los avisos **se mantienen** → el consentimiento **tiene que quedar prendido** (es lo que los legitima), pero **antes de usarlo con pacientes reales hay que publicar una versión nueva del texto** sin la promesa del recordatorio (y con lo que legal ya tenía pendiente: ver `PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales", punto 2).
+- Si algún día se decide **no volver a mandar nada saliente por WhatsApp** → B, que ahí sí vale el esfuerzo.
+
+**Nada de esto lo implementé:** el encargo de esta etapa es evaluar y dejar la recomendación.
+
+### Detalles a tener en cuenta
+
+- **No toqué el texto `v0-provisorio.txt`** (ni su prueba de hash). Al publicar un texto nuevo, **los avisos se detienen hasta que cada paciente vuelva a aceptar** (es a propósito; mejor hacerlo antes de que haya aceptaciones).
+- `WHATSAPP_CONSENTIMIENTO_DIAS` (por defecto 365) es cuánto vale en el servicio "me escribió primero". Es la perilla para acortar la ventana de las respuestas tardías si se quiere más cuidado (etapa 5).
+- Lo que se decidió en el consentimiento sobre el **teléfono sin verificar** (cualquiera puede tildar la casilla con el celular de otro) sigue pendiente (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Qué falta", punto 1): con los avisos pausados, deja de ser un riesgo.
 
 ## Pasos manuales para Agustín
 
