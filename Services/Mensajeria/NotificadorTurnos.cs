@@ -4,7 +4,8 @@ using Microsoft.Extensions.Options;
 /// Servicio único de avisos automáticos:
 ///  - Por evento (solicitud recibida, turno agendado por el profesional, confirmado,
 ///    cancelado): chat (canal activo) + campanita del paciente (Notificacion).
-///  - Recordatorio 24 h (lo dispara RecordatorioBackgroundService): chat + mail + campanita.
+///  - Recordatorio 24 h (lo dispara RecordatorioBackgroundService): mail + campanita. NUNCA por
+///    WhatsApp: el uso saliente de WhatsApp está pausado y un recordatorio es lo programado y masivo.
 ///  - Avisos internos (urgencia, derivación, paciente que no asistirá): NotificacionInterna
 ///    y, para el profesional, mail si tiene uno cargado.
 /// Cada envío a un paciente queda registrado en Recordatorio; el índice único
@@ -14,8 +15,12 @@ using Microsoft.Extensions.Options;
 /// </summary>
 public class NotificadorTurnos : INotificadorTurnos
 {
-    private static readonly string[] CanalesEvento       = { "Chat", "App" };
-    public  static readonly string[] CanalesRecordatorio = { "Chat", "Email", "App" };
+    private static readonly string[] CanalesEvento = { "Chat", "App" };
+
+    // El recordatorio de 24 h sale SOLO por mail y campanita: nunca por WhatsApp ("Chat"). Es una decisión de producto (el uso saliente de WhatsApp está pausado por el
+    // riesgo de bloqueo del número, y un recordatorio es justo lo programado y masivo) y no hay ninguna clave de configuración que la cambie. Es una lista de solo lectura:
+    // nadie le agrega "Chat" desde afuera. RecordatoriosSinWhatsAppTests lo vigila de punta a punta, con el canal de WhatsApp configurado.
+    public static readonly IReadOnlyList<string> CanalesRecordatorio = new[] { "Email", "App" };
 
     private readonly IDatosMensajeria _datos;
     private readonly IRecordatorioDAO _recordatorios;
@@ -116,13 +121,12 @@ public class NotificadorTurnos : INotificadorTurnos
     public void EnviarRecordatorio24h(int idTurno) => Seguro(nameof(EnviarRecordatorio24h), () =>
         AvisarPaciente(idTurno, "Turno24h", CanalesRecordatorio, false,
             "Recordatorio de turno",
-            textoChat: t => PlantillasWhatsApp.Recordatorio(t.Momento, Op.UrlIngresoTurno),
+            textoChat: null,   // no hay texto de WhatsApp: el recordatorio no sale por ahí
             textoApp: t => TextoRecordatorio(t) +
-                "\n\nSi no vas a poder asistir, avisanos respondiendo el mensaje del chat o desde la web.",
-            estadoEsperado: "Confirmado",
-            esRecordatorio: true));
+                "\n\nSi no vas a poder asistir, avisanos desde la web.",
+            estadoEsperado: "Confirmado"));
 
-    // El del mail y la campanita (con sesión): lleva con quién es el turno y cómo es. El del chat de WhatsApp es PlantillasWhatsApp.Recordatorio.
+    // El del mail y la campanita (con sesión): lleva con quién es el turno y cómo es.
     private string TextoRecordatorio(TurnoAviso t) =>
         $"Recordatorio: tenés turno el {Formato.FechaHora(t.Momento)} con {t.NombreProfesional} " +
         $"({t.Modalidad ?? "Virtual"}).\nPara ingresar: {Op.UrlIngresoTurno}";
@@ -180,9 +184,10 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Envío a pacientes ───────────────────────────────────────
 
-    // textoChat: lo que sale por WhatsApp (siempre una plantilla de PlantillasWhatsApp). textoApp: lo que va a la campanita del panel y al mail.
-    private void AvisarPaciente(int idTurno, string tipo, string[] canales, bool respondidoPorChat, string titulo,
-        Func<TurnoAviso, string> textoChat, Func<TurnoAviso, string> textoApp, string? estadoEsperado = null, bool esRecordatorio = false)
+    // textoChat: lo que sale por WhatsApp (siempre una plantilla de PlantillasWhatsApp), o null si el aviso no sale por WhatsApp. textoApp: lo que va a la
+    // campanita del panel y al mail.
+    private void AvisarPaciente(int idTurno, string tipo, IReadOnlyList<string> canales, bool respondidoPorChat, string titulo,
+        Func<TurnoAviso, string>? textoChat, Func<TurnoAviso, string> textoApp, string? estadoEsperado = null)
     {
         var t = _datos.ObtenerTurnoAviso(idTurno);
         if (t is null) return;
@@ -197,11 +202,12 @@ public class NotificadorTurnos : INotificadorTurnos
             string estado; string? error;
             try
             {
-                var cuerpo = canal == "Chat" ? textoChat(t) : textoApp(t);
+                var cuerpo = canal == "Chat" ? textoChat?.Invoke(t) ?? "" : textoApp(t);
                 (estado, error) = canal switch
                 {
+                    "Chat" when textoChat is null => ("Omitido", "Este aviso no sale por WhatsApp."),
                     "Chat" when respondidoPorChat => ("Omitido", "El bot ya se lo respondió en la conversación."),
-                    "Chat"  => EnviarChat(t, cuerpo, esRecordatorio),
+                    "Chat"  => EnviarChat(t, cuerpo),
                     "Email" => string.IsNullOrWhiteSpace(t.MailPaciente)
                                    ? ("Omitido", "El paciente no tiene mail cargado.")
                                    : EnviarMail(t.MailPaciente, "YoSoy – " + titulo, cuerpo),
@@ -218,7 +224,7 @@ public class NotificadorTurnos : INotificadorTurnos
         }
     }
 
-    private (string, string?) EnviarChat(TurnoAviso t, string texto, bool esRecordatorio)
+    private (string, string?) EnviarChat(TurnoAviso t, string texto)
     {
         // Consentimiento de WhatsApp (ConsentimientoWhatsApp): si el paciente revocó, no se manda nada, y ni se arma la conversación. Con una
         // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
@@ -234,18 +240,6 @@ public class NotificadorTurnos : INotificadorTurnos
         var c = _conversaciones.ObtenerOCrear(telefono, _canal.Nombre);
         c.IdPaciente ??= t.IdPaciente;
 
-        // Después de un recordatorio, el "1" o "2" que conteste el paciente se
-        // interpreta como respuesta a este turno. Si una persona tiene la
-        // conversación, no se le cambia el estado.
-        if (esRecordatorio && c.Estado is EstadoConversacion.Activa or EstadoConversacion.Cerrada)
-        {
-            var ctx = ContextoBot.Leer(c.DatosContexto);
-            ctx.LimpiarFlujo();
-            ctx.IdTurno     = t.IdTurno;
-            c.Estado        = EstadoConversacion.Activa;
-            c.PasoActual    = PasoBot.RespuestaRecordatorio;
-            c.DatosContexto = ctx.Serializar();
-        }
         c.FechaUltimaActividad = Ahora;
         _conversaciones.Guardar(c);
 

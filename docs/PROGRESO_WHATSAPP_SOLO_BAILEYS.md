@@ -10,15 +10,15 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
   - Se pausa el uso saliente por el riesgo de bloqueo de una API no oficial: **lo que quede de WhatsApp tiene que ser de bajo riesgo**.
 - **Límites duros:** no se leen ni imprimen `.env`, `whatsapp.env`, `signaling.env` ni `video.env`; sin deploy, sin `sudo`, sin tocar el VPS ni la
   base `yosoy`, sin aplicar migraciones; **nada se conecta ni se manda a WhatsApp real**; sin merge a `main` ni `--force`. Un commit por etapa.
-- **Última actualización:** 2026-10-18, tras la etapa 1 (sacar whatsapp-web.js).
+- **Última actualización:** 2026-10-18, tras la etapa 2 (sin recordatorios por WhatsApp).
 
 ## Estado de las etapas
 
 | Etapa | Qué | Estado | Commit |
 |---|---|---|---|
 | — | Auditoría de todos los flujos de WhatsApp y este archivo | **hecho** | `86be1ac` |
-| 1 | Sacar whatsapp-web.js (servicio, API, docs, VPS) | **hecho** | (este commit) |
-| 2 | Eliminar los recordatorios por WhatsApp, con tests | pendiente | |
+| 1 | Sacar whatsapp-web.js (servicio, API, docs, VPS) | **hecho** | `0ae4dfd` |
+| 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | (este commit) |
 | 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | pendiente | |
 | 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | pendiente | |
 | 5 | Anti-bloqueo de lo que quede | pendiente | |
@@ -66,7 +66,7 @@ Todo mensaje saliente pasa por un único punto: `ServicioMensajes.EnviarAsync` �
 
 | # | Flujo | Dónde está | Qué lo dispara | Qué es | Plan |
 |---|---|---|---|---|---|
-| S1 | **Recordatorio de turno 24 h** | `RecordatorioBackgroundService.EjecutarUnaVez` → `NotificadorTurnos.EnviarRecordatorio24h` → `AvisarPaciente` (canales `CanalesRecordatorio` = Chat, Email, App) → `EnviarChat` | **El reloj**: un ciclo cada `Mensajeria:IntervaloChequeoMinutos` (5), a todo turno Confirmado que cae en las próximas `RecordatorioHorasAntes` (24) horas. También a mano: `POST /mensajeria/recordatorios/ejecutar` | **Automático, programado y masivo** (uno por paciente con turno, sin que nadie escriba). Activo con canal real y paciente con teléfono. Trae "Respondé 1 o 2" y deja la conversación esperando esa respuesta | **Eliminar (etapa 2)** |
+| S1 | **Recordatorio de turno 24 h** | `RecordatorioBackgroundService.EjecutarUnaVez` → `NotificadorTurnos.EnviarRecordatorio24h` → `AvisarPaciente` (canales `CanalesRecordatorio` = Chat, Email, App) → `EnviarChat` | **El reloj**: un ciclo cada `Mensajeria:IntervaloChequeoMinutos` (5), a todo turno Confirmado que cae en las próximas `RecordatorioHorasAntes` (24) horas. También a mano: `POST /mensajeria/recordatorios/ejecutar` | **Automático, programado y masivo** (uno por paciente con turno, sin que nadie escriba). Activo con canal real y paciente con teléfono. Trae "Respondé 1 o 2" y deja la conversación esperando esa respuesta | **Eliminar (etapa 2)** → **hecho**, ver "Etapa 2" |
 | S2 | Aviso "recibimos tu solicitud de turno" | `NotificadorTurnos.TurnoSolicitado` (canales Chat y App) | `POST /turnos/solicitar`, `POST /public/profesionales/{slug}/reservar`; y el bot (`respondidoPorChat:true`: acá el Chat queda "Omitido", el bot ya contestó) | Automático **por evento**, de a uno; no es respuesta a un mensaje | **Solo listar y recomendar (etapa 3)** |
 | S3 | Aviso "tu profesional te propuso un turno" | `TurnoAgendadoPorProfesional` | `POST /turnos/profesional-solicitar` | ídem | etapa 3 |
 | S4 | Aviso "turno confirmado" | `TurnoConfirmado` (y `CambioDeEstado`) | `PUT /turnos/{id}/confirmar-paciente`, `PUT /turnos/{id}` (el profesional confirma) | ídem | etapa 3 |
@@ -124,13 +124,13 @@ Lo que **no** sale por WhatsApp, para que no haya dudas:
 2. **Sacar el canal Chat del recordatorio rompería el reintento del mail** en un caso borde. `RecordatorioDAO.TurnosConfirmadosSinRecordar` cuenta las filas
    resueltas de **cualquier** canal y las compara con la cantidad de canales: con 2 canales en vez de 3 y una fila vieja de "Chat" ya enviada, un mail pendiente
    de reintento dejaría de reintentarse (pasa solo con los turnos cuyo recordatorio estaba a medias al desplegar). Se corrige en la etapa 2 contando solo los
-   canales que quedan, con una prueba contra la base.
+   canales que quedan, con una prueba contra la base. **Resuelto en la etapa 2.**
 3. **Hoy `Mensajeria__CanalActivo=WhatsAppWebJs` se acepta a propósito** (para que un servidor que lo tenga siga arrancando). Al sacarlo, **la API no arranca**
    si el `.env` del servidor todavía lo trae (falla con un mensaje que dice qué cambiar). Es el primer paso manual antes de publicar.
 4. **El texto de consentimiento `v0-provisorio` promete "un recordatorio antes de la fecha".** Con la etapa 2 deja de ser cierto. No lo edito: una versión
    publicada no se edita, y el texto se tiene que rehacer con el equipo legal según lo que se decida en las etapas 3 y 4.
 5. **El mail y la campanita del recordatorio dicen "avisanos respondiendo el mensaje del chat"**, que es el WhatsApp que se saca. Es solo texto: se cambia a
-   "avisanos desde la web" sin tocar la lógica de esos recordatorios (se aclara en la etapa 2).
+   "avisanos desde la web" sin tocar la lógica de esos recordatorios. **Hecho en la etapa 2.**
 6. **En producción hoy (con `webjs`) los recordatorios salen sin ninguna protección**: a todo paciente con teléfono, sin consentimiento, sin topes y sin
    pausas largas. Al quedar solo Baileys, todo lo que salga pasa por el consentimiento, los topes, las pausas y el "escribiendo...".
 7. **El chat simulado usa el canal activo** (E4). Con `Baileys`, un pedido local al simulador hace que el asistente le conteste por WhatsApp real a ese
@@ -191,6 +191,51 @@ Lo que **no** sale por WhatsApp, para que no haya dudas:
   `/vincular` sin soporte) y entraron: el rechazo de `WHATSAPP_BACKEND=webjs`, el aviso de variables retiradas (solo nombres), la cola que no se arma sin protecciones, la unit única sin rastros de Chromium, y una guardia nueva
   (`sin-whatsapp-web-js.test.js`) que vigila que `whatsapp-web.js`, Puppeteer y `patch-package` no vuelvan por un descuido: ni en `package.json`, ni en el lock, ni en el código, ni como archivo.
 - `Scripts\correr-tests.ps1` contra `yosoy_test`: **1406 de 1406** (eran 1407: se sacó un caso por cada valor `WhatsAppWebJs` que dejó de ser válido y entraron el rechazo de ese valor y un caso más de valor desconocido).
+
+## Etapa 2: sin recordatorios por WhatsApp
+
+### Qué quedó hecho
+
+- **El recordatorio de 24 h sale solo por mail y campanita.** `NotificadorTurnos.CanalesRecordatorio` pasó de `Chat, Email, App` a **`Email, App`**, y es una lista de solo lectura
+  (`IReadOnlyList<string>`): no hay ninguna clave de configuración que la cambie ni un valor por defecto que la reactive. `Mensajeria:RecordatorioHorasAntes` e
+  `IntervaloChequeoMinutos` siguen siendo solo el "cuándo", nunca el "por dónde". Lo mismo vale para `POST /mensajeria/recordatorios/ejecutar` (la pasada a mano).
+- **Una segunda traba, independiente de la primera.** `AvisarPaciente` recibe ahora el texto de WhatsApp como opcional y el recordatorio no tiene ninguno
+  (`textoChat: null`): aunque alguien volviera a poner `"Chat"` en la lista, ese canal queda `Omitido` ("Este aviso no sale por WhatsApp.") **sin** consultar el consentimiento,
+  sin armar la conversación y sin llamar al servicio. Para que el recordatorio volviera a salir por WhatsApp habría que cambiar las dos cosas a la vez (y las pruebas fallan).
+- **Se borró lo que era solo del recordatorio por WhatsApp:** la plantilla `PlantillasWhatsApp.Recordatorio` (con su "Respondé 1 o 2" y la línea de BAJA) y el bloque de
+  `EnviarChat` que dejaba la conversación esperando esa respuesta (`PasoBot.RespuestaRecordatorio`). Quedan cuatro plantillas: solicitud recibida, turno propuesto, confirmado y cancelado.
+- **`RecordatorioDAO.TurnosConfirmadosSinRecordar` cuenta solo los canales que se piden** (hallazgo 2). Antes contaba las filas resueltas de cualquier canal y las comparaba con la
+  cantidad de canales: sin "Chat" y con una fila vieja de "Chat" ya enviada, un mail que había fallado dejaba de reintentarse. Ahora la consulta filtra por `Canal IN (...)`.
+- **Mail y campanita: la misma lógica, un texto distinto.** Cambió una frase, "avisanos respondiendo el mensaje del chat o desde la web" → "avisanos desde la web" (hallazgo 5): ya no hay
+  un mensaje de chat al que responder. El texto del mail y el de la campanita siguen siendo el mismo (con quién, cuándo y el link para ingresar).
+- Docs: `README.md` (raíz, sección de mensajería: el recordatorio ya no avisa "por chat" ni acepta `1`/`2`) y el comentario del enchufe `CanalWhatsAppCloud`. `DEPLOY.md` y `SERVIDOR.md` ya lo decían desde la etapa 1.
+
+### Decisiones y límites
+
+1. **El historial no se toca.** Las filas viejas de `Recordatorio` con `Canal = 'Chat'` quedan tal cual, y el `CHECK` de `Recordatorio.Canal` sigue admitiendo `Chat` porque los avisos por evento (S2 a S5) lo usan. Sin migración, sin tablas nuevas.
+2. **Se conserva `BotReservasService.ResponderRecordatorio`** (el "1 = asisto, 2 = no puedo"), marcado en el código como heredado. Nada deja ya una conversación en ese paso, pero las que quedaron esperando una respuesta con la API anterior
+   (la que está hoy en el VPS) conservan su comportamiento si la persona contesta después de actualizar. Se puede borrar más adelante, cuando esas conversaciones ya hayan vencido: queda en "Qué falta".
+3. **Un recordatorio que había quedado a medias al actualizar** (por ejemplo: el WhatsApp ya había salido, la campanita también y el mail falló) **sigue reintentando el mail** y no vuelve a mandar nada por WhatsApp. Está probado con la base real.
+4. **Consecuencia de producto a tener presente:** un paciente que **no tiene mail** y no entra a la app ya no se entera del recordatorio (antes le llegaba por WhatsApp). El registro público (`POST /pacientes`) exige el mail, pero la columna admite
+   `NULL` y puede haber pacientes cargados antes de esa regla o por otra vía: a esos solo les queda la campanita (el mail queda `Omitido`: "El paciente no tiene mail cargado.").
+5. **No toqué el texto del consentimiento `v0-provisorio`**, que todavía promete "un recordatorio antes de la fecha" (hallazgo 4): una versión publicada no se edita. Va a la etapa 4.
+6. `POST /mensajeria/recordatorios/ejecutar` sigue existiendo (pruebas y demo): corre la misma pasada, ahora solo por mail y campanita.
+
+### Pruebas de esta etapa
+
+- **Archivo nuevo `YoSoy.Tests/RecordatoriosSinWhatsAppTests.cs`: 27 casos.** Arman el `NotificadorTurnos` y el `RecordatorioBackgroundService` **reales**, con el canal `CanalBaileys` **de verdad** (el que se registra con `Mensajeria__CanalActivo=Baileys`) y un manejador HTTP que
+  anota cada pedido que haría a `whatsapp-service` (no hay red: nada sale de la máquina). Comprueban, en los tres estados del consentimiento del paciente (sin decisión, aceptó, revocó):
+  - que durante un recordatorio **no llega ni un pedido** al servicio, no se guarda ningún mensaje, no se arma ninguna conversación y ni siquiera se consulta el consentimiento;
+  - que se reservan solo las filas `Email` y `App` (nunca `Chat`), que la campanita sale con el texto completo y el mail se intenta como siempre (queda `Omitido` si no está configurado o el paciente no tiene mail);
+  - que el servicio de recordatorios **pide solo `Email` y `App`**, con uno y con varios turnos;
+  - **el control:** un aviso por evento (`TurnoConfirmado`) con el mismo armado **sí** manda un `POST /enviar`, así se sabe que el espía vería un pedido si el recordatorio lo hiciera;
+  - que ninguna opción de `MensajeriaOptions` ni clave de `appsettings.json` mezcla "recordatorio" con "WhatsApp / chat / canal / Baileys", que `CanalesRecordatorio` es de solo lectura y no tiene `Chat`, y que no existe una plantilla de WhatsApp con nombre de recordatorio.
+  - **Contra la base real (`yosoy_test`, categoría `Integracion`):** los turnos que faltan recordar con cada combinación de filas (incluida la fila vieja de `Chat` que antes lo rompía); y el recorrido completo con los DAOs reales: un recordatorio deja solo las filas `Email` (`Omitido`) y `App` (`Enviado`), una notificación, ninguna conversación, ningún pedido al servicio, y una segunda pasada no repite nada.
+- **Verificadas con mutaciones** (rompo el código a propósito y compruebo que las pruebas fallan; todo se restauró byte a byte). Casos que fallan con cada una: poner `"Chat"` de nuevo en la lista (6), contar las filas de cualquier canal (2),
+  que el servicio pida también `Chat` (2), ignorar los intentos agotados (1), volver al texto "respondé el mensaje" (1), darle de nuevo un texto de chat al recordatorio (1) y **la regresión completa** —`"Chat"` en la lista **y** un texto de chat— (12 casos de
+  9 pruebas distintas, entre ellas las que miran que no salga ningún pedido al servicio).
+- **Adaptadas:** `PlantillasWhatsAppTests` (cuatro plantillas; ya no hay una de recordatorio), `ConsentimientoWhatsAppEnviosTests`, `CorreoNoConfiguradoTests` (espera `Email` y `App`) y los cuatro dobles de `IRecordatorioDAO`.
+- `Scripts\correr-tests.ps1` contra `yosoy_test`: **1430 de 1430** (eran 1406: entran los 27 casos del archivo nuevo y salen 3 netos de los que probaban el recordatorio por WhatsApp en las pruebas adaptadas). `npm test` en `whatsapp-service`: sin cambios (389: 383 pasan, 6 saltadas, 0 fallas).
 
 ## Pasos manuales para Agustín
 

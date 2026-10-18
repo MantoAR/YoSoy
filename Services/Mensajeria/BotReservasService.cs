@@ -524,6 +524,8 @@ public class BotReservasService
     }
 
     // ── Respuesta a un recordatorio (1 = asisto, 2 = no puedo) ──
+    // Los recordatorios ya NO salen por WhatsApp (solo mail y campanita): nada deja una conversación en este paso. Se conserva para las conversaciones que
+    // quedaron esperando una respuesta de antes; si no hay turno vigente, cae al menú como siempre. Es una respuesta a un mensaje entrante.
 
     private void ResponderRecordatorio(Conversacion c, ContextoBot ctx, string texto, Intencion intencion, DateTime ahora, List<string> r)
     {

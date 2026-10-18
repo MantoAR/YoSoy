@@ -222,7 +222,7 @@ public class FakeRecordatorios : IRecordatorioDAO
     public int? Reservar(int idTurno, string tipo, string canal, DateTime fechaProgramada, int maxIntentos) => null;
     public void MarcarResultado(int idRecordatorio, string estado, string? error, DateTime ahora) { }
     public void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora) => Respuestas.Add((idTurno, tipo, respuesta));
-    public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos) => new();
+    public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos) => new();
 }
 
 public class FakeNotificador : INotificadorTurnos

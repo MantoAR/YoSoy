@@ -10,8 +10,8 @@
 //     - POST de mensajes: validar la firma X-Hub-Signature-256 (HMAC-SHA256 del
 //       cuerpo crudo con el App Secret) antes de procesar nada, y derivar el
 //       mensaje a BotReservasService con canal "WhatsApp".
-//  3. Ventana de 24 h: los mensajes que inicia el negocio (recordatorios y avisos
-//     de NotificadorTurnos) fuera de las 24 h desde el último mensaje del paciente
+//  3. Ventana de 24 h: los mensajes que inicia el negocio (los avisos por evento
+//     de NotificadorTurnos; el recordatorio no sale por WhatsApp) fuera de las 24 h desde el último mensaje del paciente
 //     solo se pueden mandar con plantillas aprobadas por Meta. Hay que crear esas
 //     plantillas y elegir plantilla o texto libre según la ventana.
 //  4. Guardar el id de mensaje que devuelve Meta y procesar los estados de

@@ -265,9 +265,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
   - "Hablar con una persona" pasa la conversación a `DerivadaHumano`: el bot deja de responder hasta que un administrador la cierre.
   - Después de 30 minutos sin actividad (configurable), el siguiente mensaje vuelve al menú.
 - **Seguridad clínica** (criterio validado con una psicóloga): antes de interpretar cualquier mensaje se buscan frases de riesgo (lista configurable). Si hay coincidencia, el bot corta el flujo, responde un mensaje fijo que indica ir a la guardia o llamar a emergencias con las líneas configuradas, marca la conversación como `Urgente` y crea un aviso para el administrador. El bot **nunca** da consejos clínicos, diagnósticos ni contención: ante una consulta clínica responde que eso lo trabaja el profesional.
-- **Recordatorio 24 h:** un servicio en segundo plano revisa cada 5 minutos los turnos **Confirmados** que empiezan dentro de las próximas 24 h y avisa por chat, por mail (si el paciente tiene mail y el mail está configurado) y por la campanita. Nunca manda el mismo aviso dos veces. El paciente puede responder:
-  - `1`: queda registrada la confirmación de asistencia.
-  - `2`: si faltan más de 24 h se cancela; si faltan menos, **no** se cancela (RN-05) y se le avisa al profesional.
+- **Recordatorio 24 h:** un servicio en segundo plano revisa cada 5 minutos los turnos **Confirmados** que empiezan dentro de las próximas 24 h y avisa **por mail** (si el paciente tiene mail y el mail está configurado) **y por la campanita**. **No sale por WhatsApp ni por el chat**, ni por configuración ni por defecto: es una decisión de producto (el uso saliente de WhatsApp está pausado por el riesgo de que bloqueen el número, y un recordatorio es justo lo programado y masivo), y `RecordatoriosSinWhatsAppTests` lo vigila. Nunca manda el mismo aviso dos veces. Si el paciente no puede asistir, el texto de la campanita lo manda a avisar desde la web, donde se cancela con la regla de siempre (RN-05: con menos de 24 h no se cancela).
 - **Avisos por evento** (chat + campanita): solicitud recibida, turno propuesto por el profesional, turno confirmado y turno cancelado.
 - **Bandeja de chats** para el configurador (la secretaría), estilo WhatsApp Web. Se abre con el botón **Chats** de la barra superior desde cualquier pantalla de su panel. Es un cajón que se superpone sin recargar; se puede expandir a pantalla completa y se cierra con Esc. Código en `PANTALLAS/Pantalla_ChatSimulado/js/bandeja.js`:
   - **Lista:**
@@ -419,7 +417,7 @@ Configuración (`appsettings.json` → `Consentimiento`):
 ### Etapa siguiente
 
 - **WhatsApp Cloud API:** implementar `CanalWhatsAppCloud` (hoy lanza `NotImplementedException` y no está registrado): envío por la Graph API con el token en user-secrets, webhook con verificación (`hub.challenge`) y validación de la firma `X-Hub-Signature-256`, y estados de entrega.
-- **Plantillas de Meta:** los mensajes que inicia el negocio (recordatorios y avisos) fuera de la ventana de 24 h desde el último mensaje del paciente solo se pueden mandar con plantillas aprobadas.
+- **Plantillas de Meta:** los mensajes que inicia el negocio (los avisos por evento; los recordatorios ya no salen por WhatsApp) fuera de la ventana de 24 h desde el último mensaje del paciente solo se pueden mandar con plantillas aprobadas.
 - **Instagram y Facebook Messenger:** nuevas implementaciones de `IMessageChannel`; el bot no cambia.
 - **IA conversacional:** una `InterpreteIA` que implemente `IInterpreteIntencion` reemplaza al menú registrándola en DI. El filtro de seguridad clínica sigue corriendo antes que cualquier interpretación.
 - **Recordatorios de pago**, cuando exista la entidad de pagos.

@@ -1,5 +1,6 @@
 // Los textos que salen POR WHATSAPP sin que la persona los haya pedido: los avisos de un turno (lo recibimos, se propuso, se confirmó, se
-// canceló, recordatorio). Es el contenido del consentimiento: "cada aviso dice el día y la hora de tu turno y nada más sobre tu atención".
+// canceló). NO hay un recordatorio: los recordatorios no salen por WhatsApp (solo mail y campanita). Es el contenido del consentimiento: "cada aviso
+// dice el día y la hora de tu turno y nada más sobre tu atención".
 //
 // REGLA: solo el aviso, el día y la hora. Nada clínico ni que revele qué atención recibe la persona: ni el nombre del profesional, ni la
 // especialidad, ni el motivo de la consulta, ni la modalidad. Todo eso lo ve la persona dentro de su panel de YoSoy (por eso los avisos que
@@ -28,12 +29,4 @@ public static class PlantillasWhatsApp
 
     public static string TurnoCancelado(DateTime momento) =>
         $"Tu turno del {Formato.FechaHora(momento)} fue cancelado. Si querés pedir otro, escribí \"menu\" por acá o ingresá a la web.";
-
-    /// <summary>
-    /// El recordatorio de 24 horas. Lo contesta el asistente ("1" confirma, "2" avisa que no puede) y trae cómo darse de baja de estos avisos.
-    /// El detalle (con quién, cómo es el turno) está en el panel.
-    /// </summary>
-    public static string Recordatorio(DateTime momento, string urlIngreso) =>
-        $"Recordatorio: tenés turno el {Formato.FechaHora(momento)}.\nPara ver los detalles o ingresar: {urlIngreso}\n\n" +
-        "Respondé 1 para confirmar tu asistencia o 2 si no podés asistir. Para dejar de recibir estos avisos, respondé BAJA.";
 }

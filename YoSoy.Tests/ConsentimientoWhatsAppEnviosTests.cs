@@ -55,7 +55,7 @@ public class NotificadorWhatsAppConsentimientoTests
 
         public void MarcarResultado(int idRecordatorio, string estado, string? error, DateTime ahora) => Resultados.Add((_canales[idRecordatorio], estado, error));
         public void RegistrarRespuesta(int idTurno, string tipo, string respuesta, DateTime ahora) { }
-        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, int cantidadCanales, int maxIntentos) => new();
+        public List<int> TurnosConfirmadosSinRecordar(DateTime desde, DateTime hasta, IReadOnlyList<string> canales, int maxIntentos) => new();
     }
 
     private sealed class InternasNulas : INotificacionInternaDAO
@@ -140,12 +140,12 @@ public class NotificadorWhatsAppConsentimientoTests
     }
 
     [Fact]
-    public void Revocar_el_WhatsApp_no_apaga_los_otros_canales_ni_el_recordatorio_dentro_de_YoSoy()
+    public void Revocar_el_WhatsApp_no_apaga_los_otros_canales_dentro_de_YoSoy()
     {
         var a = new Arnes();
         a.E.WhatsApp.Permisos[1] = PermisoEnvioWhatsApp.Revocado;
 
-        a.Notificador.EnviarRecordatorio24h(a.Turno.IdTurno);
+        a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
         Assert.Equal("Omitido", a.Chat.Estado);
         Assert.Empty(a.E.Mensajes.Mensajes);
@@ -155,7 +155,6 @@ public class NotificadorWhatsAppConsentimientoTests
 
     [Theory]
     [InlineData("TurnoConfirmado")]
-    [InlineData("Recordatorio")]
     [InlineData("TurnoCancelado")]
     [InlineData("TurnoSolicitado")]
     public void Revocado_corta_todos_los_avisos_de_turno_por_WhatsApp(string aviso)
@@ -168,7 +167,6 @@ public class NotificadorWhatsAppConsentimientoTests
         switch (aviso)
         {
             case "TurnoConfirmado": a.Notificador.TurnoConfirmado(id); break;
-            case "Recordatorio": a.Notificador.EnviarRecordatorio24h(id); break;
             case "TurnoCancelado": a.Notificador.TurnoCancelado(id); break;
             default: a.Notificador.TurnoSolicitado(id); break;
         }
