@@ -29,12 +29,18 @@ public static class MensajeriaEndpoints
         // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
         // con el módulo apagado, o un pedido remoto con SoloLocal, dice false y nada más.
         // Sin auth a propósito: lo consulta cualquier pantalla, antes de saber quién sos.
-        // modoAtencion ("asistente" o "personal") le dice a la pantalla cómo rotular los chats; solo se informa con el módulo disponible.
-        app.MapGet("/capacidades", (HttpContext http) =>
+        // modoAtencion ("asistente" o "personal") le dice a la pantalla cómo rotular los chats, y canalActivo (el Nombre del canal por el que salen las respuestas:
+        // "Simulado" o "WhatsApp") qué poner en "Enviar por". Los dos se informan solo con el módulo disponible.
+        app.MapGet("/capacidades", (HttpContext http, IMessageChannel canal) =>
         {
             var op = http.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
             var disponible = Disponible(op, http);
-            return Results.Ok(new { mensajeria = disponible, modoAtencion = disponible ? (op.EsModoPersonal ? "personal" : "asistente") : null });
+            return Results.Ok(new
+            {
+                mensajeria = disponible,
+                modoAtencion = disponible ? (op.EsModoPersonal ? "personal" : "asistente") : null,
+                canalActivo = disponible ? canal.Nombre : null
+            });
         });
 
         // ── Chat simulado: lado paciente ─────────────────────────
