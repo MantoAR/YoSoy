@@ -30,7 +30,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | GET | `/consentimiento-whatsapp/texto` | El texto del consentimiento de los avisos por WhatsApp (versión, título, párrafos): la pantalla de registro lo muestra antes de que haya sesión. Es texto legal, sin datos de nadie; rate-limited (`consentimiento-whatsapp`). |
 | POST | `/mensajeria/simulado/entrante` | Equivalente a un webhook: no hay sesión del otro lado. |
 | GET | `/mensajeria/simulado/conversacion` | Idem; ambos ya cierran con `Disponible()`/`SoloLocal`, no con JWT. |
-| POST | `/mensajeria/whatsapp/entrante` | Webhook real de `whatsapp-service`. Sin JWT a propósito (lo llama una máquina) — cierra con `EsLocal()` + secreto compartido, no con `Disponible()`/`SoloLocal` (candado propio, no depende de `ChatSimuladoHabilitado`). |
+| POST | `/mensajeria/whatsapp/entrante` | Webhook real de `whatsapp-service`. Sin JWT a propósito (lo llama una máquina) — cierra con `EsLocal()` + secreto compartido, no con `Disponible()`/`SoloLocal` (candado propio, no depende de `ChatSimuladoHabilitado`). Cuerpo v2: `{ telefono, texto, tipo?, id?, ts?, nombre? }` (los cuatro últimos opcionales: sin ellos es el cuerpo de siempre); un mismo `id` por teléfono se atiende una sola vez. Responde `{ idConversacion, respuestas }`, más `ignorado` (`duplicado` o `no_textual`) o `idMensaje` cuando corresponde. |
 
 Archivos estáticos (`/pantallas/*`) no aparecen en ninguna tabla: los sirve
 `UseStaticFiles`, un middleware, nunca un endpoint — `EndpointDataSource` no los ve, y por

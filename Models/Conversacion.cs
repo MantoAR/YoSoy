@@ -12,4 +12,6 @@ public class Conversacion
     // Quién atiende este hilo (Tomar/Asignar/Devolver) - no es el profesional tratante del
     // paciente (eso es Caso/PacienteProfesional, sin relación). Ver VisibilidadConversacion.
     public int? IdProfesionalAsignado { get; set; }
+    // El nombre del perfil de WhatsApp de quien escribe (migración 17; solo con ModoAtencion = "Personal"). Se guarda acá y NUNCA va a un log ni a la auditoría.
+    public string? NombreContacto { get; set; }
 }

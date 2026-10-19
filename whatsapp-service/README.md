@@ -26,6 +26,39 @@ le reenvía los mensajes entrantes por su cuenta.
 
 El secreto es `X-Shared-Secret` (`Mensajeria__WhatsApp__Secreto`), comparado en tiempo constante. La app está en `servidor.js`.
 
+### Lo que se le reenvía a la API (contrato v2 del webhook)
+
+Cada mensaje de una persona (de un chat de a uno: no los grupos, las listas de difusión, los estados ni los canales, ni lo que se escribe desde el teléfono del número) va a
+`POST {API_BASE_URL}/mensajeria/whatsapp/entrante`, con el secreto compartido:
+
+```json
+{ "telefono": "5491122334455", "texto": "[Imagen] mi receta", "tipo": "imagen", "id": "3EB0A1B2C3D4E5F6A7B8", "ts": 1760000123, "nombre": "Juan Pérez" }
+```
+
+| Campo | Qué es |
+|---|---|
+| `telefono`, `texto` | De siempre. Con una foto, un audio... el `texto` es un **aviso del tipo** (abajo) |
+| `tipo` | `texto`, `audio`, `imagen`, `video`, `documento`, `sticker`, `ubicacion` o `contacto` |
+| `id` | El id del mensaje en WhatsApp. La API lo usa para no guardar dos veces el mismo mensaje (este servicio reintenta si la API falla) |
+| `ts` | La hora a la que se escribió, en segundos desde 1970 (la API la usa si es razonable: ni futura ni de un día o más atrás) |
+| `nombre` | El nombre del perfil de WhatsApp (decisión D5), sin saltos de línea ni invisibles y de hasta 100 caracteres. La API lo guarda en la conversación; **nunca** se escribe en un log |
+
+Los cuatro campos nuevos son opcionales: una API que no los conoce los ignora, y la API nueva acepta el cuerpo de siempre (`{ telefono, texto }`).
+
+**Fotos, audios y documentos (decisión D4):** no se descargan ni se guardan. Viaja un aviso con el tipo (`[Imagen]`, `[Video]`, `[Audio]`, `[Documento]`, `[Sticker]`,
+`[Ubicación]`, `[Contacto]`) y, si la trae, la leyenda a continuación (`[Imagen] mi receta`). Ni el nombre de un archivo ni lo que trae una ubicación o un contacto compartido
+viajan. Cuenta como "escribió primero" para el consentimiento, igual que un texto, y la API puede contestarle; pero su aviso **no** se interpreta como BAJA ni como ALTA. No viajan
+las reacciones, las ediciones, los borrados, las encuestas ni los mensajes de protocolo.
+
+**Si la API falla (decisión D6)** el reenvío se reintenta **solo en memoria**: el texto de un mensaje nunca se escribe a disco.
+- Se reintenta ante un error de red, un tiempo de espera agotado (5 s), un 5xx o un 429. **No** ante otro 4xx (un secreto que no coincide o un cuerpo inválido daría lo mismo).
+- Hasta 3 reintentos, a los 5 s, 30 s y 2 minutos del intento anterior.
+- Los mensajes de una misma persona salen de a uno y en orden; los de otra persona no esperan.
+- Hasta 200 mensajes esperando a la vez: el resto se pierde (y se cuenta).
+- El reintento manda exactamente lo mismo (el mismo `id`): si la API ya lo había recibido, no lo guarda dos veces.
+- **Lo que está esperando se pierde si se agotan los reintentos o si se apaga el servicio** (no hay otro lugar donde guardarlo, y escribirlo a disco está descartado): el log dice
+  cuántos, nunca cuáles. Quedan en el teléfono del número dedicado, si es el dispositivo principal.
+
 ## Baileys: variables
 
 Van en `/opt/yosoy/config/whatsapp.env` (o en la `Environment=` de la unit). Todas son opcionales salvo la primera.
@@ -208,7 +241,8 @@ Lo que ve la API cuando se rechaza (`POST /enviar` → `{ "exito": false, "error
 ### Baileys: qué se escribe en el log (y qué nunca)
 
 El log (`journalctl -u whatsapp-service`) sirve para saber qué pasa sin guardar datos de pacientes. **Nunca** se escribe:
-- el **texto** de un mensaje, ni el que llega ni el que sale;
+- el **texto** de un mensaje, ni el que llega ni el que sale (ni la leyenda de una foto, ni el nombre de un archivo: las fotos, los audios y los documentos no se descargan);
+- el **nombre del perfil** de WhatsApp de quien escribe (decisión D5);
 - un **teléfono completo**: queda `***4455` (los últimos 4 dígitos), también dentro de los errores que repiten la librería o el sistema;
 - el **QR** de vinculación (sale solo por la pantalla del comando o por `GET /estado`, que pide el secreto), ni las **credenciales** de
   la sesión, ni sus claves;
@@ -239,6 +273,8 @@ curl -s http://127.0.0.1:3002/salud
 { "ok": false, "canal": "baileys", "estado": "requiere_vincular", "motivo": "sesion_cerrada", "desde": "2026-10-16T15:00:00.000Z",
   "conectado": false, "qrPendiente": false, "requiereVincular": true, "requiereAtencion": false, "reconectando": false,
   "intentosDeReconexion": 0, "uptimeSegundos": 5231,
+  "entrantes": { "recibidos": 42, "duplicados": 1, "ignorados": { "propio": 3, "grupo": 5, "no_textual": 2 },
+                 "reenviados": 41, "reintentados": 2, "fallidos": 0, "perdidos": 0, "pendientes": 1 },
   "cola": { "pendientes": 0, "dia": "2026-10-16", "enviadosHoy": 3, "enEspera": 0, "topeDiario": 100,
             "enviadosUltimaHora": 3, "topePorHora": 40, "topePorDestinatario": 3 } }
 ```
@@ -252,15 +288,20 @@ curl -s http://127.0.0.1:3002/salud
 | `requiere_atencion` | 503 | WhatsApp cortó por algo que reintentar no arregla; `motivo`: `cuenta_restringida`, `sesion_reemplazada`, `version_rechazada`, `sesion_invalida` | mirar el log y reiniciar el servicio |
 | `detenido` | 503 | todavía no arrancó, o ya se apagó | — |
 
-`desde` es desde cuándo está en ese estado y motivo. No trae teléfonos ni textos (lo vigila una prueba), y se puede consultar sin
-secreto porque solo escucha en loopback. **Ojo:** un servicio recién desplegado y sin vincular contesta 503 (con `requiere_vincular`); eso
+`desde` es desde cuándo está en ese estado y motivo. No trae teléfonos, textos ni nombres (lo vigila una prueba), y se puede consultar sin
+secreto porque solo escucha en loopback.
+
+`entrantes` cuenta, desde que arrancó el servicio y solo con números, lo que entró: `recibidos` (los que se procesaron), `duplicados` (WhatsApp entregó dos veces lo mismo),
+`ignorados` por motivo (`propio`, `grupo`, `difusion`, `canal`, `no_textual`, `vacio`, `sin_numero`, `sin_clave`) y lo que pasó al reenviarlos a la API: `reenviados`,
+`reintentados` (cuántos reintentos hubo), `fallidos` (la API los rechazó con un 4xx: no se reintentan), `perdidos` (se agotaron los reintentos, no había lugar o se apagó el
+servicio) y `pendientes` (esperando). Si `perdidos` o `fallidos` crecen, mirar el log de la API y este. **Ojo:** un servicio recién desplegado y sin vincular contesta 503 (con `requiere_vincular`); eso
 es lo correcto, no una falla del proceso.
 
 **Apagado ordenado.** systemd manda SIGTERM al hacer `stop` o `restart` (Ctrl+C es SIGINT, lo mismo). En este orden:
 1. se cierra el puerto y la cola deja de despachar (lo nuevo recibe `503 reiniciando`);
 2. se espera hasta 5 segundos al envío que esté saliendo, para no cortarlo a la mitad y para que cuente en el tope del día;
 3. se suelta el socket de WhatsApp **sin cerrar la sesión** (el número sigue vinculado) y se guardan, a la vez, lo que quede por escribir de
-   las credenciales, los consentimientos y los contadores;
+   las credenciales, los consentimientos y los contadores. Los mensajes entrantes que esperaban un reintento hacia la API **se pierden** (eran solo memoria): el log dice cuántos;
 4. se sale con código 0.
 
 Todo tiene un tope de 10 segundos (la unit da 20): si algo no contesta, se anota y se sale igual con lo que haya, sin bloquear.

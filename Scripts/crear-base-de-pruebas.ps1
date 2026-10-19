@@ -11,7 +11,7 @@
       - usar la base "yosoy" (la de desarrollo, con datos reales);
       - seguir si la base ya existe (nunca pisa ni completa una base existente).
 
-    El esquema ya trae el resultado de las 16 migraciones de migrations\. La base queda sin datos propios (el esquema
+    El esquema ya trae el resultado de las 17 migraciones de migrations\. La base queda sin datos propios (el esquema
     solo siembra el tipo de consentimiento y el contenido de arranque del chat) y así tiene que estar: los tests crean y
     borran sus filas, no hace falta migrations\seed_catalogos.sql.
 
@@ -32,6 +32,15 @@
         .\Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'
     Solo toca la base que este mismo comando acaba de crear.
 
+.PARAMETER SinMigracion17
+    Después de armar el esquema deshace la migración 17 (el chat de WhatsApp para el personal): borra el índice, la restricción y las tres
+    columnas que agrega (MensajeChat.IdExterno, MensajeChat.Tipo y Conversacion.NombreContacto). La base queda como producción mientras no
+    se aplique esa migración. Sirve para comprobar que la API anda en modo Asistente (el de por defecto) sin esas columnas, y que con el
+    modo Personal sin ellas sigue guardando los mensajes y lo avisa en el log:
+        .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17
+        .\Scripts\correr-tests.ps1 -Base yosoy_test_16 -Filtro 'Migracion!=17'
+    Se puede combinar con -SinConsentimientoWhatsApp. Solo toca la base que este mismo comando acaba de crear.
+
 .EXAMPLE
     .\Scripts\crear-base-de-pruebas.ps1
 
@@ -40,12 +49,16 @@
 
 .EXAMPLE
     .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp
+
+.EXAMPLE
+    .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Servidor = '.\SQLEXPRESS',
     [string]$Base = 'yosoy_test',
-    [switch]$SinConsentimientoWhatsApp
+    [switch]$SinConsentimientoWhatsApp,
+    [switch]$SinMigracion17
 )
 
 Set-StrictMode -Version Latest
@@ -119,7 +132,23 @@ if ($SinConsentimientoWhatsApp) {
     if ($LASTEXITCODE -ne 0) { throw "No pude borrar la tabla ConsentimientoWhatsApp de '$Base' (código $LASTEXITCODE). La base quedó con 45 tablas: borrala antes de repetir." }
 }
 
-# ── 5) Verificar: tiene que tener 45 tablas ──────────────────────────────────────────────────────────────────────────
+# ── 4c) Sin la migración 17 (solo en la base que acabamos de crear) ──────────────────────────────────────────────────
+# El orden es el que dice la propia migración (migrations\add_chat_personal_entrantes.sql, "Deshacer"): primero el índice y las restricciones que
+# dependen de las columnas, después las columnas.
+if ($SinMigracion17) {
+    Write-Host "3c/4 Deshaciendo la migración 17 en '$Base' (la base queda como producción sin ella)..."
+    $deshacer = @(
+        'DROP INDEX UQ_MensajeChat_IdExterno ON dbo.MensajeChat;',
+        'ALTER TABLE dbo.MensajeChat DROP CONSTRAINT CK_MensajeChat_Tipo;',
+        'ALTER TABLE dbo.MensajeChat DROP CONSTRAINT DF_MensajeChat_Tipo;',
+        'ALTER TABLE dbo.MensajeChat DROP COLUMN IdExterno, Tipo;',
+        'ALTER TABLE dbo.Conversacion DROP COLUMN NombreContacto;'
+    ) -join ' '
+    & sqlcmd -S $Servidor -d $Base -E -C -I -b -Q $deshacer | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No pude deshacer la migración 17 en '$Base' (código $LASTEXITCODE). La base quedó con las columnas nuevas: borrala antes de repetir." }
+}
+
+# ── 5) Verificar: tiene que tener 45 tablas (y las columnas de la migración 17, salvo con -SinMigracion17) ───────────────
 Write-Host '4/4 Verificando el esquema...'
 $cuenta = "$(Invoke-Consulta -EnBase $Base -Consulta 'SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables')".Trim()
 if ($cuenta -notmatch '^\d+$') { throw "No pude contar las tablas de '$Base' (respuesta: '$cuenta')." }
@@ -127,6 +156,12 @@ $tablas = [int]$cuenta
 if ($tablas -ne $TablasEsperadas) {
     throw "La base '$Base' quedó con $tablas tablas y se esperaban $TablasEsperadas. La dejo para que la mires; borrala antes de repetir (ver docs\DESARROLLO_LOCAL.md)."
 }
+$columnas17 = "$(Invoke-Consulta -EnBase $Base -Consulta "SET NOCOUNT ON; SELECT (SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.MensajeChat') AND name IN ('IdExterno', 'Tipo')) + (SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Conversacion') AND name = 'NombreContacto')")".Trim()
+$columnasEsperadas = if ($SinMigracion17) { 0 } else { 3 }
+if ($columnas17 -ne "$columnasEsperadas") {
+    throw "La base '$Base' quedó con $columnas17 de las 3 columnas de la migración 17 y se esperaban $columnasEsperadas. La dejo para que la mires; borrala antes de repetir (ver docs\DESARROLLO_LOCAL.md)."
+}
 
-Write-Host "Listo: '$Base' en '$Servidor', con $tablas tablas y sin datos propios (el esquema solo siembra el tipo de consentimiento y el contenido de arranque del chat)." -ForegroundColor Green
+$detalle = if ($SinMigracion17) { ' y sin las columnas de la migración 17' } else { '' }
+Write-Host "Listo: '$Base' en '$Servidor', con $tablas tablas$detalle y sin datos propios (el esquema solo siembra el tipo de consentimiento y el contenido de arranque del chat)." -ForegroundColor Green
 Write-Host "Correr los tests contra ella:  .\Scripts\correr-tests.ps1 -Servidor '$Servidor' -Base $Base"

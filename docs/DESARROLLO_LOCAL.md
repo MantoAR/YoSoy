@@ -93,7 +93,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 ### Qué necesitan
 
 - Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 45 tablas, con
-  el resultado de las 16 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
+  el resultado de las 17 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
   el tipo de consentimiento y el contenido de arranque del chat.
 - **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
   falta `migrations/seed_catalogos.sql`: ese es para servidores reales (ver [`DEPLOY.md`](DEPLOY.md)).
@@ -113,6 +113,29 @@ de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base
 `[yosoy]` fijo en tres lugares y, corrido tal cual en una instancia donde `yosoy` ya existe, apuntaría a la base de desarrollo.
 Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.
+
+**Si ya tenías `yosoy_test` de antes de la migración 17** (los tests marcados `Migracion=17` y el chat para el personal necesitan sus columnas), aplicale la migración: es idempotente, solo agrega y no toca
+ningún dato (también se puede borrar la base y crearla de nuevo, abajo):
+
+```powershell
+sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i .\migrations\add_chat_personal_entrantes.sql
+```
+
+### Probar contra una base sin la migración 17
+
+Producción tampoco tiene la migración 17 (las columnas `MensajeChat.IdExterno`, `MensajeChat.Tipo` y `Conversacion.NombreContacto`). Con `Mensajeria:ModoAtencion=Asistente` (la de por defecto) la API no las
+toca; para comprobarlo con la suite entera, armá una base **sin** ellas y corré todo lo que no sea de la migración misma (los tests marcados `[Trait("Migracion", "17")]`):
+
+```powershell
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17                         # 45 tablas, sin las columnas de la 17
+.\Scripts\correr-tests.ps1 -Base yosoy_test_16 -Filtro 'Migracion!=17'
+
+# lo más parecido a producción hoy: sin la 16 (44 tablas) y sin la 17
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_prod -SinMigracion17 -SinConsentimientoWhatsApp
+.\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=17&Tabla!=ConsentimientoWhatsApp'
+```
+
+Tienen que pasar todos. En esas bases el modo `Personal` también anda (guarda los mensajes sin id, tipo ni nombre y el log avisa que falta la migración). Son bases más de pruebas: borralas igual que `yosoy_test` (abajo).
 
 ### Probar contra una base sin la tabla de la migración 16
 
@@ -264,7 +287,12 @@ curl.exe -s http://127.0.0.1:3002/salud          # 200 si está conectado; 503 s
 3. Elegí la conversación y respondé desde el composer: tiene que llegar al otro teléfono. Cerrarla y reabrirla no le manda ningún texto.
 4. Un profesional (ingresando con su usuario) **no ve el botón Chats**, y el servidor le contesta 403 en `/mensajeria`.
 
-Lo que todavía **no** pasa (llega con las ramas siguientes del chat para el personal): las fotos y los audios no aparecen, y la conversación sale "sin identificar" aunque el teléfono sea de un paciente. Si respondés desde el teléfono
+5. Mandá una **foto**, un **audio** y un texto: aparecen en el hilo como `[Imagen]` (con la leyenda, si la pusiste) y `[Audio]`, con el aviso "El archivo no se guarda en YoSoy: mirá el teléfono del número", y la
+   conversación muestra **"Contacto: <el nombre de tu perfil de WhatsApp>"** (hace falta la migración 17 en la base: si no, el chat anda igual pero sin tipo ni nombre y el log de la API lo avisa).
+6. Si la API estaba apagada cuando escribiste, el mensaje se reenvía solo en cuanto vuelve (hasta unos 2 minutos y medio; después se pierde y el log de `whatsapp-service` lo dice). `curl.exe -s http://127.0.0.1:3002/salud`
+   muestra en `entrantes` cuántos se reenviaron, reintentaron, fallaron o se perdieron (solo números).
+
+Lo que todavía **no** pasa (llega con las ramas siguientes del chat para el personal): la conversación sale "sin identificar" aunque el teléfono sea de un paciente (no hay vínculo con el paciente todavía). Si respondés desde el teléfono
 del número, **eso no queda en el sistema**: respondé siempre desde YoSoy.
 
 ### Parar y empezar de cero

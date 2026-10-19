@@ -148,6 +148,11 @@
 .bm--humano .bm-autor { color: rgba(255, 255, 255, .85); }
 .bm--sistema .bm-autor { color: var(--text-3); }
 .bm-texto { white-space: pre-wrap; }
+/* Lo que no es texto (foto, audio, documento...): solo se guarda el aviso del tipo; el archivo se mira en el teléfono del número */
+.bm--tipo { border-style: dashed; }
+.bm-aviso { display: flex; align-items: flex-start; gap: 5px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); font-size: var(--fs-xs); color: var(--text-3); }
+.bm-aviso svg { width: 13px; height: 13px; flex: none; margin-top: 1px; }
+.bm--humano .bm-aviso { color: rgba(255, 255, 255, .85); border-top-color: rgba(255, 255, 255, .4); }
 .bm-meta { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: 2px; font-size: 10.5px; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .bm--humano .bm-meta { color: rgba(255, 255, 255, .78); }
 .bm-estado { display: inline-flex; }

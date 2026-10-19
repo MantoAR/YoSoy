@@ -4,6 +4,9 @@ public class ConversacionResumen
     public string Telefono { get; set; } = "";
     public int? IdPaciente { get; set; }
     public string? NombrePaciente { get; set; }
+    // Migración 17, solo con ModoAtencion = "Personal": el nombre del perfil de WhatsApp. En el modo Asistente no sale en la respuesta.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? NombreContacto { get; set; }
     public string Canal { get; set; } = "";
     public string Estado { get; set; } = "";
     public string PasoActual { get; set; } = "";

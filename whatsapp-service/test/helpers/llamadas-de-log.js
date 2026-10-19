@@ -78,7 +78,7 @@ function extraerLlamadasDeLog(fuente) {
 
 // Nombres que, si entran en un mensaje de log, son sospechosos: un teléfono, el texto de un mensaje, un identificador de
 // WhatsApp, el QR, las credenciales o un secreto. Se buscan como palabras sueltas (item.telefono, this._qr) y en camelCase (ultimoQr).
-const PALABRAS_SENSIBLES = "telefono|texto|jid|qr|secreto|creds|clave|huella|token|password|contrasena|from";
+const PALABRAS_SENSIBLES = "telefono|texto|jid|qr|secreto|creds|clave|huella|token|password|contrasena|from|pushname|perfil";
 const SENSIBLE_SUELTA = new RegExp(`(?<![a-zA-Z])(?:${PALABRAS_SENSIBLES})(?![a-zA-Z])`, "i");
 const SENSIBLE_EN_CAMELCASE = new RegExp(`(?<=[a-z])(?:${PALABRAS_SENSIBLES.split("|").map(p => p[0].toUpperCase() + p.slice(1)).join("|")})(?![a-z])`);
 

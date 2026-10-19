@@ -147,7 +147,7 @@ test("al apagar, datos.cerrar() espera a los dos archivos: los consentimientos y
     assert.deepEqual(esperados.sort(), ["consentimientos", "contadores"]);
 }));
 
-test("con Baileys, los mensajes que no son de una persona (grupos, propios, historial) no dan ninguna constancia", conCarpeta(async carpeta => {
+test("con Baileys, los mensajes que no son de una persona (grupos, propios, historial, reacciones) no dan ninguna constancia", conCarpeta(async carpeta => {
     const falso = fachadaFalsa();
     const reloj = new RelojFalso();
     const log = { info() {}, error() {} };
@@ -161,10 +161,80 @@ test("con Baileys, los mensajes que no son de una persona (grupos, propios, hist
     sock.recibir({ de: "120363000000000000@g.us" });
     sock.recibir({ de: "5491155550001@s.whatsapp.net", clave: { fromMe: true } });
     sock.recibir({ de: "5491155550001@s.whatsapp.net", tipo: "append" });
-    sock.recibir({ de: "5491155550001@s.whatsapp.net", mensaje: { audioMessage: {} } });
+    sock.recibir({ de: "5491155550001@s.whatsapp.net", mensaje: { reactionMessage: { text: "x" } } });
 
     assert.equal(backend.opcionesDeCola.consentimiento.cantidad(), 0);
     await backend.cerrar();
+}));
+
+test("una foto o un audio SÍ son constancia de que escribió primero, y su aviso (o su leyenda) no se interpreta como una BAJA", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const reloj = new RelojFalso();
+    const backend = await crearBackend(configBaileys(carpeta), log, { cargarBaileys: async () => falso.fachada, reenviar: () => {}, reloj });
+    backend.iniciar();
+    await esperarHasta(() => falso.sockets.length === 1, { descripcion: "el socket" });
+    await reloj.avanzar(0);
+    const sock = falso.ultimo;
+    sock.abrir();
+    const consentimiento = backend.opcionesDeCola.consentimiento;
+
+    assert.equal(consentimiento.permite("1155550001").codigo, "sin_consentimiento");
+    sock.recibir({ de: "5491155550001@s.whatsapp.net", mensaje: { imageMessage: { caption: "BAJA" } }, id: "I1" });    // una foto con la leyenda "BAJA": no es un pedido de baja
+    assert.equal(consentimiento.cantidad(), 1);
+    assert.equal(consentimiento.permite("1155550001").ok, true, "escribió primero (con una foto): el equipo le puede contestar");
+
+    sock.recibir({ de: "5491166667777@s.whatsapp.net", mensaje: { audioMessage: { ptt: true } }, id: "I2" });
+    assert.equal(consentimiento.permite("1166667777").ok, true, "también con un audio");
+
+    sock.recibir({ de: "5491155550001@s.whatsapp.net", texto: "BAJA", id: "I3" });                                        // un TEXTO "BAJA" sí lo es
+    assert.equal(consentimiento.permite("1155550001").codigo, "baja");
+    await backend.cerrar();
+}));
+
+test("el reenviador recibe el texto y lo que lo acompaña (tipo, id, hora, nombre), y el backend expone sus contadores", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const reloj = new RelojFalso();
+    const recibidos = [];
+    const reenviar = Object.assign((telefono, texto, extra) => { recibidos.push({ telefono, texto, extra }); }, { resumen: () => ({ reenviados: 5, pendientes: 1 }) });
+    const backend = await crearBackend(configBaileys(carpeta), log, { cargarBaileys: async () => falso.fachada, reenviar, reloj });
+    backend.iniciar();
+    await esperarHasta(() => falso.sockets.length === 1, { descripcion: "el socket" });
+    await reloj.avanzar(0);
+    const sock = falso.ultimo;
+    sock.abrir();
+
+    sock.recibir({ de: "5491155550001@s.whatsapp.net", mensaje: { imageMessage: { caption: "receta" } }, id: "I1", nombre: "Juan", marca: 1760000123 });
+
+    assert.deepEqual(recibidos, [{ telefono: "5491155550001", texto: "[Imagen] receta", extra: { tipo: "imagen", id: "I1", ts: 1760000123, nombre: "Juan" } }]);
+    assert.deepEqual(backend.salud().entrantes, { recibidos: 1, duplicados: 0, ignorados: {}, reenviados: 5, pendientes: 1 });
+    await backend.cerrar();
+}));
+
+test("al apagar se avisa cuántos mensajes quedaban sin reenviar a la API (solo el número) y se cortan los reintentos", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const lineas = [];
+    const registro = { info: m => lineas.push(m), error: m => lineas.push(m) };
+    let detenido = 0;
+    const reenviar = Object.assign(() => {}, { detener: () => { detenido++; return 3; }, resumen: () => ({}) });
+    const backend = await crearBackend(configBaileys(carpeta), registro, { cargarBaileys: async () => falso.fachada, reenviar });
+
+    await backend.datos.cerrar();
+
+    assert.equal(detenido, 1);
+    assert.equal(lineas.filter(l => /Al apagar quedaron 3 mensajes entrantes sin reenviar a la API/.test(l)).length, 1);
+}));
+
+test("al apagar sin nada esperando no se escribe ningún aviso", conCarpeta(async carpeta => {
+    const falso = fachadaFalsa();
+    const lineas = [];
+    const registro = { info: m => lineas.push(m), error: m => lineas.push(m) };
+    const reenviar = Object.assign(() => {}, { detener: () => 0, resumen: () => ({}) });
+    const backend = await crearBackend(configBaileys(carpeta), registro, { cargarBaileys: async () => falso.fachada, reenviar });
+    const antes = lineas.length;                       // lo que el backend dijo al armarse (la carpeta de la sesión)
+
+    await backend.datos.cerrar();
+
+    assert.deepEqual(lineas.slice(antes), []);
 }));
 
 test("la cola NO se arma sin consentimiento ni topes: un backend sin esas protecciones no puede mandarle a cualquiera", () => {

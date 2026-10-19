@@ -23,19 +23,20 @@ function crearEntorno({ registrada = false, credsExtra = {}, opcionesFachada, op
     const lineas = [];
     const log = { info: m => lineas.push(`INFO ${m}`), error: m => lineas.push(`ERROR ${m}`) };
     const reenviados = [];
+    const extras = [];       // lo que acompaña a cada reenvío (tipo, id, ts, nombre: el contrato v2), en el mismo orden que `reenviados`
     const sesion = sesionPersonalizada ? sesionPersonalizada(dirSesion, log) : crearSesion({ dir: dirSesion, log });
     const servicio = new ServicioBaileys({
         fachada: falso.fachada,
         sesion,
         log,
-        reenviar: (telefono, texto) => { reenviados.push({ telefono, texto }); },
+        reenviar: (telefono, texto, extra) => { reenviados.push({ telefono, texto }); extras.push(extra); },
         reloj,
         reconexion: { aleatorio: () => 0.5 },       // sin azar en las esperas, para que las pruebas sean exactas
         ...opcionesServicio
     });
 
     return {
-        servicio, falso, reloj, lineas, reenviados, sesion, raiz, dirSesion,
+        servicio, falso, reloj, lineas, reenviados, extras, sesion, raiz, dirSesion,
         // Arranca y espera a que el servicio haya creado su primer socket.
         async iniciar() {
             servicio.iniciar();

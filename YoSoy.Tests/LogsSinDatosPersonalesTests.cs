@@ -16,7 +16,9 @@ public class LogsSinDatosPersonalesTests
     private static readonly HashSet<string> PalabrasSensibles = new()
     {
         "dni", "documento", "mail", "email", "correo", "telefono", "celular", "matricula", "texto",
-        "contrasena", "password", "passwd", "token", "secreto", "clave", "domicilio", "direccion", "apellido"
+        "contrasena", "password", "passwd", "token", "secreto", "clave", "domicilio", "direccion", "apellido",
+        // El nombre del perfil de WhatsApp (Conversacion.NombreContacto, decisión D5): se guarda en la conversación y nunca va a un log.
+        "contacto", "perfil"
     };
 
     private static readonly Regex InicioDeLlamada = new(
@@ -68,6 +70,8 @@ public class LogsSinDatosPersonalesTests
     [InlineData("_log.LogWarning(\"Token {TokenCrudo}\", tokenCrudo);", "TokenCrudo")]
     [InlineData("_log.LogWarning(\"Falló {Nombre}\", t.NombrePaciente);", "NombrePaciente")]            // nombre + paciente
     [InlineData("Console.Error.WriteLine(\"Falló \" + usuario.Mail);", "Mail")]
+    [InlineData("_log.LogInformation(\"Escribió {Quien}\", c.NombreContacto);", "NombreContacto")]    // el nombre del perfil de WhatsApp (D5)
+    [InlineData("_log.LogInformation($\"Entró un mensaje de {datos.NombreContacto}\");", "NombreContacto")]
     public void Detecta_el_dato_personal_en_la_llamada(string llamada, string esperado)
     {
         var encontradas = LlamadasDeLog(llamada).ToList();

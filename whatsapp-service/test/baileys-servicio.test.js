@@ -286,6 +286,95 @@ conEntorno("un mensaje de texto de una persona se reenvía a la API con su telé
     assert.deepEqual(e.reenviados, [{ telefono: TEL_PACIENTE, texto: "Quiero un turno" }]);
 });
 
+conEntorno("el mensaje se reenvía con su tipo, su id y su hora, y con el nombre del perfil si lo trae (contrato v2)", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, texto: "Quiero un turno", id: "T1", marca: 1760000123, nombre: "Juan Pérez" });
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, texto: "sin nombre", id: "T2" });
+
+    assert.deepEqual(e.extras, [{ tipo: "texto", id: "T1", ts: 1760000123, nombre: "Juan Pérez" }, { tipo: "texto", id: "T2", ts: 1760000000 }]);
+});
+
+conEntorno("un mensaje sin id se reenvía sin el campo id (no con id: null)", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ id: undefined, clave: { id: null }, texto: "sin id" });
+
+    assert.equal(e.reenviados.length, 1);
+    assert.equal("id" in e.extras[0], false);
+    assert.equal(e.extras[0].tipo, "texto");
+});
+
+conEntorno("una foto o un audio se reenvían como un aviso del tipo, con la leyenda si la trae y sin descargar nada", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, mensaje: { imageMessage: { caption: "mi receta" } }, id: "F1" });
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, mensaje: { audioMessage: { ptt: true } }, id: "F2" });
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, mensaje: { documentMessage: { fileName: "historia-clinica.pdf" } }, id: "F3" });
+
+    assert.deepEqual(e.reenviados.map(r => r.texto), ["[Imagen] mi receta", "[Audio]", "[Documento]"]);
+    assert.deepEqual(e.extras.map(x => [x.tipo, x.id]), [["imagen", "F1"], ["audio", "F2"], ["documento", "F3"]]);
+    assert.doesNotMatch(JSON.stringify(e.reenviados), /historia-clinica|pdf/);
+});
+
+conEntorno("un mismo mensaje con foto entregado dos veces se procesa una sola vez, y los repetidos se cuentan", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ mensaje: { imageMessage: {} }, id: "F1" });
+    sock.recibir({ mensaje: { imageMessage: {} }, id: "F1" });
+
+    assert.equal(e.reenviados.length, 1);
+    assert.equal(e.servicio.salud().entrantes.duplicados, 1);
+});
+
+conEntorno("salud() cuenta los entrantes: los que se procesaron, los repetidos y los ignorados por motivo (solo números)", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ clave: { fromMe: true } });
+    sock.recibir({ clave: { fromMe: true } });
+    sock.recibir({ de: "120363000000000000@g.us" });
+    sock.recibir({ de: "status@broadcast" });
+    sock.recibir({ mensaje: { reactionMessage: { text: "x" } } });
+    sock.recibir({ mensaje: { conversation: "   " } });
+    sock.recibir({ id: "R1", texto: "uno" });
+    sock.recibir({ id: "R1", texto: "uno" });
+    sock.recibir({ id: "R2", texto: "dos" });
+    sock.recibir({ tipo: "append" });                       // el historial no cuenta: no es un mensaje nuevo
+
+    assert.deepEqual(e.servicio.salud().entrantes, {
+        recibidos: 2, duplicados: 1, ignorados: { propio: 2, grupo: 1, difusion: 1, no_textual: 1, vacio: 1 }
+    });
+});
+
+conEntorno("salud() suma los contadores del reenvío a la API cuando el reenviador los tiene", {
+    registrada: true,
+    opcionesServicio: { reenviar: Object.assign(() => {}, { resumen: () => ({ reenviados: 3, reintentados: 1, fallidos: 0, perdidos: 0, pendientes: 2 }) }) }
+}, async e => {
+    await e.iniciar();
+
+    assert.deepEqual(e.servicio.salud().entrantes, {
+        recibidos: 0, duplicados: 0, ignorados: {}, reenviados: 3, reintentados: 1, fallidos: 0, perdidos: 0, pendientes: 2
+    });
+});
+
+conEntorno("salud() y el log no traen nada de las personas: ni teléfonos, ni textos, ni leyendas, ni nombres de perfil", { registrada: true }, async e => {
+    const sock = await e.iniciar();
+    sock.abrir();
+
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, texto: "Tengo un problema de salud privado", nombre: "Zoraida Xylofona" });
+    sock.recibir({ de: `${TEL_PACIENTE}@s.whatsapp.net`, mensaje: { imageMessage: { caption: "leyenda privada" } }, nombre: "Zoraida Xylofona" });
+    sock.recibir({ de: "120363000000000000@g.us", nombre: "Zoraida Xylofona" });
+
+    const todo = JSON.stringify(e.servicio.salud()) + e.logCompleto();
+    assert.doesNotMatch(todo, /problema de salud|leyenda privada|Zoraida|Xylofona|5491122334455/);
+    assert.ok(Object.values(e.servicio.salud().entrantes).every(v => typeof v === "number" || (typeof v === "object" && Object.values(v).every(Number.isInteger))));
+});
+
 conEntorno("el texto y el teléfono de un entrante NO aparecen en el log", { registrada: true }, async e => {
     const sock = await e.iniciar();
     sock.abrir();
@@ -295,14 +384,15 @@ conEntorno("el texto y el teléfono de un entrante NO aparecen en el log", { reg
     assert.doesNotMatch(e.logCompleto(), /problema de salud|5491122334455/);
 });
 
-conEntorno("no se reenvía lo propio, los grupos, los estados, lo que no es texto ni el historial", { registrada: true }, async e => {
+conEntorno("no se reenvía lo propio, los grupos, los estados, las reacciones ni el historial (las fotos y los audios sí: ver más abajo)", { registrada: true }, async e => {
     const sock = await e.iniciar();
     sock.abrir();
 
     sock.recibir({ clave: { fromMe: true } });
     sock.recibir({ de: "120363000000000000@g.us" });
     sock.recibir({ de: "status@broadcast" });
-    sock.recibir({ mensaje: { audioMessage: {} } });
+    sock.recibir({ mensaje: { reactionMessage: { text: "x" } } });
+    sock.recibir({ mensaje: { protocolMessage: { type: 0 } } });
     sock.recibir({ tipo: "append" });
 
     assert.deepEqual(e.reenviados, []);
@@ -855,7 +945,8 @@ conEntorno("salud() informa la forma completa", { registrada: true }, async e =>
     sock.abrir();
     assert.deepEqual(e.servicio.salud(), {
         ok: true, canal: "baileys", estado: "conectado", motivo: null, desde: "2026-10-16T15:00:00.000Z", conectado: true, qrPendiente: false,
-        requiereVincular: false, requiereAtencion: false, reconectando: false, intentosDeReconexion: 0
+        requiereVincular: false, requiereAtencion: false, reconectando: false, intentosDeReconexion: 0,
+        entrantes: { recibidos: 0, duplicados: 0, ignorados: {} }
     });
 });
 

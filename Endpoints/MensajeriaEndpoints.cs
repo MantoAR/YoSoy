@@ -66,8 +66,9 @@ public static class MensajeriaEndpoints
         // SoloLocal (que son para el módulo de administración), es propio y siempre activo
         // — EsLocal() + el secreto compartido, los dos, ninguno alcanza solo. Mismo 404
         // para las dos fallas, para no revelar cuál fue.
+        // Contrato v2 (compatible con el de siempre, { telefono, texto }): además puede traer tipo, id, ts y nombre (ver MensajeEntranteRequest y DatosDelEntrante).
         app.MapPost("/mensajeria/whatsapp/entrante", async (MensajeEntranteRequest req, HttpContext ctx,
-            RecepcionDeMensajes recepcion, IMessageChannel canal, IConfiguration config) =>
+            RecepcionDeMensajes recepcion, IMessageChannel canal, IConfiguration config, TimeProvider reloj) =>
         {
             if (!EsLocal(ctx)) return Results.NotFound();
 
@@ -80,7 +81,7 @@ public static class MensajeriaEndpoints
 
             try
             {
-                var r = await recepcion.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
+                var r = await recepcion.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre, DatosDelEntrante.Desde(req, reloj));
                 return Results.Ok(r);
             }
             catch (ArgumentException ex)
@@ -178,7 +179,7 @@ public static class MensajeriaEndpoints
             var nombreAsignado = asignado is null ? null : Formato.NombreCompleto(asignado.Nombre, asignado.Apellido);
             var p = c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac) : null;
             if (p is null)
-                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion, paciente = (object?)null,
+                return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion, c.NombreContacto, paciente = (object?)null,
                                         profesionales = Array.Empty<object>(), proximoTurno = (object?)null,
                                         c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado });
 
@@ -700,7 +701,9 @@ public static class MensajeriaEndpoints
     }
 }
 
-public record MensajeEntranteRequest(string? Telefono, string? Texto);
+// Cuerpo del webhook de whatsapp-service (y del simulador, que solo usa los dos primeros). Los cuatro últimos son del contrato v2 y opcionales: sin ellos, el cuerpo es el de
+// siempre. tipo: texto, audio, imagen... (TiposDeMensaje); id: el del mensaje en WhatsApp; ts: la hora a la que se escribió, en segundos desde 1970; nombre: el del perfil.
+public record MensajeEntranteRequest(string? Telefono, string? Texto, string? Tipo = null, string? Id = null, long? Ts = null, string? Nombre = null);
 public record RespuestaHumanaRequest(string? Texto);
 public record MarcarLeidaRequest(int Hasta);
 // Nota: a diferencia de /casos/{id}/reasignar, esta acción no tiene un campo de nota libre

@@ -357,8 +357,11 @@ Qué se decidió y por qué: `docs/PROGRESO_CHAT_PERSONAL_WHATSAPP.md` (rama `do
 3. **Los chats son solo del Configurador** (que hace de recepción), **en los dos modos**. Los profesionales no ven ningún chat ni reciben sus notificaciones: no tienen el botón
    Chats y el servidor les contesta **403** en todo `/mensajeria`. **Esto cambia lo que ven hoy los profesionales** (hoy, con la mensajería habilitada, ven los chats escalados y los de
    sus pacientes): avisales antes de publicar. La campanita de turnos del profesional no cambia.
-4. **No hace falta ninguna migración.** Lo que el chat para el personal necesite de la base (columnas nuevas) llega en la rama siguiente, con la migración 17, y la API no las usa
-   mientras el modo sea `Asistente`.
+4. **La migración 17** (`migrations/add_chat_personal_entrantes.sql`) agrega lo que hace falta para guardar completos los mensajes que entran. **Hace falta aplicarla ANTES de pasar a
+   `Personal`**; con `Asistente` la API no la usa (sección siguiente).
+5. **Fotos, audios y documentos** llegan como un aviso del tipo (`[Imagen] mi receta`, con la leyenda a continuación si la trae): el archivo no se descarga ni se guarda. En el chat se
+   ven con el aviso "El archivo no se guarda en YoSoy: mirá el teléfono del número". El nombre del perfil de WhatsApp se guarda en la conversación y se ve como "Contacto: ..." mientras
+   no haya un paciente vinculado; nunca va a un log. Un mensaje que `whatsapp-service` reenvía dos veces (reintenta si la API falla) se guarda una sola vez.
 
 Para pasar a `Personal` (primero en tu PC o con un número de prueba, no con pacientes reales):
 
@@ -372,6 +375,37 @@ curl -s http://127.0.0.1:5000/capacidades                                   # ti
 Con la API en `Personal`, escribirle al número desde otro teléfono **no tiene que recibir ninguna respuesta automática**; la conversación aparece en CRM → Chats como "Para atender".
 **Volver atrás:** `Mensajeria__ModoAtencion=Asistente` (o borrar la variable) y reiniciar. Los mensajes guardados quedan; las conversaciones "para atender" las ve el Configurador.
 Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet: cómo se publica queda por decidir.
+
+### La migración 17: orden del despliegue
+
+`migrations/add_chat_personal_entrantes.sql` agrega, y **solo agrega**, tres columnas, una restricción y un índice: `MensajeChat.IdExterno` (el id del mensaje en WhatsApp, con un índice
+único filtrado `(IdConversacion, IdExterno)` para no guardar dos veces el mismo), `MensajeChat.Tipo` (`texto`, `audio`, `imagen`, `video`, `documento`, `sticker`, `ubicacion`,
+`contacto` u `otro`; los mensajes que ya hay quedan como `texto`) y `Conversacion.NombreContacto` (el nombre del perfil de WhatsApp). Es idempotente, no toca la migración 16 y la API
+anterior la ignora.
+
+- **Con `Asistente` (el valor por defecto) la API no la usa**: no lee ni escribe ninguna de esas columnas, ni siquiera pregunta por ellas. Se puede publicar sin haberla aplicado y todo anda
+  igual. Está probado contra una base **sin** ella (la suite de pruebas entera, salvo lo que es de la migración misma; ver [`DESARROLLO_LOCAL.md`](DESARROLLO_LOCAL.md), "Probar contra una
+  base sin la migración 17").
+- **Con `Personal` hace falta aplicarla ANTES.** Sin ella la API sigue guardando los mensajes, pero sin id, sin tipo y sin nombre (un repetido no se detecta en la base) y el log lo dice,
+  como mucho una vez por minuto: `Mensajeria:ModoAtencion es Personal pero a la base le falta la migración 17`. Aplicarla con la API andando alcanza: en el minuto siguiente empieza a usarla,
+  sin reiniciar.
+
+El orden, **a futuro (por ahora no se despliega nada)**:
+1. **Backup de la base** (sección "Migraciones").
+2. **Aplicar `migrations/add_chat_personal_entrantes.sql`** a `yosoy`, con el login administrador y `-I -b -f 65001` (es el mismo comando de "Aplicar la migración", con este archivo).
+   **Verificar:** la consulta que trae el encabezado del script da `3, 1, 1, 1`, y `SELECT COUNT(*) FROM sys.tables` sigue dando 44 (o 45 si ya está la migración 16).
+3. **Publicar la API** (pasos de arriba).
+4. **Desplegar la versión nueva de `whatsapp-service`**: reenvía el contrato v2 (tipo, id, hora y nombre del perfil), las fotos y los audios como aviso, y reintenta en memoria si la API falla
+   (ver su `README.md`).
+5. Recién después, **`Mensajeria__ModoAtencion=Personal`**.
+
+La API nueva acepta el cuerpo de la versión anterior de `whatsapp-service` (`{ telefono, texto }`) y la anterior ignora los campos nuevos que manda la nueva: no hace falta desplegarlas a la
+vez. **Un matiz con el modo `Asistente`:** la versión nueva de `whatsapp-service` reenvía también las fotos y los audios (la anterior los descartaba); la API en modo `Asistente` los ignora y
+no contesta nada, como antes. Lo único que cambia es que quien manda una foto o un audio queda anotado como alguien que le escribió primero al número (el equipo le puede contestar), cosa que
+antes no pasaba.
+
+**Rollback:** la API anterior ignora las columnas, y **no hay que borrarlas** (el encabezado de la migración dice cómo hacerlo si de verdad hace falta). Volver a `Mensajeria__ModoAtencion=Asistente`
+(o borrar la variable) y reiniciar deja todo como estaba.
 
 ### Mensaje de emergencia (paso manual, desactivado por defecto)
 

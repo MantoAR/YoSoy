@@ -1,6 +1,14 @@
 using Microsoft.Extensions.Options;
 
-public record RespuestaBot(int IdConversacion, List<string> Respuestas);
+// Ignorado e IdMensaje solo salen en la respuesta del webhook cuando hay algo que decir (con null no aparecen: la respuesta es la de siempre):
+//  · Ignorado: por qué ese mensaje no se atendió: "duplicado" (ya se había atendido: whatsapp-service reintentó) o "no_textual" (una foto o un audio con el modo Asistente,
+//    que no sabe qué hacer con eso: es lo mismo que antes, cuando whatsapp-service ni lo reenviaba);
+//  · IdMensaje: el id con que quedó guardado el mensaje (modo Personal).
+public record RespuestaBot(
+    int IdConversacion,
+    List<string> Respuestas,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? Ignorado = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] int? IdMensaje = null);
 
 /// <summary>
 /// Chatbot de reservas: menú guiado determinístico con una máquina de estados por
