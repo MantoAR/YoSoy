@@ -13,6 +13,9 @@ public static class MensajeriaServiceCollectionExtensions
             // Sin palabras de riesgo el bot no podría detectar una urgencia: no arrancar.
             .Validate(o => o.PalabrasRiesgo.Any(p => !string.IsNullOrWhiteSpace(p)),
                 "Mensajeria:PalabrasRiesgo no puede estar vacía.")
+            // Un modo mal escrito no puede caer en silencio en uno de los dos: decide si el asistente contesta o no.
+            .Validate(o => ModosAtencion.EsValido(o.ModoAtencion),
+                "Mensajeria:ModoAtencion tiene que ser \"Asistente\" (como siempre) o \"Personal\" (el chat es para el personal).")
             .ValidateOnStart();
 
         // TryAdd: el reloj de la aplicación es RelojDeLaClinica (AddRelojDeLaClinica, que va primero en Program.cs).
