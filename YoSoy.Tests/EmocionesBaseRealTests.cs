@@ -60,7 +60,8 @@ public sealed class DatosEmociones : IDisposable
 
     public readonly int IdUsuarioPaciente, IdUsuarioProfesional, IdUsuarioConfigurador, IdPaciente, IdProfesional, IdTurno;
     public readonly string Sala = "SALA-T6-" + Guid.NewGuid().ToString("N")[..10].ToUpperInvariant();
-    private int? _idEspecialidadCreada, _idEstadoCreado, _idInforme, _idTutor;
+    private int? _idEspecialidadCreada, _idInforme, _idTutor;
+    private bool _estadoTomado;
 
     private readonly ITestOutputHelper? _salida;
 
@@ -90,12 +91,9 @@ public sealed class DatosEmociones : IDisposable
 
         Ejecutar("INSERT INTO PacienteProfesional (IdPaciente, IdProfesional, EstadoAsignacion) VALUES (@P, @M, 'Activo')", ("@P", IdPaciente), ("@M", IdProfesional));
 
-        var estado = Escalar("SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = 'Confirmado'");
-        if (estado is null)
-        {
-            _idEstadoCreado = Insertar("INSERT INTO EstadoTurno (Descripcion) OUTPUT INSERTED.IdEstadoTurno VALUES ('Confirmado')");
-            estado = _idEstadoCreado;
-        }
+        // Catálogo COMPARTIDO: se toma del registro (EstadosCompartidos) y se suelta en Dispose; lo borra la última prueba que lo usa.
+        var estado = EstadosCompartidos.Tomar("Confirmado");
+        _estadoTomado = true;
         IdTurno = Insertar(@"INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor, CodigoSala)
                              OUTPUT INSERTED.IdTurno VALUES (@P, @M, @E, @F, @H, 'Virtual', @Motivo, 'paciente', @S)",
             ("@P", IdPaciente), ("@M", IdProfesional), ("@E", estado), ("@F", Fecha), ("@H", Hora),
@@ -211,14 +209,13 @@ public sealed class DatosEmociones : IDisposable
         Intentar("DELETE FROM Paciente WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM Usuario WHERE IdUsuario IN (@A, @B, @C)", ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
         if (_idEspecialidadCreada is int e) Intentar("DELETE FROM Especialidad WHERE IdEspecialidad = @E", ("@E", e));
-        if (_idEstadoCreado is int s)
+        if (_estadoTomado)
         {
-            // Catálogo COMPARTIDO: si otra prueba (en paralelo) lo está usando, la clave foránea frena el borrado y el estado queda,
-            // como en cualquier base real. Es lo único que puede fallar a propósito; cualquier otro error sí se registra.
-            const string borrarEstado = "DELETE FROM EstadoTurno WHERE IdEstadoTurno = @S";
-            try { Ejecutar(borrarEstado, ("@S", s)); }
-            catch (SqlException falla) when (falla.Number == 547) { /* lo usa otra prueba */ }
-            catch (SqlException falla) { Registrar(borrarEstado, falla); }
+            _estadoTomado = false;
+            // Catálogo COMPARTIDO: lo borra la última prueba que lo usa; si lo está usando un turno que no es de esta prueba, la clave foránea (547) frena el
+            // borrado y el estado queda, como en cualquier base real. Es lo único que puede fallar a propósito; cualquier otro error sí se registra.
+            if (EstadosCompartidos.Soltar("Confirmado") is { Number: not 547 } falla)
+                Registrar("DELETE FROM EstadoTurno WHERE IdEstadoTurno = <el de Confirmado>", falla);
         }
 
         if (_fallosDeLimpieza.Count > 0)

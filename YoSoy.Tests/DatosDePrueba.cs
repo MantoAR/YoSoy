@@ -128,31 +128,16 @@ public sealed class DatosDePrueba : IDisposable
 
     /// <summary>
     /// El id del estado con esa descripción. Es un catálogo COMPARTIDO (lo usan todas las pruebas, también las que
-    /// corren en paralelo): si la base no lo tiene se crea (tolerando que otra prueba lo cree en el mismo instante)
-    /// y al limpiar se intenta borrar SIN cascada: si otra prueba lo está usando, simplemente queda, como en
-    /// cualquier base real, donde ese catálogo existe.
+    /// corren en paralelo) y una base recién creada lo tiene vacío: si no está, se crea. Al limpiar, el estado se
+    /// SUELTA y lo borra la última prueba que lo usa: mientras otra lo esté usando no se borra (ver
+    /// <see cref="EstadosCompartidos"/>). Si la base ya lo tenía, nunca se borra. Si al borrarlo lo está usando un turno
+    /// que no es de esta prueba, simplemente queda, como en cualquier base real, donde ese catálogo existe.
     /// </summary>
     public int EstadoTurno(string descripcion)
     {
-        const string buscar = "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = @d";
-        var existente = Escalar(buscar, ("@d", descripcion));
-        if (existente is not null) return Convert.ToInt32(existente);
-        try
-        {
-            var id = Convert.ToInt32(Escalar(
-                "INSERT INTO EstadoTurno (Descripcion, Estado) VALUES (@d, N'Activo'); SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                ("@d", descripcion)));
-            _limpieza.Add(() =>
-            {
-                try { Ejecutar("DELETE FROM EstadoTurno WHERE IdEstadoTurno = @i", ("@i", id)); }
-                catch (SqlException) { /* lo está usando otra prueba: queda */ }
-            });
-            return id;
-        }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627)
-        {
-            return Convert.ToInt32(Escalar(buscar, ("@d", descripcion)));   // otra prueba lo creó recién
-        }
+        var id = EstadosCompartidos.Tomar(descripcion);
+        _limpieza.Add(() => EstadosCompartidos.Soltar(descripcion));
+        return id;
     }
 
     public int ObraSocial() => Insertar("ObraSocial", "IdObraSocial",

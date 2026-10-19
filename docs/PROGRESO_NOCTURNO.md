@@ -544,6 +544,9 @@ tuya si cambia, rompían con una clave foránea (500 o `SqlException`).
   limpieza para lo que genera un endpoint.
 - **Catálogo compartido:** `EstadoTurno(descripcion)` usa el estado si existe; si no, lo crea (tolerando que otra
   prueba lo cree a la vez) y al limpiar lo borra **sin cascada**: si otra prueba lo está usando, queda.
+  *(Actualización 2026-10-19: borrarlo apenas terminaba quien lo había creado le quitaba el estado a otra prueba que ya
+  lo había encontrado ahí, y daba un 500 intermitente en `CierreSeguridadTests`. Ahora `EstadosCompartidos` cuenta los
+  usos dentro del proceso y el estado lo borra la última prueba que lo usa; si la base ya lo tenía, nunca se borra.)*
 - **Trait `[Trait("Categoria", "Integracion")]`** en las 18 clases que necesitan base (110 pruebas). Las pruebas de
   integración nuevas de las otras ramas de esta tanda (Tareas 1 a 4) ya llevan la misma marca. Se verificó que no
   falta ninguna: sin base y sin `Integracion` no falla nada.
