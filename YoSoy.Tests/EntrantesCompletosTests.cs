@@ -297,6 +297,8 @@ public class EntrantesVistosTests
         Assert.True(vistos.Cantidad <= EntrantesVistos.Maximo);
         Assert.False(vistos.Reservar("5491155550001", "uno-mas"));
         Assert.False(vistos.Reservar("5491155550001", "id" + (EntrantesVistos.Maximo + 199)));   // el último que entró sigue
+        Assert.False(vistos.Reservar("5491155550001", "id" + (EntrantesVistos.Maximo - 1)));     // uno de los más nuevos de antes de la poda, también
+        Assert.True(vistos.Reservar("5491155550001", "id0"));                                    // y el más viejo se olvidó (la poda saca los más viejos, no los más nuevos)
     }
 
     [Fact]

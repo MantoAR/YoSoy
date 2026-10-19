@@ -27,6 +27,8 @@
     };
     const AUTOR = { Bot: "Asistente", Humano: "Equipo YoSoy", Sistema: "Aviso automático" };
     const PREFIJO = { Bot: "Asistente: ", Humano: "Vos: ", Sistema: "Aviso: " };
+    // Una foto, un audio, un documento... llegan como un aviso del tipo ("[Imagen]", con la leyenda a continuación): el archivo no se descarga ni se guarda en YoSoy (decisión D4).
+    const AVISO_SIN_ARCHIVO = "El archivo no se guarda en YoSoy: mirá el teléfono del número.";
     // En modo "personal" (Mensajeria:ModoAtencion, lo informa /capacidades) el asistente no atiende: no hay "Del bot", y lo que espera al equipo no es una "escalada".
     const ESTADO_PERSONAL = {
         DerivadaHumano: { texto: "Para atender", chip: "warn",    desc: "Escribió por WhatsApp y espera la respuesta del equipo" },
@@ -211,7 +213,7 @@
         return [...est.convs.values()]
             .filter(c => filtro.pasa(c))
             .filter(c => !est.filtroEtiqueta || (c.idsEtiquetas || []).includes(est.filtroEtiqueta))
-            .filter(c => !q || YS.normalizar(c.nombrePaciente).includes(q) || (digitos.length >= 3 && c.telefono.includes(digitos)))
+            .filter(c => !q || YS.normalizar(c.nombrePaciente).includes(q) || YS.normalizar(c.nombreContacto).includes(q) || (digitos.length >= 3 && c.telefono.includes(digitos)))
             .sort((a, b) => (a.estado === "Urgente" ? 0 : 1) - (b.estado === "Urgente" ? 0 : 1)
                 || new Date(b.fechaUltimoMensaje || b.fechaUltimaActividad) - new Date(a.fechaUltimoMensaje || a.fechaUltimaActividad));
     };
@@ -261,16 +263,17 @@
             return;
         }
         ul.innerHTML = lista.map(c => {
-            const nombre = c.nombrePaciente || formatearTelefono(c.telefono);
+            const quien = c.nombrePaciente || c.nombreContacto;      // el paciente, o el nombre del perfil de WhatsApp si todavía no hay uno vinculado
+            const nombre = quien || formatearTelefono(c.telefono);
             const e = infoEstado(c.estado);
             const previa = (c.ultimoMensaje ? (PREFIJO[c.origenUltimoMensaje] || "") + c.ultimoMensaje : "Sin mensajes");
             const clases = ["chats-conv", c.idConversacion === est.actual ? "activa" : "", c.noLeidos ? "no-leida" : "", c.estado === "Urgente" ? "urgente" : ""].join(" ");
             const etiqueta = `${nombre}, ${e.texto}${c.noLeidos ? `, ${c.noLeidos} sin leer` : ""}`;
             return `<li><button type="button" class="${clases}" data-id="${c.idConversacion}" aria-label="${YS.esc(etiqueta)}"${c.idConversacion === est.actual ? ' aria-current="true"' : ""}>
-                <span class="chats-conv-avatar">${YS.avatar(c.nombrePaciente, c.idConversacion)}<span class="chats-conv-canal" title="Chat simulado" aria-hidden="true">${YS.icono("chat")}</span></span>
+                <span class="chats-conv-avatar">${YS.avatar(quien, c.idConversacion)}<span class="chats-conv-canal" title="Chat simulado" aria-hidden="true">${YS.icono("chat")}</span></span>
                 <span class="chats-conv-cuerpo">
                     <span class="chats-conv-fila">
-                        <span class="chats-conv-nombre">${YS.esc(nombre)}</span>
+                        <span class="chats-conv-nombre"${!c.nombrePaciente && c.nombreContacto ? ' title="Nombre del perfil de WhatsApp: todavía no está vinculado a un paciente"' : ""}>${YS.esc(nombre)}</span>
                         <span class="chats-conv-hora">${YS.esc(YS.fecha.relativa(c.fechaUltimoMensaje || c.fechaUltimaActividad))}</span>
                     </span>
                     <span class="chats-conv-fila">
@@ -281,7 +284,7 @@
                         <span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>
                         ${(c.idsEtiquetas || []).map(ide => est.etiquetasCatalogo?.find(et => et.idEtiqueta === ide))
                             .filter(Boolean).map(et => `<span class="ui-chip ui-chip--${et.tono}">${YS.esc(et.nombre)}</span>`).join("")}
-                        ${c.nombrePaciente ? `<span class="chats-conv-tel">${YS.esc(formatearTelefono(c.telefono))}</span>` : ""}
+                        ${quien ? `<span class="chats-conv-tel">${YS.esc(formatearTelefono(c.telefono))}</span>` : ""}
                     </span>
                 </span>
             </button></li>`;
@@ -420,14 +423,14 @@
         const cab = $("#chatsHiloCabecera");
         if (!cab || !c) return;
         const e = infoEstado(c.estado);
-        const nombre = c.nombrePaciente || "Paciente sin identificar";
+        const nombre = c.nombrePaciente || (c.nombreContacto ? `Contacto: ${c.nombreContacto}` : "Paciente sin identificar");
         const escalada = c.estado === "Urgente" || c.estado === "DerivadaHumano";
         const firma = JSON.stringify([c.estado, nombre, c.telefono, est.contexto, est.modoAtencion]);
         if (cab.dataset.firma === firma) return;
         cab.dataset.firma = firma;
         cab.innerHTML = `
             <button class="ui-btn-icono chats-volver" type="button" aria-label="Volver a la lista">${YS.icono("chevron-izq")}</button>
-            ${YS.avatar(c.nombrePaciente, c.idConversacion)}
+            ${YS.avatar(c.nombrePaciente || c.nombreContacto, c.idConversacion)}
             <div class="chats-hilo-titulos">
                 <div class="chats-hilo-nombre">${YS.esc(nombre)}</div>
                 <div class="chats-hilo-sub">Tel. ${YS.esc(formatearTelefono(c.telefono))} · WhatsApp ${YS.esc(c.canal === "Simulado" ? "(simulado)" : "")}</div>
@@ -562,9 +565,10 @@
         const delPaciente = msg.direccion === "Entrante";
         const seguido = previo && previo.origen === msg.origen && YS.fecha.mismoDia(previo.fechaHora, fecha)
             && fecha - YS.fecha.parse(previo.fechaHora) < AGRUPAR_MS;
+        const sinArchivo = !!msg.tipo && msg.tipo !== "texto";      // foto, audio, documento...: solo se guardó el aviso del tipo
         const b = YS.el("div", {
-            class: `bm ${delPaciente ? "bm--izq" : "bm--der"} bm--${(msg.origen || "").toLowerCase()}${seguido ? " bm--seguido" : ""}`,
-            dataset: { id: msg.idMensaje }
+            class: `bm ${delPaciente ? "bm--izq" : "bm--der"} bm--${(msg.origen || "").toLowerCase()}${seguido ? " bm--seguido" : ""}${sinArchivo ? " bm--tipo" : ""}`,
+            dataset: { id: msg.idMensaje, ...(sinArchivo ? { tipo: msg.tipo } : {}) }
         });
         if (!delPaciente && !seguido) {
             b.appendChild(YS.el("div", { class: "bm-autor", html: (msg.origen === "Bot" ? YS.icono("bot") : msg.origen === "Sistema" ? YS.icono("info") : "") + YS.esc(AUTOR[msg.origen] || msg.origen) }));
@@ -572,6 +576,7 @@
         const texto = YS.el("div", { class: "bm-texto" });
         textoConLinks(texto, msg.texto);
         b.appendChild(texto);
+        if (sinArchivo) b.appendChild(YS.el("div", { class: "bm-aviso", html: `${YS.icono("info")}<span>${YS.esc(AVISO_SIN_ARCHIVO)}</span>` }));
         const meta = YS.el("div", { class: "bm-meta" + (msg.estadoEnvio === "Error" ? " bm-meta--error" : "") });
         meta.append(YS.fecha.hora(fecha));
         if (!delPaciente) {
@@ -929,8 +934,8 @@
         const escalada = info.estado === "Urgente" || info.estado === "DerivadaHumano";
         let html = `
             <div class="chats-contexto-persona">
-                ${YS.avatar(p?.nombre, info.idConversacion, "lg")}
-                <div><div class="chats-contexto-nombre">${YS.esc(p?.nombre || "Paciente sin identificar")}</div>
+                ${YS.avatar(p?.nombre || info.nombreContacto, info.idConversacion, "lg")}
+                <div><div class="chats-contexto-nombre">${YS.esc(p?.nombre || (info.nombreContacto ? `Contacto: ${info.nombreContacto}` : "Paciente sin identificar"))}</div>
                      <span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span></div>
             </div>
             <div class="chats-contexto-etiquetas">
@@ -939,9 +944,12 @@
             </div>`;
         if (!p) {
             html += `<div class="chats-contexto-bloque">
+                ${info.nombreContacto ? dato("Perfil de WhatsApp", info.nombreContacto) : ""}
                 ${dato("Teléfono", formatearTelefono(info.telefono))}</div>
                 <p class="chats-contexto-nota">${YS.esc(personal()
-                    ? "Esta conversación todavía no está vinculada a un paciente."
+                    ? (info.nombreContacto
+                        ? "Esta conversación todavía no está vinculada a un paciente. El nombre del perfil de WhatsApp es el que la persona se puso: no está confirmado."
+                        : "Esta conversación todavía no está vinculada a un paciente.")
                     : "El asistente todavía no pudo identificar a este paciente: el teléfono no coincide con ningún paciente y no pasó su DNI.")}</p>`;
         } else {
             const t = info.proximoTurno;

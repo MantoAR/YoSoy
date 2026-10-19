@@ -119,10 +119,15 @@
     YS.normalizar = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim();
     YS.capitalizar = s => { s = String(s ?? ""); return s.charAt(0).toUpperCase() + s.slice(1); };
     YS.nombreCompleto = p => p ? [p.nombre, p.apellido].filter(Boolean).join(" ").trim() : "";
+    // Las iniciales del avatar. Se toma el primer CARÁCTER (no la primera unidad de texto: un emoji son dos y partirlo deja un signo roto) y se saltean las palabras que no empiezan con una
+    // letra o un número (los nombres de perfil de WhatsApp traen emojis: "Juan Pérez 🌸" es JP), salvo que no quede ninguna.
     YS.iniciales = nombre => {
-        const partes = String(nombre ?? "").trim().split(/\s+/).filter(Boolean);
+        const todas = String(nombre ?? "").trim().split(/\s+/).filter(Boolean);
+        const conLetra = todas.filter(p => /^[\p{L}\p{N}]/u.test(p));
+        const partes = conLetra.length ? conLetra : todas;
         if (!partes.length) return "?";
-        return ((partes[0][0] || "") + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+        const primera = p => Array.from(p)[0] || "";
+        return (primera(partes[0]) + (partes.length > 1 ? primera(partes[partes.length - 1]) : "")).toUpperCase();
     };
     /** Color estable por persona (c1..c6), para que el mismo paciente tenga siempre el mismo avatar. */
     YS.colorDe = semilla => {
