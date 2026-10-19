@@ -588,7 +588,7 @@ No probé cómo se dibuja el QR en tu consola (usa caracteres de medio bloque): 
 
 ```powershell
 curl.exe -s http://127.0.0.1:3002/salud          # 200 conectado; 503 si falta vincular. Sin teléfonos ni textos
-curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal"}
+curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal","canalActivo":"WhatsApp"}
 ```
 
 ### 6.7 Parar y empezar de cero
@@ -740,6 +740,7 @@ Los PR: el de la rama 2 con base `main` incluye los commits de la rama 1 hasta q
   mensaje (`IOptionsMonitor`): un cambio en `appsettings.json` se toma sin reiniciar (una variable de entorno sí necesita reiniciar). Un valor que no sea ninguno de los dos, también uno vacío, **frena el
   arranque** con un mensaje que dice cuáles valen (se valida al armar el host, igual que `CanalActivo`); un cambio en caliente a un valor inválido no corta nada: queda `Asistente`.
   `GET /capacidades` informa `{ mensajeria, modoAtencion }`, con `modoAtencion` en minúscula (`"asistente"` o `"personal"`) y `null` si la mensajería no está disponible.
+  `fix/chat-etiqueta-canal` le suma `canalActivo`: el `Nombre` del canal por el que salen las respuestas (`"Simulado"` con `Mensajeria:CanalActivo=Simulado`, `"WhatsApp"` con `Baileys`), también `null` si la mensajería no está disponible.
 - **Una sola puerta, `RecepcionDeMensajes`**, para el webhook de `whatsapp-service` y para el simulador: elige, mensaje por mensaje, quién atiende (`BotReservasService` o `AtencionPersonalService`).
 - **`AtencionPersonalService`**, por cada mensaje que entra en modo `Personal`:
   1. lo guarda como siempre (origen `Paciente`);
@@ -872,7 +873,7 @@ cd .\whatsapp-service; npm test; cd ..                 # solo rama 2: pass 448, 
 - Los mensajes de **más de 4000 caracteres se recortan**, como hoy: la columna es `nvarchar(4000)`.
 - En modo `Asistente` **no hay descarte de repetidos después de un reinicio de la API** (solo en memoria).
 - El panel derecho no se refresca solo si el nombre del perfil cambia con el hilo abierto (9.3, D5).
-- El selector "Enviar por" y la etiqueta "Chat simulado" de la lista siguen apareciendo en modo `Personal` (rama 5).
+- El selector "Enviar por" sigue apareciendo en modo `Personal` (sacarlo es de la rama 5), pero ya no dice siempre "Chat simulado": desde `fix/chat-etiqueta-canal` muestra el canal activo (`/capacidades.canalActivo`: "WhatsApp" con `Baileys`) y la insignia de cada conversación de la lista, el canal de esa conversación.
 - Hay un error de JavaScript **preexistente** en la pantalla de ingreso (`PANTALLAS/index.html`, `seleccionarRol`, al elegir la pestaña Configurador) que no es de los chats y no se tocó.
 
 ### 9.7 Lo que falta

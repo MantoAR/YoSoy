@@ -27,6 +27,9 @@
     };
     const AUTOR = { Bot: "Asistente", Humano: "Equipo YoSoy", Sistema: "Aviso automático" };
     const PREFIJO = { Bot: "Asistente: ", Humano: "Vos: ", Sistema: "Aviso: " };
+    // El Nombre de un canal ("Simulado" o "WhatsApp": lo traen cada conversación y /capacidades.canalActivo) tal como se muestra.
+    const CANAL_TEXTO = { Simulado: "Chat simulado" };
+    const textoCanal = canal => CANAL_TEXTO[canal] || canal || "";
     // Una foto, un audio, un documento... llegan como un aviso del tipo ("[Imagen]", con la leyenda a continuación): el archivo no se descarga ni se guarda en YoSoy (decisión D4).
     const AVISO_SIN_ARCHIVO = "El archivo no se guarda en YoSoy: mirá el teléfono del número.";
     // En modo "personal" (Mensajeria:ModoAtencion, lo informa /capacidades) el asistente no atiende: no hay "Del bot", y lo que espera al equipo no es una "escalada".
@@ -50,7 +53,7 @@
     const est = {
         modo: "cajon", abierto: false, expandido: false, contexto: false,
         convs: new Map(), maxId: 0, cargada: false, ultimaCompleta: 0,
-        filtro: "todas", busqueda: "", filtroEtiqueta: null, firmaLista: "", modoAtencion: "asistente",
+        filtro: "todas", busqueda: "", filtroEtiqueta: null, firmaLista: "", modoAtencion: "asistente", canalActivo: null,
         actual: null, generacion: 0, mensajes: [], primerId: null, ultimoId: 0, hayMas: false,
         cargandoArriba: false, nuevosAbajo: 0, pendientes: [], idTmp: 0, leidaHasta: 0,
         timer: null, pulsando: false, vueltasSinCambios: 0, sinConexion: false,
@@ -270,7 +273,7 @@
             const clases = ["chats-conv", c.idConversacion === est.actual ? "activa" : "", c.noLeidos ? "no-leida" : "", c.estado === "Urgente" ? "urgente" : ""].join(" ");
             const etiqueta = `${nombre}, ${e.texto}${c.noLeidos ? `, ${c.noLeidos} sin leer` : ""}`;
             return `<li><button type="button" class="${clases}" data-id="${c.idConversacion}" aria-label="${YS.esc(etiqueta)}"${c.idConversacion === est.actual ? ' aria-current="true"' : ""}>
-                <span class="chats-conv-avatar">${YS.avatar(quien, c.idConversacion)}<span class="chats-conv-canal" title="Chat simulado" aria-hidden="true">${YS.icono("chat")}</span></span>
+                <span class="chats-conv-avatar">${YS.avatar(quien, c.idConversacion)}<span class="chats-conv-canal" title="${YS.esc(textoCanal(c.canal))}" aria-hidden="true">${YS.icono("chat")}</span></span>
                 <span class="chats-conv-cuerpo">
                     <span class="chats-conv-fila">
                         <span class="chats-conv-nombre"${!c.nombrePaciente && c.nombreContacto ? ' title="Nombre del perfil de WhatsApp: todavía no está vinculado a un paciente"' : ""}>${YS.esc(nombre)}</span>
@@ -391,7 +394,7 @@
                 <div class="chats-composer-canal">
                     <label for="chatsCanalEnvio">Enviar por</label>
                     <select class="ui-select" id="chatsCanalEnvio" aria-label="Canal de envío">
-                        <option value="Simulado">Chat simulado</option>
+                        <option value="${YS.esc(est.canalActivo || "")}">${YS.esc(textoCanal(est.canalActivo) || "Canal activo")}</option>
                     </select>
                 </div>
                 <div class="chats-composer-fila">
@@ -927,7 +930,6 @@
         const p = info.paciente;
         const dato = (etiqueta, valor) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor${valor ? "" : " vacio"}">${YS.esc(valor || "Sin cargar")}</span></div>`;
         const datoHtml = (etiqueta, html) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor">${html}</span></div>`;
-        const CANAL_TEXTO = { Simulado: "Chat simulado" };
         const e = infoEstado(info.estado);
         const idsEtiquetas = est.convs.get(id)?.idsEtiquetas || [];
         const chipsEtiquetas = idsEtiquetas.map(ide => est.etiquetasCatalogo.find(et => et.idEtiqueta === ide)).filter(Boolean);
@@ -1282,6 +1284,7 @@
         if (raiz) return;
         est.modo = opciones.modo === "pagina" ? "pagina" : "cajon";
         est.modoAtencion = opciones.modoAtencion === "personal" ? "personal" : "asistente";
+        est.canalActivo = typeof opciones.canalActivo === "string" ? opciones.canalActivo : null;
         try { est.sonido = localStorage.getItem(CLAVE_SONIDO) === "1"; } catch { }
         crear();
         if (est.modo === "pagina") {

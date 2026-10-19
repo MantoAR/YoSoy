@@ -491,9 +491,9 @@
     };
 
     // La bandeja vive en Pantalla_ChatSimulado (con el módulo apagado esa carpeta responde 404).
-    // caps: lo que dijo /capacidades ({ mensajeria, modoAtencion }); el modo le dice a la bandeja cómo rotular.
+    // caps: lo que dijo /capacidades ({ mensajeria, modoAtencion, canalActivo }); el modo le dice a la bandeja cómo rotular y el canal, por dónde salen las respuestas.
     function cargarBandeja(caps) {
-        const opciones = { ...(cfg.chats || {}), modoAtencion: caps?.modoAtencion };
+        const opciones = { ...(cfg.chats || {}), modoAtencion: caps?.modoAtencion, canalActivo: caps?.canalActivo };
         if (YS.bandeja) { YS.bandeja.iniciar(opciones); return; }
         document.head.appendChild(YS.el("link", { rel: "stylesheet", href: YS.rutas.chats + "css/bandeja.css" }));
         const s = YS.el("script", { src: YS.rutas.chats + "js/bandeja.js" });

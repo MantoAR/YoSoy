@@ -278,7 +278,7 @@ Alternativa por la terminal, con el servicio **parado** (en la ventana B, con `W
 ### Probar
 
 ```powershell
-curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal"}
+curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal","canalActivo":"WhatsApp"}
 curl.exe -s http://127.0.0.1:3002/salud          # 200 si está conectado; 503 si falta vincular (sin teléfonos ni textos)
 ```
 
