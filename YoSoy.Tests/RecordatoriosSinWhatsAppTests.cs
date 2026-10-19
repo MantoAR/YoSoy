@@ -312,7 +312,7 @@ public class RecordatoriosSinWhatsAppTests
         var fuente = File.ReadAllText(Path.Combine(VideoAccesoEndpointsTests.RaizDelRepositorio(), "Services", "Mensajeria", "NotificadorTurnos.cs")).Replace("\r\n", "\n");
         var inicio = fuente.IndexOf("public void EnviarRecordatorio24h", StringComparison.Ordinal);
         Assert.True(inicio > 0, "no encuentro EnviarRecordatorio24h");
-        var metodo = fuente[inicio..fuente.IndexOf("// El del mail y la campanita", inicio, StringComparison.Ordinal)];
+        var metodo = fuente[inicio..fuente.IndexOf("// El de la campanita", inicio, StringComparison.Ordinal)];
 
         Assert.Contains("textoChat: null", metodo);
         Assert.DoesNotContain("PlantillasWhatsApp", metodo);

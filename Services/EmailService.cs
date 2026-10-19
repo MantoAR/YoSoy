@@ -112,8 +112,8 @@ public class EmailService
     }
 
     // Aviso genérico de texto (recordatorios y avisos de turnos del módulo de mensajería).
-    // El texto se escapa: puede incluir datos cargados por usuarios.
-    public bool EnviarAviso(string destinatario, string asunto, string texto)
+    // El texto se escapa: puede incluir datos cargados por usuarios. Es virtual para que las pruebas vean QUÉ diría el mail (sin SMTP ni red).
+    public virtual bool EnviarAviso(string destinatario, string asunto, string texto)
     {
         if (!PuedeEnviar("un aviso de turno")) return false;
 

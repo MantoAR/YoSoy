@@ -89,3 +89,20 @@ public sealed class InternasQueNoHacenNada : INotificacionInternaDAO
 {
     public int Insertar(NotificacionInterna n) => 0;
 }
+
+/// <summary>
+/// Un EmailService que no manda nada: anota (destinatario, asunto, texto) de cada aviso. Hace pasar al correo por "configurado" sin SMTP ni red, así se puede ver
+/// QUÉ diría el mail que sale.
+/// </summary>
+public sealed class EmailServiceEspia : EmailService
+{
+    public readonly List<(string Destinatario, string Asunto, string Texto)> Avisos = new();
+
+    public EmailServiceEspia() : base(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build()) { }
+
+    public override bool EnviarAviso(string destinatario, string asunto, string texto)
+    {
+        lock (Avisos) Avisos.Add((destinatario, asunto, texto));
+        return true;
+    }
+}
