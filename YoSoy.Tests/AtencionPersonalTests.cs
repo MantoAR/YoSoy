@@ -420,7 +420,7 @@ public class AtencionPersonalTests
         var a = new Arnes();
         var personal = new AtencionPersonalService(a.Conversaciones, new ServicioMensajes(a.Historial, a.Canal, a.Reloj, a.Logs.CreateLogger<ServicioMensajes>()),
             a.Historial, new FiltroSeguridad(esc.Opciones), a.Notificador, a.Bajas, esc.Opciones, a.Reloj, a.Logs.CreateLogger<AtencionPersonalService>());
-        var puerta = new RecepcionDeMensajes(esc.Bot, personal, esc.Opciones);
+        var puerta = new RecepcionDeMensajes(esc.Bot, personal, esc.Opciones, new EntrantesVistos(a.Reloj));
 
         // Asistente (el modo de siempre): contesta el asistente, con su menú.
         var comoAsistente = await puerta.ProcesarAsync("11 5555-0001", "hola", "Simulado");
@@ -444,7 +444,7 @@ public class AtencionPersonalTests
         var esc = new Escenario();
         esc.Opciones.CurrentValue.ModoAtencion = "Personl";    // un error de tipeo en el archivo: no apaga al asistente
         var a = new Arnes();
-        var puerta = new RecepcionDeMensajes(esc.Bot, a.Personal, esc.Opciones);
+        var puerta = new RecepcionDeMensajes(esc.Bot, a.Personal, esc.Opciones, new EntrantesVistos(a.Reloj));
 
         var r = await puerta.ProcesarAsync("11 5555-0001", "hola", "Simulado");
 

@@ -12,34 +12,50 @@ public interface IConversacionDAO
     void MarcarLeida(int idConversacion, int hastaIdMensaje);
     void AsignarProfesional(int idConversacion, int? idProfesional);
     bool TomarSiNoTieneDueno(int idConversacion, int idProfesional);
+
+    /// <summary>
+    /// Guarda el nombre del perfil de WhatsApp de quien escribe (migración 17), solo si cambió. Si la columna no se puede usar (modo Asistente, o la base sin la migración)
+    /// no hace nada. Quien implementa solo lo de arriba (los dobles de prueba) no necesita implementarlo.
+    /// </summary>
+    void ActualizarNombreContacto(int idConversacion, string nombre) { }
 }
 
 public class ConversacionDAO : IConversacionDAO
 {
-    private const string SELECT_BASE = @"
+    private readonly IColumnasChatPersonal? _columnas;
+
+    // Sin la puerta (new ConversacionDAO(), como en algunas pruebas) NUNCA se toca Conversacion.NombreContacto (migración 17): es el comportamiento de siempre.
+    public ConversacionDAO(IColumnasChatPersonal? columnas = null) => _columnas = columnas;
+
+    // Se pregunta en cada llamada: el modo puede cambiar sin reiniciar la API.
+    private bool UsaNombre => _columnas?.Disponibles == true;
+
+    private static string SelectBase(bool conNombre) => $@"
         SELECT IdConversacion, Telefono, IdPaciente, Canal, PasoActual, DatosContexto,
-               Estado, FechaUltimaActividad, FechaCreacion, IdProfesionalAsignado
+               Estado, FechaUltimaActividad, FechaCreacion, IdProfesionalAsignado{(conNombre ? ", NombreContacto" : "")}
         FROM Conversacion";
 
     public Conversacion? ObtenerPorId(int id)
     {
+        var conNombre = UsaNombre;
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(SELECT_BASE + " WHERE IdConversacion = @Id", con);
+        var cmd = new SqlCommand(SelectBase(conNombre) + " WHERE IdConversacion = @Id", con);
         cmd.Parameters.AddWithValue("@Id", id);
         using var r = cmd.ExecuteReader();
-        return r.Read() ? Mapear(r) : null;
+        return r.Read() ? Mapear(r, conNombre) : null;
     }
 
     public Conversacion? ObtenerPorTelefono(string telefono, string canal)
     {
+        var conNombre = UsaNombre;
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(SELECT_BASE + " WHERE Telefono = @Tel AND Canal = @Canal", con);
+        var cmd = new SqlCommand(SelectBase(conNombre) + " WHERE Telefono = @Tel AND Canal = @Canal", con);
         cmd.Parameters.AddWithValue("@Tel", telefono);
         cmd.Parameters.AddWithValue("@Canal", canal);
         using var r = cmd.ExecuteReader();
-        return r.Read() ? Mapear(r) : null;
+        return r.Read() ? Mapear(r, conNombre) : null;
     }
 
     // Si dos mensajes del mismo teléfono llegan a la vez, el índice único
@@ -89,10 +105,11 @@ public class ConversacionDAO : IConversacionDAO
     public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null)
     {
         var lista = new List<ConversacionResumen>();
+        var conNombre = UsaNombre;
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(@"
-            SELECT c.IdConversacion, c.Telefono, c.IdPaciente, p.Nombre AS NombrePaciente,
+        var cmd = new SqlCommand($@"
+            SELECT c.IdConversacion, c.Telefono, c.IdPaciente, p.Nombre AS NombrePaciente,{(conNombre ? " c.NombreContacto," : "")}
                    c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad,
                    um.IdMensaje AS IdUltimoMensaje, um.Texto AS UltimoMensaje,
                    um.FechaHora AS FechaUltimoMensaje, um.Origen AS OrigenUltimoMensaje,
@@ -121,6 +138,7 @@ public class ConversacionDAO : IConversacionDAO
                 Telefono             = (string)r["Telefono"],
                 IdPaciente           = r["IdPaciente"]     == DBNull.Value ? null : (int)r["IdPaciente"],
                 NombrePaciente       = r["NombrePaciente"] == DBNull.Value ? null : (string)r["NombrePaciente"],
+                NombreContacto       = conNombre && r["NombreContacto"] != DBNull.Value ? (string)r["NombreContacto"] : null,
                 Canal                = (string)r["Canal"],
                 Estado               = (string)r["Estado"],
                 PasoActual           = (string)r["PasoActual"],
@@ -167,6 +185,19 @@ public class ConversacionDAO : IConversacionDAO
         cmd.ExecuteNonQuery();
     }
 
+    public void ActualizarNombreContacto(int idConversacion, string nombre)
+    {
+        if (!UsaNombre) return;
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE Conversacion SET NombreContacto = @Nombre
+            WHERE IdConversacion = @Id AND (NombreContacto IS NULL OR NombreContacto <> @Nombre)", con);
+        cmd.Parameters.Add("@Nombre", SqlDbType.NVarChar, 100).Value = nombre;
+        cmd.Parameters.Add("@Id", SqlDbType.Int).Value = idConversacion;
+        cmd.ExecuteNonQuery();
+    }
+
     // Atómico a propósito (Paso 3): si dos profesionales la toman a la vez, el UPDATE con
     // WHERE IdProfesionalAsignado IS NULL solo afecta una fila para uno de los dos - el otro
     // ve 0 filas afectadas y el endpoint responde 409, sin una transacción explícita ni un
@@ -183,7 +214,7 @@ public class ConversacionDAO : IConversacionDAO
         return cmd.ExecuteNonQuery() == 1;
     }
 
-    private Conversacion Mapear(SqlDataReader r) => new Conversacion
+    private Conversacion Mapear(SqlDataReader r, bool conNombre) => new Conversacion
     {
         IdConversacion         = (int)r["IdConversacion"],
         Telefono               = (string)r["Telefono"],
@@ -194,6 +225,7 @@ public class ConversacionDAO : IConversacionDAO
         Estado                 = (string)r["Estado"],
         FechaUltimaActividad   = (DateTime)r["FechaUltimaActividad"],
         FechaCreacion          = (DateTime)r["FechaCreacion"],
-        IdProfesionalAsignado  = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"]
+        IdProfesionalAsignado  = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"],
+        NombreContacto         = conNombre && r["NombreContacto"] != DBNull.Value ? (string)r["NombreContacto"] : null
     };
 }

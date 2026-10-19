@@ -6,6 +6,10 @@ public sealed class MensajesChatEnMemoria : IMensajeChatDAO
 {
     public readonly List<MensajeChat> Todos = new();
     public int Insertar(MensajeChat m) { m.IdMensaje = Todos.Count + 1; Todos.Add(m); return m.IdMensaje; }
+
+    // Como el índice único (IdConversacion, IdExterno) de la migración 17: el mismo id en la misma conversación no entra dos veces.
+    public int? InsertarEntrante(MensajeChat m) =>
+        m.IdExterno is not null && Todos.Any(x => x.IdConversacion == m.IdConversacion && x.IdExterno == m.IdExterno) ? null : Insertar(m);
     public void ActualizarEstadoEnvio(int idMensaje, string estado) => Todos.Single(x => x.IdMensaje == idMensaje).EstadoEnvio = estado;
     public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
     public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();

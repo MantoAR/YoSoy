@@ -77,6 +77,11 @@ public static class MensajeriaServiceCollectionExtensions
             AgregarSecretoWhatsApp(http, sp);
         });
 
+        // Las columnas de la migración 17 (id y tipo de los mensajes, nombre del contacto): los DAOs de mensajes y conversaciones solo las tocan si esta puerta lo permite
+        // (modo Personal y la base con la migración aplicada). En el modo Asistente, nunca.
+        services.AddSingleton<ISondaDeColumnasChatPersonal, SondaSqlDeColumnasChatPersonal>();
+        services.AddSingleton<IColumnasChatPersonal, ColumnasChatPersonal>();
+
         // DAOs sin estado: una instancia alcanza.
         services.AddSingleton<IMensajeChatDAO, MensajeChatDAO>();
         services.AddSingleton<IConversacionDAO, ConversacionDAO>();
@@ -114,6 +119,7 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<BotReservasService>();
         // El chat para el personal (Mensajeria:ModoAtencion = "Personal") y la puerta que elige, en cada mensaje, quién atiende: el asistente o el personal.
         services.AddSingleton<AtencionPersonalService>();
+        services.AddSingleton<EntrantesVistos>();
         services.AddSingleton<RecepcionDeMensajes>();
 
         services.AddSingleton<RecordatorioBackgroundService>();

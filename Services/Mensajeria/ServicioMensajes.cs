@@ -1,6 +1,11 @@
 public interface IServicioMensajes
 {
     MensajeChat RegistrarEntrante(Conversacion c, string texto);
+
+    // Con lo que trae whatsapp-service además del texto (id, tipo, hora; ver DatosDelEntrante). Devuelve null si ese mensaje ya estaba guardado (un reintento). Quien implementa
+    // solo el de arriba (los dobles de prueba) no ve esos datos.
+    MensajeChat? RegistrarEntrante(Conversacion c, string texto, DatosDelEntrante datos) => RegistrarEntrante(c, texto);
+
     Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen);
 
     // Con opciones: OptIn (para el canal: el paciente aceptó recibir WhatsApp) e IniciaElNegocio (para la regla de las respuestas automáticas, abajo).
@@ -48,6 +53,23 @@ public class ServicioMensajes : IServicioMensajes
         };
         _mensajes.Insertar(m);
         return m;
+    }
+
+    public MensajeChat? RegistrarEntrante(Conversacion c, string texto, DatosDelEntrante datos)
+    {
+        var m = new MensajeChat
+        {
+            IdConversacion = c.IdConversacion,
+            Direccion      = "Entrante",
+            Origen         = "Paciente",
+            Texto          = Recortar(texto),
+            // La hora real del mensaje, si es razonable (DatosDelEntrante); si no, la de ahora.
+            FechaHora      = datos.FechaHora ?? _reloj.GetLocalNow().DateTime,
+            EstadoEnvio    = "Enviado",
+            Tipo           = datos.Tipo,
+            IdExterno      = datos.IdExterno
+        };
+        return _mensajes.InsertarEntrante(m) is null ? null : m;
     }
 
     public Task<MensajeChat> EnviarAsync(Conversacion c, string texto, string origen) =>

@@ -51,11 +51,14 @@ public class AtencionPersonalService
 
     private MensajeriaOptions Op => _opciones.CurrentValue;
 
-    public async Task<RespuestaBot> ProcesarAsync(string telefono, string texto, string canal)
+    // datos: lo que trae whatsapp-service además del texto (id, tipo, hora y nombre del perfil; null si el pedido no los trae, como el del simulador). Una foto o un audio llega
+    // con un AVISO del tipo en el texto ("[Imagen]", con la leyenda a continuación): se guarda como cualquier otro mensaje, y la leyenda también pasa por el filtro de riesgo.
+    public async Task<RespuestaBot> ProcesarAsync(string telefono, string texto, string canal, DatosDelEntrante? datos = null)
     {
         var tel = Telefono.Normalizar(telefono);
         if (tel.Length < 6) throw new ArgumentException("El teléfono no es válido.");
         texto = (texto ?? "").Trim();
+        if (texto.Length == 0 && datos is { EsTexto: false }) texto = TiposDeMensaje.Aviso(datos.Tipo);   // un cliente que no armó el aviso: se arma acá
         if (texto.Length == 0) throw new ArgumentException("El mensaje está vacío.");
 
         var c = _conversaciones.ObtenerOCrear(tel, canal);
@@ -65,7 +68,10 @@ public class AtencionPersonalService
         var esElPrimero = !_historial.TieneMensajeEntrante(c.IdConversacion);
         var avisar = esElPrimero || c.Estado == EstadoConversacion.Cerrada || ahora - c.FechaUltimaActividad >= SilencioParaAvisar;
 
-        _mensajes.RegistrarEntrante(c, texto);
+        var guardado = datos is null ? _mensajes.RegistrarEntrante(c, texto) : _mensajes.RegistrarEntrante(c, texto, datos);
+        // Ya estaba guardado (whatsapp-service reintentó un mensaje que la API sí había recibido): no se hace nada más, ni aviso ni cambio de estado.
+        if (guardado is null) return new RespuestaBot(c.IdConversacion, new List<string>(), Ignorado: "duplicado");
+        if (datos?.NombreContacto is { } nombre && nombre != c.NombreContacto) _conversaciones.ActualizarNombreContacto(c.IdConversacion, nombre);
 
         // BAJA / STOP: igual que en el modo Asistente se revoca la aceptación de los avisos (si la llave está prendida; si no, no toca nada). A diferencia de aquel modo
         // el mensaje NO se esconde: el equipo tiene que ver que la persona pidió la baja (whatsapp-service ya dejó de escribirle y rechazaría cualquier respuesta).
@@ -92,7 +98,7 @@ public class AtencionPersonalService
         foreach (var respuesta in respuestas)
             await _mensajes.EnviarAsync(c, respuesta, "Bot");
 
-        return new RespuestaBot(c.IdConversacion, respuestas);
+        return new RespuestaBot(c.IdConversacion, respuestas, IdMensaje: guardado.IdMensaje);
     }
 
     /// <summary>

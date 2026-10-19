@@ -156,7 +156,24 @@ public class FakeConversaciones : IConversacionDAO
         return Copia(nueva);
     }
 
-    public void Guardar(Conversacion c) => Todas[c.IdConversacion] = Copia(c);
+    // Como el UPDATE del DAO real: no toca NombreContacto (eso lo guarda ActualizarNombreContacto).
+    public void Guardar(Conversacion c)
+    {
+        var nombre = Todas.TryGetValue(c.IdConversacion, out var guardada) ? guardada.NombreContacto : null;
+        Todas[c.IdConversacion] = Copia(c);
+        Todas[c.IdConversacion].NombreContacto = nombre;
+    }
+
+    /// <summary>Cada vez que se guardó el nombre del perfil de WhatsApp (solo cuando cambió, como el DAO real).</summary>
+    public readonly List<(int IdConversacion, string Nombre)> NombresGuardados = new();
+
+    public void ActualizarNombreContacto(int idConversacion, string nombre)
+    {
+        if (!Todas.TryGetValue(idConversacion, out var c) || c.NombreContacto == nombre) return;
+        c.NombreContacto = nombre;
+        NombresGuardados.Add((idConversacion, nombre));
+    }
+
     public List<ConversacionResumen> ListarResumen(string? estado, int? desdeIdMensaje = null) => new();
     public void MarcarLeida(int idConversacion, int hastaIdMensaje) { }
 
@@ -178,7 +195,7 @@ public class FakeConversaciones : IConversacionDAO
         IdConversacion = c.IdConversacion, Telefono = c.Telefono, IdPaciente = c.IdPaciente, Canal = c.Canal,
         PasoActual = c.PasoActual, DatosContexto = c.DatosContexto, Estado = c.Estado,
         FechaUltimaActividad = c.FechaUltimaActividad, FechaCreacion = c.FechaCreacion,
-        IdProfesionalAsignado = c.IdProfesionalAsignado
+        IdProfesionalAsignado = c.IdProfesionalAsignado, NombreContacto = c.NombreContacto
     };
 }
 
