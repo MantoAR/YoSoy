@@ -758,7 +758,7 @@ async function renderPerfil(c) {
                 </div>
             </form>
         </div>
-        <div class="card perfil-form" id="avisosWhatsApp" aria-live="polite"><p class="texto-suave">Cargando tus avisos por WhatsApp…</p></div>`;
+        <div class="card perfil-form oculto" id="avisosWhatsApp" aria-live="polite"><p class="texto-suave">Cargando tus avisos por WhatsApp…</p></div>`;
     document.getElementById("formPerfil").addEventListener("submit", e => { e.preventDefault(); guardarPerfil(p.idPaciente); });
     renderAvisosWhatsApp();
 }
@@ -810,6 +810,8 @@ async function guardarPerfil(id) {
 // El texto, su versión y el estado los sirve la API (GET /consentimiento-whatsapp); lo que se lee acá es lo que queda registrado con la
 // aceptación. Aceptar es una acción EXPLÍCITA: la casilla nunca viene tildada y no se guarda nada hasta apretar "Activar". Quién es sale
 // del token en el servidor, no de esta pantalla. Todo lo que manda el servidor entra por textContent, nunca como HTML.
+// La tarjeta nace OCULTA y solo se muestra si la API la ofrece: con la llave Mensajeria:AvisosPorWhatsApp apagada (por defecto) la API contesta
+// motivo "avisos-apagados" y no se ve nada (ni el link para escribirle a la clínica), así no se promete un aviso que no va a llegar.
 let _estadoWhatsApp = null;
 
 async function renderAvisosWhatsApp() {
@@ -818,13 +820,22 @@ async function renderAvisosWhatsApp() {
     let e;
     try { e = await YS.api("/consentimiento-whatsapp"); }
     catch {
-        if (document.getElementById("avisosWhatsApp") === tarjeta)
+        if (document.getElementById("avisosWhatsApp") === tarjeta) {
+            tarjeta.classList.remove("oculto");
             tarjeta.replaceChildren(YS.el("p", { class: "texto-suave" }, "No pudimos consultar tus avisos por WhatsApp. ",
                 YS.el("button", { type: "button", class: "ui-btn ui-btn--sm", text: "Reintentar", on: { click: renderAvisosWhatsApp } })));
+        }
         return;
     }
     if (document.getElementById("avisosWhatsApp") !== tarjeta) return;   // el usuario ya cambió de sección
+    if (YS.whatsapp.apagado(e)) {                                         // avisos apagados: la tarjeta no existe para la persona
+        _estadoWhatsApp = null;
+        tarjeta.classList.add("oculto");
+        tarjeta.replaceChildren();
+        return;
+    }
     _estadoWhatsApp = e;
+    tarjeta.classList.remove("oculto");
 
     const activo = e.estado === "acepta";
     const pausado = e.estado === "telefono-cambiado" || e.estado === "texto-desactualizado";

@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 // El link wa.me (opción B del consentimiento): el paciente le escribe PRIMERO al número de la clínica. El número sale de la configuración y
 // nada está escrito en el código ni en las pantallas; sin número, no hay link. Lo que sale va a la URL de otra aplicación: se arma siempre
@@ -113,9 +114,10 @@ public class EnlaceWhatsAppTests
 
     // ───────────── El servicio según la configuración ─────────────
 
-    private static (ContactoWhatsApp Contacto, OpcionesFijas Opciones, LogsCapturados Logs) Armar()
+    private static (ContactoWhatsApp Contacto, OpcionesFijas Opciones, LogsCapturados Logs) Armar(bool llave = true)
     {
         var opciones = new OpcionesFijas();
+        opciones.CurrentValue.AvisosPorWhatsApp = llave;   // el link es parte de los avisos por WhatsApp: estas pruebas son con la llave prendida (con la apagada no hay link)
         var logs = new LogsCapturados();
         return (new ContactoWhatsApp(opciones, logs.CreateLogger<ContactoWhatsApp>()), opciones, logs);
     }
@@ -208,10 +210,11 @@ public class EnlaceWhatsAppEndpointsTests
         public readonly VideoApp Video;
         public readonly FakeConsentimientoWhatsAppRepo Repo = new();
 
-        public App(string? numero, string? texto = null)
+        /// <param name="llave">Mensajeria:AvisosPorWhatsApp. Prendida por defecto: estas pruebas son del link con el consentimiento encendido.</param>
+        public App(string? numero, string? texto = null, bool llave = true)
         {
             Repo.Pacientes[VideoApp.IdPaciente] = new DatosPacienteParaWhatsApp("11 5555-0001", new DateTime(1990, 5, 5), false);
-            var config = new Dictionary<string, string?>();
+            var config = new Dictionary<string, string?> { ["Mensajeria:AvisosPorWhatsApp"] = llave ? "true" : "false" };
             if (numero is not null) config["Mensajeria:WhatsAppNumeroClinica"] = numero;
             if (texto is not null) config["Mensajeria:WhatsAppTextoInicio"] = texto;
             Video = new VideoApp(config, servicios: s =>
@@ -222,7 +225,8 @@ public class EnlaceWhatsAppEndpointsTests
                 s.AddSingleton<IAuditoriaConsentimientoWhatsApp>(new FakeAuditoriaConsentimientoWhatsApp());
                 s.RemoveAll<ConsentimientoWhatsAppService>();
                 s.AddSingleton(sp => new ConsentimientoWhatsAppService(Repo, sp.GetRequiredService<ITextoConsentimientoWhatsApp>(),
-                    new FakeAuditoriaConsentimientoWhatsApp(), Video!.Reloj, sp.GetRequiredService<ILogger<ConsentimientoWhatsAppService>>()));
+                    new FakeAuditoriaConsentimientoWhatsApp(), sp.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>(), Video!.Reloj,
+                    sp.GetRequiredService<ILogger<ConsentimientoWhatsAppService>>()));
             });
         }
 

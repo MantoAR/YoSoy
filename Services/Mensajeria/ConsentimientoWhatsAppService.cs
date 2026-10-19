@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+
 // Consentimiento de los avisos de turnos por WhatsApp. Decide en el servidor, con los datos de la base: la pantalla solo manda qué texto leyó
 // la persona (la versión) y si quiere aceptar o revocar.
 //
@@ -11,6 +13,8 @@
 //  · A un menor de edad (o con tutor cargado) no se le deja aceptar solo. PROVISORIO, igual que el de la lectura de emociones: lo tiene que
 //    validar el equipo legal.
 //  · La BAJA que la persona escribe por WhatsApp también revoca (RegistrarBaja).
+//  · Todo esto está DORMIDO mientras la llave Mensajeria:AvisosPorWhatsApp esté apagada (por defecto): no se ofrece (texto y estado salen como
+//    "no disponible"), no se puede aceptar ni revocar, y no se toca la tabla ConsentimientoWhatsApp. Ver Habilitado.
 
 /// <summary>Lo que NotificadorTurnos necesita: ¿qué le mando al servicio de WhatsApp sobre este paciente?</summary>
 public enum PermisoEnvioWhatsApp
@@ -62,19 +66,30 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     public const string TextoDesactualizado = "texto-desactualizado";
     public const string NoDisponible = "no-disponible";
 
+    /// <summary>El motivo (y el código del error) cuando la llave Mensajeria:AvisosPorWhatsApp está apagada. Las pantallas lo reconocen y no muestran nada.</summary>
+    public const string AvisosApagados = "avisos-apagados";
+
+    private const string MensajeApagado = "Los avisos por WhatsApp no están disponibles en este momento.";
     private const int EdadMayor = 18;
 
     private readonly IConsentimientoWhatsAppRepositorio _repo;
     private readonly ITextoConsentimientoWhatsApp _textos;
     private readonly IAuditoriaConsentimientoWhatsApp _auditoria;
+    private readonly IOptionsMonitor<MensajeriaOptions> _opciones;
     private readonly TimeProvider _reloj;
     private readonly ILogger<ConsentimientoWhatsAppService> _log;
 
     public ConsentimientoWhatsAppService(IConsentimientoWhatsAppRepositorio repo, ITextoConsentimientoWhatsApp textos,
-        IAuditoriaConsentimientoWhatsApp auditoria, TimeProvider reloj, ILogger<ConsentimientoWhatsAppService> log)
+        IAuditoriaConsentimientoWhatsApp auditoria, IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj, ILogger<ConsentimientoWhatsAppService> log)
     {
-        _repo = repo; _textos = textos; _auditoria = auditoria; _reloj = reloj; _log = log;
+        _repo = repo; _textos = textos; _auditoria = auditoria; _opciones = opciones; _reloj = reloj; _log = log;
     }
+
+    /// <summary>
+    /// La llave Mensajeria:AvisosPorWhatsApp. Apagada (por defecto) el consentimiento entero está dormido: no se ofrece en ninguna pantalla, no se puede
+    /// aceptar ni revocar, y NO se toca la tabla ConsentimientoWhatsApp, así que la API anda igual sin haber aplicado la migración 16.
+    /// </summary>
+    public bool Habilitado => _opciones.CurrentValue.AvisosPorWhatsApp;
 
     private DateTime AhoraUtc => _reloj.GetUtcNow().UtcDateTime;
 
@@ -82,6 +97,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
 
     public TextoDelConsentimientoWhatsApp Texto()
     {
+        if (!Habilitado) return new TextoDelConsentimientoWhatsApp(false, null, false, null, null);   // apagado: la pantalla de registro no ofrece nada
         var t = _textos.Actual();
         return t is null
             ? new TextoDelConsentimientoWhatsApp(false, null, false, null, null)
@@ -94,6 +110,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     public ResultadoConsentimientoWhatsApp Obtener(Identidad yo)
     {
         if (!EsPaciente(yo, out var idPaciente)) return Error(TipoErrorConsentimiento.SoloPacientes, "solo-pacientes", "Esto es solo para pacientes.");
+        if (!Habilitado) return Ok(EstadoApagado());   // sin leer la base: las pantallas no muestran nada
         return Vista(idPaciente);
     }
 
@@ -101,6 +118,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     public ResultadoConsentimientoWhatsApp Aceptar(Identidad yo, string? version)
     {
         if (!EsPaciente(yo, out var idPaciente)) return Error(TipoErrorConsentimiento.SoloPacientes, "solo-pacientes", "Esto es solo para pacientes.");
+        if (!Habilitado) return Error(TipoErrorConsentimiento.Conflicto, AvisosApagados, MensajeApagado);
 
         var datos = _repo.ObtenerDatosPaciente(idPaciente);
         if (datos is null) return Error(TipoErrorConsentimiento.NoEncontrado, "no-encontrado", "No encontramos tu ficha.");
@@ -131,6 +149,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     public ResultadoConsentimientoWhatsApp Revocar(Identidad yo)
     {
         if (!EsPaciente(yo, out var idPaciente)) return Error(TipoErrorConsentimiento.SoloPacientes, "solo-pacientes", "Esto es solo para pacientes.");
+        if (!Habilitado) return Error(TipoErrorConsentimiento.Conflicto, AvisosApagados, MensajeApagado);
 
         var ultimo = _repo.Ultimo(idPaciente);
         if (ultimo is { EstaAbierta: true } && _repo.Revocar(idPaciente, AhoraUtc, ConsentimientoWhatsAppFila.MotivoPaciente))
@@ -280,6 +299,10 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
         return Ok(new EstadoConsentimientoWhatsApp(disponible, estado, disponible ? null : rechazo?.Codigo, texto.Version, texto.Provisorio,
             texto.Titulo, texto.Parrafos, ultimo?.AceptadoUtc, ultimo?.RevocadoUtc, ultimo?.VersionTexto));
     }
+
+    // Lo que se contesta con la llave apagada: nada para mostrar y nada para decidir.
+    private static EstadoConsentimientoWhatsApp EstadoApagado() =>
+        new(false, NoDisponible, AvisosApagados, null, false, null, null, null, null, null);
 
     private static bool EsPaciente(Identidad yo, out int idPaciente)
     {

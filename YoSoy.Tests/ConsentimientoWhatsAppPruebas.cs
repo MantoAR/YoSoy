@@ -151,13 +151,16 @@ public sealed class EscenarioWhatsApp
     public readonly FakeTextoConsentimientoWhatsApp Textos = new();
     public readonly RelojFijo Reloj = new(new DateTime(2031, 3, 4, 10, 0, 0));
     public readonly LogsCapturados Logs = new();
+    public readonly OpcionesFijas Opciones = new();
     public readonly ConsentimientoWhatsAppService Servicio;
 
-    public EscenarioWhatsApp()
+    /// <param name="llave">Mensajeria:AvisosPorWhatsApp. Prendida por defecto: casi todas las pruebas son del consentimiento encendido; las del apagado la ponen en false.</param>
+    public EscenarioWhatsApp(bool llave = true)
     {
+        Opciones.CurrentValue.AvisosPorWhatsApp = llave;
         Repo.Pacientes[IdPaciente] = new DatosPacienteParaWhatsApp(TelefonoDelPaciente, new DateTime(1990, 5, 5), false);
         Repo.Pacientes[IdOtroPaciente] = new DatosPacienteParaWhatsApp("351 412-3456", new DateTime(1985, 1, 1), false);
-        Servicio = new ConsentimientoWhatsAppService(Repo, Textos, Auditoria, Reloj, Logs.CreateLogger<ConsentimientoWhatsAppService>());
+        Servicio = new ConsentimientoWhatsAppService(Repo, Textos, Auditoria, Opciones, Reloj, Logs.CreateLogger<ConsentimientoWhatsAppService>());
     }
 
     public static Identidad Paciente(int idUsuario = IdUsuario, int idPaciente = IdPaciente) => new(idUsuario, Roles.Paciente, idPaciente, null);

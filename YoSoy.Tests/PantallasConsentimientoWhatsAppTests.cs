@@ -127,7 +127,7 @@ public class PantallasConsentimientoWhatsAppTests
     public void El_perfil_carga_el_modulo_compartido_y_pinta_su_tarjeta_debajo_de_los_datos()
     {
         Assert.True(DashboardHtml.IndexOf("../shared/ui.js", StringComparison.Ordinal) < DashboardHtml.IndexOf("../shared/consentimiento-whatsapp.js", StringComparison.Ordinal));
-        Assert.Contains(@"<div class=""card perfil-form"" id=""avisosWhatsApp""", Dashboard);
+        Assert.Contains(@"<div class=""card perfil-form oculto"" id=""avisosWhatsApp""", Dashboard);   // nace oculta: se muestra solo si la API la ofrece
         Assert.Contains("    renderAvisosWhatsApp();\n}", Dashboard.Replace("\r\n", "\n"));    // se llama al terminar de dibujar el perfil
     }
 

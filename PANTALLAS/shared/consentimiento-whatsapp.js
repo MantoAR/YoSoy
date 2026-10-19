@@ -12,6 +12,10 @@
      · El link para escribirle primero a la clínica (contacto.enlace) lo arma la API con el número configurado en el servidor: acá no se
        escribe ningún número ni se arma ningún link. Sin número configurado no se muestra nada.
      · Lo único que el navegador recuerda es una molestia ("ahora no" a la sugerencia de después de un turno), nunca una aceptación.
+     · Con la llave Mensajeria:AvisosPorWhatsApp APAGADA (la API la tiene así por defecto) no se muestra NADA: ni la casilla del registro, ni la
+       tarjeta del perfil, ni el link para escribirle a la clínica, ni la sugerencia de después de un turno. La API lo dice sin texto
+       (GET /consentimiento-whatsapp/texto con disponible:false) y con el motivo "avisos-apagados" (GET /consentimiento-whatsapp): así no se
+       promete un aviso que no va a llegar.
    Requiere shared/ui.js (YS.fetch, YS.api, YS.modal).
    ═══════════════════════════════════════════════════════════════ */
 (function () {
@@ -46,6 +50,9 @@
             return null;
         }
     }
+
+    // El motivo con el que la API dice que los avisos por WhatsApp están apagados (la llave Mensajeria:AvisosPorWhatsApp).
+    const AVISOS_APAGADOS = "avisos-apagados";
 
     // Por qué no se puede aceptar ahora (los códigos "motivo" que manda la API).
     const MOTIVOS = {
@@ -83,6 +90,11 @@
             contenedor.replaceChildren(...partes);
         },
 
+        /** ¿La API dice que los avisos por WhatsApp están apagados? Entonces las pantallas no muestran nada de esto (ni link, ni sugerencia). */
+        apagado(estado) {
+            return estado?.motivo === AVISOS_APAGADOS;
+        },
+
         /** El mensaje para el paciente de un "motivo" de la API, o null si no se conoce. */
         motivo(codigo) {
             return MOTIVOS[codigo] || null;
@@ -94,6 +106,7 @@
          * y solo se envía si la persona lo manda.
          */
         contacto(estado) {
+            if (YS.whatsapp.apagado(estado)) return null;
             const enlace = enlaceDeWhatsApp(estado?.contacto?.enlace);
             if (!enlace) return null;
             return YS.el("div", { class: "wa-contacto" },
@@ -112,7 +125,7 @@
             try {
                 if (sugerenciaPospuesta()) return false;
                 const estado = await YS.api("/consentimiento-whatsapp");
-                if (!estado || estado.estado !== "sin-decision" || !estado.disponible) return false;
+                if (!estado || YS.whatsapp.apagado(estado) || estado.estado !== "sin-decision" || !estado.disponible) return false;
 
                 const cuerpo = YS.el("div", {},
                     YS.el("p", { text: "Si querés, te avisamos de tus turnos por WhatsApp: el día y la hora, nada más. Es opcional y lo podés cambiar cuando quieras." }),

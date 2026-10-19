@@ -49,7 +49,10 @@ public static class EnlaceWhatsApp
     }
 }
 
-/// <summary>El link para escribirle a la clínica según la configuración vigente (se puede cambiar sin reiniciar: IOptionsMonitor).</summary>
+/// <summary>
+/// El link para escribirle a la clínica según la configuración vigente (se puede cambiar sin reiniciar: IOptionsMonitor). Es parte del consentimiento de
+/// WhatsApp: con la llave Mensajeria:AvisosPorWhatsApp apagada (por defecto) no hay link, aunque haya un número configurado.
+/// </summary>
 public class ContactoWhatsApp
 {
     private readonly IOptionsMonitor<MensajeriaOptions> _opciones;
@@ -65,6 +68,7 @@ public class ContactoWhatsApp
     public string? Enlace()
     {
         var o = _opciones.CurrentValue;
+        if (!o.AvisosPorWhatsApp) return null;
         var enlace = EnlaceWhatsApp.Construir(o.WhatsAppNumeroClinica, o.WhatsAppTextoInicio);
         if (enlace is null && !string.IsNullOrWhiteSpace(o.WhatsAppNumeroClinica) && Interlocked.Exchange(ref _avisado, 1) == 0)
             _log.LogWarning("WhatsApp: Mensajeria:WhatsAppNumeroClinica no es un número utilizable; no se muestra el link para escribirle a la clínica.");
