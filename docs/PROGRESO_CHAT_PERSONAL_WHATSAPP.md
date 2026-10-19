@@ -725,7 +725,7 @@ secciones 5 a 7 (el diseño), manda esta sección. Las dos ramas están **pushea
 
 | Rama | HEAD | Commits | Qué trae | Pruebas | Tamaño (líneas tocadas: agregadas más quitadas) |
 |---|---|---|---|---|---|
-| 1 `feat/chat-personal-modo-personal` | `a5161b8` | 6, desde `main` `ca77360` | `ModoAtencion` y el modo `Personal`, D2 (los chats son solo del Configurador), dos arreglos de `bandeja.js` que ya estaban en `main` | API **1640 de 1640**; mutaciones dirigidas sobre lo nuevo: 35 detectadas, y una más (que el log lleve el texto del paciente) **no compiló y quedó sin evaluar**; bancos con Chrome headless contra la API real, sin fallas | unas 535 líneas de código, 1680 de pruebas, 243 de documentación |
+| 1 `feat/chat-personal-modo-personal` | `a5161b8` | 6, desde `main` `ca77360` | `ModoAtencion` y el modo `Personal`, D2 (los chats son solo del Configurador), dos arreglos de `bandeja.js` que ya estaban en `main` | API **1640 de 1640**; 36 mutaciones dirigidas sobre lo nuevo, todas detectadas; bancos con Chrome headless contra la API real, sin fallas | unas 535 líneas de código, 1680 de pruebas, 243 de documentación |
 | 2 `feat/chat-personal-entrantes-completos` | `803f441` | 5, **apilada sobre la 1** | migración 17, webhook v2, avisos de tipo (D4), nombre del perfil (D5), reintentos en memoria y contadores (D6), descarte de repetidos, y en la pantalla el aviso "el archivo no se guarda" y "Contacto: …" | API **1793 de 1793** (con la 17); **1713 de 1713** contra una base de 44 tablas sin la 16 ni la 17 (como producción hoy); `npm test`: 448 pasan, 6 saltadas por permisos POSIX, 0 fallas; mutaciones: 67 de la API y 53 del servicio, todas detectadas salvo 4 equivalentes (9.5); bancos con Chrome headless, sin fallas | unas 920 líneas de código, 2360 de pruebas, 130 de documentación |
 
 Los PR: el de la rama 2 con base `main` incluye los commits de la rama 1 hasta que se mergee la 1; con base la rama 1 muestra solo lo suyo.
@@ -853,7 +853,7 @@ cd .\whatsapp-service; npm test; cd ..                 # solo rama 2: pass 448, 
 .\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=17&Tabla!=ConsentimientoWhatsApp'
 ```
 
-- **Mutaciones a propósito** sobre lo nuevo (cada una cambia una sola cosa y corre las pruebas que tendrían que notarlo). Rama 1: 36 propuestas, 35 detectadas; la que falta (que el log lleve el texto del paciente) **no compiló** y no se volvió a correr.
+- **Mutaciones a propósito** sobre lo nuevo (cada una cambia una sola cosa y corre las pruebas que tendrían que notarlo). Rama 1: 36, todas detectadas (la que hace que el log lleve el texto del paciente no había compilado en la primera pasada: se volvió a correr el 2026-10-19 y la detecta `AtencionPersonalTests.El_log_nunca_lleva_el_texto_del_paciente_ni_su_telefono`).
   Rama 2: 67 de la API (cuatro de ellas contra una base **sin** la 17, porque solo se notan ahí: son las que harían que la API toque una columna que no existe) y 53 del servicio. **Todas detectadas salvo 4 equivalentes**, es decir, cambios que
   no alteran nada observable: el `0` como hora del mensaje (igual lo rechaza el límite de antigüedad); el atajo "las columnas ya existen, no vuelvo a preguntar", que está escrito dos veces en `ColumnasChatPersonal` (antes y dentro del candado), así que sacar
   una de las dos no cambia nada (son dos mutaciones); y, en el servicio, pasar el aviso de una foto en vez de una cadena vacía al registro de consentimiento (`[Imagen] baja` no es un comando). Una más se había escapado (la poda de los mensajes vistos,
