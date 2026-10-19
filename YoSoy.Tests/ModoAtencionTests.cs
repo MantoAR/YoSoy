@@ -124,6 +124,7 @@ public class ModoAtencionTests
         Assert.NotNull(ex);
         var mensajes = string.Join(" | ", Cadena(ex!).Select(e => e.Message));
         Assert.Contains("Mensajeria:ModoAtencion", mensajes);
+        Assert.Contains($"\"{valor}\"", mensajes);            // y dice cuál fue el valor que no sirvió
         Assert.Contains("\"Asistente\"", mensajes);
         Assert.Contains("\"Personal\"", mensajes);
     }

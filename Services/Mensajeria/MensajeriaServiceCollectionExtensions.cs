@@ -13,10 +13,16 @@ public static class MensajeriaServiceCollectionExtensions
             // Sin palabras de riesgo el bot no podría detectar una urgencia: no arrancar.
             .Validate(o => o.PalabrasRiesgo.Any(p => !string.IsNullOrWhiteSpace(p)),
                 "Mensajeria:PalabrasRiesgo no puede estar vacía.")
-            // Un modo mal escrito no puede caer en silencio en uno de los dos: decide si el asistente contesta o no.
-            .Validate(o => ModosAtencion.EsValido(o.ModoAtencion),
-                "Mensajeria:ModoAtencion tiene que ser \"Asistente\" (como siempre) o \"Personal\" (el chat es para el personal).")
             .ValidateOnStart();
+
+        // El modo de atención se valida acá, al armar el host (igual que CanalActivo, más abajo): un valor mal escrito frena el arranque con un mensaje claro, porque decide
+        // si el asistente contesta o no y no puede caer en silencio en uno de los dos. (Un cambio en caliente del archivo con un valor inválido no corta la aplicación:
+        // MensajeriaOptions.EsModoPersonal da false y atiende el asistente, como siempre.)
+        var modoAtencion = config.GetSection(MensajeriaOptions.Seccion)["ModoAtencion"];
+        if (modoAtencion is not null && !ModosAtencion.EsValido(modoAtencion))
+            throw new InvalidOperationException(
+                $"Mensajeria:ModoAtencion = \"{modoAtencion}\" no es válido. Los valores válidos son \"Asistente\" (como siempre) y \"Personal\" (el chat es para el personal). " +
+                "Se cambia con Mensajeria__ModoAtencion en el .env del servidor.");
 
         // TryAdd: el reloj de la aplicación es RelojDeLaClinica (AddRelojDeLaClinica, que va primero en Program.cs).
         // Esta línea solo cubre a quien use AddMensajeria sin él.
