@@ -112,6 +112,9 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<NotificadorTurnos>();
         services.AddSingleton<INotificadorTurnos>(sp => sp.GetRequiredService<NotificadorTurnos>());
         services.AddSingleton<BotReservasService>();
+        // El chat para el personal (Mensajeria:ModoAtencion = "Personal") y la puerta que elige, en cada mensaje, quién atiende: el asistente o el personal.
+        services.AddSingleton<AtencionPersonalService>();
+        services.AddSingleton<RecepcionDeMensajes>();
 
         services.AddSingleton<RecordatorioBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<RecordatorioBackgroundService>());
