@@ -255,6 +255,12 @@ por defecto en `whatsapp-service/README.md`. Las variables del servicio viejo (`
 ya no se leen: si quedaron, el servicio las avisa en el log (solo los nombres) y se pueden borrar. En la API: `Mensajeria__CanalActivo` (`Simulado` o `Baileys`; `WhatsAppWebJs` ya
 no existe y la API no arranca con él), en `.env`.
 
+**Chat de WhatsApp para el personal** (en `.env`, de la API; opcionales, sin ellas todo sigue como siempre; el paso a paso y el paso manual del mensaje de emergencia están en
+[`DEPLOY.md`](DEPLOY.md), "Chat de WhatsApp para el personal"): `Mensajeria__ModoAtencion` (`Asistente`, por defecto, o `Personal`; otro valor frena el arranque),
+`Mensajeria__Personal__RespuestaDeEmergencia` (`false` por defecto: en modo `Personal`, el mensaje de emergencia que se le manda al paciente ante una frase de riesgo; aunque sea `true`
+no sale mientras alguna línea esté sin completar) y `Mensajeria__LineasEmergencia__0__Nombre`, `__0__Telefono`, `__1__Nombre` y `__1__Telefono` (las líneas de ese mensaje; hoy dicen
+`[COMPLETAR Y VALIDAR]` en `appsettings.json`). Los chats son **solo del Configurador**: los profesionales reciben 403 en `/mensajeria`.
+
 ## Verificación rápida (solo lectura)
 
 Ninguno de estos comandos imprime un secreto.

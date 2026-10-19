@@ -231,7 +231,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 | Grupo | Alcance |
 |---|---|
-| Mensajería (`/mensajeria/*`) | Rol Profesional o Configurador, con pertenencia de conversación (quién ve qué chat — ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook), cerradas aparte por `ChatSimuladoHabilitado`/`SoloLocal`. |
+| Mensajería (`/mensajeria/*`) | **Solo el rol Configurador** (que hace de recepción): un Profesional o un paciente recibe 403 en cada ruta; los profesionales no ven ningún chat ni reciben sus notificaciones (ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook), cerradas aparte por `ChatSimuladoHabilitado`/`SoloLocal`. |
 | Consentimiento (firmar y leer estado) | Rol Paciente **y** que el id de la URL sea el del propio token (o el equipo, para leer). |
 | Administración (usuarios, auditoría, catálogos al escribir, solicitudes, "Solicitudes de cambio"/`Derivacion`) | Solo Configurador. |
 | Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; ahora todo el grupo exige sesión a nivel de ruta (antes, varios — `/grupos`, `/reglasderivacion`, `/pacientes/{id}/caso` — no tenían ningún chequeo, ni de sesión ni de rol). |
@@ -319,6 +319,8 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | Clave | Por defecto | Para qué sirve |
 |---|---|---|
 | `CanalActivo` | `Simulado` | Canal por el que salen los mensajes: `Simulado` (no sale nada de la máquina) o `Baileys` (WhatsApp por `whatsapp-service`, el único motor: ver `whatsapp-service/README.md`). `WhatsAppWebJs` ya no existe: la aplicación no arranca con ese valor. |
+| `ModoAtencion` | `Asistente` | Quién atiende lo que la gente le escribe al número de WhatsApp: `Asistente` (el asistente de reservas contesta solo, como siempre) o `Personal` (el chat es para el personal: el asistente no contesta, cada mensaje queda "para atender" en la bandeja del Configurador, y cerrar o reabrir no le mandan texto a la persona). Otro valor frena el arranque. Variable de entorno: `Mensajeria__ModoAtencion`. |
+| `Personal:RespuestaDeEmergencia` | `false` | En modo `Personal`, si el mensaje trae una frase de riesgo, se le manda al paciente el mensaje de emergencia con las `LineasEmergencia`. **Apagado por defecto** (las líneas todavía dicen `[COMPLETAR Y VALIDAR]`) y, aunque se lo prenda, no sale mientras alguna línea esté sin completar. La conversación igual queda urgente y avisa en la campanita. Paso manual para activarlo: `docs/DEPLOY.md`. Variable de entorno: `Mensajeria__Personal__RespuestaDeEmergencia`. |
 | `AvisosPorWhatsApp` | `false` | Los cuatro avisos de turno por evento (solicitud, propuesta, confirmación, cancelación) **por WhatsApp**. **Apagada por defecto**: el uso saliente de WhatsApp está pausado por el riesgo de bloqueo. Apagada no sale ninguno por WhatsApp (el mail y la campanita siguen igual) y todo el consentimiento de WhatsApp queda dormido: no se ofrece en el registro ni en el perfil, no hay link `wa.me` y la API no toca la tabla `ConsentimientoWhatsApp`. No afecta a las respuestas del asistente. Para prenderla: `Mensajeria__AvisosPorWhatsApp=true`, con la migración 16 aplicada antes (`docs/DEPLOY.md`). |
 | `RecordatorioHorasAntes` | `24` | Ventana del recordatorio. |
 | `IntervaloChequeoMinutos` | `5` | Cada cuánto corre el servicio de recordatorios. |
@@ -342,7 +344,7 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 |---|---|---|
 | POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
 | GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
-| GET | `/capacidades` | `{ mensajeria }`: si la interfaz muestra el botón Chats. Mismo control que el filtro de `/mensajeria`: apagado o pedido remoto con `SoloLocal` da `false`. |
+| GET | `/capacidades` | `{ mensajeria, modoAtencion }`: si la interfaz muestra el botón Chats (solo el Configurador lo tiene) y en qué modo atiende (`asistente` o `personal`; `null` si la mensajería no está disponible). Mismo control que el filtro de `/mensajeria`: apagado o pedido remoto con `SoloLocal` da `false`. |
 | GET | `/mensajeria/conversaciones?estado=&desdeMensaje=` | Listado con nombre del paciente, último mensaje (id, texto, origen y hora) y `noLeidos`; urgentes siempre arriba, el resto por última actividad. Con `desdeMensaje` trae solo las conversaciones con mensajes posteriores (polling incremental). |
 | PUT | `/mensajeria/conversaciones/{id}/leida` | `{ hasta }`: el equipo vio la conversación hasta ese mensaje (contador de no leídos; requiere `add_lectura_conversacion.sql`). |
 | GET | `/mensajeria/conversaciones/{id}` | Estado de una conversación. |
