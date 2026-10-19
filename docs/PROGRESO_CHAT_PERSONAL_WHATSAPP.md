@@ -1,15 +1,31 @@
-# Chat de WhatsApp para el personal: diagnóstico y diseño (fase 1)
+# Chat de WhatsApp para el personal: diagnóstico, diseño y estado de lo construido
 
-**Estado (2026-10-19):** la fase 1 (diagnóstico, solo lectura) está terminada y **Agustín aprobó el diseño el 2026-10-19** con las ocho decisiones de la sección 7
-(la D2 corregida: **los profesionales no ven ningún chat**; solo el Configurador ve y responde). La fase 2 (código) empieza por el **hito 1** (ramas 1 y 2 de la
-sección 5.10), una rama por vez. Rama `docs/chat-personal-whatsapp-diagnostico`, desde `main` `ca77360` (PR #45).
-En la fase 1 no se cambió código, no se tocó `yosoy`, el VPS ni ningún `.env`, y no se conectó nada a WhatsApp real.
+**Estado (2026-10-19):** la fase 1 (diagnóstico, solo lectura) terminó y **Agustín aprobó el diseño el 2026-10-19** con las ocho decisiones de la sección 7
+(la D2 corregida: **los profesionales no ven ningún chat**; solo el Configurador ve y responde). El **hito 1** (ramas 1 y 2 de la sección 5.10) está **construido, probado y
+pusheado, sin mergear**: **lo que quedó, con sus diferencias respecto del diseño, está en la sección 9**, y manda sobre las secciones 5 a 7. Faltan los hitos 2 y 3.
+Rama `docs/chat-personal-whatsapp-diagnostico`, desde `main` `ca77360` (PR #45).
+Las secciones 1 a 8 son el diagnóstico y el diseño tal como se aprobaron, con avisos donde lo construido cambió algo. La fase 1 no cambió código, no tocó `yosoy`, el VPS
+ni ningún `.env`, y no conectó nada a WhatsApp real; el hito 1 tampoco: nada de lo construido se probó con WhatsApp real.
 
 **El objetivo:** ya no hay avisos ni recordatorios automáticos por WhatsApp (`Mensajeria:AvisosPorWhatsApp` sigue apagada). En su lugar, un
 **chat para el personal**: el paciente le escribe al número dedicado, el Configurador (que hace de recepción) ve la conversación en el sistema y responde. Más adelante,
 posiblemente una IA que sugiera borradores, siempre con aprobación humana. Por ahora, solo entorno de prueba, nada a producción.
 
+**Estado de la implementación (2026-10-19):**
+
+| Hito | Rama | Estado |
+|---|---|---|
+| 1 | `feat/chat-personal-modo-personal` (`a5161b8`) | construida, probada y pusheada; **sin mergear** (sale de `main` `ca77360`) |
+| 1 | `feat/chat-personal-entrantes-completos` (`803f441`) | construida, probada y pusheada; **sin mergear**; **apilada sobre la anterior** |
+| 2 | ramas 3 y 4 (vínculo con el paciente; envío visible) | sin empezar |
+| 3 | ramas 5 y 6 (pantalla y retención; topes), y la 7 (opcional) | sin empezar |
+
+Los PR los abre y mergea Agustín (la rama 1 primero). Nada se desplegó. Qué trae cada rama, qué cambió respecto del diseño y cómo repetir las pruebas: **sección 9**.
+
 ## Resumen
+
+*Los puntos 1 a 7 describen el sistema al hacer el diagnóstico, antes de construir. El hito 1 cambió los puntos 1 (los profesionales ya no ven chats), 2 (los entrantes llegan completos y con
+reintentos) y 3 (el asistente se apaga con `Mensajeria__ModoAtencion=Personal`); los puntos 4 y 5 siguen igual (hito 2); el 6 y el 7 cambian un poco (ver 6.2 y 6.8).*
 
 1. **La bandeja ya existe.** Hoy el Configurador y los profesionales tienen una bandeja de chats completa: lista con no leídos, hilo, notas internas,
    etiquetas, respuestas rápidas, Tomar/Devolver/Asignar, cerrar/reabrir, panel del paciente, auditoría y permisos por rol (matriz en
@@ -40,6 +56,8 @@ aditiva (la 17), un contrato v2 del webhook retrocompatible y **7 ramas en 3 hit
 ---
 
 ## 1. Cómo maneja hoy whatsapp-service los mensajes entrantes
+
+> **Antes del hito 1.** Esta sección describe el servicio tal como estaba al hacer el diagnóstico. Lo que la rama 2 cambió (avisos de tipo, id, hora y nombre del perfil, reintentos y contadores) está en 9.3.
 
 ### El camino
 
@@ -97,6 +115,9 @@ Solo se miran los eventos de tipo `notify` (mensajes nuevos); `append` (historia
 ---
 
 ## 2. Qué existe en la API y en la base
+
+> **Antes del hito 1.** Esta sección describe la API y la base tal como estaban al hacer el diagnóstico. El hito 1 sumó el modo `Personal`, dejó todo `/mensajeria` solo para el Configurador (D2) y agregó las tres columnas de
+> la migración 17 (9.2 y 9.3).
 
 ### Tablas (ya existen, de las migraciones 5, 13 y posteriores; producción tiene 44 tablas)
 
@@ -255,12 +276,16 @@ diario y horario, las pausas y el "escribiendo…" son iguales para una respuest
 | 5 | Responder desde el teléfono del número no pasa por los topes ni queda en el sistema | El teléfono no está controlado por ninguna de las protecciones |
 | 6 | El tope por persona es por día calendario, la ventana de conversación es móvil (24 h desde el último mensaje) | Una conversación que cruza la medianoche recupera cupo; es inofensivo pero conviene saberlo |
 
+**Hito 1:** la brecha 4 quedó resuelta (una foto, un audio y lo demás que no es texto cuentan como "escribió primero"; 9.3). Las otras siguen: la 2 y la 3 son de la rama 4, la 1 de la rama 6, la 5 es la regla de uso D8 y la 6 es informativa.
+
 Lo que **ya está bien** para el nuevo objetivo: la clínica no puede iniciar una conversación con alguien que nunca le escribió (403 `sin_consentimiento`), la BAJA se
 respeta hasta que la persona escriba ALTA, y una respuesta a quien escribió hace menos de 24 horas tiene un tope razonable (30).
 
 ---
 
 ## 5. Diseño mínimo propuesto
+
+> **Como quedó.** Las ramas 1 y 2 de este diseño están construidas (sección 9). Donde lo construido difiere de lo escrito en las secciones 5 a 7, **manda la sección 9**; las diferencias más importantes están marcadas acá con *(como quedó: …)*.
 
 **Principios:** reusar lo que existe; todo lo nuevo detrás de una llave que por defecto deja las cosas como hoy; cambios de base solo aditivos; nada al
 servidor; ninguna prueba contra WhatsApp real.
@@ -272,7 +297,7 @@ servidor; ninguna prueba contra WhatsApp real.
 | `Mensajeria:ModoAtencion` | `Asistente` / `Personal` | `Asistente` (= hoy) | En `Personal` el asistente no contesta y todo entrante queda para el Configurador |
 | `Mensajeria:Personal:RespuestaDeEmergencia` | `true` / `false` | **`false`** (D3) | En `Personal`, si el mensaje trae palabras de riesgo, se manda el mensaje de emergencia. Apagada, igual se marca `Urgente` y se avisa en la campanita. **Aunque se ponga en `true`, no se manda mientras alguna línea de `Mensajeria:LineasEmergencia` diga `[COMPLETAR Y VALIDAR]`** (se avisa en el log). Pasos para activarla: sección 7 |
 
-`/capacidades` pasa a informar también el modo (`{ mensajeria, modoAtencion }`), para que las pantallas rotulen bien.
+`/capacidades` pasa a informar también el modo (`{ mensajeria, modoAtencion }`), para que las pantallas rotulen bien *(como quedó: `modoAtencion` sale en minúscula, `"asistente"` o `"personal"`, y `null` si la mensajería no está disponible)*.
 
 ### 5.2 Flujo
 
@@ -291,8 +316,10 @@ Configurador --> Chats (polling) --> lista --> hilo --> responder --> ServicioMe
                                                                           +------- estado real del envio <---------+  (callback con referencia = IdMensaje)
 ```
 
+*(Como quedó, en el hito 1: los pasos 1, 3, 4 y 5 están hechos, y el 5 avisa una vez por tanda de mensajes y no una por conversación mientras no se lea; el paso 2, el vínculo por teléfono, es de la rama 3, y el "estado real del envío", de la rama 4.)*
+
 **Un estado nuevo o no.** Se **reusa `DerivadaHumano`** como el estado de todo chat en modo `Personal`: no cambia el esquema ni los filtros. Su costo es semántico
-(la pantalla dice "Escalada a persona"): se corrige con rótulos según el modo. Con la D2 ya no importa que ese estado traiga las reglas de Tomar/Devolver/Asignar y
+(la pantalla dice "Escalada a persona"): se corrige con rótulos según el modo *(como quedó: "Para atender")*. Con la D2 ya no importa que ese estado traiga las reglas de Tomar/Devolver/Asignar y
 de visibilidad por profesional: no se usan. La alternativa (un estado `Abierta`) obliga a cambiar el CHECK de la base, los filtros y los paneles; migrar a ella
 después es mecánico. Una conversación `Cerrada` que recibe un mensaje vuelve a `DerivadaHumano`.
 
@@ -313,7 +340,7 @@ revisar, aplicar o descartar sola.
 No hay tablas nuevas ni se guarda contenido multimedia. La 17 es independiente de la 16 (que sigue sin aplicarse). **Mientras `ModoAtencion` sea `Asistente`, la API no
 usa ninguna columna nueva** (ni para leer ni para escribir): se puede publicar sin haber aplicado la 17. Con `Personal` hace falta aplicarla **antes**. Orden de
 despliegue, **a futuro y no ahora**: backup, migración 17, API, whatsapp-service, y recién después `Mensajeria__ModoAtencion=Personal`. La API vieja sigue andando con
-las columnas nuevas. El script va en la rama 2, con su verificación de idempotencia y su versión en `01-produccion.sql`, como las migraciones anteriores.
+las columnas nuevas. El script va en la rama 2, con su verificación de idempotencia y su versión en `01-produccion.sql`, como las migraciones anteriores. *(Como quedó: 9.3. Con `Personal` y sin la 17, la API guarda igual los mensajes, sin id, tipo ni nombre, y lo avisa en el log; ver 9.4.)*
 
 ### 5.4 whatsapp-service: contrato v2 del webhook
 
@@ -327,8 +354,8 @@ POST /mensajeria/whatsapp/entrante
 - `tipo` e `id` (el de WhatsApp), `ts` (hora real del mensaje: la API la usa si es razonable, no futura y de menos de un día; si no, usa la suya) y `nombre` (D5).
 - Lo que no es texto viaja como **aviso del tipo**: `texto` = `[Audio]`, `[Imagen]`, `[Documento]`..., con la leyenda a continuación si la trae. El contenido no se descarga.
   Cuenta como "escribió primero" para el consentimiento y la ventana de 24 h (brecha 4).
-- **Reintentos** si la API falla (error de red, timeout, 5xx): 3 intentos en unos 3 minutos, **solo en memoria** (los textos no se escriben a disco). Sin reintento en 4xx.
-- **Contadores** en `GET /salud` (solo números): reenviados, ignorados por motivo, fallidos y perdidos. Sin teléfonos ni textos.
+- **Reintentos** si la API falla (error de red, timeout, 5xx o 429): el primer intento y 3 reintentos, a los 5 s, 30 s y 2 minutos del intento anterior (unos 2 minutos y medio en total), **solo en memoria** (los textos no se escriben a disco). Sin reintento en otros 4xx *(como quedó: 9.3)*.
+- **Contadores** en `GET /salud` (solo números): recibidos, repetidos, ignorados por motivo, reenviados, reintentados, fallidos, perdidos y pendientes. Sin teléfonos ni textos.
 - `POST /enviar` acepta una `referencia` (el `IdMensaje` de la API) y, cuando el mensaje sale, se descarta o falla, el servicio avisa a la API
   (`POST /mensajeria/whatsapp/envio { referencia, estado, codigo }`), que actualiza `EstadoEnvio` y `CodigoError`. Resuelve la brecha 3.
 
@@ -336,7 +363,7 @@ POST /mensajeria/whatsapp/entrante
 
 | Endpoint | Cambio | Quién |
 |---|---|---|
-| `POST /mensajeria/whatsapp/entrante` | Campos nuevos; en `Personal` no corre el asistente; responde `{ idConversacion, idMensaje }` | `whatsapp-service` (igual que hoy) |
+| `POST /mensajeria/whatsapp/entrante` | Campos nuevos; en `Personal` no corre el asistente; responde `{ idConversacion, respuestas }` y, cuando corresponde, `ignorado` e `idMensaje` *(como quedó)* | `whatsapp-service` (igual que hoy) |
 | `POST /mensajeria/whatsapp/envio` | **Nuevo**: estado real de un envío (por `referencia`) | `whatsapp-service` (igual candado) |
 | `GET /mensajeria/conversaciones/{id}/candidatos?q=` | **Nuevo** (rama 3): pacientes que coinciden por teléfono (hasta 5) o por la búsqueda `q` (nombre o DNI, hasta 10); DNI y teléfono **enmascarados** | Configurador |
 | `PUT /mensajeria/conversaciones/{id}/paciente` | **Nuevo** (rama 3): vincula (`{ idPaciente }`, `VinculoOrigen = manual`); audita ids | Configurador |
@@ -354,15 +381,15 @@ El banner de "WhatsApp desconectado" (rama 4) usa el `GET /mensajeria/whatsapp/e
 | Cambio | Detalle |
 |---|---|
 | Sin chats para el Profesional (D2) | Se saca el botón **Chats**, el cajón y la campanita de chats de la pantalla del Profesional; no se carga `bandeja.js` |
-| Rótulos según el modo | En `Personal`: "Esperando al equipo" en vez de "Escalada a persona"; sin el filtro "Del bot"; sin "Atendida por" ni "Asignar" (no hay dueño: D2); el icono dice "WhatsApp", no "Chat simulado"; se saca el selector "Enviar por" |
+| Rótulos según el modo | En `Personal`: "Esperando al equipo" en vez de "Escalada a persona"; sin el filtro "Del bot"; sin "Atendida por" ni "Asignar" (no hay dueño: D2); el icono dice "WhatsApp", no "Chat simulado"; se saca el selector "Enviar por" *(como quedó, en la rama 1: "Para atender" —el filtro dice "Para atender" y su ayuda "Esperando al equipo"—, sin "Del bot" y sin dueño; el icono y el selector "Enviar por" quedan para la rama 5)* |
 | Conversación sin identificar | Panel con los candidatos por teléfono, buscador por nombre o DNI, "Vincular" y "No es paciente". Lo vinculado por teléfono se marca "Probable: confirmá la identidad" |
-| Tipos de mensaje | Un aviso con icono para audio, imagen, documento...: "Mirá el teléfono del número" |
+| Tipos de mensaje | Un aviso con icono para audio, imagen, documento...: "Mirá el teléfono del número" *(como quedó, en la rama 2: una burbuja de borde punteado con "El archivo no se guarda en YoSoy: mirá el teléfono del número")* |
 | Envío visible | Cada mensaje saliente muestra enviando / enviado / **no salió: motivo**, con "Reintentar" |
 | Ventana de 24 h | "Escribió hace 3 h: podés responder" / "Pasaron más de 24 h: se envía igual, con un tope bajo por día" |
 | Conexión | Banner "WhatsApp desconectado: los mensajes no salen" (usa `GET /mensajeria/whatsapp/estado`, solo Configurador) |
 | Nombre de contacto | Si la conversación no tiene paciente, la lista y el panel muestran el nombre del perfil de WhatsApp como "Contacto: …" (D5) |
 | Lista | Paginada; "archivar" las cerradas de más de N días |
-| Campanita | "Chat nuevo" (una por conversación; vuelve a avisar tras 30 min de silencio), solo para el Configurador |
+| Campanita | "Chat nuevo" (una por conversación; vuelve a avisar tras 30 min de silencio), solo para el Configurador *(como quedó: una vez por tanda de mensajes, es decir, el primero, el que llega tras un cierre o el que llega tras 30 minutos de silencio)* |
 
 ### 5.7 Permisos por rol
 
@@ -386,7 +413,7 @@ Con la **D2**: solo el Configurador ve y contesta chats. Los profesionales atien
 |---|---|---|---|---|
 | Texto de los mensajes | Nunca | Nunca | **Se guarda** en `MensajeChat` (como hoy) | Los textos de las notas y de las respuestas tampoco van a la auditoría |
 | Teléfono completo | Nunca (`***1234`) | Nunca | **Se guarda** en `Conversacion.Telefono` | |
-| Nombre del perfil de WhatsApp | Nunca | Nunca | Solo en `Conversacion` si se aprueba D5 | |
+| Nombre del perfil de WhatsApp | Nunca | Nunca | Solo en `Conversacion.NombreContacto` (D5, aprobada) | |
 | Fotos, audios, documentos | No se descargan | — | **No se guardan** | Solo el aviso del tipo |
 | Grupos, difusión, estados, canales, historial anterior a la vinculación | No se procesan | — | No | `syncFullHistory` está apagado |
 | QR, credenciales de la sesión, secreto compartido | Nunca | Nunca | Carpeta de la sesión, fuera del repo | |
@@ -414,8 +441,8 @@ Tamaños aproximados: **chico** = unas 150 a 300 líneas de código y sus prueba
 
 | # | Rama | Qué incluye | Tamaño | Hito |
 |---|---|---|---|---|
-| 1 | `feat/chat-personal-modo-personal` | La llave `ModoAtencion` y el modo `Personal` (5.1 y 5.2): sin asistente, conversación para el Configurador, riesgo marcado `Urgente`, emergencia desactivada por defecto con su resguardo (D3), "chat nuevo" en la campanita, `cerrar`/`reabrir` sin texto automático, `/capacidades` con el modo. **D2**: todo `/mensajeria` solo Configurador (403 a un Profesional en cada ruta), sin cajón de chats, "Mías", Tomar ni Asignar en la pantalla. Sin migración | mediano | **1** |
-| 2 | `feat/chat-personal-entrantes-completos` | Webhook v2 compatible (tipo, id, hora, nombre), migración 17, avisos de tipo para fotos y audios (D4), nombre de contacto (D5), reintentos en memoria y contadores en `whatsapp-service` (D6), deduplicación por id. **Apilada sobre la 1** (usa `ModoAtencion`): con `Asistente` no usa ninguna columna nueva | mediano (la más grande: dos procesos y SQL) | **1** |
+| 1 | `feat/chat-personal-modo-personal` | La llave `ModoAtencion` y el modo `Personal` (5.1 y 5.2): sin asistente, conversación para el Configurador, riesgo marcado `Urgente`, emergencia desactivada por defecto con su resguardo (D3), "chat nuevo" en la campanita, `cerrar`/`reabrir` sin texto automático, `/capacidades` con el modo. **D2**: todo `/mensajeria` solo Configurador (403 a un Profesional en cada ruta), sin cajón de chats, "Mías", Tomar ni Asignar en la pantalla. Sin migración | mediano | **1** (hecha, sin mergear) |
+| 2 | `feat/chat-personal-entrantes-completos` | Webhook v2 compatible (tipo, id, hora, nombre), migración 17, avisos de tipo para fotos y audios (D4), nombre de contacto (D5), reintentos en memoria y contadores en `whatsapp-service` (D6), deduplicación por id. **Apilada sobre la 1** (usa `ModoAtencion`): con `Asistente` no usa ninguna columna nueva | mediano (la más grande: dos procesos y SQL) | **1** (hecha, sin mergear) |
 | 3 | `feat/chat-personal-vinculo-paciente` | Vínculo automático por teléfono (un solo candidato) sin asistente, candidatos y búsqueda, vincular y desvincular a mano, `VinculoOrigen` (migración 18), panel "sin identificar" | mediano | 2 |
 | 4 | `feat/chat-personal-envio-visible` | `codigoError` y autor (migración 19) en la pantalla, "Reintentar", ventana de 24 h, banner de conexión, estado real del envío (`referencia` y callback) | mediano | 2 |
 | 5 | `feat/chat-personal-pantalla` | Rótulos por modo, sin "Chat simulado", lista paginada, archivar y purgar según la retención (D7) | chico a mediano | 3 |
@@ -423,7 +450,7 @@ Tamaños aproximados: **chico** = unas 150 a 300 líneas de código y sus prueba
 | 7 | `docs/chat-personal-prueba-local` | `Scripts/iniciar-chat-local.ps1` (levanta la API y el servicio con las variables, sin imprimir secretos). Opcional: por ahora los comandos van en el reporte de cada rama | chico | opcional |
 
 - **Hito 1** (ramas 1 y 2, en ese orden): ya se prueba con un teléfono real: el paciente escribe, el Configurador lo ve y contesta, y fotos y audios dejan un aviso en el hilo.
-  Sin vínculo con el paciente todavía (la conversación sale "sin identificar").
+  Sin vínculo con el paciente todavía (la conversación sale "sin identificar"). *(Como quedó: construido y probado sin WhatsApp real; falta la prueba con el teléfono de prueba de Agustín.)*
 - **Hito 2** (ramas 3 y 4): vínculo con el paciente y envíos que muestran por qué fallan.
 - **Hito 3** (ramas 5 y 6): lo que hace usable el día a día.
 
@@ -440,7 +467,7 @@ tandas anteriores; un banco con Chrome contra la API real y una base descartable
 - **Node 22 o más** (tenés v24.14.1) y las dependencias de `whatsapp-service` (ya instaladas: Baileys 6.7.24). **.NET** para la API. Nada de Chromium, Puppeteer, sudo ni systemd.
 - Un teléfono con el **número dedicado** y WhatsApp instalado. **No uses tu número personal**: Baileys es un cliente no oficial y un uso brusco puede hacer que
   bloqueen el número (es el motivo de los topes).
-- Que `yosoy_test` exista (existe: 45 tablas) y tenga un usuario Configurador (no tiene: 0 usuarios).
+- Que `yosoy_test` exista (existe: 45 tablas) y tenga un usuario Configurador (no tiene: 0 usuarios). Con la rama 2, además, la migración 17 aplicada en esa base (6.3).
 
 ### 6.2 Variables de entorno (solo los nombres)
 
@@ -454,6 +481,7 @@ tandas anteriores; un banco con Chrome contra la API real y una base descartable
 | API | `ConnectionStrings__YoSoy` | sí | La base: `yosoy_test` |
 | API | `Mensajeria__WhatsApp__Secreto` | sí | El mismo valor que el servicio. Sin él el webhook contesta 404 a todo |
 | API | `Mensajeria__CanalActivo` | sí | `Baileys` |
+| API | `Mensajeria__ModoAtencion` | sí, para el chat del personal (rama 1) | `Personal`. Sin la variable, o con `Asistente`, contesta el asistente de siempre |
 | API | `Email__Password` | recomendada | Un espacio: así no sale ningún mail de verdad |
 | API | `Jwt:Key` (secreto de usuario) | sí | Ya la tenés si corrés la API en tu PC; si no, ver 6.3 |
 
@@ -494,6 +522,14 @@ Remove-Item $tmp
 - Si la API no arranca por falta de `Jwt:Key`: `dotnet user-secrets set "Jwt:Key" "<32 caracteres o más, al azar>"` (parado en `D:\Claude\YoSoy\YoSoy`).
 - Si preferís no mezclar tus pruebas manuales (con números reales) con las de la suite, creá otra base con `.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_wa` y
   usala en la cadena de conexión de abajo. La suite solo borra lo suyo, pero conviene separar.
+- **Con la rama 2 (la migración 17), una sola vez** en la base que uses (`yosoy_test` o la tuya; es idempotente y solo agrega):
+
+```powershell
+cd D:\Claude\YoSoy\YoSoy
+sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i .\migrations\add_chat_personal_entrantes.sql
+```
+
+  Sin ella, el modo `Personal` guarda igual los mensajes, pero sin id, tipo ni nombre, y el log de la API lo avisa (9.4).
 
 ### 6.4 Cada vez: dos ventanas de PowerShell
 
@@ -507,6 +543,7 @@ cd D:\Claude\YoSoy\YoSoy
 $env:ConnectionStrings__YoSoy = 'Server=.\SQLEXPRESS;Database=yosoy_test;Trusted_Connection=True;TrustServerCertificate=True;'
 $env:Email__Password = ' '                       # un espacio: no sale ningún mail
 $env:Mensajeria__CanalActivo = 'Baileys'
+$env:Mensajeria__ModoAtencion = 'Personal'       # el chat para el personal: sin esto contesta el asistente de siempre
 $env:Mensajeria__WhatsApp__Secreto = (Get-Content "$env:LOCALAPPDATA\YoSoy\whatsapp\secreto.txt" -Raw).Trim()
 dotnet run
 ```
@@ -551,7 +588,7 @@ No probé cómo se dibuja el QR en tu consola (usa caracteres de medio bloque): 
 
 ```powershell
 curl.exe -s http://127.0.0.1:3002/salud          # 200 conectado; 503 si falta vincular. Sin teléfonos ni textos
-curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true}
+curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal"}
 ```
 
 ### 6.7 Parar y empezar de cero
@@ -566,6 +603,9 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\YoSoy\whatsapp\sesion-baileys"
   Después, en el teléfono: Dispositivos vinculados, y cerrá esa sesión.
 
 ### 6.8 Probar el flujo hoy, sin código (hasta que exista el modo `Personal`)
+
+> **Como quedó.** Con la rama 1 el modo `Personal` existe. Con `Mensajeria__ModoAtencion=Personal` (6.2) no hace falta pedir una persona ni hay respuesta automática: el primer mensaje ya queda para el Configurador, en CRM, Chats (rotulado
+> "Para atender"), con un aviso "Escribió una persona por WhatsApp" en la campanita, y las fotos y los audios dejan un aviso en el hilo. El paso a paso de abajo vale para el modo `Asistente`.
 
 1. Desde **otro** teléfono, escribile al número dedicado: `quiero hablar con una persona`. (El asistente entiende `persona`, `humano`, `humana`, `operador`,
    `operadora`, `secretaria` y `recepcion`, como palabra entera, como pedido de una persona.)
@@ -591,6 +631,7 @@ Remove-Item -Recurse -Force "$env:LOCALAPPDATA\YoSoy\whatsapp\sesion-baileys"
 | No aparece el botón Chats ni el grupo CRM | `/capacidades` da `false`: `ChatSimuladoHabilitado` apagado, o el pedido no es local (proxy) |
 | El mensaje llega al teléfono del número pero no a Chats | Mirá la ventana A y el log de la B: `La API respondió 404` es un secreto distinto |
 | `sin_consentimiento` al responder | Esa persona nunca le escribió texto a este número (o `datos` se borró) |
+| El log de la API dice que a la base le falta la migración 17 | Falta aplicarla (6.3): mientras tanto, los mensajes se guardan sin id, tipo ni nombre |
 
 ---
 
@@ -604,12 +645,16 @@ Agustín aprobó el diseño con estas ocho decisiones. Dos cambian lo que yo hab
 | D2 | **Los profesionales NO ven ningún chat de WhatsApp ni reciben notificaciones de chats**; solo atienden, no contestan mensajes. **Solo el Configurador ve y responde.** Se descartan la visibilidad por paciente y Tomar/Asignar a profesionales. *(Corregida: yo había propuesto que vieran los chats sin dueño de sus pacientes)* | Todo `/mensajeria` exige el rol Configurador: un Profesional recibe **403** en cada ruta (probado ruta por ruta). De su pantalla se sacan el botón y el cajón Chats, la campanita de chats, "Mías", Tomar y Asignar. La campanita de chats ("chat nuevo", urgencias) es solo del Configurador | Rama 1 |
 | D3 | **Asistente automático apagado en modo `Personal`, salvo el mensaje de emergencia, que queda DESACTIVADO por defecto** mientras las líneas de `appsettings.json` digan `[COMPLETAR Y VALIDAR]`. *(Cambia: yo lo había propuesto prendido)* | En `Personal` el asistente no contesta nada. Una frase de riesgo igual marca la conversación `Urgente` y avisa al Configurador en la campanita, pero **no manda nada al paciente**. `Mensajeria:Personal:RespuestaDeEmergencia` viene en `false`; y aunque se ponga en `true`, **no se manda mientras alguna línea de `Mensajeria:LineasEmergencia` esté sin completar** (teléfono vacío o con el texto provisorio): el log lo avisa. El paso manual para activarla está abajo | Rama 1 |
 | D4 | **Fotos y audios: solo un aviso en el hilo, sin guardar el archivo** | `[Audio]`, `[Imagen]`, `[Video]`, `[Documento]`, `[Sticker]`, `[Ubicación]`, `[Contacto]`, con la leyenda a continuación si la trae; `MensajeChat.Tipo`; cuenta como "escribió primero". No se descarga ni se guarda el contenido | Rama 2 |
-| D5 | **El nombre de perfil de WhatsApp se guarda en la conversación, nunca en logs** | `Conversacion.NombreContacto`, se actualiza con cada mensaje y solo en modo `Personal`. Ni `whatsapp-service` ni la API lo escriben en un log (pruebas que capturan el log) | Rama 2 |
-| D6 | **Si la API falla, reintentos en memoria, sin escribir textos a disco** | 3 intentos en unos 3 minutos (solo ante error de red, timeout o 5xx; nunca ante un 4xx), con un tope de mensajes en espera. Si se agotan, se cuenta como perdido en `GET /salud` | Rama 2 |
+| D5 | **El nombre de perfil de WhatsApp se guarda en la conversación, nunca en logs** | `Conversacion.NombreContacto`, se actualiza cuando cambia y solo en modo `Personal`. Ni `whatsapp-service` ni la API lo escriben en un log (pruebas que capturan el log) | Rama 2 |
+| D6 | **Si la API falla, reintentos en memoria, sin escribir textos a disco** | el primer intento y 3 reintentos, a los 5 s, 30 s y 2 minutos (unos 2 minutos y medio en total; solo ante error de red, timeout, 5xx o 429; nunca ante otro 4xx), con un tope de 200 mensajes en espera. Si se agotan, se cuenta como perdido en `GET /salud` | Rama 2 |
 | D7 | **Retención: 90 días para quienes no son pacientes; para pacientes, configurable y pendiente de validación legal** | `Mensajeria:Retencion:SinPacienteDias` = 90 y `Mensajeria:Retencion:PacientesDias` **sin valor** (= no se borra nada) hasta que legal valide un plazo. **Todavía no hay tarea que borre**: llega con la rama 5 (hito 3) | Rama 5 |
 | D8 | **No se responde desde el teléfono del número; siempre desde YoSoy** | Regla de uso: la API no importa los mensajes propios (`fromMe`), así que lo que se conteste desde el teléfono no queda en el sistema ni pasa por los topes (sección 4, brecha 5). Importarlos queda como mejora posterior | Documentada |
 
+**Estado de las decisiones (2026-10-19):** la D2 y la D3 están hechas en la rama 1; la D4, la D5 y la D6, en la rama 2 (sección 9); la D7 (retención) todavía no tiene código (rama 5); la D1 es el criterio de todo el diseño y la D8, una regla de uso sin código.
+
 ### Cómo activar el mensaje de emergencia (paso manual, D3)
+
+*(Como quedó, el mismo procedimiento está en `docs/DEPLOY.md` de la rama 1, en "Mensaje de emergencia (paso manual, desactivado por defecto)".)*
 
 Hacerlo **solo cuando haya líneas oficiales verificadas** (las de `appsettings.json` hoy dicen `[COMPLETAR Y VALIDAR]`). Pasos, para Agustín:
 
@@ -632,6 +677,8 @@ Para volver a apagarlo basta con `Mensajeria__Personal__RespuestaDeEmergencia=fa
 ---
 
 ## 8. Qué verifiqué, qué no, y hallazgos menores
+
+> **Fase 1.** Esta sección es lo que se verificó al hacer el diagnóstico, antes de construir. Lo que se probó en el hito 1, y lo que no, está en 9.5.
 
 **Leí:** todo el código de `whatsapp-service` y, de la API, los endpoints de mensajería, los servicios, los DAOs, los modelos y las opciones; el esquema
 (`docs/produccion/01-produccion.sql`); las pantallas (`bandeja.js`, `shell.js`, el panel del Configurador); `docs/MATRIZ_ENDPOINTS.md`, `CAMBIOS_AGUS.md`
@@ -656,6 +703,8 @@ Para volver a apagarlo basta con `Mensajeria__Personal__RespuestaDeEmergencia=fa
 4. Si WhatsApp desvincula el dispositivo cuando el teléfono principal pasa mucho tiempo sin conectarse (según su ayuda, alrededor de 14 días: confirmalo ahí).
 5. Qué valen `Mensajeria__SoloLocal` y `Mensajeria__ChatSimuladoHabilitado` en el VPS (no leí su `.env`).
 
+Tras el hito 1 siguen sin verificar los cinco: nada se probó con WhatsApp real.
+
 **Hallazgos menores** (para el backlog; no frenan el diseño):
 
 - `CanalBaileys` tiene `http://127.0.0.1:3002/` fijo en el código (no sigue a `WHATSAPP_SERVICE_PORT`); `Mensajeria:WhatsAppServiceUrl` solo la usa la pantalla de administración.
@@ -664,3 +713,173 @@ Para volver a apagarlo basta con `Mensajeria__Personal__RespuestaDeEmergencia=fa
 - Las preguntas frecuentes las puede editar cualquier profesional (la matriz lo documenta como a propósito); con la D2 pasan a ser solo del Configurador.
 - `PacientesPorTelefono` lee todos los pacientes en cada mensaje de una conversación sin vincular.
 - El texto de consentimiento `v0-provisorio` (dormido) promete un recordatorio por WhatsApp que ya no existe.
+
+---
+
+## 9. Lo construido en el hito 1 (estado al 2026-10-19)
+
+Esta sección es el **como quedó**: lo que hay en las dos ramas del hito 1, lo que se decidió sobre la marcha (9.4) y lo que se probó (9.5). Donde algo difiere de lo escrito en las
+secciones 5 a 7 (el diseño), manda esta sección. Las dos ramas están **pusheadas y sin mergear**: los PR los abre y mergea Agustín (no hay `gh` ni token). No se desplegó nada.
+
+### 9.1 Las ramas
+
+| Rama | HEAD | Commits | Qué trae | Pruebas | Tamaño (líneas tocadas: agregadas más quitadas) |
+|---|---|---|---|---|---|
+| 1 `feat/chat-personal-modo-personal` | `a5161b8` | 6, desde `main` `ca77360` | `ModoAtencion` y el modo `Personal`, D2 (los chats son solo del Configurador), dos arreglos de `bandeja.js` que ya estaban en `main` | API **1640 de 1640**; mutaciones dirigidas sobre lo nuevo: 35 detectadas, y una más (que el log lleve el texto del paciente) **no compiló y quedó sin evaluar**; bancos con Chrome headless contra la API real, sin fallas | unas 535 líneas de código, 1680 de pruebas, 243 de documentación |
+| 2 `feat/chat-personal-entrantes-completos` | `803f441` | 5, **apilada sobre la 1** | migración 17, webhook v2, avisos de tipo (D4), nombre del perfil (D5), reintentos en memoria y contadores (D6), descarte de repetidos, y en la pantalla el aviso "el archivo no se guarda" y "Contacto: …" | API **1793 de 1793** (con la 17); **1713 de 1713** contra una base de 44 tablas sin la 16 ni la 17 (como producción hoy); `npm test`: 448 pasan, 6 saltadas por permisos POSIX, 0 fallas; mutaciones: 67 de la API y 53 del servicio, todas detectadas salvo 4 equivalentes (9.5); bancos con Chrome headless, sin fallas | unas 920 líneas de código, 2360 de pruebas, 130 de documentación |
+
+Los PR: el de la rama 2 con base `main` incluye los commits de la rama 1 hasta que se mergee la 1; con base la rama 1 muestra solo lo suyo.
+
+**Documentación que trae cada rama.** Rama 1: `README.md`, `docs/DEPLOY.md` (sección "Chat de WhatsApp para el personal: `Mensajeria__ModoAtencion`", con el paso manual del mensaje de emergencia),
+`docs/DESARROLLO_LOCAL.md` ("Probar el chat de WhatsApp para el personal en tu PC"), `docs/MATRIZ_ENDPOINTS.md` (la D2) y `docs/SERVIDOR.md`. Rama 2: lo mismo, más `docs/CATALOGO_SCRIPTS_SQL.md` (la migración 17),
+`docs/produccion/01-produccion.sql` (el esquema consolidado, ahora de 17 migraciones) y `whatsapp-service/README.md` (el contrato v2, los reintentos y los contadores).
+
+### 9.2 Rama 1: el modo `Personal` y la D2
+
+- **`Mensajeria:ModoAtencion`**: `Asistente` (por defecto, y lo que vale si la llave no está: lo de siempre, el mismo `BotReservasService` sin tocar) o `Personal`; no distingue mayúsculas. Se lee en cada
+  mensaje (`IOptionsMonitor`): un cambio en `appsettings.json` se toma sin reiniciar (una variable de entorno sí necesita reiniciar). Un valor que no sea ninguno de los dos, también uno vacío, **frena el
+  arranque** con un mensaje que dice cuáles valen (se valida al armar el host, igual que `CanalActivo`); un cambio en caliente a un valor inválido no corta nada: queda `Asistente`.
+  `GET /capacidades` informa `{ mensajeria, modoAtencion }`, con `modoAtencion` en minúscula (`"asistente"` o `"personal"`) y `null` si la mensajería no está disponible.
+- **Una sola puerta, `RecepcionDeMensajes`**, para el webhook de `whatsapp-service` y para el simulador: elige, mensaje por mensaje, quién atiende (`BotReservasService` o `AtencionPersonalService`).
+- **`AtencionPersonalService`**, por cada mensaje que entra en modo `Personal`:
+  1. lo guarda como siempre (origen `Paciente`);
+  2. **no contesta nada** (ni el menú, ni el pedido del DNI, ni "no te entendí");
+  3. deja la conversación en `DerivadaHumano` (la pantalla la rotula **"Para atender"**) y **sin dueño**: una `Activa` o `Cerrada` pasa a `DerivadaHumano`; una `Urgente` sigue `Urgente` (un mensaje común no la baja);
+  4. una frase de riesgo (`Mensajeria:PalabrasRiesgo`) la marca `Urgente` y avisa en la campanita del Configurador **sin afirmar que el bot respondió**: el aviso dice si al paciente se le mandó algo o no
+     (con el mensaje de emergencia apagado: "Al paciente no se le mandó ningún mensaje… respondele vos lo antes posible"). Ese aviso, como hasta ahora, lleva un extracto de 300 caracteres del mensaje;
+  5. **el mensaje de emergencia (D3)**: `Mensajeria:Personal:RespuestaDeEmergencia` viene en `false`. Aunque se ponga en `true`, **no sale mientras alguna línea de `Mensajeria:LineasEmergencia` tenga el texto provisorio o
+     el teléfono vacío**, y el log lo avisa. El paso manual para activarlo está en la sección 7 y, para el servidor, en `docs/DEPLOY.md` de la rama 1;
+  6. **"chat nuevo" en la campanita** ("Escribió una persona por WhatsApp"), una vez por *tanda* de mensajes (no "una por conversación mientras no se lea", como decía el diseño): cuando es el primer mensaje de la
+     conversación, o cuando estaba `Cerrada`, o cuando pasaron **30 minutos o más** desde su última actividad. El aviso no lleva el texto del mensaje, y si el mensaje trae una frase de riesgo el aviso es el de urgencia, no este;
+  7. **BAJA / STOP**: se registra igual que en el modo `Asistente` (si la llave de los avisos por WhatsApp está prendida), pero el mensaje **no se esconde**: el equipo tiene que ver que la persona lo pidió.
+- **Cerrar y reabrir** una conversación no le mandan el aviso automático "Sistema" a la persona (en modo `Personal`; en `Asistente` siguen mandándolo).
+- **D2, solo el Configurador**: todo el grupo `/mensajeria` exige el rol Configurador: un Profesional o un paciente recibe **403** y sin sesión **401**, **en los dos modos**. Las excepciones son las dos rutas que no tienen una persona
+  del otro lado: el simulador y el webhook de `whatsapp-service` (que sigue cerrado por el secreto). La prueba `ChatsSoloConfiguradorTests` **recorre la tabla de rutas de la aplicación** (la que usa `GuardiaEndpointsTests`): una ruta
+  nueva dentro de `/mensajeria` que quede abierta a un profesional rompe la prueba en vez de pasar en silencio. En la pantalla, `shell.js` carga la bandeja solo para el Configurador, y `bandeja.js` ya no tiene
+  Tomar, Devolver, Asignar, "Mías" ni "Atendida por". Se borró `PertenenciaConversacionTests` (probaba la visibilidad por profesional).
+- **Rótulos según el modo** en la bandeja: "Para atender" en lugar de "Escalada a persona" (el filtro dice "Para atender" y su ayuda, "Esperando al equipo, incluidas las urgentes"), sin el filtro "Del bot", y los textos de los avisos, del
+  diálogo de cerrar y del composer cerrado dicen lo que de verdad pasa (por ejemplo, que no se le manda nada al paciente).
+- **Dos errores de `bandeja.js` que ya estaban en `main`**, que el banco con un navegador real hizo aparecer: `appendChild(...nodos)` solo agrega un nodo, así que **la burbuja del primer mensaje de cada día no se dibujaba**; y
+  cerrar o reabrir pedían una vuelta *incremental* de la lista, que no ve un cambio de estado sin mensaje nuevo (en modo `Personal` ya no hay aviso "Sistema"): tardaba hasta 20 segundos en verse.
+- **Lo que NO cambia**: no hay migración; no se toca `whatsapp-service`. Tomar/Devolver/Asignar y `VisibilidadConversacion` **siguen en el servidor**, inalcanzables (el rol Profesional no pasa de la puerta): retirarlos va en una rama aparte (5.9).
+
+### 9.3 Rama 2: los mensajes entran completos
+
+**La migración 17, tal como quedó** (`migrations/add_chat_personal_entrantes.sql`; también consolidada en `docs/produccion/01-produccion.sql`, que pasa a ser el resultado de 17 migraciones):
+
+| Qué | Cómo quedó |
+|---|---|
+| `MensajeChat.IdExterno` | `nvarchar(64)` NULL. Índice único filtrado `UQ_MensajeChat_IdExterno` sobre `(IdConversacion, IdExterno)` `WHERE IdExterno IS NOT NULL`: los mensajes sin id (los de siempre, los del equipo, los del asistente) no cuentan |
+| `MensajeChat.Tipo` | `nvarchar(12)` NOT NULL, por defecto `'texto'` (`DF_MensajeChat_Tipo`), con la restricción `CK_MensajeChat_Tipo`: `texto`, `audio`, `imagen`, `video`, `documento`, `sticker`, `ubicacion`, `contacto`, `otro`. Los mensajes que ya había quedan como `texto` |
+| `Conversacion.NombreContacto` | `nvarchar(100)` NULL |
+
+Solo **agrega**: cada cambio va detrás de un `IF` y en su propio lote (la restricción del tipo, en uno aparte, porque tiene que compilar después de que exista la columna), no borra ni reescribe nada y no toca la 16. La API anterior
+la ignora (el valor por defecto de `Tipo` hace que sus `INSERT` sigan andando). **Verificación** (la consulta del encabezado del script): `3, 1, 1, 1` (las tres columnas, la restricción, el valor por defecto y el índice).
+Aplicarla dos veces, o sobre una base que ya la tiene, no cambia nada (se comparó el esquema antes y después), y el resultado es el mismo que el del esquema consolidado (salvo los números internos de columna y los nombres
+autogenerados de las claves primarias). Se aplica como las anteriores: `sqlcmd -S TU_SERVIDOR -d yosoy -E -C -I -f 65001 -b -i migrations\add_chat_personal_entrantes.sql` (con `-I` por el índice filtrado). Cómo deshacerla, en el
+encabezado del script (la API anterior no la necesita: **no hay que deshacerla para volver atrás**).
+
+**La API no usa esas columnas en modo `Asistente`** (garantía pedida por Agustín). La única puerta es **`IColumnasChatPersonal`**: dice "sí" solo con `ModoAtencion=Personal` **y** la base con las tres columnas. Los DAOs de mensajes y de
+conversaciones solo la consultan (reciben la puerta por un parámetro opcional: un DAO armado sin ella no las toca nunca). En modo `Asistente` **ni siquiera pregunta** por las columnas. En modo `Personal` la existencia de las columnas se
+comprueba una vez y, mientras falten, se vuelve a mirar **una vez por minuto**: aplicar la migración con la API andando alcanza, sin reiniciar. Las respuestas JSON del modo `Asistente` son las de siempre (`IdExterno` no sale nunca, y `Tipo`,
+`NombreContacto`, `ignorado` e `idMensaje` salen solo cuando hay algo que decir).
+
+**El webhook v2** (`POST /mensajeria/whatsapp/entrante`, sigue siendo solo loopback y secreto compartido): `{ telefono, texto, tipo?, id?, ts?, nombre? }`. Sin los cuatro últimos es el cuerpo de siempre y se atiende exactamente
+como siempre. Lo que viene se **limpia y se acota, y un dato malo se descarta él solo sin rechazar el mensaje** (`DatosDelEntrante`):
+
+| Campo | Regla |
+|---|---|
+| `tipo` | sin tipo, es `texto`; uno que no se conoce, `otro` |
+| `id` | el de WhatsApp: letras, números, guion, punto y guion bajo, de 1 a 64 caracteres; si no cumple, no se guarda (el mensaje entra igual) |
+| `ts` | segundos desde 1970; se usa si no está más de **1 minuto en el futuro** (si está un poco, se acota a "ahora") ni tiene **un día o más** de antigüedad; si no, vale la hora del servidor. Se convierte a la hora de la clínica |
+| `nombre` | sin saltos de línea ni caracteres que invierten o esconden texto, espacios juntos, hasta 100 caracteres y sin partir un emoji (se conservan los emojis compuestos) |
+
+**Respuesta del webhook:** `{ idConversacion, respuestas }` más, solo cuando corresponde, `ignorado` (`duplicado`, o `no_textual` en modo `Asistente`) e `idMensaje` (modo `Personal`).
+
+**D4, fotos, audios y documentos.** `whatsapp-service` ya no los descarta: reenvía un **aviso del tipo** (`[Imagen]`, `[Video]`, `[Audio]`, `[Documento]`, `[Sticker]`, `[Ubicación]`, `[Contacto]`) y, si la trae, la leyenda a continuación (`[Imagen] mi receta`).
+**No se descarga ni se guarda ningún archivo**, y **ni el nombre de un archivo ni lo que trae una ubicación o un contacto compartido viajan** (son de un tercero). Una nota de voz es un `audio` y un GIF es un `video`. Siguen sin viajar las reacciones,
+las ediciones, los borrados, las encuestas y los mensajes de protocolo. Cuenta como "escribió primero" para el consentimiento, igual que un texto (brecha 4 de la sección 4: el equipo le puede contestar), pero **su aviso no se interpreta como BAJA
+ni como ALTA**. En modo `Personal` se guarda como un mensaje más (con su tipo y su id) y la leyenda **también pasa por el filtro de riesgo**; en la pantalla se ve en una burbuja de borde punteado con el aviso "El archivo no se guarda en YoSoy: mirá el teléfono
+del número". En modo `Asistente` se ignora (es lo mismo que antes, cuando el servicio ni lo reenviaba). Un cliente que no armó el aviso (texto vacío con un tipo que no es `texto`) lo recibe armado por la API (`[Mensaje]` para `otro`).
+
+**D5, el nombre del perfil.** Se guarda en `Conversacion.NombreContacto` (solo cuando cambia) y **nunca va a un log, a la auditoría ni a la campanita**: lo vigilan una prueba que captura los logs de la API, el detector de logs sensibles (que ahora
+trata `contacto` y `perfil` como palabras sensibles) y, en el servicio, una guardia sobre el código fuente. En la pantalla, sin paciente vinculado, la **lista** lo muestra como título (con el teléfono en la fila de abajo y un tooltip que
+aclara de qué nombre se trata), la **cabecera** del hilo dice "Contacto: …" y el **panel** muestra "Perfil de WhatsApp" con la aclaración "no está confirmado"; la búsqueda también lo mira. Con un paciente vinculado manda el nombre del paciente.
+Va siempre escapado (probado con un navegador real y un nombre con HTML). El panel se vuelve a pedir solo al abrir la conversación (cada pedido deja una apertura en la auditoría): si el nombre cambia con el hilo abierto, la lista y la cabecera
+lo muestran enseguida y el panel al volver a abrirla. De paso se arregló `YS.iniciales` (el avatar), que con un emoji en el nombre mostraba una mitad de emoji rota (un carácter de reemplazo pegado a la J): ahora da `JP`.
+
+**D6, reintentos en memoria** (en `whatsapp-service`; el texto **nunca se escribe a disco**: una prueba lo vigila):
+- se reintenta ante un error de red, un tiempo agotado (5 s), un 5xx o un 429; **no** ante otro 4xx (un secreto que no coincide o un cuerpo inválido daría lo mismo);
+- el primer intento y hasta **3 reintentos, a los 5 s, 30 s y 2 minutos** del intento anterior (unos 2 minutos y medio en total; el diseño decía "3 intentos en unos 3 minutos");
+- los mensajes de una misma persona salen **de a uno y en orden** (mientras uno espera su reintento, los siguientes de esa persona esperan atrás); los de otra persona no esperan;
+- hasta **200** mensajes esperando a la vez; los que no entran se pierden y se cuentan;
+- el reintento manda **exactamente lo mismo** (mismo `id`), así que si la API ya lo había recibido no lo guarda dos veces;
+- **lo que está esperando se pierde si se agotan los reintentos o si se apaga el servicio** (es solo memoria, a propósito): el log dice cuántos, nunca cuáles;
+- **`GET /salud`** trae `entrantes`, solo números: `recibidos`, `duplicados`, `ignorados` por motivo, `reenviados`, `reintentados`, `fallidos` (la API los rechazó con un 4xx), `perdidos` y `pendientes`. Sin teléfonos, textos ni nombres.
+
+**Descarte de repetidos en la API**, en los dos modos: `EntrantesVistos` recuerda **en memoria** (30 minutos, hasta 5000) el teléfono y el id de lo que ya atendió; un repetido contesta `ignorado: "duplicado"` y no hace nada (no
+guarda, no avisa, no reabre una conversación cerrada). Si la atención falla, el id se libera para que el reintento sí entre. En modo `Personal`, además, lo frena **el índice único de la base**, y eso sobrevive a un reinicio de la API.
+
+### 9.4 Decisiones que no fijaba el diseño (las tomé yo; corregime si no estás de acuerdo)
+
+1. **`Personal` sin la migración 17 guarda igual y avisa en el log, en vez de frenar.** Perder el mensaje de un paciente es peor que guardarlo sin id, tipo ni nombre. El log dice, como mucho una vez por minuto, que falta aplicarla.
+2. **El descarte de repetidos en memoria vale en los dos modos.** Los reintentos del servicio podrían duplicar un mensaje que la API sí atendió pero cuya respuesta se perdió; en el modo `Asistente`, que tiene un menú con estado, eso haría
+   avanzar dos pasos con un solo mensaje. El índice de la base, en cambio, solo se usa en `Personal` (en `Asistente` no se toca ninguna columna nueva).
+3. **Un test obliga a que los avisos de tipo coincidan**: los de `whatsapp-service` (`baileys/mensajes.js`) y los de la API (`TiposDeMensaje.Aviso`) tienen que ser los mismos, y los campos del contrato v2 (`reenvio.js` y `MensajeEntranteRequest`) también; y
+   la lista de tipos de la API tiene que ser la de la restricción de la migración 17.
+4. **En modo `Asistente` una foto o un audio se ignoran, pero cuentan como "escribió primero"** en el registro de consentimiento del servicio (el servicio no sabe en qué modo está la API). Es lo único observable que cambia para ese modo: quien manda solo una foto
+   puede recibir la respuesta del equipo.
+5. **La D2 vale en los dos modos**, no solo en `Personal`: es lo que pidió Agustín, pero cambia lo que ven hoy los profesionales apenas se publique la rama 1.
+6. **El "chat nuevo" avisa por tanda** (primer mensaje, conversación cerrada o 30 minutos de silencio) y no una vez por conversación mientras no se lea: con la lectura compartida del equipo, la segunda no avisaría nunca más.
+7. **La BAJA no se esconde** en modo `Personal` (en `Asistente` el mensaje se esconde, como siempre).
+8. **Los reintentos van en orden por persona y con tope**, y el cuerpo del reintento es idéntico al original (mismo `id`).
+9. **Bases de prueba y marcas**: `Scripts\crear-base-de-pruebas.ps1` gana `-SinMigracion17` (se combina con `-SinConsentimientoWhatsApp`), y las pruebas que necesitan las columnas llevan `[Trait("Migracion", "17")]`, así que contra una base sin la 17 se corre con
+   `-Filtro 'Migracion!=17'`.
+
+### 9.5 Cómo se probó y cómo repetirlo
+
+```powershell
+cd D:\Claude\YoSoy\YoSoy
+git switch feat/chat-personal-entrantes-completos     # o feat/chat-personal-modo-personal para la parte 1
+
+# solo en la rama 2, una vez: yosoy_test necesita la 17 (idempotente; solo agrega)
+sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i .\migrations\add_chat_personal_entrantes.sql
+
+.\Scripts\correr-tests.ps1                             # rama 2: Superado 1793, Total 1793 · rama 1: 1640
+cd .\whatsapp-service; npm test; cd ..                 # solo rama 2: pass 448, skipped 6, fail 0
+
+# lo más parecido a producción hoy (44 tablas, sin la 16 ni la 17): rama 2, esperado 1713
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_prod -SinMigracion17 -SinConsentimientoWhatsApp
+.\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=17&Tabla!=ConsentimientoWhatsApp'
+```
+
+- **Mutaciones a propósito** sobre lo nuevo (cada una cambia una sola cosa y corre las pruebas que tendrían que notarlo). Rama 1: 36 propuestas, 35 detectadas; la que falta (que el log lleve el texto del paciente) **no compiló** y no se volvió a correr.
+  Rama 2: 67 de la API (cuatro de ellas contra una base **sin** la 17, porque solo se notan ahí: son las que harían que la API toque una columna que no existe) y 53 del servicio. **Todas detectadas salvo 4 equivalentes**, es decir, cambios que
+  no alteran nada observable: el `0` como hora del mensaje (igual lo rechaza el límite de antigüedad); el atajo "las columnas ya existen, no vuelvo a preguntar", que está escrito dos veces en `ColumnasChatPersonal` (antes y dentro del candado), así que sacar
+  una de las dos no cambia nada (son dos mutaciones); y, en el servicio, pasar el aviso de una foto en vez de una cadena vacía al registro de consentimiento (`[Imagen] baja` no es un comando). Una más se había escapado (la poda de los mensajes vistos,
+  que borraba los más nuevos) y se cerró con una prueba.
+- **Banco de la interfaz** con Chrome headless contra la API real y una base de pruebas (scripts locales, no versionados): modo `Personal` y `Asistente`, con y sin la 17. Mira la lista, el hilo, el panel, los avisos de tipo, el nombre del perfil, un nombre con HTML
+  (no se interpreta ni se ejecuta), cerrar y reabrir, la campanita y que un Profesional no tiene Chats y recibe 403. El polling de la bandeja no corre en un Chrome sin cabeza (`document.hidden`): el banco pide la vuelta con `YS.bandeja.actualizar()`, que
+  sigue el mismo camino de código.
+- **La migración**, en bases descartables que se crearon y se borraron: idempotencia, equivalencia con el esquema consolidado y que la 44-tablas sin la 17 pasa toda la suite menos lo que es de la 17.
+
+**No se probó:** ninguna conexión real a WhatsApp ni a Baileys (la forma real de `messageTimestamp` y de `pushName` salió de leer la librería, no de un mensaje de verdad), ni producción, ni el VPS, ni el comportamiento detrás de Caddy
+(con `SoloLocal` la bandeja daría 404 desde internet), ni carga real, ni el mensaje de emergencia con líneas oficiales.
+
+### 9.6 Límites conocidos
+
+- **Lo que espera un reintento se pierde** si se agota o se apaga el servicio (es solo memoria, D6).
+- Los mensajes de **más de 4000 caracteres se recortan**, como hoy: la columna es `nvarchar(4000)`.
+- En modo `Asistente` **no hay descarte de repetidos después de un reinicio de la API** (solo en memoria).
+- El panel derecho no se refresca solo si el nombre del perfil cambia con el hilo abierto (9.3, D5).
+- El selector "Enviar por" y la etiqueta "Chat simulado" de la lista siguen apareciendo en modo `Personal` (rama 5).
+- Hay un error de JavaScript **preexistente** en la pantalla de ingreso (`PANTALLAS/index.html`, `seleccionarRol`, al elegir la pestaña Configurador) que no es de los chats y no se tocó.
+
+### 9.7 Lo que falta
+
+- **Hito 2:** rama 3 (vínculo con el paciente: la conversación sigue saliendo "sin identificar", migración 18) y rama 4 (el motivo de un envío fallido y quién respondió, ventana de 24 h, banner de conexión, el estado real del envío con `referencia` y
+  `POST /mensajeria/whatsapp/envio`, migración 19).
+- **Hito 3:** rama 5 (pantalla: rótulos, lista paginada, archivar y **purgar según la retención, D7**) y rama 6 (presupuestos separados de los topes).
+- Rama 7, opcional: el script `Scripts/iniciar-chat-local.ps1` (hoy los comandos están en esta sección, en la 6 y en `docs/DESARROLLO_LOCAL.md` de la rama 1).
+- Retirar del servidor lo que la D2 dejó sin uso (Tomar, Devolver, Asignar, `VisibilidadConversacion`, `IdProfesionalAsignado`), en una rama aparte.
+- Agustín: abrir y mergear los PR (la 1 primero), probar con su teléfono de prueba (el QR lo escanea él), y los pendientes que no son código de la sección 7.
