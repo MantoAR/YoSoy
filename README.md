@@ -231,7 +231,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 | Grupo | Alcance |
 |---|---|
-| Mensajería (`/mensajeria/*`) | **Solo el rol Configurador** (que hace de recepción): un Profesional o un paciente recibe 403 en cada ruta; los profesionales no ven ningún chat ni reciben sus notificaciones (ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente quedan abiertas (son el equivalente a un webhook), cerradas aparte por `ChatSimuladoHabilitado`/`SoloLocal`. |
+| Mensajería (`/mensajeria/*`) | **Solo el rol Configurador** (que hace de recepción): un Profesional o un paciente recibe 403 en cada ruta; los profesionales no ven ningún chat ni reciben sus notificaciones (ver `docs/MATRIZ_ENDPOINTS.md`). Las dos rutas que simulan un mensaje entrante del paciente no piden sesión (son el equivalente a un webhook), pero solo responden a pedidos de la propia máquina —siempre, aunque `SoloLocal` sea `false`— y con `ChatSimuladoHabilitado`. |
 | Consentimiento (firmar y leer estado) | Rol Paciente **y** que el id de la URL sea el del propio token (o el equipo, para leer). |
 | Administración (usuarios, auditoría, catálogos al escribir, solicitudes, "Solicitudes de cambio"/`Derivacion`) | Solo Configurador. |
 | Casos, Grupos, Reglas de derivación, Derivaciones (Fase 2) | `AutorizacionCasos` ya filtraba por dueño; ahora todo el grupo exige sesión a nivel de ruta (antes, varios — `/grupos`, `/reglasderivacion`, `/pacientes/{id}/caso` — no tenían ningún chequeo, ni de sesión ni de rol). |
@@ -327,7 +327,7 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 | `TimeoutConversacionMinutos` | `30` | Inactividad tras la cual el bot vuelve al menú. |
 | `MaxIntentosEnvio` | `3` | Reintentos de un aviso que dio error. |
 | `ChatSimuladoHabilitado` | `true` | Apaga todos los endpoints `/mensajeria` (responden 404). |
-| `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. |
+| `SoloLocal` | `true` | `/mensajeria` solo acepta pedidos desde la propia máquina. Con `false` (la bandeja vista desde el sitio, como en producción) se abre a la red; el simulador (`/mensajeria/simulado/*`) y el webhook de WhatsApp siguen siendo solo locales. |
 | `UrlRegistroWeb`, `UrlIngresoTurno` | | Links que manda el bot. El de firma del consentimiento sale de `Consentimiento:UrlFirma`. |
 | `ExigirConsentimientoParaSolicitar` | `false` | `true` = el bot no crea el turno si falta el consentimiento. |
 | `ConsentimientoWhatsApp:VersionTexto` | `v0-provisorio` | Versión del texto del consentimiento de los avisos por WhatsApp (`Services/Mensajeria/Consentimiento/<versión>.txt`, embebido). Una versión publicada no se edita; **al cambiarla, los avisos por WhatsApp se detienen hasta que cada paciente vuelva a aceptar.** Solo rige con `AvisosPorWhatsApp` prendida (apagada, el consentimiento no se ofrece en ninguna pantalla). Variable de entorno: `Mensajeria__ConsentimientoWhatsApp__VersionTexto`. |
@@ -342,8 +342,8 @@ Solo valores no secretos. Cualquier token futuro (Meta, etc.) va por `dotnet use
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. |
-| GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). |
+| POST | `/mensajeria/simulado/entrante` | `{ telefono, texto }`: procesa el mensaje con el bot y devuelve las respuestas. Solo desde la propia máquina: un pedido remoto da 404, aunque `SoloLocal` sea `false`. |
+| GET | `/mensajeria/simulado/conversacion?telefono=` | Conversación de ese teléfono (404 si no hay). Idem: solo desde la propia máquina. |
 | GET | `/capacidades` | `{ mensajeria, modoAtencion }`: si la interfaz muestra el botón Chats (solo el Configurador lo tiene) y en qué modo atiende (`asistente` o `personal`; `null` si la mensajería no está disponible). Mismo control que el filtro de `/mensajeria`: apagado o pedido remoto con `SoloLocal` da `false`. |
 | GET | `/mensajeria/conversaciones?estado=&desdeMensaje=` | Listado con nombre del paciente, último mensaje (id, texto, origen y hora) y `noLeidos`; urgentes siempre arriba, el resto por última actividad. Con `desdeMensaje` trae solo las conversaciones con mensajes posteriores (polling incremental). |
 | PUT | `/mensajeria/conversaciones/{id}/leida` | `{ hasta }`: el equipo vio la conversación hasta ese mensaje (contador de no leídos; requiere `add_lectura_conversacion.sql`). |

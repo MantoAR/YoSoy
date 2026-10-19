@@ -47,6 +47,9 @@ public static class MensajeriaEndpoints
         // Excepción al RequireAuthorization del grupo: estos dos simulan un mensaje
         // ENTRANTE de un paciente (el equivalente a un webhook de WhatsApp real) — no
         // hay, ni tiene sentido que haya, una sesión de profesional del otro lado.
+        // Sin sesión y sin secreto, su único candado es la propia máquina, y vale SIEMPRE (como el del webhook de más abajo), no solo con SoloLocal: con SoloLocal=false (la
+        // bandeja vista desde el sitio, como en producción) el resto del grupo se abre a la red, pero estas dos siguen siendo solo locales y a un pedido remoto le contestan 404.
+        // Si no, cualquiera desde internet crearía conversaciones en la bandeja del Configurador y podría preguntar por un teléfono si esa persona ya habló con la clínica.
         g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, RecepcionDeMensajes recepcion, IMessageChannel canal) =>
         {
             try
@@ -58,13 +61,13 @@ public static class MensajeriaEndpoints
             {
                 return Results.BadRequest(new { mensaje = ex.Message });
             }
-        }).AllowAnonymous();
+        }).AllowAnonymous().SoloDesdeLaPropiaMaquina();
 
         g.MapGet("/simulado/conversacion", (string telefono, IConversacionDAO conversaciones, IMessageChannel canal) =>
         {
             var c = conversaciones.ObtenerPorTelefono(Telefono.Normalizar(telefono), canal.Nombre);
             return c is null ? Results.NotFound() : Results.Ok(new { c.IdConversacion, c.Estado });
-        }).AllowAnonymous();
+        }).AllowAnonymous().SoloDesdeLaPropiaMaquina();
 
         // Webhook real de WhatsApp (whatsapp-service se lo manda por mensaje entrante) —
         // lo que anticipaba el comentario de RequiereMensajeriaHabilitada de abajo. Fuera
@@ -587,6 +590,11 @@ public static class MensajeriaEndpoints
     public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
         grupo.AddEndpointFilter(async (ctx, next) =>
             MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
+
+    // Candado de una ruta suelta: solo responde a pedidos de la propia máquina, sin importar SoloLocal (EsLocal: ni uno que pasó por un proxy). A cualquier otro, 404, el mismo que
+    // el del grupo y el del webhook: no confirma que la ruta existe. Corre después del filtro del grupo, que sigue valiendo.
+    private static TBuilder SoloDesdeLaPropiaMaquina<TBuilder>(this TBuilder ruta) where TBuilder : IEndpointConventionBuilder =>
+        ruta.AddEndpointFilter(async (ctx, next) => EsLocal(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
 
     // El mismo criterio para el filtro del grupo y para /capacidades.
     public static bool MensajeriaDisponible(HttpContext http) =>

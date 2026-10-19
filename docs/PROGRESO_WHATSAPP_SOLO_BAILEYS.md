@@ -95,7 +95,7 @@ Lo que **no** sale por WhatsApp, para que no haya dudas:
 | E1 | Mensaje de una persona | Baileys `messages.upsert` (`baileys/servicio.js`, `baileys/mensajes.js`) | Solo texto de chats **individuales**: ignora grupos, estados, mensajes propios, historial y todo lo que no es texto. Anota que **escribió primero** (o su BAJA/ALTA) y lo reenvía a la API | Se deja |
 | E2 | Webhook de la API | `POST /mensajeria/whatsapp/entrante` (`MensajeriaEndpoints`): solo desde la propia máquina y con el secreto compartido | Pasa el mensaje al asistente (S6) | Se deja |
 | E3 | Comando **BAJA** / STOP... | Servicio: `privacidad.js` + `consentimiento.js`. API: `ComandoWhatsApp.EsBaja` → `ConsentimientoWhatsAppService.RegistrarBaja` | El servicio deja de escribirle (hasta que escriba ALTA); la API revoca su aceptación y **el asistente no contesta** | Se deja |
-| E4 | Chat simulado | `POST /mensajeria/simulado/entrante` (solo si `ChatSimuladoHabilitado`, y con `SoloLocal`: solo desde la propia máquina) | Mismo asistente. **Usa el canal activo**: con `Baileys`, la respuesta a un teléfono simulado saldría por WhatsApp real (acotado: solo desde la propia máquina y el servicio igual exige constancia de esa persona) | Se deja; queda anotado (H7) |
+| E4 | Chat simulado | `POST /mensajeria/simulado/entrante` (solo si `ChatSimuladoHabilitado` y siempre desde la propia máquina, aunque `SoloLocal` sea `false`) | Mismo asistente. **Usa el canal activo**: con `Baileys`, la respuesta a un teléfono simulado saldría por WhatsApp real (acotado: solo desde la propia máquina y el servicio igual exige constancia de esa persona) | Se deja; queda anotado (H7) |
 
 ### Administración y control (no mandan mensajes de pacientes)
 
