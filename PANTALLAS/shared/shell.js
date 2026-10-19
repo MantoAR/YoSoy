@@ -491,8 +491,9 @@
     };
 
     // La bandeja vive en Pantalla_ChatSimulado (con el módulo apagado esa carpeta responde 404).
-    function cargarBandeja() {
-        const opciones = cfg.chats || {};
+    // caps: lo que dijo /capacidades ({ mensajeria, modoAtencion }); el modo le dice a la bandeja cómo rotular.
+    function cargarBandeja(caps) {
+        const opciones = { ...(cfg.chats || {}), modoAtencion: caps?.modoAtencion };
         if (YS.bandeja) { YS.bandeja.iniciar(opciones); return; }
         document.head.appendChild(YS.el("link", { rel: "stylesheet", href: YS.rutas.chats + "css/bandeja.css" }));
         const s = YS.el("script", { src: YS.rutas.chats + "js/bandeja.js" });
@@ -550,25 +551,22 @@
             document.body.prepend(els.barra, els.encabezado);
             if (AVISOS[cfg.rol]) campana.iniciar(AVISOS[cfg.rol]);
 
-            // Chats: para configurador (sección CRM propia, con el grupo CRM completo) y para
-            // profesional (cajón, sin los ítems de administración de CRM) — en los dos casos
-            // solo si la mensajería está disponible para este pedido. /capacidades usa el mismo
-            // control que el 404 de /mensajeria; con el módulo apagado no se agrega nada al menú
-            // ni se carga la bandeja.
-            if (cfg.rol === "configurador" || cfg.rol === "profesional") {
+            // Chats: SOLO para el configurador (sección CRM propia, con el grupo CRM completo), que hace de recepción. Los profesionales no ven ningún chat ni
+            // reciben sus avisos (decisión D2 del chat para el personal): no tienen botón Chats ni cajón, y el servidor les contesta 403 en todo /mensajeria.
+            // Solo si la mensajería está disponible para este pedido: /capacidades usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se
+            // agrega nada al menú ni se carga la bandeja.
+            if (cfg.rol === "configurador") {
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
                 capacidades.then(c => {
                     if (!c?.mensajeria) return;
-                    if (cfg.rol === "configurador") {
-                        agregarGrupoCRM();
-                        // Si la URL ya pedía una sección del grupo CRM antes de que esto
-                        // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
-                        // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
-                        // reintentar con el id que se pidió en realidad, no con el hash actual.
-                        if (cfg.navegar && GRUPO_CRM.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
-                            cfg.navegar(hashInicial.id, hashInicial.params);
-                    }
-                    cargarBandeja();
+                    agregarGrupoCRM();
+                    // Si la URL ya pedía una sección del grupo CRM antes de que esto
+                    // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
+                    // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
+                    // reintentar con el id que se pidió en realidad, no con el hash actual.
+                    if (cfg.navegar && GRUPO_CRM.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
+                        cfg.navegar(hashInicial.id, hashInicial.params);
+                    cargarBandeja(c);
                 });
             }
 

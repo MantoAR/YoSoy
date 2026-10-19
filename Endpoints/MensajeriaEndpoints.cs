@@ -13,12 +13,17 @@ public static class MensajeriaEndpoints
 {
     public static IEndpointRouteBuilder MapMensajeria(this IEndpointRouteBuilder app)
     {
-        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador — exige
-        // sesión de Profesional o Configurador. Las mitigaciones que ya tenía (flag
-        // ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
+        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador. Las mitigaciones
+        // que ya tenía (flag ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
         // RequiereMensajeriaHabilitada) siguen intactas, esto es una capa más encima.
+        // D2 (chat para el personal): los chats son SOLO del Configurador, que hace de recepción.
+        // Los profesionales atienden, no contestan mensajes: no ven ningún chat ni reciben sus
+        // notificaciones, y un Profesional (o un paciente) recibe 403 en cada ruta de este grupo
+        // (ChatsSoloConfiguradorTests lo prueba ruta por ruta y vigila que una ruta nueva no quede
+        // abierta). Las excepciones, más abajo, son las que no tienen sesión del otro lado: el
+        // simulador y el webhook de whatsapp-service.
         var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada()
-            .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+            .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
         // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
         // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
@@ -481,8 +486,8 @@ public static class MensajeriaEndpoints
             return Results.NoContent();
         });
 
-        // El cliente pide siempre destinatario=Administrador (lo comparten todos los
-        // profesionales y el Configurador, campana de bandeja.js) - el filtro por pertenencia
+        // El cliente pide siempre destinatario=Administrador (la campana de bandeja.js, solo del
+        // Configurador desde la D2: un Profesional recibe 403) - el filtro por pertenencia
         // tiene que hacerse acá, nunca confiando en lo que mande el cliente. Una conversación
         // puede haber quedado asignada a otra persona DESPUÉS de crearse el aviso (por
         // ejemplo, "un paciente pidió hablar con alguien" seguido de un Tomar de otro
