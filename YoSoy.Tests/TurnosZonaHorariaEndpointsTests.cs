@@ -290,7 +290,7 @@ public class ProximoTurnoZonaHorariaIntegrationTests : IDisposable
     private readonly string _marca = "xtest" + Guid.NewGuid().ToString("N")[..10];
     private readonly int _idEspecialidad, _idProfesional, _idPaciente;
     private readonly int _idPendiente, _idCancelado;
-    private readonly List<int> _estadosCreados = new();
+    private readonly List<string> _estadosTomados = new();
     private readonly List<int> _turnos = new();
 
     public ProximoTurnoZonaHorariaIntegrationTests()
@@ -324,29 +324,12 @@ public class ProximoTurnoZonaHorariaIntegrationTests : IDisposable
         cmd.ExecuteNonQuery();
     }
 
-    // El catálogo es compartido: si el estado existe se usa; si no, se crea (y se borra al terminar, si nadie lo usa).
+    // El catálogo es compartido (ver EstadosCompartidos): el estado se toma y se suelta al terminar; lo borra la última prueba que lo usa.
     private int Estado(string descripcion)
     {
-        const string buscar = "SELECT IdEstadoTurno FROM EstadoTurno WHERE Descripcion = @d";
-        using (var con = Conexion.ObtenerConexion())
-        {
-            con.Open();
-            using var cmd = new SqlCommand(buscar, con);
-            cmd.Parameters.AddWithValue("@d", descripcion);
-            var existente = cmd.ExecuteScalar();
-            if (existente is not null) return Convert.ToInt32(existente);
-        }
-        try
-        {
-            var id = Insertar("INSERT INTO EstadoTurno (Descripcion, Estado) VALUES (@d, N'Activo'); SELECT CAST(SCOPE_IDENTITY() AS INT);",
-                ("@d", descripcion));
-            _estadosCreados.Add(id);
-            return id;
-        }
-        catch (SqlException ex) when (ex.Number is 2601 or 2627)
-        {
-            return Insertar(buscar, ("@d", descripcion));   // otra prueba lo creó en el mismo instante
-        }
+        var id = EstadosCompartidos.Tomar(descripcion);
+        _estadosTomados.Add(descripcion);
+        return id;
     }
 
     private int Turno(DateTime fecha, TimeSpan hora, int idEstado)
@@ -364,11 +347,9 @@ public class ProximoTurnoZonaHorariaIntegrationTests : IDisposable
         Ejecutar("DELETE FROM Paciente WHERE IdPaciente = @i", ("@i", _idPaciente));
         Ejecutar("DELETE FROM Profesional WHERE IdProfesional = @i", ("@i", _idProfesional));
         Ejecutar("DELETE FROM Especialidad WHERE IdEspecialidad = @i", ("@i", _idEspecialidad));
-        foreach (var id in _estadosCreados)
-        {
-            try { Ejecutar("DELETE FROM EstadoTurno WHERE IdEstadoTurno = @i", ("@i", id)); }
-            catch (SqlException) { /* lo está usando otra prueba: queda */ }
-        }
+        // Lo borra la última prueba que lo usa; si lo está usando un turno que no es de esta prueba, queda.
+        foreach (var descripcion in _estadosTomados) EstadosCompartidos.Soltar(descripcion);
+        _estadosTomados.Clear();
     }
 
     // ---------- El DAO ----------
