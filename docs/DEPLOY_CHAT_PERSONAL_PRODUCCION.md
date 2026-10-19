@@ -1,7 +1,7 @@
 # Despliegue a producción: chat de WhatsApp para el personal
 
 Runbook para llevar a producción el chat de WhatsApp para el personal (CRM → Chats, solo el Configurador). Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de
-siempre de [`DEPLOY.md`](DEPLOY.md). Escrito el 2026-10-19 contra `main` en `d18702e` (con los PR #46 a #49). Qué se decidió y qué se construyó: [`PROGRESO_CHAT_PERSONAL_WHATSAPP.md`](PROGRESO_CHAT_PERSONAL_WHATSAPP.md).
+siempre de [`DEPLOY.md`](DEPLOY.md). Escrito el 2026-10-19 contra `main` en `4cff56e` (con los PR #46 a #50) más la rama `fix/chat-simulado-cerrado` (el simulador anónimo cerrado en el código), que tiene que estar en `main` antes de armar el paquete (paso 1.0). Qué se decidió y qué se construyó: [`PROGRESO_CHAT_PERSONAL_WHATSAPP.md`](PROGRESO_CHAT_PERSONAL_WHATSAPP.md).
 
 - **Nada de esto se ejecutó en el VPS** (desde donde se escribió no hay acceso). Lo que sí se probó, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`; si alguno lo hiciera, pará.
@@ -19,23 +19,28 @@ siempre de [`DEPLOY.md`](DEPLOY.md). Escrito el 2026-10-19 contra `main` en `d18
 | Fotos, audios, documentos | Llegan como un aviso (`[Imagen]`, `[Audio]`...); el archivo **no se descarga ni se guarda**: se mira en el teléfono del número |
 | Topes de envío | 30 mensajes por día y 10 por hora (`WHATSAPP_TOPE_DIARIO`, `WHATSAPP_TOPE_POR_HORA`) |
 | Número de WhatsApp | **Sin vincular** al terminar el despliegue. El QR se escanea más adelante (paso 7) |
+| Apagado de emergencia | **`sudo systemctl stop whatsapp-service`** (y `sudo systemctl disable --now whatsapp-service` para que no vuelva con un reinicio del VPS). **No** `Mensajeria__CanalActivo=Simulado`: no apaga nada y marca como "Enviado" respuestas que no salen (paso 8) |
 
-## Antes de empezar: cuatro cosas que cambian el plan
+## Antes de empezar: cinco cosas que cambian el plan
 
-**1. Para ver Chats en el sitio real hace falta `Mensajeria__SoloLocal=false`, y eso deja el simulador abierto a internet.** Con el valor por defecto (`true`) la API trata como "remoto" todo lo que llega por
-Caddy y contesta `/capacidades` con `"mensajeria":false`: el Configurador no ve el grupo CRM → Chats. Con `false` Chats aparece, pero dos rutas del mismo grupo son **anónimas por diseño**
-(`POST /mensajeria/simulado/entrante` y `GET /mensajeria/simulado/conversacion`, en `Endpoints/MensajeriaEndpoints.cs`): cualquiera, sin sesión, puede meter un mensaje falso en la bandeja con el teléfono que
-quiera, y averiguar si un teléfono tiene conversación. Se comprobó con la API de `main` detrás de un Caddy real (v2.7.0, la versión mínima que pide el VPS), pidiendo desde una dirección que no es la propia máquina:
+**1. Para ver Chats en el sitio real hace falta `Mensajeria__SoloLocal=false`, y el simulador anónimo queda cerrado en el código, no en la configuración.** Con el valor por defecto (`true`) la API trata como "remoto" todo lo que llega por
+Caddy y contesta `/capacidades` con `"mensajeria":false`: el Configurador no ve el grupo CRM → Chats. Con `false` Chats aparece, y eso dejaba abiertas a internet dos rutas del mismo grupo que son **anónimas por diseño**
+(`POST /mensajeria/simulado/entrante` y `GET /mensajeria/simulado/conversacion`, en `Endpoints/MensajeriaEndpoints.cs`): cualquiera, sin sesión, podía meter una conversación falsa en la bandeja con el teléfono que quisiera y averiguar si un
+teléfono ya habló con la clínica. **Ya no:** la rama `fix/chat-simulado-cerrado` les pone el mismo candado que ya tiene el webhook de WhatsApp: solo contestan a pedidos de la propia máquina, **siempre**, aunque `SoloLocal` sea `false`; a un pedido
+que llegó por Caddy le contestan 404 (y el chat simulado de desarrollo, en tu PC, sigue andando igual). Comprobado con la API de `main` y con la del arreglo detrás de un Caddy real (v2.7.0, la versión mínima que pide el VPS), con `curl` y con Chrome,
+pidiendo desde una dirección que no es la propia máquina:
 
-| Configuración | `GET /capacidades` | `POST /mensajeria/simulado/entrante` (teléfono válido) |
-|---|---|---|
-| `SoloLocal` por defecto | `{"mensajeria":false,"modoAtencion":null}` | 404 |
-| `SoloLocal=false` | `{"mensajeria":true,"modoAtencion":"personal"}` | **200: crea la conversación** |
-| `SoloLocal=false` + bloque de Caddy (paso 3.2) | `{"mensajeria":true,"modoAtencion":"personal"}` | 404 |
+| Build | `SoloLocal` | Bloque de Caddy (3.2) | `GET /capacidades` | `POST /mensajeria/simulado/entrante` desde internet |
+|---|---|---|---|---|
+| Sin el arreglo (`main` hasta `4cff56e`) | por defecto (`true`) | no | `"mensajeria":false` | 404 |
+| Sin el arreglo | `false` | no | `"mensajeria":true` | **200: crea la conversación** |
+| Sin el arreglo | `false` | sí | `"mensajeria":true` | 404 (lo corta Caddy) |
+| **Con el arreglo** | `false` | no | `"mensajeria":true` | **404 (lo corta la API)** |
+| **Con el arreglo** | `false` | sí | `"mensajeria":true` | 404 |
 
-La mitigación está en este runbook (**paso 3.2: un bloque de Caddy que corta `/mensajeria/simulado/*`**) y se comprueba en el paso 4.4. La corrección de fondo es de código (que el simulador solo responda desde la
-propia máquina, o solo con `CanalActivo=Simulado`): no está hecha; ver "Hallazgos" al final. (Ojo si probás desde la propia máquina: Caddy le pasa `X-Forwarded-For: 127.0.0.1` y la API lo toma como local; las sondas
-de este runbook se hacen contra la dirección pública.) *Alternativa más conservadora:* dejar `SoloLocal=true` y entrar a Chats por un túnel (`ssh -L 5000:127.0.0.1:5000 agustin@179.199.155.50`, y abrir
+El **build que publiques tiene que traer el arreglo** (el paso 1.0 lo comprueba). El bloque de Caddy del **paso 3.2 queda como segunda capa**: si algún día se publica un build sin el arreglo, cambia cómo llega `X-Forwarded-For` o alguien toca el código
+sin querer, el simulador sigue cerrado. Las sondas del paso 4.4 comprueban cada capa por separado. (Las del sitio público salen del VPS hacia su propia dirección pública, que para la API es remota; si las forzaras por `127.0.0.1` —por ejemplo con
+`curl --resolve`—, Caddy le pasa `X-Forwarded-For: 127.0.0.1` y la API lo toma como la propia máquina.) *Alternativa más conservadora:* dejar `SoloLocal=true` y entrar a Chats por un túnel (`ssh -L 5000:127.0.0.1:5000 agustin@179.199.155.50`, y abrir
 `http://localhost:5000/pantallas/index.html`); la pantalla WhatsApp, la del QR, anda por el sitio real igual, porque no depende de `SoloLocal`.
 
 **2. El VPS casi seguro tiene una API más vieja que `main`.** Este despliegue lleva de una vez varios PR (Baileys como único motor, recordatorios sin WhatsApp, mails mínimos, consentimiento dormido, el chat del
@@ -46,10 +51,12 @@ personal). Tres cosas que rompen o sorprenden si no se miran antes (el paso 1.2 
 
 **3. "Desplegado sin vincular" es un estado quieto y ordenado, pero la pantalla no ayuda.** Sin número vinculado el servicio abre 2 ventanas de QR de ~2,7 minutos cada una (unos 5 minutos en total desde que arranca) y
 después **se queda quieto**. Pasado ese rato, Configurador → WhatsApp muestra "Desconectado / Generando el código QR..." **sin ningún botón**: para tener un QR nuevo hay que reiniciar el servicio por SSH
-(`sudo systemctl restart whatsapp-service`). Todo el detalle está en el paso 6.
+(`sudo systemctl restart whatsapp-service`). Es una mejora pendiente (un botón en esa pantalla; decidido: no se hace ahora, ver "Mejoras pendientes"). Todo el detalle está en el paso 6.
 
 **4. Lo que corre hoy en el VPS como `whatsapp-service` es, según `SERVIDOR.md`, el servicio viejo** (whatsapp-web.js + Chromium, `MemoryMax=2G`). Este runbook lo reemplaza (con backup y rollback) y sirve igual si
 nunca se instaló (el paso 1.2 dice cuál es el caso). **Nunca los dos servicios a la vez**: usan el mismo puerto.
+
+**5. Apagar de verdad es parar el servicio, no cambiar `CanalActivo`.** `sudo systemctl stop whatsapp-service` corta todo (y `sudo systemctl disable --now whatsapp-service`, para que no vuelva con un reinicio del VPS). `Mensajeria__CanalActivo=Simulado` **no apaga nada**: la API deja de hablarle al servicio, pero guarda las respuestas del equipo como **"Enviado"** aunque **no salen**, y el equipo cree que se mandaron y los pacientes no reciben nada. No lo uses como interruptor (paso 8, "Apagar todo rápido").
 
 ## Convenciones
 
@@ -87,12 +94,13 @@ Antes de empezar: elegí un horario de poco uso (la API se reinicia) y avisá a 
 ```powershell
 cd D:\Claude\YoSoy\YoSoy
 git switch main; git pull --ff-only; git status --short; git log -1 --oneline
+(Select-String -Path Endpoints\MensajeriaEndpoints.cs -Pattern 'SoloDesdeLaPropiaMaquina' -SimpleMatch | Measure-Object).Count      # 3: el simulador anónimo está cerrado en el código
 $fecha = Get-Date -Format yyyyMMdd; $fecha                  # anotá el valor: es la FECHA que se usa en el VPS
 New-Item -ItemType Directory -Force 'D:\Claude\Backups\yosoy-produccion' | Out-Null
 ```
 
-**Esperado:** `git status` sin líneas; `git log -1` es `d18702e` (*Merge pull request #49*) o uno posterior; anotá el commit: es lo que desplegás. Si `main` avanzó, mirá qué cambió desde `d18702e` en lo que usa este
-runbook (`git diff d18702e..HEAD --stat -- migrations docs/produccion appsettings.json Endpoints Services/Mensajeria whatsapp-service`) antes de seguir. La carpeta de backups está **fuera de cualquier repositorio**.
+**Esperado:** `git status` sin líneas; `git log -1` es `4cff56e` (*Merge pull request #50*) o uno posterior; el conteo da `3` (el simulador cerrado en el código; si da `0`, tu `main` todavía no trae `fix/chat-simulado-cerrado`: mergealo antes de seguir, o seguí solo si aceptás que **únicamente el bloque de Caddy del 3.2** lo cierra); anotá el commit: es lo que desplegás. Si `main` avanzó, mirá qué cambió desde `4cff56e` en lo que usa este
+runbook (`git diff 4cff56e..HEAD --stat -- migrations docs/produccion appsettings.json Endpoints Services/Mensajeria whatsapp-service`) antes de seguir. La carpeta de backups está **fuera de cualquier repositorio**.
 
 ### 1.1 Backup de la base `yosoy`, que termina solo en tu PC
 
@@ -187,8 +195,8 @@ cortarlo todavía, no sigas.
 - **Con `Mensajeria__AvisosPorWhatsApp` apagada (el valor por defecto) la API no toca la tabla `ConsentimientoWhatsApp`**: ni al registrar pacientes, ni en el perfil, ni en los envíos, ni cuando llega una BAJA
   (`DEPLOY.md`, "Consentimiento de WhatsApp"). Este runbook no define esa llave.
 - Producción tiene 44 tablas, sin la 16 (`SERVIDOR.md`). La 17 es independiente de la 16 (lo dice el encabezado de la migración).
-- Comprobado para esta versión: la suite completa de `main` contra una base de **44 tablas con la 17 aplicada** (la forma de producción después de este paso), sin las 45 pruebas que son de la tabla de la 16,
-  da **1752 de 1752** (ver "Qué se verificó").
+- Comprobado para esta versión: la suite completa de `main` más el arreglo contra una base de **44 tablas con la 17 aplicada** (la forma de producción después de este paso), sin las 45 pruebas que son de la tabla de la 16,
+  da **1772 de 1772** con el arreglo del simulador (ver "Qué se verificó").
 - Solo habría que aplicar la 16 el día que se prenda `Mensajeria__AvisosPorWhatsApp` (y antes del texto legal validado).
 
 ### 2.2 [PC] Subir el archivo
@@ -236,7 +244,7 @@ Todo **antes** de publicar la API. **No reinicies la API vieja entre el 3.4 y el
 |---|---|---|---|
 | `Mensajeria__CanalActivo` | `/opt/yosoy/config/.env` | `Baileys` | El canal real (habla con `whatsapp-service`). Valores válidos: `Simulado` y `Baileys` |
 | `Mensajeria__ModoAtencion` | `.env` | `Personal` | El asistente no contesta; el chat es del personal. Un valor inválido o vacío frena el arranque |
-| `Mensajeria__SoloLocal` | `.env` | `false` | Para que Chats sea visible por el sitio (siempre junto con el bloque de Caddy del 3.2) |
+| `Mensajeria__SoloLocal` | `.env` | `false` | Para que Chats sea visible por el sitio. El simulador anónimo sigue cerrado: en el código (siempre solo local) y por el bloque de Caddy del 3.2 |
 | `Mensajeria__ChatSimuladoHabilitado` | — | **no tocar** (`true` en `appsettings.json`) | Con `false` se apaga todo `/mensajeria`, también la bandeja |
 | `Mensajeria__AvisosPorWhatsApp` | — | **no definir** (apagada) | Sin avisos de turno por WhatsApp |
 | `Mensajeria__Personal__RespuestaDeEmergencia` | — | **no definir** (desactivada) | Ver "Qué sale a producción" |
@@ -257,9 +265,9 @@ sudo mkdir -p /opt/yosoy/backups/chat-$FECHA && for a in /opt/yosoy/config/.env 
 
 **Esperado:** la lista de lo que se copió (`.env`, `Caddyfile`, y los demás si existen) y un `(no existe: ...)` por cada archivo que no esté. La carpeta guarda secretos: queda en `/opt/yosoy/backups/` (700), no la copies a ningún lado.
 
-### 3.2 [VPS] Caddy: cortar el simulador anónimo
+### 3.2 [VPS] Caddy: la segunda capa del simulador anónimo
 
-Mostrá el `Caddyfile` (no tiene secretos) y comprobá que se parece al de `SERVIDOR.md`; después agregá el bloque, que va dentro del sitio, justo después del `import` de `video.caddy`. El comando es idempotente (si el
+Con el arreglo en el build, la API ya contesta 404 por su cuenta a un pedido que llegó por Caddy (primera capa, en el código). Este bloque es la **segunda capa**: no cuesta nada y mantiene cerrado el simulador si por error se publicara un build sin el arreglo, si cambiara cómo llega `X-Forwarded-For` o si alguien tocara el código sin querer. Mostrá el `Caddyfile` (no tiene secretos) y comprobá que se parece al de `SERVIDOR.md`; después agregá el bloque, que va dentro del sitio, justo después del `import` de `video.caddy`. El comando es idempotente (si el
 bloque ya está, no lo repite) y **se corta sin recargar nada** si el archivo no tiene esa línea de `import` tal cual:
 
 ```bash
@@ -276,7 +284,7 @@ bloque ya está, no lo repite) y **se corta sin recargar nada** si el archivo no
 ```
 
 y repetí `sudo caddy validate ...` y `sudo systemctl reload caddy`. Recargar no corta las videollamadas en curso (`stream_close_delay`, ver `SERVIDOR.md`). **Volver atrás:** `sudo cp -a /opt/yosoy/backups/chat-$FECHA/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy`.
-Hasta que la API pase a `SoloLocal=false` (paso 4) este bloque no cambia nada visible: la sonda que lo comprueba es la del 4.4.
+Hasta que la API pase a `SoloLocal=false` (paso 4) este bloque no cambia nada visible, y con el arreglo en el build tampoco después: las sondas del 4.4 comprueban cada capa por separado.
 
 ### 3.3 [VPS] El secreto compartido, sin imprimirlo
 
@@ -354,15 +362,23 @@ Si se corta **después** de `systemctl stop`, la API quedó parada: corré el ro
 ```bash
 sudo journalctl -u yosoy-api --since '5 minutes ago' --no-pager | grep -iE 'error|exception|fail|Zona horaria|Video:|migración 17'
 curl -s http://127.0.0.1:5000/capacidades; echo; curl -s https://yosoytelemedicina.tech/capacidades; echo
-curl -s -o /dev/null -w 'directo a la API: %{http_code}\n' -X POST http://127.0.0.1:5000/mensajeria/simulado/entrante -H 'Content-Type: application/json' -d '{"telefono":"","texto":""}'
-curl -s -o /dev/null -w 'por el sitio público: %{http_code}\n' -X POST https://yosoytelemedicina.tech/mensajeria/simulado/entrante -H 'Content-Type: application/json' -d '{"telefono":"","texto":""}'
+curl -s -o /dev/null -w 'simulador, desde la propia máquina: %{http_code}\n' -X POST http://127.0.0.1:5000/mensajeria/simulado/entrante -H 'Content-Type: application/json' -d '{}'
+curl -s -o /dev/null -w 'simulador, como si llegara por un proxy (la API sola): %{http_code}\n' -X POST http://127.0.0.1:5000/mensajeria/simulado/entrante -H 'X-Forwarded-For: 203.0.113.7' -H 'Content-Type: application/json' -d '{}'
+curl -s -o /dev/null -w 'simulador, por el sitio público (Caddy y la API): %{http_code}\n' -X POST https://yosoytelemedicina.tech/mensajeria/simulado/entrante -H 'Content-Type: application/json' -d '{}'
 ```
 
 **Esperado:**
 - Del journal: la línea `Zona horaria de la clínica: America/Argentina/Buenos_Aires, ...` (y `Video: /video/acceso habilitado.` si el video está configurado); **ninguna excepción** y ninguna mención de `migración 17`.
-- `/capacidades`, las dos veces: `{"mensajeria":true,"modoAtencion":"personal","canalActivo":"WhatsApp"}`. El `canalActivo` lo agrega el arreglo de la etiqueta (rama `fix/chat-etiqueta-canal`): si publicás un build sin él, ese campo no viene (y el selector "Enviar por" de Chats sigue diciendo "Chat simulado": es solo un rótulo, las respuestas salen igual por el canal activo). Si la pública dice `false`, `SoloLocal` no quedó en `false`: revisá el 3.4 y reiniciá la API.
-- La sonda **directa** da `400` (la API contesta "El teléfono no es válido" y no escribe nada) y la sonda **por el sitio** tiene que dar **`404`**. Que dé `400` también por el sitio significa que **el simulador está expuesto**: volvé al 3.2 antes
-  de seguir. (La sonda usa un teléfono vacío a propósito: nunca crea una conversación.)
+- `/capacidades`, las dos veces: `{"mensajeria":true,"modoAtencion":"personal","canalActivo":"WhatsApp"}`. El `canalActivo` lo trae `main` desde el PR #50: con un build anterior ese campo no viene (y el selector "Enviar por" de Chats sigue diciendo "Chat simulado": es solo un rótulo, las respuestas salen igual por el canal activo). Si la pública dice `false`, `SoloLocal` no quedó en `false`: revisá el 3.4 y reiniciá la API.
+- Las tres sondas del simulador mandan un cuerpo **sin teléfono** (`{}`): si llegan al código, la API contesta `400` ("El teléfono no es válido") y **no escribe nada**; si no llegan, `404`. Tienen que dar, en orden:
+  1. **`400`, desde la propia máquina:** el simulador sigue disponible, pero solo ahí.
+  2. **`404`, "como si llegara por un proxy"** (directo a la API, sin Caddy de por medio): es la **capa de código**. Si da `400`, el build **no trae `fix/chat-simulado-cerrado`** y queda solo la capa de Caddy: volvé al 1.0.
+  3. **`404`, por el sitio público:** lo que ve internet, con las dos capas. Si da `400`, **el simulador está expuesto**: volvé al 3.2 antes de seguir.
+  Y la prueba más fiel, **[PC]**, internet de verdad (tiene que dar `404`):
+
+  ```powershell
+  curl.exe -s -o NUL -w "simulador, desde tu PC: %{http_code}`n" -X POST https://yosoytelemedicina.tech/mensajeria/simulado/entrante -H "Content-Type: application/json" -d "{}"
+  ```
 - En el navegador, ingresá como Configurador: aparece el grupo **CRM** con **Chats** ("Todavía no hay conversaciones") y la sección **WhatsApp** ("Servicio no disponible" hasta el paso 5). Con un profesional, el botón Chats no existe.
 
 ### 4.5 Rollback de la API
@@ -505,7 +521,7 @@ time sudo systemctl stop whatsapp-service; sudo journalctl -u whatsapp-service -
 
 ### Al terminar los pasos 1 a 5
 
-- Anotá el commit desplegado (`d18702e` o el que hayas publicado), la fecha, el nombre del `app-anterior-chat-<fecha>` y que se aplicó la migración 17: es lo que pide `DEPLOY.md` ("Al terminar") y lo que va en la tabla "Migraciones aplicadas" de [`SERVIDOR.md`](SERVIDOR.md).
+- Anotá el commit desplegado (`4cff56e` o el que hayas publicado), la fecha, el nombre del `app-anterior-chat-<fecha>` y que se aplicó la migración 17: es lo que pide `DEPLOY.md` ("Al terminar") y lo que va en la tabla "Migraciones aplicadas" de [`SERVIDOR.md`](SERVIDOR.md).
 - Borrá del home del VPS lo que ya no hace falta (no tiene secretos, pero ocupa lugar): `rm -rf ~/Publish-YoSoy-$FECHA-$TAG ~/Publish-YoSoy-$FECHA-$TAG.tar.gz ~/whatsapp-service-$FECHA.tar.gz ~/add_chat_personal_entrantes.sql`. Los `app-anterior-chat-*` y los respaldos de `/opt/yosoy/backups/chat-*` se quedan unos días.
 - Actualizá [`SERVIDOR.md`](SERVIDOR.md) con el estado real (servicios, carpetas, variables): hoy dice que lo que corre es el servicio viejo de WhatsApp.
 - Si cerraste la sesión SSH, las variables `FECHA` y `TAG` se pierden: no las necesitás para operar.
@@ -545,11 +561,8 @@ cuando alguien manda una respuesta (1 advertencia por intento). **La única fuen
 bloquear (una ventana de QR es como abrir WhatsApp Web sin entrar); el servicio no pide QR sin parar (2 ventanas por arranque, un tope duro de 5); un corte que no sea la ventana vencida se reintenta con espera creciente de 2 s hasta 5 minutos; y si el proceso cae
 en bucle, systemd se rinde a los 5 reinicios en 5 minutos. Lo que no hay que hacer es reiniciar el servicio o apretar "Generar uno nuevo" en bucle durante horas.
 
-**Si el comportamiento por defecto no es seguro o es ruidoso, arreglos mínimos propuestos (no están hechos: no entraban en lo pedido):**
-1. **Un botón en la pantalla cuando no hay QR.** Hoy el único botón está dentro de la rama "hay QR", y "Desvincular y cambiar número" solo aparece conectado. Alcanza con mostrar, en `waHtml`, un botón "Pedir un código QR nuevo" que llame a `waGenerarQrNuevo()` cuando el servicio
-   responde, no está conectado y no hay QR (unas 4 líneas de `dashboard.js` y su prueba). Hasta entonces: el reinicio por SSH.
-2. **Cerrar el simulador de verdad en el código** (hoy lo cierra Caddy): que `/mensajeria/simulado/*` conteste solo desde la propia máquina, o solo con `CanalActivo=Simulado`, sin importar `SoloLocal` (pocas líneas en `MensajeriaEndpoints.cs` y sus pruebas).
-3. (Opcional) Que `/mensajeria/whatsapp/estado` le pase a la pantalla el `estado` y el `motivo` que el servicio ya informa, para decir "El código venció" o "Necesita atención" en lugar de "Generando el código QR...".
+**Lo que queda pendiente de esa pantalla** (decidido el 2026-10-19: **no se hace ahora**; el detalle está en "Mejoras pendientes", al final): un botón para pedir un código QR nuevo cuando la ventana venció, y que la pantalla diga "El código venció" o "Necesita atención"
+en lugar de "Generando el código QR...". Hasta entonces, el reinicio del servicio por SSH (arriba, "¿Cómo consigo un QR fresco?"). El otro cambio que se había propuesto, cerrar el simulador en el código, **ya está hecho** (ver "Antes de empezar", 1).
 
 ---
 
@@ -589,7 +602,7 @@ Usá **tu** teléfono, no el de un paciente. El teléfono de la clínica tiene q
 | 8 | **[VPS]** `sudo journalctl -u yosoy-api --since '15 minutes ago' --no-pager \| grep -iE 'warn\|fail\|exception\|migración 17'` | Nada raro. Ninguna mención de `migración 17` |
 | 9 | **[VPS]** `sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT TOP 3 IdMensaje, Direccion, Origen, Tipo, EstadoEnvio, CASE WHEN IdExterno IS NULL THEN 0 ELSE 1 END AS con_id FROM MensajeChat ORDER BY IdMensaje DESC"` | Los entrantes tienen `Tipo` (`texto`, `imagen`) y `con_id = 1`: la API está usando las columnas de la migración 17 (no imprime texto) |
 
-Con el arreglo de la etiqueta (rama `fix/chat-etiqueta-canal`), el cuadro de respuesta de Chats dice **"Enviar por: WhatsApp"** al abrir la conversación. Si dice "Chat simulado" y el build trae el arreglo, `CanalActivo` está en `Simulado`: no sale nada de la máquina (revisá el 3.4). Sin el arreglo siempre dice "Chat simulado", y no significa nada.
+El cuadro de respuesta de Chats dice **"Enviar por: WhatsApp"** al abrir la conversación (desde el PR #50, ya en `main`). Si dice "Chat simulado", `CanalActivo` está en `Simulado`: no sale nada de la máquina (revisá el 3.4). Un build anterior al PR #50 siempre dice "Chat simulado", y no significa nada.
 
 Cerrá la conversación de prueba desde Chats ("Cerrar conversación") cuando termines; sus mensajes quedan en la base como cualquier otro (no se borran a mano).
 
@@ -606,7 +619,7 @@ Cerrá la conversación de prueba desde Chats ("Cerrar conversación") cuando te
 | **Desvincular / cambiar de número** | Configurador → WhatsApp → **"Desvincular y cambiar número"** (solo aparece conectado): cierra la sesión, borra las credenciales y deja un QR nuevo. Desde el teléfono: Dispositivos vinculados → cerrar la sesión (el servicio queda en `requiere_vincular` / `sesion_cerrada`) |
 | **WhatsApp desconectó la sesión** | `/salud` dice `requiere_vincular` con `sesion_cerrada` (se desvinculó desde el teléfono, el teléfono estuvo ~14 días sin conectarse, o se reinstaló WhatsApp con ese número). El servicio **no reintenta** y borra las credenciales muertas: volver a escanear (7.1). Cuidá el teléfono de la clínica: conectado, con batería y sin reinstalar WhatsApp |
 | **WhatsApp restringió o bloqueó el número** | `/salud` dice `requiere_atencion` con `cuenta_restringida` (código 403). El servicio **no reintenta ni borra nada**. Mirá el teléfono (WhatsApp avisa y a veces permite pedir una revisión), **no** sigas mandando, pará el servicio si querés (`sudo systemctl stop whatsapp-service`) y decidí: esperar, o cambiar de número ("Desvincular y cambiar número" y vincular el nuevo). Otros motivos de `requiere_atencion`: `sesion_reemplazada` (440: otra copia del servicio o el comando de vinculación corriendo), `version_rechazada` (405: actualizar Baileys o fijar `WHATSAPP_BAILEYS_VERSION_WA`), `sesion_invalida` (500 repetido). Salir: resolver lo que dice el log y `sudo systemctl restart whatsapp-service` |
-| **Apagar todo rápido** | **`sudo systemctl stop whatsapp-service`**: no sale ni entra nada, y lo que el equipo conteste desde Chats queda marcado "· no entregado" (visible). Lo que escriban los pacientes queda en el teléfono de la clínica. Para que no vuelva a arrancar solo con un reinicio del VPS: `sudo systemctl disable --now whatsapp-service`. Si además querés que la API no lo intente: en el `.env` `Mensajeria__CanalActivo=Simulado` y `sudo systemctl restart yosoy-api`. **Ojo con `Simulado`:** el mismo código no manda nada pero guarda las respuestas del equipo como **"Enviado"**: el equipo creería que salieron. Si lo usás, avisales que no contesten (con el arreglo de la etiqueta, el cuadro de respuesta de Chats pasa a decir "Enviar por: Chat simulado": una pista visible, que no reemplaza el aviso) |
+| **Apagar todo rápido** | **Apagar de verdad es parar el servicio: `sudo systemctl stop whatsapp-service`.** No sale ni entra nada, y lo que el equipo conteste desde Chats queda marcado "· no entregado" (visible). Lo que escriban los pacientes queda en el teléfono de la clínica. Para que no vuelva a arrancar solo con un reinicio del VPS: `sudo systemctl disable --now whatsapp-service`. **`Mensajeria__CanalActivo=Simulado` NO es un apagado:** la API deja de hablarle al servicio, pero guarda las respuestas del equipo como **"Enviado"** aunque **no salen**: el equipo cree que se mandaron y los pacientes no reciben nada. No lo uses como interruptor. Si por algún motivo lo usás, avisale al equipo que no conteste (con `Simulado`, el cuadro de respuesta de Chats pasa a decir "Enviar por: Chat simulado": una pista, que no reemplaza el aviso) y volvelo a `Baileys` apenas puedas |
 | **Subir los topes** | Editar `WHATSAPP_TOPE_DIARIO` y `WHATSAPP_TOPE_POR_HORA` en `whatsapp.env` (`sed` como en 5.4) y `sudo systemctl restart whatsapp-service`; de a poco, durante semanas |
 | **Límites de la pantalla WhatsApp** | `GET /mensajeria/whatsapp/estado` admite 60 pedidos por minuto por IP (una pantalla abierta hace 20): no dejes más de 2 pestañas con esa pantalla desde la misma red |
 
@@ -629,7 +642,8 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 | ☐ | **Responder desde el teléfono del número** | Lo que se conteste desde el teléfono no queda en YoSoy ni pasa por los topes (decisión D8: responder siempre desde Chats) |
 | ☐ | **Fotos y audios no se guardan** | Hay que mirar el teléfono de la clínica para verlos |
 | ☐ | **Sin vínculo con el paciente** | Las conversaciones salen "Paciente sin identificar" o "Contacto: <nombre del perfil>" (el vínculo por teléfono es del hito 2) |
-| ☐ | **El simulador anónimo** | Cerrado por el bloque de Caddy (3.2) mientras `SoloLocal=false`. Si alguien edita el `Caddyfile` y lo saca, vuelve a estar abierto. Comprobarlo con la sonda del 4.4 después de cualquier cambio de Caddy. Corrección de fondo: "Hallazgos" |
+| ☐ | **El simulador anónimo** | Cerrado **en el código** (`fix/chat-simulado-cerrado`: solo responde a la propia máquina, aunque `SoloLocal=false`) y, como segunda capa, por el bloque de Caddy (3.2). Si publicás un build sin el arreglo, queda solo Caddy; si alguien edita el `Caddyfile` y lo saca, queda solo el código. Comprobarlo con las sondas del 4.4 después de publicar y después de cualquier cambio de Caddy |
+| ☐ | **`CanalActivo=Simulado` no apaga nada** | Guarda las respuestas del equipo como "Enviado" aunque no salgan. Para apagar: `sudo systemctl stop whatsapp-service` (paso 8) |
 | ☐ | **Los profesionales no ven chats** | Es la decisión D2; ya no tienen el botón Chats y el servidor les contesta 403 |
 | ☐ | **La sesión de Baileys es una credencial** | `sesion-baileys/` (700) da acceso al WhatsApp de la clínica: no copiarla ni pegarla en un chat o ticket. Si se pierde, se vuelve a escanear un QR (no se pierde el número). Respaldarla o no es una decisión pendiente (`PROGRESO_BAILEYS.md`); si se respalda, cifrada |
 | ☐ | **La unit nunca corrió en un systemd real** | `MemoryMax=512M` es una estimación: mirá `Memory:` y busca `OOMKilled` en `systemctl status` en la primera semana |
@@ -638,14 +652,22 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 
 ---
 
-## Hallazgos de esta revisión (para decidir)
+## Hallazgos de esta revisión (y qué se decidió)
 
-1. **El simulador anónimo queda abierto con `SoloLocal=false`** (comprobado, ver "Antes de empezar"). Mitigado con Caddy; corrección de fondo propuesta: que `/mensajeria/simulado/*` solo responda desde la propia máquina o solo con `CanalActivo=Simulado`. Es un cambio chico en `MensajeriaEndpoints.cs` con sus pruebas; no lo hice porque no estaba pedido.
-2. **La pantalla WhatsApp no tiene ningún botón cuando el QR venció** (ni cuando el servicio necesita atención) y dice "Generando el código QR..." para siempre. Arreglo mínimo propuesto en el paso 6.
-3. **El selector "Enviar por: Chat simulado"** de Chats aparecía aunque el canal activo fuera `Baileys`. **Arreglado en la rama `fix/chat-etiqueta-canal`** (PR por abrir): `/capacidades` informa `canalActivo` y el selector dice "WhatsApp"; la insignia de cada conversación de la lista dice el canal de esa conversación. Con un build que no lo incluya, el rótulo sigue siendo el viejo (solo un rótulo).
-4. **`CanalActivo=Simulado` hace que las respuestas figuren "Enviado"** aunque no salgan (paso 8, "Apagar todo rápido").
+1. **El simulador anónimo quedaba abierto con `SoloLocal=false`** (comprobado, ver "Antes de empezar"). **Resuelto en el código** (rama `fix/chat-simulado-cerrado`): las dos rutas solo responden a la propia máquina, siempre. El bloque de Caddy queda como segunda capa. El build que se publique tiene que traerlo (paso 1.0).
+2. **La pantalla WhatsApp no tiene ningún botón cuando el QR venció** (ni cuando el servicio necesita atención) y dice "Generando el código QR..." para siempre. **Mejora pendiente** (decidido: no se hace ahora; ver "Mejoras pendientes"). Mientras tanto: `sudo systemctl restart whatsapp-service`.
+3. **El selector "Enviar por: Chat simulado"** de Chats aparecía aunque el canal activo fuera `Baileys`. **Arreglado** (PR #50, ya en `main`): `/capacidades` informa `canalActivo`, el selector dice "WhatsApp" y la insignia de cada conversación de la lista dice el canal de esa conversación.
+4. **`CanalActivo=Simulado` hace que las respuestas figuren "Enviado"** aunque no salgan. **Documentado** con la misma fuerza en "Antes de empezar" (5), en el paso 8 y en el 9: apagar de verdad es `sudo systemctl stop whatsapp-service`.
 5. **El ejemplo de backup de `DEPLOY.md` falla en SQL Server Express:** usa `WITH COMPRESSION`, que Express no admite (`Msg 1844`, comprobado en la Express 2019). En este runbook va sin compresión y se corrigió también el ejemplo de `DEPLOY.md`.
 6. **El servicio nuevo de WhatsApp nunca habló con WhatsApp real:** este despliegue y el paso 7 son la primera vez. Hacelos con tiempo y con el teléfono del número a mano.
+
+---
+
+## Mejoras pendientes (decididas: no se hacen ahora)
+
+1. **Un botón "Pedir un código QR nuevo" en Configurador → WhatsApp cuando el QR venció.** Hoy el único botón ("¿El código no funciona? Generar uno nuevo") está dentro de la rama "hay QR"; con la ventana vencida (`qr_vencido`) la pantalla dice "Desconectado / Generando el código QR..." **sin ningún botón**, y para un QR nuevo hay que reiniciar el servicio por SSH (`sudo systemctl restart whatsapp-service`). Propuesta mínima: en `waHtml` (`PANTALLAS/Pantalla_Configurador/js/dashboard.js`), cuando el servicio responde, no está conectado y no hay QR, mostrar un botón que llame a `waGenerarQrNuevo()` (unas 4 líneas y su prueba). Decisión de Agustín (2026-10-19): no se hace ahora.
+2. **(Opcional) Que la pantalla diga por qué está desconectada.** Que `GET /mensajeria/whatsapp/estado` le pase el `estado` y el `motivo` que el servicio ya informa, para mostrar "El código venció" o "Necesita atención" en lugar de "Generando el código QR...".
+3. **(Opcional, ver 5.7) Endurecer más el servicio:** que no pueda leer `/opt/yosoy/config` (usuario propio o `InaccessiblePaths=` en un drop-in), y `ProtectKernelLogs`, `ProtectClock`, `ProtectHostname`, `RestrictNamespaces`.
 
 ---
 
@@ -655,19 +677,23 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 
 | Qué | Resultado | Cómo |
 |---|---|---|
-| `main` contiene las dos ramas del chat, la del arreglo de la prueba intermitente y la del documento | `a5161b8`, `803f441`, `ef3d055` y `1e00365` son ancestros de `d18702e` | `git merge-base --is-ancestor <commit> origin/main` |
+| `main` contiene las ramas del chat, la del arreglo de la prueba intermitente, la del documento y la de la etiqueta del canal | `a5161b8`, `803f441`, `ef3d055`, `1e00365` y `2562304` son ancestros de `4cff56e`. Desde `d18702e` (donde se escribió la primera versión de este runbook) solo cambió el PR #50 (la API, la bandeja y dos documentos): `whatsapp-service/`, `migrations/`, `docs/produccion/` y `appsettings.json` no cambiaron | `git merge-base --is-ancestor <commit> origin/main` y `git diff --stat d18702e origin/main` |
 | La migración 17 está en `migrations/` y en el esquema consolidado | `migrations/add_chat_personal_entrantes.sql`; `docs/produccion/01-produccion.sql` trae `IdExterno`, `Tipo`, `NombreContacto`, `CK_MensajeChat_Tipo`, `DF_MensajeChat_Tipo` y `UQ_MensajeChat_IdExterno` | Lectura de los dos archivos |
-| Suite de la API contra `yosoy_test` (45 tablas, con la 17) | **1797 de 1797**, 0 omitidas | `cd D:\Claude\YoSoy\YoSoy; .\Scripts\correr-tests.ps1` |
-| La misma suite contra una base con la **forma de producción** (44 tablas, sin la 16, con la 17 aplicada con el comando del paso 2.4) | **1752 de 1752** (las 45 pruebas de la tabla de la 16 quedan afuera) | `.\Scripts\crear-base-de-pruebas.ps1 -Base <descartable> -SinConsentimientoWhatsApp -SinMigracion17`, aplicar la migración, y `.\Scripts\correr-tests.ps1 -Base <descartable> -Filtro 'Tabla!=ConsentimientoWhatsApp'` |
-| Suite de `whatsapp-service` | 454 pruebas: **448 pasan, 6 saltadas (permisos POSIX en Windows), 0 fallas** | `cd whatsapp-service; npm test` |
+| Suite de la API contra `yosoy_test` (45 tablas, con la 17) | **1807 de 1807** en `main` (`4cff56e`); **1817 de 1817** con `fix/chat-simulado-cerrado` (+10 pruebas, `SimuladorSoloLocalTests`), 0 omitidas | `cd D:\Claude\YoSoy\YoSoy; .\Scripts\correr-tests.ps1` |
+| La misma suite contra una base con la **forma de producción** (44 tablas, sin la 16, con la 17 aplicada con el comando del paso 2.4) | **1772 de 1772** con el arreglo (las 45 pruebas de la tabla de la 16 quedan afuera) | `.\Scripts\crear-base-de-pruebas.ps1 -Base <descartable> -SinConsentimientoWhatsApp -SinMigracion17`, aplicar la migración, y `.\Scripts\correr-tests.ps1 -Base <descartable> -Filtro 'Tabla!=ConsentimientoWhatsApp'` |
+| Suite de `whatsapp-service` | 454 pruebas: **448 pasan, 6 saltadas (permisos POSIX en Windows), 0 fallas** (vuelta a correr contra el árbol final) | `cd whatsapp-service; npm test` |
 | Ensayo de la migración sobre esa base descartable | Antes `0 0 0 0 44`; después `3 1 1 1 44`; una segunda aplicación no cambia nada | Los comandos de los pasos 2.3 a 2.5 (con `sqlcmd -E` en vez de `-U`) |
 | El backup del paso 1.1 | `BACKUP ... WITH CHECKSUM, INIT; RESTORE VERIFYONLY ... WITH CHECKSUM` anda (`The backup set on file 1 is valid.`); con `COMPRESSION` falla con `Msg 1844` | SQL Server 2019 Express de tu PC, sobre la base descartable (los archivos de prueba se borraron) |
 | Empaquetado del servicio | `.tar.gz` de 163.574 bytes, sin `node_modules`, sin `.env`, sin sesión; la unit y el drop-in sin CR. `npm ci --omit=dev` desde el lock: sin errores, Baileys 6.7.24, 207 paquetes en el lock, ninguno por git, todos con integridad, ninguno de desarrollo. `npm test` en el paquete extraído, sin el repositorio: 442 pasan, 12 saltadas, 0 fallas | Los comandos del paso 5.1 y de 5.2 en una carpeta temporal de la PC (Windows) |
-| `dotnet publish` del flujo habitual | Sin errores; 434 archivos, ~133 MB; trae `YoSoy`, `appsettings.json` y `PANTALLAS\Pantalla_ChatSimulado\js\bandeja.js`; ningún `.env` | El comando del paso 4.1 con una carpeta de salida temporal |
-| Chats por el sitio y el simulador, con Caddy real | Las tres filas de la tabla de "Antes de empezar" | API de `main` (Production, Personal, Baileys, sin servicio de WhatsApp) detrás de Caddy 2.7.0, pidiendo desde la dirección de red de la PC, contra una base descartable |
+| `dotnet publish` del flujo habitual | Sin errores con el código final (`main` más el arreglo); 434 archivos, ~133 MB; trae `YoSoy`, `appsettings.json` y `PANTALLAS\Pantalla_ChatSimulado\js\bandeja.js`; ningún `.env` | El comando del paso 4.1 con una carpeta de salida temporal |
+| Chats por el sitio y el simulador, con Caddy real | Las cinco filas de la tabla de "Antes de empezar" | API de `main` y del arreglo (Production, Personal, Baileys, sin servicio de WhatsApp) detrás de Caddy 2.7.0, pidiendo desde la dirección de red de la PC, contra bases de prueba |
 | El bloque de Caddy y su inserción con `sed` | La inserción es idempotente y se corta si falta el `import`; el `Caddyfile` resultante valida en Caddy 2.7.0, 2.8.4 y 2.11.7. (Con la 2.6.4 no valida, pero tampoco valida el original por `video.caddy`) | `caddy validate --adapter caddyfile` y `sed` GNU 4.9 |
-| La lógica de los comandos de una línea | 31 comprobaciones en bash contra un árbol de archivos de prueba (con `sudo`, `systemctl`, `chown`, `install`, `curl` y `npm` simulados), **con los comandos extraídos de este mismo documento**: edición idempotente de los `.env`, el secreto no se imprime, el drop-in, el desempaquetado, el corte de la API (y que se frena antes de parar si el backup existe o falta el publish), el rollback de la API y del servicio, el respaldo con archivos faltantes, la instalación al lado y el corte del servicio con y sin servicio viejo, y el bloque de Caddy (idempotente, y se corta sin recargar si falta el `import`) | Un script descartable (no versionado) |
+| La lógica de los comandos de una línea | 31 comprobaciones en bash contra un árbol de archivos de prueba (con `sudo`, `systemctl`, `chown`, `install`, `curl` y `npm` simulados), **con los comandos extraídos de este mismo documento** (vuelta a correr contra su versión final): edición idempotente de los `.env`, el secreto no se imprime, el drop-in, el desempaquetado, el corte de la API (y que se frena antes de parar si el backup existe o falta el publish), el rollback de la API y del servicio, el respaldo con archivos faltantes, la instalación al lado y el corte del servicio con y sin servicio viejo, y el bloque de Caddy (idempotente, y se corta sin recargar si falta el `import`) | Un script descartable (no versionado) |
 | Comportamiento sin vincular | Lo descripto en el paso 6 sale de leer `baileys/servicio.js`, `cola.js`, `servidor.js`, `config.js`, `CanalBaileys.cs`, `WhatsAppAdminService.cs` y `dashboard.js`, y de las pruebas del servicio (socket simulado, reloj falso) | Lectura del código |
+| El cierre del simulador: las pruebas | 10 pruebas nuevas (`SimuladorSoloLocalTests`, sin base de datos). **Con el código de `main` fallan 5** (las del cierre remoto: POST y GET con `X-Forwarded-For` y con `CF-Connecting-IP`, y el recorrido por la tabla de rutas) y **pasan las 10 con el arreglo**; las otras 5 vigilan que el simulador local y lo que ya cerraba el grupo no cambien | Volver `Endpoints/MensajeriaEndpoints.cs` al de `main` y correr `.\Scripts\correr-tests.ps1 -Filtro FullyQualifiedName~SimuladorSoloLocalTests` |
+| El simulador, en Chrome real, en los dos modos | 47 comprobaciones en 5 escenarios, con la API real y Caddy 2.7.0 real, contra `yosoy_test` (filas marcadas que se borran). **Local** (directo a la API, `SoloLocal` en `true` y en `false`): el simulador de la pantalla anda y la conversación aparece en la bandeja. **Producción** (Chrome → Caddy → API, cliente con la IP de red de la PC, `SoloLocal=false`, modo Personal, canal Baileys), con el arreglo y con y sin el bloque de Caddy: el Configurador ve Chats y lo que entra por el webhook, el simulador de la pantalla da "No se encontró lo que buscabas.", un visitante anónimo recibe 404 en las dos rutas y **no se crea ninguna conversación**. Con el código de `main` y el mismo montaje, el visitante anónimo **crea la conversación** (200) y la bandeja la muestra | Un script de Playwright con el Chrome de la PC (no versionado) |
+| Las sondas del 4.4 | Extraídas tal cual de este documento (solo cambian las direcciones) y corridas contra la API y Caddy reales: con el arreglo dan `400 / 404 / 404` (propia máquina / proxy / sitio público) y `404` la de la PC (PowerShell), con y sin el bloque de Caddy; con el código de `main`, `400 / 400 / 400` y `400` desde la PC sin el bloque, y `400 / 400 / 404` y `404` con el bloque | Un script descartable (no versionado) |
+| El texto contra el código | 160 comprobaciones de lectura (archivos, variables de entorno, rutas, contenido de la unit y del drop-in, textos de pantalla y de log, valores por defecto, secciones de otros documentos) contra el árbol de `main` más el arreglo: no falta ninguna | Un script descartable (no versionado) |
 
 ### No se pudo verificar (sin acceso al VPS ni a WhatsApp)
 
@@ -676,5 +702,6 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 - **`npm ci` en Linux** (en Windows instala 183 paquetes; los opcionales por plataforma pueden diferir) y **las 6 pruebas de permisos POSIX** del servicio: corren por primera vez en el paso 5.2.
 - **La unit en un systemd real** (`systemd-analyze verify` y `security`), el apagado en 1 a 3 segundos, el uso real de memoria (`MemoryMax=512M`) y que `ProtectSystem=strict` deje escribir la carpeta de la sesión.
 - **Cualquier conexión a WhatsApp**: los tiempos reales del QR (~20 s por código, ~2,7 min por ventana), los códigos de desconexión que manda WhatsApp, los umbrales de bloqueo, el envío y la recepción de verdad. Todo está probado con un socket simulado y la red bloqueada.
+- **El simulador cerrado contra el Caddy y la API reales del VPS.** Se probó con Caddy 2.7.0 y la API en una PC. Lo que hace que el código lo cierre es que el pedido llegue con `X-Forwarded-For` (Caddy lo agrega por defecto, ver `NOTAS_MERGE.md`: si se cambia el proxy o su configuración hay que volver a verificarlo); las sondas del 4.4 son la comprobación real en el servidor.
 - **La salida a internet del VPS hacia WhatsApp** (el paso 1.2 lo comprueba con una conexión TCP) y la hora sincronizada.
 - **El mensaje de emergencia con líneas oficiales** (desactivado) y los textos legales.

@@ -374,7 +374,7 @@ curl -s http://127.0.0.1:5000/capacidades                                   # ti
 
 Con la API en `Personal`, escribirle al número desde otro teléfono **no tiene que recibir ninguna respuesta automática**; la conversación aparece en CRM → Chats como "Para atender".
 **Volver atrás:** `Mensajeria__ModoAtencion=Asistente` (o borrar la variable) y reiniciar. Los mensajes guardados quedan; las conversaciones "para atender" las ve el Configurador.
-Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet, y ponerlo en `false` deja abiertas al público las dos rutas anónimas del simulador (`/mensajeria/simulado/*`): cómo se publica en producción (`SoloLocal=false` más un bloque de Caddy que corta el simulador), con todos los pasos, está en [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md).
+Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet, y ponerlo en `false` abre la bandeja a la red (las dos rutas anónimas del simulador, `/mensajeria/simulado/*`, siguen siendo solo locales desde `fix/chat-simulado-cerrado`; con un build anterior quedaban abiertas al público): cómo se publica en producción (`SoloLocal=false`, con un bloque de Caddy como segunda capa), con todos los pasos, está en [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md).
 
 ### La migración 17: orden del despliegue
 
