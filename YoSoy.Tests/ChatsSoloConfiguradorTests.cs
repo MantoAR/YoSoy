@@ -193,6 +193,29 @@ public class ChatsSoloConfiguradorTests
     }
 
     [Fact]
+    public void La_bandeja_dibuja_los_nodos_de_cada_mensaje_con_append_y_no_con_appendChild()
+    {
+        // Node.appendChild recibe UN solo nodo: con appendChild(...nodos) solo entraba el primero (el separador de día) y la burbuja del primer mensaje
+        // de cada día no se dibujaba al abrir el hilo. append() acepta varios.
+        var bandeja = Pantalla("Pantalla_ChatSimulado", "js", "bandeja.js");
+
+        Assert.DoesNotContain("appendChild(...", bandeja);
+        Assert.Contains("m.append(...nodosMensaje(", bandeja);
+    }
+
+    [Theory]
+    [InlineData("Conversación marcada como resuelta.")]
+    [InlineData("Conversación reabierta.")]
+    public void Cerrar_y_reabrir_piden_una_vuelta_completa_de_la_lista(string aviso)
+    {
+        // Una vuelta incremental (?desdeMensaje=) solo trae las conversaciones con mensajes nuevos; cerrar o reabrir cambia el estado sin mensaje nuevo
+        // (en el modo Personal ni siquiera se manda el aviso "Sistema"), así que sin la vuelta completa el cambio tardaba hasta 20 segundos en verse.
+        var bandeja = Pantalla("Pantalla_ChatSimulado", "js", "bandeja.js");
+
+        Assert.Matches(Regex.Escape(aviso) + @"[^\n]*\n\s*est\.vueltasSinCambios = 0;\s*await pulso\(true\);", bandeja);
+    }
+
+    [Fact]
     public void Ninguna_pantalla_del_Profesional_pide_nada_de_mensajeria()
     {
         // La campanita de turnos del profesional es de turnos (/profesionales/{id}/turnos-confirmados); nada de lo suyo pasa por /mensajeria.

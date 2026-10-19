@@ -537,7 +537,7 @@
             return;
         }
         let previo = null;
-        est.mensajes.forEach(msg => { m.appendChild(...nodosMensaje(msg, previo)); previo = msg; });
+        est.mensajes.forEach(msg => { m.append(...nodosMensaje(msg, previo)); previo = msg; });
         est.pendientes.forEach(p => m.appendChild(nodoPendiente(p)));
     }
 
@@ -858,7 +858,7 @@
             await YS.api(`${BASE}/conversaciones/${c.idConversacion}/cerrar`, { method: "PUT" });
             YS.toast(urgente ? "Conversación marcada como resuelta." : (personal() ? "Conversación cerrada." : "Escalamiento cerrado."));
             est.vueltasSinCambios = 0;
-            await pulso();
+            await pulso(true);   // completa: el cambio de estado no trae un mensaje nuevo (en el modo Personal no se manda el aviso) y una vuelta incremental no lo vería
             cargarContexto();
         } catch (e) { YS.toast(e.message, "error"); }
     }
@@ -877,7 +877,7 @@
             await YS.api(`${BASE}/conversaciones/${c.idConversacion}/reabrir`, { method: "PUT" });
             YS.toast("Conversación reabierta.");
             est.vueltasSinCambios = 0;
-            await pulso();
+            await pulso(true);   // idem
         } catch (e) { YS.toast(e.message, "error"); }
     }
 
