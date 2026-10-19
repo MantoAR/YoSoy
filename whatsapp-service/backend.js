@@ -49,13 +49,16 @@ async function crearBackend(config, log, deps = {}) {
     });
     await limites.cargar();
 
-    // Un mensaje de texto de una persona es la constancia de que escribió primero (o su pedido de BAJA/ALTA): se anota ANTES de
-    // reenviarlo a la API, así la respuesta del bot ya la encuentra.
+    // Un mensaje de una persona es la constancia de que escribió primero (o su pedido de BAJA/ALTA): se anota ANTES de reenviarlo a la API, así la respuesta ya la encuentra.
+    // Una foto, un audio o cualquier otra cosa que no es texto también es la constancia de que escribió primero (el equipo tiene que poder contestarle), pero su aviso
+    // ("[Imagen]", con la leyenda a continuación) no es algo que la persona escribió: no se interpreta como BAJA ni como ALTA.
+    // `extra` es lo que acompaña al texto en el contrato v2 del webhook (tipo, id, ts y nombre: ver reenvio.js).
     const reenviarALaApi = deps.reenviar ?? crearReenviador({ apiBaseUrl: config.apiBaseUrl, secreto: config.secreto, log });
-    const reenviar = (telefono, texto) => {
-        consentimiento.alMensajeEntrante(telefono, texto);
-        return reenviarALaApi(telefono, texto);
+    const reenviar = (telefono, texto, extra) => {
+        consentimiento.alMensajeEntrante(telefono, extra?.tipo && extra.tipo !== "texto" ? "" : texto);
+        return reenviarALaApi(telefono, texto, extra);
     };
+    reenviar.resumen = () => reenviarALaApi.resumen?.() ?? {};      // los contadores del reenvío, para GET /salud
 
     const servicio = new ServicioBaileys({
         fachada,
@@ -77,7 +80,14 @@ async function crearBackend(config, log, deps = {}) {
         pausaLarga: { cada: [8, 14], ms: [30 * 1000, 75 * 1000] },
         ...(reloj ? { reloj } : {})
     };
-    servicio.datos = { cerrar: () => Promise.all([consentimiento.cerrar(), limites.cerrar()]) };
+    servicio.datos = {
+        cerrar: () => {
+            // Lo que todavía espera ser reenviado a la API (un reintento) se pierde al apagar: es solo memoria. Se dice cuántos, nunca cuáles.
+            const sinReenviar = reenviarALaApi.detener?.() ?? 0;
+            if (sinReenviar > 0) log.error(`Al apagar quedaron ${sinReenviar} mensajes entrantes sin reenviar a la API: se pierden (los reintentos son solo en memoria).`);
+            return Promise.all([consentimiento.cerrar(), limites.cerrar()]);
+        }
+    };
     return servicio;
 }
 

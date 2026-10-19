@@ -121,12 +121,13 @@ class SocketFalso {
         this.cerrar(DisconnectReason.restartRequired, "Stream Errored (restart required)");
     }
 
-    // Mensaje entrante con la forma de WAMessage que entrega Baileys.
-    recibir({ de = "5491122334455@s.whatsapp.net", texto = "hola", id = `ENT-${Math.random().toString(36).slice(2)}`, tipo = "notify", clave = {}, mensaje } = {}) {
+    // Mensaje entrante con la forma de WAMessage que entrega Baileys. nombre: el pushName (el nombre del perfil de WhatsApp); marca: messageTimestamp.
+    recibir({ de = "5491122334455@s.whatsapp.net", texto = "hola", id = `ENT-${Math.random().toString(36).slice(2)}`, tipo = "notify", clave = {}, mensaje, nombre, marca = 1760000000 } = {}) {
         const msg = {
             key: { remoteJid: de, fromMe: false, id, ...clave },
             message: mensaje ?? { conversation: texto },
-            messageTimestamp: 1760000000
+            messageTimestamp: marca,
+            ...(nombre !== undefined ? { pushName: nombre } : {})
         };
         this.ev.emit("messages.upsert", { messages: [msg], type: tipo });
         return msg;

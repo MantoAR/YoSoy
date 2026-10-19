@@ -36,11 +36,12 @@ const M = {
     adv: "MARCADOR-SECRETO-ADV-GHI",
     qr1: "REF-MARCADOR-UNO-XXXXXXXXXXXX,CLAVE-NOISE-PUBLICA-MARCADOR-UNO,CLAVE-IDENTIDAD-MARCADOR-UNO,SECRETO-ADV-MARCADOR-UNO",
     qr2: "REF-MARCADOR-DOS-XXXXXXXXXXXX,CLAVE-NOISE-PUBLICA-MARCADOR-DOS,CLAVE-IDENTIDAD-MARCADOR-DOS,SECRETO-ADV-MARCADOR-DOS",
-    secreto: "SECRETO-COMPARTIDO-MARCADOR-JKL-0123"
+    secreto: "SECRETO-COMPARTIDO-MARCADOR-JKL-0123",
+    nombrePerfil: "NOMBRE-PERFIL-MARCADOR-PQR"        // el nombre del perfil de WhatsApp (D5): nunca en un log
 };
 const CREDS_CON_MARCADORES = { noiseKey: { private: M.claveNoise, public: "pub" }, advSecretKey: M.adv };
 const PROHIBIDOS = [M.telefonoCompleto, M.telefonoApi, M.telefonoConFormato, M.otroCompleto, M.nuestroNumero, "2233-4455", "5491122334455",
-    M.texto, M.saliente, M.claveNoise, M.adv, M.secreto, "MARCADOR"];
+    M.texto, M.saliente, M.claveNoise, M.adv, M.secreto, M.nombrePerfil, "MARCADOR"];
 
 // Ninguno de los datos marcados puede estar en el texto. (Un archivo de datos tiene fechas en milisegundos, que parecen teléfonos.)
 function sinMarcadores(texto, descripcion) {
@@ -123,9 +124,10 @@ test("un reenvío a la API que falla con el secreto adentro del error no lo deja
     const log = logParaBackend({ secreto: M.secreto }, { info: m => salida.push(m), error: m => salida.push(m) });
     const reenviar = crearReenviador({
         apiBaseUrl: "http://127.0.0.1:5000", secreto: M.secreto, log,
+        reintentosMs: [],          // un solo intento: lo que se mira es lo que queda en el log (con reintentos: ver reenvio-y-logger.test.js)
         fetchFn: async (url, opciones) => { throw new Error(`fetch failed ${url} con ${opciones.headers["X-Shared-Secret"]} para ${M.telefonoCompleto}`); }
     });
-    await reenviar(M.telefonoCompleto, M.texto);
+    await reenviar(M.telefonoCompleto, M.texto, { nombre: M.nombrePerfil, id: "X1", tipo: "texto" });
     assert.equal(salida.length, 1);
     sinNadaSensible(salida.join("\n"), "el log del reenvío");
     assert.match(salida[0], /\[secreto\].*\*\*\*4455/);
@@ -157,6 +159,25 @@ test("ninguna llamada de log mete un teléfono, un texto, un QR, credenciales o 
         }
     }
     assert.deepEqual(sospechosas, [], `Estas llamadas de log nombran algo sensible sin enmascarar:\n${sospechosas.join("\n")}`);
+});
+
+test("en los archivos que manejan el mensaje de una persona, ninguna llamada de log nombra el nombre del perfil (nombre, pushName)", () => {
+    // almacen.js usa `nombre` para decir qué archivo es ("los consentimientos"): no es una persona. Acá solo importan los que ven el mensaje.
+    const delMensaje = ["reenvio.js", "backend.js", "baileys/servicio.js", "baileys/mensajes.js"];
+    const hallazgos = [];
+    for (const ruta of ARCHIVOS.filter(r => delMensaje.includes(nombre(r)))) {
+        for (const llamada of extraerLlamadasDeLog(fs.readFileSync(ruta, "utf8"))) {
+            if (/\bnombre\b|pushName/i.test(llamada.codigo)) hallazgos.push(`${nombre(ruta)}:${llamada.linea}`);
+        }
+    }
+    assert.deepEqual(hallazgos, []);
+});
+
+test("la guardia del nombre del perfil sí ve una llamada mala: reenvio.js con `${extra.nombre}` en el log", () => {
+    const [mala] = extraerLlamadasDeLog("log.error(`falló para ${extra.nombre}`);");
+    assert.ok(/\bnombre\b|pushName/i.test(mala.codigo));
+    const [inocua] = extraerLlamadasDeLog("log.error(`falló (el nombre del perfil nunca se loguea)`);");
+    assert.equal(/\bnombre\b|pushName/i.test(inocua.codigo), false, "las palabras del texto no cuentan");
 });
 
 test("ninguna llamada de log vuelca un objeto entero (JSON.stringify, inspect): puede traer mensajes o claves", () => {
@@ -260,9 +281,9 @@ test("escenario del servicio: del QR al mensaje, con cortes, cierre de sesión y
         ruidoDeLaLibreria(s3);
 
         // Entran mensajes (el texto pasa por memoria hacia la API y nunca por el log) y salen otros.
-        s3.recibir({ de: `${M.telefonoCompleto}@s.whatsapp.net`, texto: M.texto, id: "E1" });
-        s3.recibir({ de: `${M.otroCompleto}@s.whatsapp.net`, texto: "BAJA", id: "E2" });
-        s3.recibir({ de: `${M.telefonoCompleto}@s.whatsapp.net`, mensaje: { imageMessage: { caption: M.texto } }, id: "E3" });
+        s3.recibir({ de: `${M.telefonoCompleto}@s.whatsapp.net`, texto: M.texto, id: "E1", nombre: M.nombrePerfil });
+        s3.recibir({ de: `${M.otroCompleto}@s.whatsapp.net`, texto: "BAJA", id: "E2", nombre: M.nombrePerfil });
+        s3.recibir({ de: `${M.telefonoCompleto}@s.whatsapp.net`, mensaje: { imageMessage: { caption: M.texto } }, id: "E3", nombre: M.nombrePerfil });
         s3.ev.emit("messages.upsert", { type: "notify", messages: [{ key: { remoteJid: `${M.telefonoCompleto}@s.whatsapp.net`, id: "E4" }, message: { conversation: M.texto }, extra: { creds: s3.config.auth.creds } }, null] });
         await e.servicio.enviar(M.telefonoApi, M.saliente);
         s3.errorAlEnviar = new Error(`no se pudo enviar a ${M.telefonoCompleto}`);
@@ -306,11 +327,30 @@ test("escenario del servicio: del QR al mensaje, con cortes, cierre de sesión y
         assert.match(log, /Baileys error/, "y la librería llegó a hacer ruido");
         assert.doesNotMatch(log, NO_SALE, "lo que la librería dice en info, debug o trace no se escribe");
         sinNadaSensible(log, "el log del servicio");
-        assert.deepEqual(e.reenviados.map(r => r.telefono), [M.telefonoCompleto, M.otroCompleto, M.telefonoCompleto], "los mensajes sí viajaron a la API (por memoria)");
+        assert.deepEqual(e.reenviados.map(r => r.telefono), [M.telefonoCompleto, M.otroCompleto, M.telefonoCompleto, M.telefonoCompleto], "los mensajes sí viajaron a la API (por memoria): el 3.º es la foto");
+        assert.equal(e.extras[0].nombre, M.nombrePerfil, "y con el nombre del perfil, que es lo que no puede salir en el log");
+        assert.deepEqual(e.extras.map(x => x.tipo), ["texto", "texto", "imagen", "texto"]);
+        sinMarcadores(JSON.stringify(e.servicio.salud()), "GET /salud");
     } finally {
         await e.servicio.cerrar().catch(() => {});
         e.limpiar();
     }
+});
+
+test("el servicio no descarga archivos ni escribe a disco lo que una persona manda: ni fotos, ni audios, ni documentos", () => {
+    const peligrosos = [];
+    for (const ruta of ARCHIVOS) {
+        const fuente = fs.readFileSync(ruta, "utf8");
+        for (const [nombrePatron, patron] of [["descarga de media", /\bdownload(?:MediaMessage|ContentFromMessage)\b/], ["escritura de un stream", /\bcreateWriteStream\b/]]) {
+            if (patron.test(fuente)) peligrosos.push(`${nombre(ruta)}: ${nombrePatron}`);
+        }
+    }
+    assert.deepEqual(peligrosos, []);
+});
+
+test("el reenvío a la API (con sus reintentos) vive solo en memoria: no usa fs", () => {
+    const fuente = fs.readFileSync(path.join(RAIZ, "reenvio.js"), "utf8");
+    assert.doesNotMatch(fuente, /require\(["'](?:node:)?fs/);
 });
 
 // Los mensajes de error de una librería o del sistema pueden repetir un teléfono. Cada lugar donde el servicio los escribe tiene que

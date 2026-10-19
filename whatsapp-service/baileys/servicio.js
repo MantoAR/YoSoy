@@ -65,7 +65,7 @@ class ServicioBaileys {
         this._f = fachada;
         this._sesion = sesion;
         this._log = log;
-        this._reenviar = reenviar;                 // (telefono, texto) => void: hacia la API de YoSoy
+        this._reenviar = reenviar;                 // (telefono, texto, extra) => void: hacia la API de YoSoy (extra: tipo, id, ts, nombre). Puede traer resumen(): contadores para /salud
         this._reloj = reloj;
         this._versionWa = versionWa;
         this._buscarVersionWa = buscarVersionWa;
@@ -92,6 +92,7 @@ class ServicioBaileys {
         this._temporizadorReconexion = null;
         this._guardado = Promise.resolve();        // las escrituras de credenciales se encadenan: no se pisan ni se pierden
         this._vistos = new Map();                  // id del mensaje → cuándo se vio (para no procesar dos veces el mismo)
+        this._entrantes = { recibidos: 0, duplicados: 0, ignorados: {} };   // solo contadores (GET /salud): nunca un teléfono, un texto ni un nombre
         this._jids = new Map();                    // últimos 10 dígitos → { jid, hasta }
     }
 
@@ -140,7 +141,10 @@ class ServicioBaileys {
             requiereVincular: this._estado === ESTADOS.REQUIERE_VINCULAR,
             requiereAtencion: this._estado === ESTADOS.REQUIERE_ATENCION,
             reconectando: this._estado === ESTADOS.RECONECTANDO,
-            intentosDeReconexion: this._plan.intentos
+            intentosDeReconexion: this._plan.intentos,
+            // Lo que entró desde que arrancó el servicio: de las personas que se procesaron (recibidos), los repetidos, los ignorados por motivo y lo que pasó al reenviarlos a la
+            // API (reenviados, reintentados, fallidos, perdidos y los que esperan). Solo números.
+            entrantes: { ...this._entrantes, ignorados: { ...this._entrantes.ignorados }, ...(this._reenviar?.resumen?.() ?? {}) }
         };
     }
 
@@ -495,16 +499,22 @@ class ServicioBaileys {
 
     // ── Entrantes ───────────────────────────────────────────────────────────────────
 
-    // Solo "notify" son mensajes nuevos; "append" es historial y sincronización. Cada mensaje de texto de una persona se reenvía a
-    // la API. El texto pasa por memoria y nunca por el log.
+    // Solo "notify" son mensajes nuevos; "append" es historial y sincronización. Cada mensaje de una persona se reenvía a la API: el texto, o el aviso del tipo si es una foto, un
+    // audio... (el archivo no se descarga). El texto y el nombre del perfil pasan por memoria y nunca por el log.
     _alRecibir(evento) {
         if (evento?.type !== "notify" || !Array.isArray(evento.messages)) return;
         for (const msg of evento.messages) {
             try {
                 const entrante = interpretarEntrante(msg);
-                if (entrante.ignorar) continue;
-                if (this._yaVisto(entrante.id)) continue;
-                Promise.resolve(this._reenviar(entrante.telefono, entrante.texto)).catch(() => { /* el reenviador ya loguea */ });
+                if (entrante.ignorar) {
+                    this._entrantes.ignorados[entrante.ignorar] = (this._entrantes.ignorados[entrante.ignorar] ?? 0) + 1;
+                    continue;
+                }
+                if (this._yaVisto(entrante.id)) { this._entrantes.duplicados++; continue; }
+                this._entrantes.recibidos++;
+                const { telefono, texto, ...extra } = entrante;      // tipo, id, ts y nombre: el contrato v2 del webhook
+                if (extra.id === null) delete extra.id;
+                Promise.resolve(this._reenviar(telefono, texto, extra)).catch(() => { /* el reenviador ya loguea */ });
             } catch (err) {
                 this._log.error(ocultarNumeros(`Error procesando un mensaje entrante: ${err?.message || err}`));
             }
