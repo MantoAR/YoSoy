@@ -2,7 +2,7 @@
    01-produccion.sql — Esquema completo de YoSoy para un servidor nuevo.
 
    Qué es: la base [yosoy] tal como la necesita el código hoy — el script base
-   de la rama `DataBase` más las 16 migraciones de migrations/, consolidados
+   de la rama `DataBase` más las 17 migraciones de migrations/, consolidados
    en un solo archivo con la forma FINAL de cada tabla (no un replay histórico
    de cada ALTER). Pensado para correr UNA vez contra un servidor recién
    instalado, sin nada previo.
@@ -476,6 +476,8 @@ CREATE TABLE [dbo].[Conversacion](
     [FechaCreacion] [datetime] NOT NULL CONSTRAINT [DF_Conversacion_FC] DEFAULT (getdate()),
     [IdUltimoMensajeLeido] [int] NULL,
     [IdProfesionalAsignado] [int] NULL,
+    -- Migración 17 (chat de WhatsApp para el personal): el nombre del perfil de WhatsApp de quien escribe. No va a los logs.
+    [NombreContacto] [nvarchar](100) NULL,
     CONSTRAINT [CK_Conversacion_Estado] CHECK ([Estado] IN ('Activa', 'DerivadaHumano', 'Urgente', 'Cerrada')),
     CONSTRAINT [UQ_Conversacion_Telefono_Canal] UNIQUE ([Telefono], [Canal])
 );
@@ -489,9 +491,14 @@ CREATE TABLE [dbo].[MensajeChat](
     [Texto] [nvarchar](4000) NOT NULL,
     [FechaHora] [datetime] NOT NULL CONSTRAINT [DF_MensajeChat_FechaHora] DEFAULT (getdate()),
     [EstadoEnvio] [nvarchar](10) NOT NULL CONSTRAINT [DF_MensajeChat_EstadoEnvio] DEFAULT ('Pendiente'),
+    -- Migración 17 (chat de WhatsApp para el personal): el id del mensaje en WhatsApp (con el índice único filtrado de la sección 6 no se guarda dos veces) y su tipo.
+    -- Lo que no es texto se guarda como un aviso del tipo en Texto ("[Imagen]"): el archivo no se guarda.
+    [IdExterno] [nvarchar](64) NULL,
+    [Tipo] [nvarchar](12) NOT NULL CONSTRAINT [DF_MensajeChat_Tipo] DEFAULT ('texto'),
     CONSTRAINT [CK_MensajeChat_Direccion] CHECK ([Direccion] IN ('Entrante', 'Saliente')),
     CONSTRAINT [CK_MensajeChat_Origen] CHECK ([Origen] IN ('Paciente', 'Bot', 'Humano', 'Sistema')),
-    CONSTRAINT [CK_MensajeChat_EstadoEnvio] CHECK ([EstadoEnvio] IN ('Pendiente', 'Enviado', 'Error'))
+    CONSTRAINT [CK_MensajeChat_EstadoEnvio] CHECK ([EstadoEnvio] IN ('Pendiente', 'Enviado', 'Error')),
+    CONSTRAINT [CK_MensajeChat_Tipo] CHECK ([Tipo] IN ('texto', 'audio', 'imagen', 'video', 'documento', 'sticker', 'ubicacion', 'contacto', 'otro'))
 );
 GO
 
@@ -594,6 +601,9 @@ GO
 CREATE INDEX [IX_HistorialAsignacion_Caso] ON [dbo].[HistorialAsignacion]([IdCaso]);
 GO
 CREATE INDEX [IX_MensajeChat_Conversacion] ON [dbo].[MensajeChat]([IdConversacion], [IdMensaje]);
+GO
+-- Migración 17. Índice único filtrado: el mismo mensaje de WhatsApp no se guarda dos veces en una conversación (los mensajes sin id no cuentan).
+CREATE UNIQUE INDEX [UQ_MensajeChat_IdExterno] ON [dbo].[MensajeChat]([IdConversacion], [IdExterno]) WHERE [IdExterno] IS NOT NULL;
 GO
 CREATE UNIQUE INDEX [UX_Recordatorio_Turno_Tipo_Canal] ON [dbo].[Recordatorio]([IdTurno], [Tipo], [Canal]);
 GO
