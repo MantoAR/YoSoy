@@ -234,7 +234,9 @@ public class FakeNotificador : INotificadorTurnos
     public void TurnoConfirmado(int idTurno) => Eventos.Add($"TurnoConfirmado:{idTurno}");
     public void TurnoCancelado(int idTurno, bool respondidoPorChat = false) => Eventos.Add($"TurnoCancelado:{idTurno}:{respondidoPorChat}");
     public void CambioDeEstado(int idTurno, int idEstadoAnterior) => Eventos.Add($"CambioDeEstado:{idTurno}");
-    public void AvisarUrgencia(Conversacion c, string textoPaciente) => Eventos.Add($"Urgencia:{c.IdConversacion}");
+    public void AvisarUrgencia(Conversacion c, string textoPaciente, bool seRespondioAlPaciente = true) =>
+        Eventos.Add(seRespondioAlPaciente ? $"Urgencia:{c.IdConversacion}" : $"UrgenciaSinRespuesta:{c.IdConversacion}");
+    public void AvisarChatNuevo(Conversacion c) => Eventos.Add($"ChatNuevo:{c.IdConversacion}");
     public void AvisarDerivacion(Conversacion c) => Eventos.Add($"Derivacion:{c.IdConversacion}");
     public void AvisarNoAsistencia(int idTurno) => Eventos.Add($"NoAsistencia:{idTurno}");
 }

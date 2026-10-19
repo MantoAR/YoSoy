@@ -167,3 +167,125 @@ crearla.
 | `No encuentro sqlcmd` | Instalá las herramientas de línea de comandos de SQL Server (o SSMS). |
 | "La ejecución de scripts está deshabilitada en este sistema" | Corré el script con `powershell -NoProfile -ExecutionPolicy Bypass -File ...` |
 | El script dice que la base ya existe | Es a propósito: nunca toca una base existente. Borrala (arriba) o elegí otro `-Base`. |
+
+## Probar el chat de WhatsApp para el personal en tu PC
+
+Para ver el chat de punta a punta con tu teléfono de prueba: el paciente le escribe al número dedicado y el **Configurador** (que hace de recepción) lo ve y contesta desde CRM → Chats. La
+API y `whatsapp-service` corren en tu máquina, contra una base de pruebas (`yosoy_test`). **Nada de esto toca `yosoy` ni el servidor.**
+
+- **No uses tu número personal** para el número dedicado: Baileys es un cliente no oficial de WhatsApp y un uso brusco puede hacer que bloqueen el número. Por eso los topes bajos de abajo.
+- Hace falta **Node 22 o más**, **.NET** y **dos ventanas de PowerShell**. Las variables `$env:` viven solo en la ventana donde las definís: cada ventana necesita las suyas.
+- La carpeta de la sesión de WhatsApp y el secreto compartido van **fuera del repositorio** (`%LOCALAPPDATA%\YoSoy\whatsapp`), y no dentro de Google Drive, OneDrive ni Dropbox: la sesión es una credencial
+  de la cuenta. El servicio se niega a usar una carpeta dentro del repo o de la app.
+- El QR lo escaneás vos, con el teléfono del número dedicado: nada ni nadie más lo hace.
+
+### Una sola vez
+
+```powershell
+# 1) Comprobaciones (solo lectura)
+node --version                                   # 22 o más
+dotnet --version
+cd D:\Claude\YoSoy\YoSoy\whatsapp-service
+npm ls --omit=dev --depth=0                      # tiene que listar @whiskeysockets/baileys
+# Solo si faltaran las dependencias:  npm ci --omit=dev
+
+# 2) Secreto compartido entre la API y el servicio: al azar, se guarda en un archivo y NO se imprime
+$base = Join-Path $env:LOCALAPPDATA 'YoSoy\whatsapp'
+New-Item -ItemType Directory -Force $base | Out-Null
+$b = New-Object byte[] 32
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+(($b | ForEach-Object { $_.ToString('x2') }) -join '') | Set-Content (Join-Path $base 'secreto.txt') -NoNewline -Encoding ascii
+```
+
+**Crear un usuario Configurador en `yosoy_test`** (una base nueva no tiene usuarios; el script del repo apunta a `[yosoy]`, así que se usa una copia con el nombre de la base cambiado):
+
+```powershell
+cd D:\Claude\YoSoy\YoSoy
+$sql = (Get-Content .\docs\produccion\03-usuario-admin.sql -Raw -Encoding UTF8).Replace('USE [yosoy];', 'USE [yosoy_test];')
+if ($sql -notmatch 'USE \[yosoy_test\];') { throw 'No se pudo cambiar el nombre de la base en el script.' }
+$tmp = Join-Path $env:TEMP 'usuario-admin-yosoy_test.sql'
+[IO.File]::WriteAllText($tmp, $sql, (New-Object Text.UTF8Encoding($true)))
+sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -f 65001 -v AdminPassword="UnaClaveSoloParaPruebas1" -i $tmp
+Remove-Item $tmp
+```
+
+El usuario es `admin`. La contraseña tiene que ser **ASCII puro y sin comillas simples** (cambiala por la que quieras: es la clave de una base de pruebas local). El script es idempotente: volver a correrlo
+solo actualiza la contraseña. Si preferís no mezclar tus pruebas manuales (con números reales) con las de la suite, creá otra base con `.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_wa` y usala en la
+cadena de conexión de abajo.
+
+### Cada vez: dos ventanas
+
+**Ventana A, la API** (queda en `http://localhost:5000`):
+
+```powershell
+cd D:\Claude\YoSoy\YoSoy
+$env:ConnectionStrings__YoSoy = 'Server=.\SQLEXPRESS;Database=yosoy_test;Trusted_Connection=True;TrustServerCertificate=True;'
+$env:Email__Password = ' '                       # un espacio: no sale ningún mail
+$env:Mensajeria__CanalActivo = 'Baileys'
+$env:Mensajeria__ModoAtencion = 'Personal'       # el asistente no contesta: lo atiende el Configurador
+$env:Mensajeria__WhatsApp__Secreto = (Get-Content "$env:LOCALAPPDATA\YoSoy\whatsapp\secreto.txt" -Raw).Trim()
+dotnet run
+```
+
+Si la API no arranca por falta de `Jwt:Key`: `dotnet user-secrets set "Jwt:Key" "<32 caracteres o más, al azar>"` (parado en `D:\Claude\YoSoy\YoSoy`).
+
+**Ventana B, `whatsapp-service`** (queda en `127.0.0.1:3002`; no cambies `WHATSAPP_SERVICE_PORT`: la API tiene el 3002 fijo):
+
+```powershell
+cd D:\Claude\YoSoy\YoSoy\whatsapp-service
+$env:API_BASE_URL = 'http://127.0.0.1:5000'
+$env:Mensajeria__WhatsApp__Secreto = (Get-Content "$env:LOCALAPPDATA\YoSoy\whatsapp\secreto.txt" -Raw).Trim()
+$env:WHATSAPP_BAILEYS_SESSION_PATH = "$env:LOCALAPPDATA\YoSoy\whatsapp\sesion-baileys"
+$env:WHATSAPP_TOPE_DIARIO = '30'                 # número nuevo: empezar bajo
+node index.js
+```
+
+Levantá primero la API: si el servicio recibe un mensaje antes de que la API esté arriba, ese mensaje se pierde. En el log de la ventana B tenés que ver, en este orden, `Carpeta de la sesión de WhatsApp lista`,
+`whatsapp-service escuchando en 127.0.0.1:3002 (Baileys)`, `estado iniciando` y después `hay un código QR para vincular el número`.
+
+### Vincular el número dedicado (lo hacés vos)
+
+1. Abrí `http://localhost:5000/pantallas/index.html` e ingresá con `admin` y la contraseña del paso de arriba.
+2. En el menú, **WhatsApp**: con el servicio corriendo y sin sesión aparece el QR (se renueva solo; si no sirve, "¿El código no funciona? Generar uno nuevo").
+3. En el teléfono del número dedicado: WhatsApp, **Ajustes, Dispositivos vinculados, Vincular un dispositivo**, y escaneá el código. La pantalla pasa a "Conectado" y, desde ahí, reiniciar el
+   servicio **no vuelve a pedir el QR**: la sesión queda en la carpeta.
+
+Alternativa por la terminal, con el servicio **parado** (en la ventana B, con `WHATSAPP_BAILEYS_SESSION_PATH` definida como arriba): `chcp 65001` y `npm run vincular`.
+
+### Probar
+
+```powershell
+curl.exe -s http://localhost:5000/capacidades    # {"mensajeria":true,"modoAtencion":"personal"}
+curl.exe -s http://127.0.0.1:3002/salud          # 200 si está conectado; 503 si falta vincular (sin teléfonos ni textos)
+```
+
+1. Desde **otro** teléfono, escribile al número dedicado. **No tiene que llegar ninguna respuesta automática.**
+2. En el navegador, ingresado como `admin`: **CRM → Chats**. La conversación aparece como **"Para atender"**, con un aviso en la campanita ("Escribió una persona por WhatsApp").
+3. Elegí la conversación y respondé desde el composer: tiene que llegar al otro teléfono. Cerrarla y reabrirla no le manda ningún texto.
+4. Un profesional (ingresando con su usuario) **no ve el botón Chats**, y el servidor le contesta 403 en `/mensajeria`.
+
+Lo que todavía **no** pasa (llega con las ramas siguientes del chat para el personal): las fotos y los audios no aparecen, y la conversación sale "sin identificar" aunque el teléfono sea de un paciente. Si respondés desde el teléfono
+del número, **eso no queda en el sistema**: respondé siempre desde YoSoy.
+
+### Parar y empezar de cero
+
+- **Parar:** `Ctrl+C` en cada ventana (el servicio cierra ordenado sin cerrar la sesión de WhatsApp).
+- **Olvidar la sesión** (y el registro de quién le escribió al número, que vive en la misma carpeta), con el servicio parado:
+
+```powershell
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\YoSoy\whatsapp\sesion-baileys"
+```
+
+Después, en el teléfono: Dispositivos vinculados, y cerrá esa sesión.
+
+### Si algo falla
+
+| Síntoma | Causa probable |
+|---|---|
+| `Falta API_BASE_URL` / `Falta Mensajeria__WhatsApp__Secreto` / `Falta WHATSAPP_BAILEYS_SESSION_PATH` | La variable no está definida **en esa ventana** |
+| `La carpeta de la sesión ... está dentro de un repositorio git` | La ruta quedó dentro de `D:\Claude\YoSoy\YoSoy` (incluida `whatsapp-service`) |
+| El Configurador dice "Servicio no disponible" | El servicio no corre, o los secretos de las dos ventanas no coinciden (la API recibe 401), o cambiaste el puerto |
+| `/salud` da 503 `requiere_vincular` | Falta escanear el QR (o venció: pedir otro) |
+| No aparece el botón Chats ni el grupo CRM | `/capacidades` da `"mensajeria":false`: `ChatSimuladoHabilitado` apagado, o el pedido no es local (proxy); o entraste con un usuario que no es Configurador |
+| El mensaje llega al teléfono del número pero no a Chats | Mirá la ventana A y el log de la B: `La API respondió 404` es un secreto distinto |
+| `npm : No se puede cargar el archivo npm.ps1` | Usá `npm.cmd` (por ejemplo `npm.cmd run vincular`) |

@@ -15,6 +15,15 @@ public static class MensajeriaServiceCollectionExtensions
                 "Mensajeria:PalabrasRiesgo no puede estar vacía.")
             .ValidateOnStart();
 
+        // El modo de atención se valida acá, al armar el host (igual que CanalActivo, más abajo): un valor mal escrito frena el arranque con un mensaje claro, porque decide
+        // si el asistente contesta o no y no puede caer en silencio en uno de los dos. (Un cambio en caliente del archivo con un valor inválido no corta la aplicación:
+        // MensajeriaOptions.EsModoPersonal da false y atiende el asistente, como siempre.)
+        var modoAtencion = config.GetSection(MensajeriaOptions.Seccion)["ModoAtencion"];
+        if (modoAtencion is not null && !ModosAtencion.EsValido(modoAtencion))
+            throw new InvalidOperationException(
+                $"Mensajeria:ModoAtencion = \"{modoAtencion}\" no es válido. Los valores válidos son \"Asistente\" (como siempre) y \"Personal\" (el chat es para el personal). " +
+                "Se cambia con Mensajeria__ModoAtencion en el .env del servidor.");
+
         // TryAdd: el reloj de la aplicación es RelojDeLaClinica (AddRelojDeLaClinica, que va primero en Program.cs).
         // Esta línea solo cubre a quien use AddMensajeria sin él.
         services.TryAddSingleton(TimeProvider.System);
@@ -103,6 +112,9 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<NotificadorTurnos>();
         services.AddSingleton<INotificadorTurnos>(sp => sp.GetRequiredService<NotificadorTurnos>());
         services.AddSingleton<BotReservasService>();
+        // El chat para el personal (Mensajeria:ModoAtencion = "Personal") y la puerta que elige, en cada mensaje, quién atiende: el asistente o el personal.
+        services.AddSingleton<AtencionPersonalService>();
+        services.AddSingleton<RecepcionDeMensajes>();
 
         services.AddSingleton<RecordatorioBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<RecordatorioBackgroundService>());

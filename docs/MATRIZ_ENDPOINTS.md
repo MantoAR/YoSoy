@@ -37,7 +37,18 @@ Archivos estáticos (`/pantallas/*`) no aparecen en ninguna tabla: los sirve
 eso tampoco pasan por la guardia. Quedan fuera del alcance de "autenticación por
 endpoint" a propósito (son HTML/JS/CSS; los datos que importan están detrás de la API).
 
-## Pertenencia de conversaciones (Mejora de chats y centrado — sin cambios esta vuelta)
+## Chats: solo del Configurador (D2) y la pertenencia anterior
+
+**D2 del chat para el personal: los chats son SOLO del Configurador, que hace de recepción.** Los profesionales atienden, no contestan mensajes: no ven ningún chat
+ni reciben sus notificaciones, y un Profesional (o un paciente) recibe **403** en toda ruta de `/mensajeria`, sin distinguir qué se pida ni a quién pertenezca la
+conversación (la decisión es por el rol y no un 404). Sin sesión, 401. Lo prueba `ChatsSoloConfiguradorTests`, que **lee la tabla de rutas de la aplicación** (no una
+lista escrita a mano) y falla si una ruta nueva de `/mensajeria` no exige solo el rol Configurador. Las únicas rutas de `/mensajeria` sin sesión son las que no tienen una
+persona del otro lado: el simulador y el webhook de `whatsapp-service` (arriba). **No cambia** la campanita de turnos del profesional (`/profesionales/{id}/turnos-confirmados`):
+no es de los chats.
+
+Lo que sigue describe la **pertenencia por profesional que existía antes** (Tomar/Devolver/Asignar y la visibilidad por paciente). Con la D2 **queda inalcanzable**: el
+código de `VisibilidadConversacion` y de esas tres rutas sigue, pero ningún profesional pasa de la puerta, y la columna "Pertenencia" de la tabla de abajo describe lo que
+decidiría ese código. Se retirará en una rama aparte (ver `docs/PROGRESO_CHAT_PERSONAL_WHATSAPP.md`, 5.9). La pantalla ya no ofrece Tomar, Devolver, Asignar ni "Mías".
 
 La bandeja **dejó de ser compartida sin filtro**: los chats pueden contener información de
 salud mental, así que quién ve qué conversación ahora lo decide el servidor en cada pedido,
@@ -79,29 +90,29 @@ nunca se la vuelve a servir, pero el *caché local* de esa sesión no se entera 
 | GET | `/mensajeria/whatsapp/estado` | **Solo Configurador** | — | Pantalla de WhatsApp del Configurador: estado + QR (data-URL) en la misma respuesta. `servicioDisponible:false` si no se pudo contactar a `whatsapp-service`, distinto de `conectado:false`. `Cache-Control: no-store`; el cuerpo (con el QR) nunca se loguea. Rate limit propio por IP (`whatsapp-estado`, más laxo — es polling). |
 | POST | `/mensajeria/whatsapp/desvincular` | **Solo Configurador** | — | Cierra la sesión de WhatsApp y fuerza un QR nuevo (también lo usa el botón "¿no funciona? generar uno nuevo" durante el escaneo). Audita qué número se desvinculó. Rate limit propio por IP (`whatsapp-admin`, más estricto — acción deliberada). |
 | POST | `/mensajeria/whatsapp/confirmar-vinculacion` | **Solo Configurador** | — | Lo llama el frontend al notar (por su propio polling) que el estado pasó a conectado — el endpoint vuelve a pedirle el estado real a `whatsapp-service` antes de auditar, no confía en el aviso a ciegas. Límite conocido: si se cierra la pestaña antes de que el polling note el cambio, esa vinculación puntual no queda auditada. Mismo rate limit que `/desvincular`. |
-| GET | `/mensajeria/conversaciones` | Profesional, Configurador | **Sí — filtra la lista** | `VisibilidadConversacion.Filtrar`. `idEtiqueta` filtra encima de lo ya visible (Paso 5 de la vuelta anterior). El buscador del frontend filtra client-side sobre esta misma lista, así que queda cubierto gratis. |
-| GET | `/mensajeria/conversaciones/{id}` | Profesional, Configurador | **Sí — 404** | |
-| GET | `/mensajeria/conversaciones/{id}/paciente` | Profesional, Configurador | **Sí — 404** | Panel del lead: datos administrativos únicamente. Devuelve también `idProfesionalAsignado`/`nombreProfesionalAsignado` (de la conversación, no del paciente). Único endpoint llamado solo al abrir/refrescar el panel (nunca por el polling de la lista) — ahí se audita la apertura (quién, conversación y paciente por id, cuándo; nunca el nombre ni contenido). |
-| GET | `/mensajeria/conversaciones/{id}/mensajes` | Profesional, Configurador | **Sí — 404** | |
-| PUT | `/mensajeria/conversaciones/{id}/leida` | Profesional, Configurador | **Sí — 404** | |
-| POST | `/mensajeria/conversaciones/{id}/responder` | Profesional, Configurador | **Sí — 404** | Audita (acción + ids, nunca el texto). |
-| PUT | `/mensajeria/conversaciones/{id}/cerrar` | Profesional, Configurador | **Sí — 404** | Audita. Le manda el aviso de cierre a la persona **solo si ella escribió en esa conversación** (una respuesta automática no empieza una conversación); si no, cierra igual y no manda nada. |
-| PUT | `/mensajeria/conversaciones/{id}/reabrir` | Profesional, Configurador | **Sí — 404** | 400 si no estaba Cerrada. Audita. Igual que `cerrar`: el aviso a la persona sale solo si ella escribió en esa conversación. |
+| GET | `/mensajeria/conversaciones` | **Solo Configurador** | **Sí — filtra la lista** | `VisibilidadConversacion.Filtrar`. `idEtiqueta` filtra encima de lo ya visible (Paso 5 de la vuelta anterior). El buscador del frontend filtra client-side sobre esta misma lista, así que queda cubierto gratis. |
+| GET | `/mensajeria/conversaciones/{id}` | **Solo Configurador** | **Sí — 404** | |
+| GET | `/mensajeria/conversaciones/{id}/paciente` | **Solo Configurador** | **Sí — 404** | Panel del lead: datos administrativos únicamente. Devuelve también `idProfesionalAsignado`/`nombreProfesionalAsignado` (de la conversación, no del paciente). Único endpoint llamado solo al abrir/refrescar el panel (nunca por el polling de la lista) — ahí se audita la apertura (quién, conversación y paciente por id, cuándo; nunca el nombre ni contenido). |
+| GET | `/mensajeria/conversaciones/{id}/mensajes` | **Solo Configurador** | **Sí — 404** | |
+| PUT | `/mensajeria/conversaciones/{id}/leida` | **Solo Configurador** | **Sí — 404** | |
+| POST | `/mensajeria/conversaciones/{id}/responder` | **Solo Configurador** | **Sí — 404** | Audita (acción + ids, nunca el texto). |
+| PUT | `/mensajeria/conversaciones/{id}/cerrar` | **Solo Configurador** | **Sí — 404** | Audita. Le manda el aviso de cierre a la persona **solo si ella escribió en esa conversación** (una respuesta automática no empieza una conversación); si no, cierra igual y no manda nada. |
+| PUT | `/mensajeria/conversaciones/{id}/reabrir` | **Solo Configurador** | **Sí — 404** | 400 si no estaba Cerrada. Audita. Igual que `cerrar`: el aviso a la persona sale solo si ella escribió en esa conversación. |
 | PUT | `/mensajeria/conversaciones/{id}/asignar` | **Solo Configurador** | — (Configurador ve todo) | Asigna directo `Conversacion.IdProfesionalAsignado`, sin que haga falta un caso abierto. 400 si la conversación no está escalada. Audita (ids). |
-| PUT | `/mensajeria/conversaciones/{id}/tomar` | Profesional | **Sí — 404** (más 400/409 propios) | Atómico: `UPDATE ... WHERE IdProfesionalAsignado IS NULL` — si dos la toman a la vez, una gana (204) y la otra pierde la carrera (**409**, "ya la tomó otra persona"), nunca dos dueños. 400 si no está escalada o si la pide un Configurador (usa `/asignar`). Ya asignada a quien la pide: 204 idempotente. Audita. |
-| PUT | `/mensajeria/conversaciones/{id}/devolver` | **Quien la tiene asignada, o Configurador** | **Sí — 404**, más 403 si no es el dueño ni Configurador | Vuelve a sin asignar. 400 si ya estaba sin asignar. Motivo de la misma lista cerrada que `/asignar` (`MotivoReasignacion.Categorias`). Audita. |
-| GET | `/mensajeria/conversaciones/{id}/notas` | Profesional, Configurador | **Sí — 404** | Nunca al paciente; el texto nunca se audita. |
-| POST | `/mensajeria/conversaciones/{id}/notas` | Profesional, Configurador | **Sí — 404** | |
-| DELETE | `/mensajeria/conversaciones/{id}/notas/{idNota}` | **El autor, o Configurador** | **Sí — 404** (de la conversación, antes de mirar quién escribió la nota) | 403 para cualquier otro profesional que sí puede ver la conversación pero no escribió la nota. |
-| GET | `/mensajeria/etiquetas` | Profesional, Configurador | — | Catálogo: lectura abierta (cualquiera que vea una conversación puede necesitar mostrarle sus chips). |
+| PUT | `/mensajeria/conversaciones/{id}/tomar` | **Solo Configurador** | **Sí — 404** (más 400/409 propios) | Atómico: `UPDATE ... WHERE IdProfesionalAsignado IS NULL` — si dos la toman a la vez, una gana (204) y la otra pierde la carrera (**409**, "ya la tomó otra persona"), nunca dos dueños. 400 si no está escalada o si la pide un Configurador (usa `/asignar`): **desde la D2 siempre da 400 o 403, ya no hay profesionales en los chats**. Ya asignada a quien la pide: 204 idempotente. Audita. |
+| PUT | `/mensajeria/conversaciones/{id}/devolver` | **Solo Configurador** | **Sí — 404**, más 403 si no es el dueño ni Configurador | Vuelve a sin asignar. 400 si ya estaba sin asignar. Motivo de la misma lista cerrada que `/asignar` (`MotivoReasignacion.Categorias`). Audita. |
+| GET | `/mensajeria/conversaciones/{id}/notas` | **Solo Configurador** | **Sí — 404** | Nunca al paciente; el texto nunca se audita. |
+| POST | `/mensajeria/conversaciones/{id}/notas` | **Solo Configurador** | **Sí — 404** | |
+| DELETE | `/mensajeria/conversaciones/{id}/notas/{idNota}` | **Solo Configurador** | **Sí — 404** (de la conversación, antes de mirar quién escribió la nota) | 403 para cualquier otro profesional que sí puede ver la conversación pero no escribió la nota. |
+| GET | `/mensajeria/etiquetas` | **Solo Configurador** | — | Catálogo: lectura abierta (cualquiera que vea una conversación puede necesitar mostrarle sus chips). |
 | POST/PUT/DELETE | `/mensajeria/etiquetas[/{id}]` | **Solo Configurador** | — | El catálogo de etiquetas de chats con información de salud mental lo administra solo Configurador (pantalla propia, `#etiquetas` en el panel). 409 si el nombre ya existe. Baja lógica. |
-| POST/DELETE | `/mensajeria/conversaciones/{id}/etiquetas/{idEtiqueta}` | Profesional, Configurador | **Sí — 404** | Asignar una etiqueta a una conversación puntual es pertenencia de la *conversación*, no del catálogo — sigue abierto a quien pueda verla. Idempotente. |
-| GET | `/mensajeria/respuestas-rapidas` | Profesional, Configurador | — | Cada quien ve las globales + las propias (nunca las de otro profesional: lo filtra el `WHERE` del DAO). |
-| POST/PUT/DELETE | `/mensajeria/respuestas-rapidas[/{id}]` | Profesional, Configurador | **Dueño de la fila** | Global (Configurador) → 403 a Profesional; propia → 403 a Configurador y a cualquier otro. Baja lógica. |
-| GET | `/mensajeria/notificaciones-internas` | Profesional, Configurador | **Sí — filtra la lista** | Las que referencian una conversación puntual se filtran re-resolviendo su pertenencia **actual**, no un dato grabado cuando se creó el aviso. |
-| PUT | `/mensajeria/notificaciones-internas/{id}/leida` | Profesional, Configurador | **Sí — 404** si referencia una conversación no visible | Defensa en profundidad: en el flujo normal la lista ya viene filtrada. |
-| POST | `/mensajeria/recordatorios/ejecutar` | Profesional, Configurador | — | Dispara el servicio de recordatorios fuera de su intervalo; pensado para pruebas/demo. |
-| GET/POST/PUT/DELETE | `/mensajeria/preguntas-frecuentes[/{id}]` | Profesional, Configurador | Ninguna | Sin relación con conversaciones puntuales. |
+| POST/DELETE | `/mensajeria/conversaciones/{id}/etiquetas/{idEtiqueta}` | **Solo Configurador** | **Sí — 404** | Asignar una etiqueta a una conversación puntual es pertenencia de la *conversación*, no del catálogo — sigue abierto a quien pueda verla. Idempotente. |
+| GET | `/mensajeria/respuestas-rapidas` | **Solo Configurador** | — | Se ven las globales; las propias de un profesional ya no se usan (nunca las de otro profesional: lo filtra el `WHERE` del DAO). |
+| POST/PUT/DELETE | `/mensajeria/respuestas-rapidas[/{id}]` | **Solo Configurador** | Siempre globales (sin dueño) | Global (Configurador) → 403 a Profesional; propia → 403 a Configurador y a cualquier otro. Baja lógica. |
+| GET | `/mensajeria/notificaciones-internas` | **Solo Configurador** | **Sí — filtra la lista** | Las que referencian una conversación puntual se filtran re-resolviendo su pertenencia **actual**, no un dato grabado cuando se creó el aviso. |
+| PUT | `/mensajeria/notificaciones-internas/{id}/leida` | **Solo Configurador** | **Sí — 404** si referencia una conversación no visible | Defensa en profundidad: en el flujo normal la lista ya viene filtrada. |
+| POST | `/mensajeria/recordatorios/ejecutar` | **Solo Configurador** | — | Dispara el servicio de recordatorios fuera de su intervalo; pensado para pruebas/demo. |
+| GET/POST/PUT/DELETE | `/mensajeria/preguntas-frecuentes[/{id}]` | **Solo Configurador** | Ninguna | Sin relación con conversaciones puntuales. |
 
 ## Historia clínica y datos clínicos (Cierre de seguridad, Paso 2)
 

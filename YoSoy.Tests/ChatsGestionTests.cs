@@ -6,11 +6,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 
-// Mejora de chats y centrado (A3): gates de rol y pertenencia de los endpoints nuevos de
-// MensajeriaEndpoints. La matriz completa (401/403/404/200 por endpoint) ya se corrió a
-// mano con Playwright (docs/pruebas-ui-cambios-agus/p10_chats_a3.py, no versionado); esto
-// deja los puntos más sensibles (quién puede asignar, quién puede borrar una nota de otro,
-// quién puede tocar una respuesta rápida ajena) como prueba permanente de la batería.
+// Mejora de chats y centrado (A3): gates de rol de los endpoints de MensajeriaEndpoints. Con la D2 del chat para el personal
+// (los profesionales no ven chats: ChatsSoloConfiguradorTests prueba ruta por ruta que un Profesional recibe 403) esta clase deja
+// los puntos más sensibles: un Profesional no puede asignar, ni escribir ni borrar notas, ni tocar las respuestas rápidas, y el
+// Configurador sí. Antes también cubría quién podía borrar la nota de otro profesional y las respuestas rápidas propias: ya no
+// existen profesionales en los chats.
 // Corre contra una base de datos; crea sus propios datos (los dos profesionales, sus usuarios y la
 // conversación de prueba con teléfono único) y borra todo lo que crea al final. Antes suponía los
 // profesionales 1 y 2 y los usuarios 1, 2 y 99 de la base de desarrollo.
@@ -109,51 +109,57 @@ public class ChatsGestionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Nota_interna_solo_la_borra_el_autor_o_el_administrador()
+    public async Task Las_notas_internas_son_solo_del_Configurador_un_Profesional_no_las_escribe_ni_las_borra()
     {
-        var alta = await _profesional.PostAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/notas", new { texto = "nota de prueba" });
+        // El Profesional ni siquiera entra (D2): no puede escribir una nota.
+        var negadaAlEscribir = await _profesional.PostAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/notas", new { texto = "nota de prueba" });
+        Assert.Equal(HttpStatusCode.Forbidden, negadaAlEscribir.StatusCode);
+
+        // El Configurador la escribe...
+        var alta = await _configurador.PostAsJsonAsync($"/mensajeria/conversaciones/{_idConversacion}/notas", new { texto = "nota de prueba" });
         alta.EnsureSuccessStatusCode();
         var idNota = (await alta.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("idNota").GetInt32();
 
-        // Otro profesional (no el autor) no puede borrarla.
+        // ...un Profesional no la puede borrar (ni lo intenta con otro token de profesional)...
         var otro = ClienteCon(_factory.Services.GetRequiredService<JwtEmisorService>()
             .Emitir(_idUsuarioOtroProfesional, Roles.Profesional, idProfesional: _idOtroProfesional));
-        var negado = await otro.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}");
-        Assert.Equal(HttpStatusCode.Forbidden, negado.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await _profesional.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await otro.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}")).StatusCode);
 
-        // El administrador sí, aunque no sea el autor.
+        // ...y el Configurador sí.
         var borrado = await _configurador.DeleteAsync($"/mensajeria/conversaciones/{_idConversacion}/notas/{idNota}");
         Assert.Equal(HttpStatusCode.NoContent, borrado.StatusCode);
     }
 
     [Fact]
-    public async Task Respuesta_rapida_global_y_propia_no_se_cruzan_entre_roles()
+    public async Task Las_respuestas_rapidas_son_solo_del_Configurador_y_siempre_globales()
     {
         var global = await _configurador.PostAsJsonAsync("/mensajeria/respuestas-rapidas", new { titulo = "T1", texto = "Texto 1" });
         global.EnsureSuccessStatusCode();
-        var idGlobal = (await global.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("idRespuestaRapida").GetInt32();
-
-        var propia = await _profesional.PostAsJsonAsync("/mensajeria/respuestas-rapidas", new { titulo = "T2", texto = "Texto 2" });
-        propia.EnsureSuccessStatusCode();
-        var idPropia = (await propia.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("idRespuestaRapida").GetInt32();
+        var creada = await global.Content.ReadFromJsonAsync<JsonElement>();
+        var idGlobal = creada.GetProperty("idRespuestaRapida").GetInt32();
 
         try
         {
-            var profesionalTocaGlobal = await _profesional.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idGlobal}", new { titulo = "x", texto = "y" });
-            Assert.Equal(HttpStatusCode.Forbidden, profesionalTocaGlobal.StatusCode);
+            // El Configurador crea siempre una global (sin dueño): ya no hay profesionales con respuestas propias.
+            Assert.Equal(JsonValueKind.Null, creada.GetProperty("idProfesional").ValueKind);
 
-            var configuradorTocaPropia = await _configurador.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idPropia}", new { titulo = "x", texto = "y" });
-            Assert.Equal(HttpStatusCode.Forbidden, configuradorTocaPropia.StatusCode);
+            // Un Profesional no crea una propia ni toca la global: 403 por el rol.
+            Assert.Equal(HttpStatusCode.Forbidden, (await _profesional.PostAsJsonAsync("/mensajeria/respuestas-rapidas", new { titulo = "T2", texto = "Texto 2" })).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await _profesional.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idGlobal}", new { titulo = "x", texto = "y" })).StatusCode);
+            Assert.Equal(HttpStatusCode.Forbidden, (await _profesional.DeleteAsync($"/mensajeria/respuestas-rapidas/{idGlobal}")).StatusCode);
+
+            // El Configurador sí la edita.
+            var edita = await _configurador.PutAsJsonAsync($"/mensajeria/respuestas-rapidas/{idGlobal}", new { titulo = "T1 editada", texto = "Texto 1 editado" });
+            Assert.Equal(HttpStatusCode.OK, edita.StatusCode);
         }
         finally
         {
             await _configurador.DeleteAsync($"/mensajeria/respuestas-rapidas/{idGlobal}");
-            await _profesional.DeleteAsync($"/mensajeria/respuestas-rapidas/{idPropia}");
             using var con = Conexion.ObtenerConexion();
             await con.OpenAsync();
-            using var cmd = new SqlCommand("DELETE FROM RespuestaRapida WHERE IdRespuestaRapida IN (@A, @B)", con);
+            using var cmd = new SqlCommand("DELETE FROM RespuestaRapida WHERE IdRespuestaRapida = @A", con);
             cmd.Parameters.AddWithValue("@A", idGlobal);
-            cmd.Parameters.AddWithValue("@B", idPropia);
             await cmd.ExecuteNonQueryAsync();
         }
     }

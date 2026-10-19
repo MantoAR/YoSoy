@@ -13,28 +13,39 @@ public static class MensajeriaEndpoints
 {
     public static IEndpointRouteBuilder MapMensajeria(this IEndpointRouteBuilder app)
     {
-        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador — exige
-        // sesión de Profesional o Configurador. Las mitigaciones que ya tenía (flag
-        // ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
+        // Fase JWT: todo lo de este grupo es la bandeja del lado administrador. Las mitigaciones
+        // que ya tenía (flag ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
         // RequiereMensajeriaHabilitada) siguen intactas, esto es una capa más encima.
+        // D2 (chat para el personal): los chats son SOLO del Configurador, que hace de recepción.
+        // Los profesionales atienden, no contestan mensajes: no ven ningún chat ni reciben sus
+        // notificaciones, y un Profesional (o un paciente) recibe 403 en cada ruta de este grupo
+        // (ChatsSoloConfiguradorTests lo prueba ruta por ruta y vigila que una ruta nueva no quede
+        // abierta). Las excepciones, más abajo, son las que no tienen sesión del otro lado: el
+        // simulador y el webhook de whatsapp-service.
         var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada()
-            .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+            .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
         // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
         // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
         // con el módulo apagado, o un pedido remoto con SoloLocal, dice false y nada más.
         // Sin auth a propósito: lo consulta cualquier pantalla, antes de saber quién sos.
-        app.MapGet("/capacidades", (HttpContext http) => Results.Ok(new { mensajeria = MensajeriaDisponible(http) }));
+        // modoAtencion ("asistente" o "personal") le dice a la pantalla cómo rotular los chats; solo se informa con el módulo disponible.
+        app.MapGet("/capacidades", (HttpContext http) =>
+        {
+            var op = http.RequestServices.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
+            var disponible = Disponible(op, http);
+            return Results.Ok(new { mensajeria = disponible, modoAtencion = disponible ? (op.EsModoPersonal ? "personal" : "asistente") : null });
+        });
 
         // ── Chat simulado: lado paciente ─────────────────────────
         // Excepción al RequireAuthorization del grupo: estos dos simulan un mensaje
         // ENTRANTE de un paciente (el equivalente a un webhook de WhatsApp real) — no
         // hay, ni tiene sentido que haya, una sesión de profesional del otro lado.
-        g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, BotReservasService bot, IMessageChannel canal) =>
+        g.MapPost("/simulado/entrante", async (MensajeEntranteRequest req, RecepcionDeMensajes recepcion, IMessageChannel canal) =>
         {
             try
             {
-                var r = await bot.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
+                var r = await recepcion.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
                 return Results.Ok(r);
             }
             catch (ArgumentException ex)
@@ -56,7 +67,7 @@ public static class MensajeriaEndpoints
         // — EsLocal() + el secreto compartido, los dos, ninguno alcanza solo. Mismo 404
         // para las dos fallas, para no revelar cuál fue.
         app.MapPost("/mensajeria/whatsapp/entrante", async (MensajeEntranteRequest req, HttpContext ctx,
-            BotReservasService bot, IMessageChannel canal, IConfiguration config) =>
+            RecepcionDeMensajes recepcion, IMessageChannel canal, IConfiguration config) =>
         {
             if (!EsLocal(ctx)) return Results.NotFound();
 
@@ -69,7 +80,7 @@ public static class MensajeriaEndpoints
 
             try
             {
-                var r = await bot.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
+                var r = await recepcion.ProcesarAsync(req.Telefono ?? "", req.Texto ?? "", canal.Nombre);
                 return Results.Ok(r);
             }
             catch (ArgumentException ex)
@@ -224,9 +235,10 @@ public static class MensajeriaEndpoints
             return Results.Ok(m);
         });
 
-        // Cierra la derivación (o la urgencia): el bot vuelve a atender desde el menú.
+        // Cierra la derivación (o la urgencia): en el modo Asistente el bot vuelve a atender desde el menú y se le avisa a la persona. En el modo Personal
+        // no se le manda nada (cerrar lo decide una persona del equipo y no hay asistente que atienda): si vuelve a escribir, vuelve a quedar para atender.
         g.MapPut("/conversaciones/{id}/cerrar", async (int id, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj, IOptionsMonitor<MensajeriaOptions> opciones) =>
         {
             var c = conversaciones.ObtenerPorId(id);
             if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
@@ -235,9 +247,10 @@ public static class MensajeriaEndpoints
             c.DatosContexto        = null;
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
-            await mensajes.EnviarAsync(c,
-                "El equipo de YoSoy cerró esta conversación. Si necesitás algo más, escribí \"menu\" y el asistente te va a ayudar.",
-                "Sistema");
+            if (!opciones.CurrentValue.EsModoPersonal)
+                await mensajes.EnviarAsync(c,
+                    "El equipo de YoSoy cerró esta conversación. Si necesitás algo más, escribí \"menu\" y el asistente te va a ayudar.",
+                    "Sistema");
             Auditar(http, "Cierre de conversación de chat", id, c.IdPaciente is int idPac2 ? datos.ObtenerPaciente(idPac2)?.Nombre : null);
             return Results.Ok(new { c.IdConversacion, c.Estado });
         });
@@ -245,7 +258,7 @@ public static class MensajeriaEndpoints
         // Reabre una conversación cerrada: vuelve a "DerivadaHumano" (no al bot - alguien del
         // equipo la reabrió a propósito, que termine de resolverla una persona).
         g.MapPut("/conversaciones/{id}/reabrir", async (int id, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj, IOptionsMonitor<MensajeriaOptions> opciones) =>
         {
             var c = conversaciones.ObtenerPorId(id);
             if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
@@ -254,7 +267,8 @@ public static class MensajeriaEndpoints
             c.Estado               = EstadoConversacion.DerivadaHumano;
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
-            await mensajes.EnviarAsync(c, "El equipo de YoSoy reabrió esta conversación.", "Sistema");
+            if (!opciones.CurrentValue.EsModoPersonal)   // en el modo Personal no se le manda nada a la persona
+                await mensajes.EnviarAsync(c, "El equipo de YoSoy reabrió esta conversación.", "Sistema");
             Auditar(http, "Reapertura de conversación de chat", id, c.IdPaciente is int idPacR ? datos.ObtenerPaciente(idPacR)?.Nombre : null);
             return Results.Ok(new { c.IdConversacion, c.Estado });
         });
@@ -475,8 +489,8 @@ public static class MensajeriaEndpoints
             return Results.NoContent();
         });
 
-        // El cliente pide siempre destinatario=Administrador (lo comparten todos los
-        // profesionales y el Configurador, campana de bandeja.js) - el filtro por pertenencia
+        // El cliente pide siempre destinatario=Administrador (la campana de bandeja.js, solo del
+        // Configurador desde la D2: un Profesional recibe 403) - el filtro por pertenencia
         // tiene que hacerse acá, nunca confiando en lo que mande el cliente. Una conversación
         // puede haber quedado asignada a otra persona DESPUÉS de crearse el aviso (por
         // ejemplo, "un paciente pidió hablar con alguien" seguido de un Tomar de otro

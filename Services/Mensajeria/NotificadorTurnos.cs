@@ -141,7 +141,7 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Avisos internos ─────────────────────────────────────────
 
-    public void AvisarUrgencia(Conversacion c, string textoPaciente) => Seguro(nameof(AvisarUrgencia), () =>
+    public void AvisarUrgencia(Conversacion c, string textoPaciente, bool seRespondioAlPaciente = true) => Seguro(nameof(AvisarUrgencia), () =>
     {
         var quien = QuienEs(c);
         var extracto = textoPaciente.Length > 300 ? textoPaciente[..300] + "…" : textoPaciente;
@@ -152,9 +152,22 @@ public class NotificadorTurnos : INotificadorTurnos
             Tipo           = "Urgencia",
             Titulo         = "URGENTE: posible situación de riesgo en el chat",
             Mensaje        = $"Conversación #{c.IdConversacion} ({quien}). Mensaje: «{extracto}». " +
-                             "El bot respondió con el mensaje de emergencia y quedó en pausa."
+                             (seRespondioAlPaciente
+                                 ? "El bot respondió con el mensaje de emergencia y quedó en pausa."
+                                 : "Al paciente no se le mandó ningún mensaje (el mensaje de emergencia está desactivado): respondele vos lo antes posible.")
         });
     });
+
+    // Modo Personal: no lleva ningún texto del paciente (el contenido se lee en el chat), solo quién es y que espera.
+    public void AvisarChatNuevo(Conversacion c) => Seguro(nameof(AvisarChatNuevo), () =>
+        _internas.Insertar(new NotificacionInterna
+        {
+            Destinatario   = "Administrador",
+            IdConversacion = c.IdConversacion,
+            Tipo           = "ChatNuevo",
+            Titulo         = "Escribió una persona por WhatsApp",
+            Mensaje        = $"Conversación #{c.IdConversacion} ({QuienEs(c)}). Espera la respuesta del equipo."
+        }));
 
     public void AvisarDerivacion(Conversacion c) => Seguro(nameof(AvisarDerivacion), () =>
         _internas.Insertar(new NotificacionInterna

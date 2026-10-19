@@ -344,6 +344,60 @@ Esta versión de la API cambia tres cosas de WhatsApp (qué se decidió y por qu
 Orden recomendado: **(1)** el valor de `Mensajeria__CanalActivo` en `.env`, **(2)** publicar la API (secciones de arriba), **(3)** recién después desplegar el servicio nuevo y
 vincular el número ([más abajo](#despliegue-de-whatsapp-service-baileys)).
 
+## Chat de WhatsApp para el personal: `Mensajeria__ModoAtencion`
+
+Qué se decidió y por qué: `docs/PROGRESO_CHAT_PERSONAL_WHATSAPP.md` (rama `docs/chat-personal-whatsapp-diagnostico`). Resumen de lo que cambia en la API:
+
+1. **`Mensajeria__ModoAtencion`** elige quién atiende lo que la gente le escribe al número de WhatsApp: `Asistente` (por defecto, y lo que la API hace hoy) o `Personal`. Un valor que
+   no existe, o vacío, **frena el arranque** con un mensaje que dice cuáles son los válidos. **Sin la variable no cambia nada del asistente**: publicar esta versión es seguro.
+2. **Con `Personal`**: el asistente no contesta nada (ni el menú ni el pedido del DNI). Cada mensaje queda guardado y la conversación queda **"para atender"** (en la pantalla, en
+   CRM → Chats), con un aviso "chat nuevo" en la campanita del Configurador (uno por tanda de mensajes: el primero, o el que llega después de media hora sin actividad o de que
+   el equipo la cerró). **Cerrar y reabrir no le mandan ningún texto** a la persona. Una frase de riesgo marca la conversación **urgente** y avisa en la campanita, pero **no le manda
+   nada al paciente**, salvo que se active el mensaje de emergencia (más abajo).
+3. **Los chats son solo del Configurador** (que hace de recepción), **en los dos modos**. Los profesionales no ven ningún chat ni reciben sus notificaciones: no tienen el botón
+   Chats y el servidor les contesta **403** en todo `/mensajeria`. **Esto cambia lo que ven hoy los profesionales** (hoy, con la mensajería habilitada, ven los chats escalados y los de
+   sus pacientes): avisales antes de publicar. La campanita de turnos del profesional no cambia.
+4. **No hace falta ninguna migración.** Lo que el chat para el personal necesite de la base (columnas nuevas) llega en la rama siguiente, con la migración 17, y la API no las usa
+   mientras el modo sea `Asistente`.
+
+Para pasar a `Personal` (primero en tu PC o con un número de prueba, no con pacientes reales):
+
+```bash
+sudo grep -n '^Mensajeria__ModoAtencion=' /opt/yosoy/config/.env          # imprime solo esa línea (no hay nada si no está)
+# poner Mensajeria__ModoAtencion=Personal en /opt/yosoy/config/.env y reiniciar:
+sudo systemctl restart yosoy-api
+curl -s http://127.0.0.1:5000/capacidades                                   # tiene que decir "modoAtencion":"personal"
+```
+
+Con la API en `Personal`, escribirle al número desde otro teléfono **no tiene que recibir ninguna respuesta automática**; la conversación aparece en CRM → Chats como "Para atender".
+**Volver atrás:** `Mensajeria__ModoAtencion=Asistente` (o borrar la variable) y reiniciar. Los mensajes guardados quedan; las conversaciones "para atender" las ve el Configurador.
+Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet: cómo se publica queda por decidir.
+
+### Mensaje de emergencia (paso manual, desactivado por defecto)
+
+En modo `Personal`, ante una frase de riesgo (`Mensajeria:PalabrasRiesgo`) el mensaje de emergencia **no se le manda al paciente**: `Mensajeria__Personal__RespuestaDeEmergencia` viene
+en `false`, porque las líneas de emergencia de `appsettings.json` todavía dicen `[COMPLETAR Y VALIDAR]` y un paciente en crisis no puede recibir un teléfono que no existe. Aunque se
+la ponga en `true`, **tampoco sale mientras alguna línea esté sin completar** (teléfono vacío, o con el texto `COMPLETAR`): el log de la API lo avisa. Lo que sí pasa siempre es que la
+conversación queda urgente y el Configurador recibe el aviso, que le dice si al paciente se le mandó algo o no.
+
+Para activarlo, **solo cuando haya líneas oficiales y verificadas**:
+
+1. Conseguir los teléfonos oficiales (emergencias y línea de salud mental) y **llamar para comprobar que atienden** (con la psicóloga que validó el texto, si se puede).
+2. Cargarlos en la API, en `/opt/yosoy/config/.env` (no son secretos; también se pueden editar las dos entradas de `Mensajeria:LineasEmergencia` en `appsettings.json` y publicar):
+   ```
+   Mensajeria__LineasEmergencia__0__Nombre="Emergencias"
+   Mensajeria__LineasEmergencia__0__Telefono=<el número verificado>
+   Mensajeria__LineasEmergencia__1__Nombre="Línea de salud mental"
+   Mensajeria__LineasEmergencia__1__Telefono=<el número verificado>
+   Mensajeria__Personal__RespuestaDeEmergencia=true
+   ```
+3. Reiniciar la API (`sudo systemctl restart yosoy-api`).
+4. Probarlo con **tu propio teléfono de prueba** (el mensaje sale de verdad): escribirle al número una de las frases de `Mensajeria:PalabrasRiesgo`. Tiene que llegar el mensaje con las líneas
+   reales, y la conversación tiene que quedar **Urgente** con un aviso en la campanita.
+5. Mirar el `journalctl -u yosoy-api`: **no** tiene que aparecer el aviso "las líneas de emergencia ... están sin completar". Si aparece, el mensaje no se mandó.
+
+Para apagarlo otra vez: `Mensajeria__Personal__RespuestaDeEmergencia=false` (o borrar la variable) y reiniciar.
+
 ## Cambios de configuración
 
 - Las variables están en `/opt/yosoy/config/` (`.env`, `video.env`, `signaling.env`, `whatsapp.env`), con permisos
