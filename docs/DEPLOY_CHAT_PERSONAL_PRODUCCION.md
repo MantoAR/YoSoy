@@ -360,7 +360,7 @@ curl -s -o /dev/null -w 'por el sitio público: %{http_code}\n' -X POST https://
 
 **Esperado:**
 - Del journal: la línea `Zona horaria de la clínica: America/Argentina/Buenos_Aires, ...` (y `Video: /video/acceso habilitado.` si el video está configurado); **ninguna excepción** y ninguna mención de `migración 17`.
-- `/capacidades`, las dos veces: `{"mensajeria":true,"modoAtencion":"personal"}`. Si la pública dice `false`, `SoloLocal` no quedó en `false`: revisá el 3.4 y reiniciá la API.
+- `/capacidades`, las dos veces: `{"mensajeria":true,"modoAtencion":"personal","canalActivo":"WhatsApp"}`. El `canalActivo` lo agrega el arreglo de la etiqueta (rama `fix/chat-etiqueta-canal`): si publicás un build sin él, ese campo no viene (y el selector "Enviar por" de Chats sigue diciendo "Chat simulado": es solo un rótulo, las respuestas salen igual por el canal activo). Si la pública dice `false`, `SoloLocal` no quedó en `false`: revisá el 3.4 y reiniciá la API.
 - La sonda **directa** da `400` (la API contesta "El teléfono no es válido" y no escribe nada) y la sonda **por el sitio** tiene que dar **`404`**. Que dé `400` también por el sitio significa que **el simulador está expuesto**: volvé al 3.2 antes
   de seguir. (La sonda usa un teléfono vacío a propósito: nunca crea una conversación.)
 - En el navegador, ingresá como Configurador: aparece el grupo **CRM** con **Chats** ("Todavía no hay conversaciones") y la sección **WhatsApp** ("Servicio no disponible" hasta el paso 5). Con un profesional, el botón Chats no existe.
@@ -640,7 +640,7 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 
 1. **El simulador anónimo queda abierto con `SoloLocal=false`** (comprobado, ver "Antes de empezar"). Mitigado con Caddy; corrección de fondo propuesta: que `/mensajeria/simulado/*` solo responda desde la propia máquina o solo con `CanalActivo=Simulado`. Es un cambio chico en `MensajeriaEndpoints.cs` con sus pruebas; no lo hice porque no estaba pedido.
 2. **La pantalla WhatsApp no tiene ningún botón cuando el QR venció** (ni cuando el servicio necesita atención) y dice "Generando el código QR..." para siempre. Arreglo mínimo propuesto en el paso 6.
-3. **El selector "Enviar por: Chat simulado"** de Chats aparece aunque el canal activo sea `Baileys` (tarea aparte: rama `fix/chat-etiqueta-canal`).
+3. **El selector "Enviar por: Chat simulado"** de Chats aparecía aunque el canal activo fuera `Baileys`. **Arreglado en la rama `fix/chat-etiqueta-canal`** (PR por abrir): `/capacidades` informa `canalActivo` y el selector dice "WhatsApp"; la insignia de cada conversación de la lista dice el canal de esa conversación. Con un build que no lo incluya, el rótulo sigue siendo el viejo (solo un rótulo).
 4. **`CanalActivo=Simulado` hace que las respuestas figuren "Enviado"** aunque no salgan (paso 8, "Apagar todo rápido").
 5. **El ejemplo de backup de `DEPLOY.md` falla en SQL Server Express:** usa `WITH COMPRESSION`, que Express no admite (`Msg 1844`, comprobado en la Express 2019). En este runbook va sin compresión y se corrigió también el ejemplo de `DEPLOY.md`.
 6. **El servicio nuevo de WhatsApp nunca habló con WhatsApp real:** este despliegue y el paso 7 son la primera vez. Hacelos con tiempo y con el teléfono del número a mano.
