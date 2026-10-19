@@ -13,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 //  · La BAJA que llega por el webhook de WhatsApp revoca en la base.
 // Cada prueba crea sus filas con DatosDePrueba y las borra al terminar (la cascada sigue las claves foráneas).
 [Trait("Categoria", "Integracion")]
+[Trait("Tabla", "ConsentimientoWhatsApp")]   // necesita la tabla de la migración 16: se saltea con -Filtro 'Tabla!=ConsentimientoWhatsApp' contra una base sin ella
 public class ConsentimientoWhatsAppBaseRealTests
 {
     private const string Hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -28,6 +29,12 @@ public class ConsentimientoWhatsAppBaseRealTests
 
     private static int FilasDe(int idPaciente) =>
         DatosDePrueba.Contar("SELECT COUNT(*) FROM ConsentimientoWhatsApp WHERE IdPaciente = @p", ("@p", idPaciente));
+
+    // Estas pruebas son del consentimiento ENCENDIDO (con la tabla): la llave Mensajeria:AvisosPorWhatsApp viene apagada por defecto, así que la prenden.
+    // Lo que pasa con la llave apagada y sin la tabla está en ConsentimientoWhatsAppSinTablaTests.
+    private static WebApplicationFactory<Program> FabricaConLlave() =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Mensajeria:AvisosPorWhatsApp"] = "true" })));
 
     private static int AbiertasDe(int idPaciente) =>
         DatosDePrueba.Contar("SELECT COUNT(*) FROM ConsentimientoWhatsApp WHERE IdPaciente = @p AND RevocadoUtc IS NULL", ("@p", idPaciente));
@@ -245,7 +252,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [InlineData("null")]
     public async Task Registrarse_sin_tildar_la_casilla_no_registra_ningun_consentimiento(string caso)
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -267,7 +274,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task Registrarse_con_la_casilla_tildada_registra_la_aceptacion_a_nombre_del_usuario_recien_creado()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -306,7 +313,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [InlineData(null, 400, "telefono-invalido")]
     public async Task Con_la_casilla_tildada_y_un_telefono_que_no_sirve_no_se_crea_la_cuenta(string? telefono, int status, string codigo)
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -331,7 +338,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [InlineData(null, 409, "version-desactualizada")]
     public async Task Con_la_casilla_tildada_y_una_version_que_no_es_la_vigente_no_se_crea_la_cuenta(string? version, int status, string codigo)
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -352,7 +359,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task Un_menor_que_tilda_la_casilla_no_puede_y_no_se_crea_la_cuenta()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -374,7 +381,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task La_casilla_mandada_como_texto_no_cuenta_como_aceptada_y_no_se_crea_la_cuenta()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -393,7 +400,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task Un_usuario_repetido_con_la_casilla_tildada_da_409_y_no_deja_otra_aceptacion()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var cliente = fabrica.CreateClient();
         using var d = new DatosDePrueba();
         var marca = Marca();
@@ -419,7 +426,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task El_perfil_de_punta_a_punta_con_la_aplicacion_real_incluido_el_cambio_de_telefono()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var d = new DatosDePrueba();
         var paciente = d.Paciente();
         var usuario = d.UsuarioDePaciente(paciente);
@@ -476,7 +483,7 @@ public class ConsentimientoWhatsAppBaseRealTests
     [Fact]
     public async Task Otro_paciente_no_puede_tocar_el_consentimiento_de_este()
     {
-        using var fabrica = new WebApplicationFactory<Program>();
+        using var fabrica = FabricaConLlave();
         using var d = new DatosDePrueba();
         var uno = d.Paciente();
         var dos = d.Paciente();
@@ -501,7 +508,7 @@ public class ConsentimientoWhatsAppBaseRealTests
 
     private static WebApplicationFactory<Program> FabricaConWebhook() =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
-            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Mensajeria:WhatsApp:Secreto"] = SecretoDePrueba })));
+            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Mensajeria:WhatsApp:Secreto"] = SecretoDePrueba, ["Mensajeria:AvisosPorWhatsApp"] = "true" })));
 
     [Fact]
     public async Task Una_baja_que_llega_por_el_webhook_revoca_la_aceptacion_en_la_base_y_no_se_contesta()

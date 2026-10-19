@@ -141,7 +141,8 @@ servidor. El paso a paso para reemplazarlo, con backup, limpieza de lo viejo y r
 El servicio nuevo solo le escribe a quien aceptó (le escribió primero al número o la API marcó `optIn`), con pausas, topes por día, por hora y por persona, y sin
 teléfonos ni textos en el log (`whatsapp-service/README.md`). Es un **número dedicado de la clínica**: Baileys no es la API oficial y WhatsApp puede bloquearlo.
 **La API no manda recordatorios por WhatsApp** (siguen por mail y campanita): por WhatsApp salen las respuestas del asistente y del equipo y los avisos por evento. La API
-(versión con el consentimiento de WhatsApp, migración 16: [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) manda `optIn:true` **solo a quien
+(versión con el consentimiento de WhatsApp, migración 16: [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md); **dormido por defecto**: solo rige con
+`Mensajeria__AvisosPorWhatsApp=true`, y con ella apagada los avisos de turno no salen por WhatsApp) manda `optIn:true` **solo a quien
 aceptó** (en el registro o en su perfil; revocable); a quien nunca decidió le manda sin `optIn` y el servicio decide (solo sale si esa persona le escribió primero al número, por
 ejemplo desde el link `wa.me` que muestra el panel si está cargado `Mensajeria__WhatsAppNumeroClinica`); a quien revocó, o escribió BAJA, no le manda nada. Los avisos que salen
 solos dicen el día y la hora y nada más. **El texto del consentimiento es provisorio** (`v0-provisorio`) hasta que lo valide el equipo legal.
@@ -187,7 +188,7 @@ Ninguna contraseña de ninguno de los dos está en este archivo ni en el repo.
 |---|---|---|
 | `docs/produccion/01-produccion.sql` | El esquema completo (45 tablas; la base del servidor se creó con 44, antes de la migración 16). Siembra `TipoConsentimiento` (telemedicina) y, aparte y opcional, preguntas frecuentes y respuestas rápidas del chat. | Aplicado al crear la base |
 | `migrations/add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y tres columnas de `SesionClinica` (consentimiento de la lectura de emociones, PR 6). Solo agrega; idempotente. | **Aplicada.** (En un servidor nuevo, `01-produccion.sql` ya la incluye) |
-| `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (migración 16): el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto que vio, el número y las fechas en UTC. Solo agrega una tabla, dos claves foráneas y dos índices; idempotente. | **Pendiente de aplicar** (versión con el consentimiento de WhatsApp; va **antes** que la API: ver [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp"). |
+| `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (migración 16): el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto que vio, el número y las fechas en UTC. Solo agrega una tabla, dos claves foráneas y dos índices; idempotente. | **No hace falta por ahora.** Solo se aplica si se prende `Mensajeria__AvisosPorWhatsApp` (apagada por defecto: con ella apagada la API no toca la tabla y se publica sin esta migración); en ese caso va **antes** de prender la llave: ver [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp". |
 | `migrations/seed_catalogos.sql` | Catálogos iniciales que la base nacida de `01-produccion.sql` no traía: especialidades, estados de turno con ids fijos (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado) y el tipo de consentimiento de telemedicina. Idempotente. | **Aplicada.** Versionada en el repo; para un servidor nuevo, ver [`DEPLOY.md`](DEPLOY.md), "Servidor nuevo: base y catálogos" |
 
 Cómo se aplican (`-I` es obligatorio, `-f 65001` por los acentos): [`DEPLOY.md`](DEPLOY.md), sección "Migraciones".
@@ -223,7 +224,8 @@ Solo nombres y para qué sirve cada una; los valores están en `/opt/yosoy/confi
 | `ASPNETCORE_ENVIRONMENT` | `Production` en este servidor (evita páginas de error con detalles internos, entre otras cosas). |
 | `ASPNETCORE_URLS` | `http://localhost:5000` — nunca `0.0.0.0` ni `+`. Caddy es el único camino de entrada desde internet, por el 443. |
 | `Turnos__ZonaHoraria` | **Opcional.** Zona horaria de la clínica para las reglas de turnos y la sala de video (por defecto `America/Argentina/Buenos_Aires`; si falta, usa `Video__ZonaHoraria`). Una zona que no existe en el servidor impide que la API arranque. |
-| `Mensajeria__WhatsAppNumeroClinica` | **Opcional.** El número de WhatsApp de la clínica (el que vincula `whatsapp-service`), para el link con el que un paciente le escribe primero. Formato libre (`+54 9 11 5555-0000`). **Vacío o ausente = no se muestra ningún link.** No es un secreto. |
+| `Mensajeria__AvisosPorWhatsApp` | **Opcional. Apagada por defecto (`false`).** Los cuatro avisos de turno por evento (solicitud, propuesta, confirmación, cancelación) por WhatsApp. Apagada: no sale ninguno por WhatsApp (el mail y la campanita siguen igual), el consentimiento de WhatsApp no se ofrece en ninguna pantalla y **la API no toca la tabla `ConsentimientoWhatsApp`** (se publica sin la migración 16). `true` solo con la migración 16 aplicada antes: ver [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp". |
+| `Mensajeria__WhatsAppNumeroClinica` | **Opcional.** El número de WhatsApp de la clínica (el que vincula `whatsapp-service`), para el link con el que un paciente le escribe primero. Formato libre (`+54 9 11 5555-0000`). **Vacío o ausente = no se muestra ningún link**, y **con `Mensajeria__AvisosPorWhatsApp` apagada tampoco hay link**. No es un secreto. |
 | `Mensajeria__WhatsAppTextoInicio` | **Opcional.** Lo que viene escrito cuando se abre ese link (por defecto `Hola`). |
 | `Mensajeria__ConsentimientoWhatsApp__VersionTexto` | **Opcional.** Versión del texto del consentimiento de los avisos por WhatsApp (por defecto `v0-provisorio`, provisorio). **Cambiarla detiene los avisos por WhatsApp hasta que cada paciente vuelva a aceptar.** |
 
@@ -290,8 +292,8 @@ sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]
   viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché). Antes, mirar que `Mensajeria__CanalActivo` en el `.env` no sea `WhatsAppWebJs` (la API no
   arranca con ese valor). Todo en [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md). El consentimiento ya está resuelto en el
   código (las opciones A y B de esa decisión: ver el punto siguiente); falta aplicarlo.
-- **Consentimiento de WhatsApp:** aplicar la migración 16 **antes** de publicar la API, cargar `Mensajeria__WhatsAppNumeroClinica` si se
-  quiere el link `wa.me`, y **validar el texto con el equipo legal** antes de usarlo con pacientes reales (`v0-provisorio` es un borrador).
+- **Consentimiento de WhatsApp (dormido por defecto):** con `Mensajeria__AvisosPorWhatsApp` apagada (lo de siempre) **no hace falta aplicar la migración 16** para publicar la API. Si se decide prenderla:
+  aplicar la migración 16 **antes** de prender la llave, cargar `Mensajeria__WhatsAppNumeroClinica` si se quiere el link `wa.me`, y **validar el texto con el equipo legal** antes de usarlo con pacientes reales (`v0-provisorio` es un borrador).
   Pasos y orden: [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp"; qué se decidió y qué falta: [`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md).
 - **SQL Server escucha en todas las interfaces** (`0.0.0.0:1433`, observado el 2026-10-14) y lo protege solo UFW.
   Conviene atarlo a localhost (`mssql-conf set network.ipaddress 127.0.0.1`), porque la API corre en el mismo servidor.

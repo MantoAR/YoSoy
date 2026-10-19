@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 // Los endpoints del consentimiento de WhatsApp con la aplicación REAL (WebApplicationFactory, JWT de verdad, limitador y headers de Program.cs) y
 // dobles en memoria para la base y el reloj. Con la base real hay una pasada aparte (ConsentimientoWhatsAppBaseRealTests). Las personas son las de
@@ -23,8 +24,10 @@ public class ConsentimientoWhatsAppEndpointsTests
         public readonly FakeConsentimientoWhatsAppRepo Repo = new();
         public readonly FakeAuditoriaConsentimientoWhatsApp Auditoria = new();
 
-        public App(Dictionary<string, string?>? config = null)
+        /// <param name="llave">Mensajeria:AvisosPorWhatsApp. Prendida por defecto: estas pruebas son del consentimiento encendido; las del apagado la ponen en false.</param>
+        public App(Dictionary<string, string?>? config = null, bool llave = true)
         {
+            config = new Dictionary<string, string?>(config ?? new()) { ["Mensajeria:AvisosPorWhatsApp"] = llave ? "true" : "false" };
             Repo.Pacientes[VideoApp.IdPaciente] = new DatosPacienteParaWhatsApp("11 5555-0001", new DateTime(1990, 5, 5), false);
             Repo.Pacientes[VideoApp.IdOtroPaciente] = new DatosPacienteParaWhatsApp("351 412-3456", new DateTime(1985, 1, 1), false);
 
@@ -37,7 +40,7 @@ public class ConsentimientoWhatsAppEndpointsTests
                 // Las reglas con el reloj de prueba (4/3/2031 10:00), no con el del sistema.
                 s.RemoveAll<ConsentimientoWhatsAppService>();
                 s.AddSingleton(sp => new ConsentimientoWhatsAppService(Repo, sp.GetRequiredService<ITextoConsentimientoWhatsApp>(), Auditoria,
-                    Video!.Reloj, sp.GetRequiredService<ILogger<ConsentimientoWhatsAppService>>()));
+                    sp.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>(), Video!.Reloj, sp.GetRequiredService<ILogger<ConsentimientoWhatsAppService>>()));
             });
         }
 

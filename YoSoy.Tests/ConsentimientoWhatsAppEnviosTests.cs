@@ -75,6 +75,7 @@ public class NotificadorWhatsAppConsentimientoTests
         public Arnes(string? telefono = Escenario.TelJuan)
         {
             E.Db.Pacientes.Single(p => p.IdPaciente == 1).Telefono = telefono!;
+            E.Opciones.CurrentValue.AvisosPorWhatsApp = true;   // son pruebas del consentimiento de los avisos por WhatsApp: la llave viene apagada por defecto
             Datos = new FakeDatos(E.Db);
             Notificador = new NotificadorTurnos(new DatosConTelefono(Datos, E.Db), Recordatorios, new InternasNulas(), E.Conversaciones, E.Mensajes,
                 new CanalSimulado(), E.WhatsApp, new FakeTurnoRepositorio(E.Db), new ServiceCollection().BuildServiceProvider(),

@@ -124,6 +124,7 @@ public class RecordatoriosSinWhatsAppTests
             E.Db.Pacientes.Single(p => p.IdPaciente == 1).Telefono = telefono!;
             E.WhatsApp.Permisos[1] = permiso;
             E.Opciones.CurrentValue.UrlIngresoTurno = Url;
+            E.Opciones.CurrentValue.AvisosPorWhatsApp = true;   // el caso más expuesto: con los avisos por WhatsApp prendidos, el recordatorio igual no sale por ahí
             Turno = E.Db.AgregarTurno(1, 10, Escenario.Jueves0900.AddDays(1), BaseEnMemoria.Confirmado);   // mañana a las 9:00: dentro de las 24 horas
 
             Datos = new DatosConContacto(new FakeDatos(E.Db), E.Db, mail);
@@ -311,7 +312,7 @@ public class RecordatoriosSinWhatsAppTests
         var fuente = File.ReadAllText(Path.Combine(VideoAccesoEndpointsTests.RaizDelRepositorio(), "Services", "Mensajeria", "NotificadorTurnos.cs")).Replace("\r\n", "\n");
         var inicio = fuente.IndexOf("public void EnviarRecordatorio24h", StringComparison.Ordinal);
         Assert.True(inicio > 0, "no encuentro EnviarRecordatorio24h");
-        var metodo = fuente[inicio..fuente.IndexOf("// El del mail y la campanita", inicio, StringComparison.Ordinal)];
+        var metodo = fuente[inicio..fuente.IndexOf("// El de la campanita", inicio, StringComparison.Ordinal)];
 
         Assert.Contains("textoChat: null", metodo);
         Assert.DoesNotContain("PlantillasWhatsApp", metodo);
@@ -481,6 +482,7 @@ public class RecordatoriosSinWhatsAppBaseRealTests
         var politica = new FakePoliticaWhatsApp();
         var opciones = new OpcionesFijas();
         opciones.CurrentValue.UrlIngresoTurno = Url;
+        opciones.CurrentValue.AvisosPorWhatsApp = true;
         var servicios = new ServiceCollection().AddSingleton(new EmailService(new ConfigurationBuilder().Build())).BuildServiceProvider();
         var recordatorios = new RecordatorioDAO();
         var notificador = new NotificadorTurnos(new DatosMensajeriaDAO(), recordatorios, new NotificacionInternaDAO(), new ConversacionDAO(), mensajes, canal,

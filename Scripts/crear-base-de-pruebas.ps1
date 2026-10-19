@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Arma una copia temporal de docs\produccion\01-produccion.sql con el nombre de la base reemplazado (el original no se
-    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 45 tablas.
+    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 45 tablas (44 con
+    -SinConsentimientoWhatsApp).
 
     Se niega a:
       - usar la base "yosoy" (la de desarrollo, con datos reales);
@@ -23,22 +24,34 @@
 .PARAMETER Base
     Nombre de la base a crear. Por defecto, yosoy_test. Letras, números y guion bajo; no puede ser "yosoy".
 
+.PARAMETER SinConsentimientoWhatsApp
+    Después de armar el esquema borra la tabla ConsentimientoWhatsApp (la de la migración 16): la base queda con 44 tablas,
+    como está producción mientras no se aplique esa migración. Sirve para comprobar que la API anda sin esa tabla con la
+    llave Mensajeria:AvisosPorWhatsApp apagada (la de por defecto):
+        .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp
+        .\Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'
+    Solo toca la base que este mismo comando acaba de crear.
+
 .EXAMPLE
     .\Scripts\crear-base-de-pruebas.ps1
 
 .EXAMPLE
     .\Scripts\crear-base-de-pruebas.ps1 -Servidor 'MIPC\SQLEXPRESS' -Base yosoy_test2
+
+.EXAMPLE
+    .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Servidor = '.\SQLEXPRESS',
-    [string]$Base = 'yosoy_test'
+    [string]$Base = 'yosoy_test',
+    [switch]$SinConsentimientoWhatsApp
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TablasEsperadas = 45
+$TablasEsperadas = if ($SinConsentimientoWhatsApp) { 44 } else { 45 }
 
 # ── 1) Guardas que no necesitan SQL Server: si alguna falla, no se toca nada ─────────────────────────────────────────
 if (-not $PSScriptRoot) { throw 'Ejecutá el archivo (por ejemplo: .\Scripts\crear-base-de-pruebas.ps1), no pegues su contenido en la consola.' }
@@ -97,6 +110,13 @@ try {
 }
 finally {
     if (Test-Path -LiteralPath $copia) { Remove-Item -LiteralPath $copia -Force }
+}
+
+# ── 4b) Sin la tabla de la migración 16 (solo en la base que acabamos de crear) ──────────────────────────────────────
+if ($SinConsentimientoWhatsApp) {
+    Write-Host "3b/4 Borrando la tabla ConsentimientoWhatsApp de '$Base' (la base queda como producción sin la migración 16)..."
+    & sqlcmd -S $Servidor -d $Base -E -C -I -b -Q 'DROP TABLE dbo.ConsentimientoWhatsApp' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No pude borrar la tabla ConsentimientoWhatsApp de '$Base' (código $LASTEXITCODE). La base quedó con 45 tablas: borrala antes de repetir." }
 }
 
 # ── 5) Verificar: tiene que tener 45 tablas ──────────────────────────────────────────────────────────────────────────

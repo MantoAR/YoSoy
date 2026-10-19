@@ -3,9 +3,12 @@ using Microsoft.Extensions.Options;
 /// <summary>
 /// Servicio único de avisos automáticos:
 ///  - Por evento (solicitud recibida, turno agendado por el profesional, confirmado,
-///    cancelado): chat (canal activo) + campanita del paciente (Notificacion).
+///    cancelado): chat (canal activo, SOLO si Mensajeria:AvisosPorWhatsApp está prendido: por defecto no sale
+///    ninguno por WhatsApp) + campanita del paciente (Notificacion).
 ///  - Recordatorio 24 h (lo dispara RecordatorioBackgroundService): mail + campanita. NUNCA por
 ///    WhatsApp: el uso saliente de WhatsApp está pausado y un recordatorio es lo programado y masivo.
+///  - Cada aviso tiene TRES textos: el de WhatsApp (PlantillasWhatsApp) y el del mail (PlantillasMail) dicen solo el día y la hora; el de la campanita
+///    (con sesión, en el panel) lleva el detalle completo.
 ///  - Avisos internos (urgencia, derivación, paciente que no asistirá): NotificacionInterna
 ///    y, para el profesional, mail si tiene uno cargado.
 /// Cada envío a un paciente queda registrado en Recordatorio; el índice único
@@ -62,12 +65,13 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Eventos de turno ────────────────────────────────────────
 
-    // Cada aviso tiene DOS textos: el del chat de WhatsApp (PlantillasWhatsApp: solo el día y la hora, nada clínico) y el de la campanita del panel
-    // (con sesión, con el nombre del profesional). El chat no recibe nada del turno salvo su momento (ver PlantillasWhatsApp).
+    // Cada aviso tiene TRES textos: el del chat de WhatsApp (PlantillasWhatsApp) y el del mail (PlantillasMail), que dicen solo el día y la hora y nada clínico, y el de
+    // la campanita del panel (con sesión, con el nombre del profesional). El chat y el mail no reciben nada del turno salvo su momento (ver las dos plantillas).
     public void TurnoSolicitado(int idTurno, bool respondidoPorChat = false) => Seguro(nameof(TurnoSolicitado), () =>
         AvisarPaciente(idTurno, "TurnoSolicitado", CanalesEvento, respondidoPorChat,
             "Solicitud de turno recibida",
             textoChat: t => PlantillasWhatsApp.SolicitudRecibida(t.Momento),
+            mail: t => PlantillasMail.SolicitudRecibida(t.Momento),
             textoApp: t => $"Recibimos tu solicitud de turno con {t.NombreProfesional} para el {Formato.FechaHora(t.Momento)}. " +
                            "Queda pendiente hasta que tu profesional la confirme."));
 
@@ -87,6 +91,7 @@ public class NotificadorTurnos : INotificadorTurnos
             AvisarPaciente(id.Value, "TurnoAgendado", CanalesEvento, false,
                 "Tu profesional te propuso un turno",
                 textoChat: t => PlantillasWhatsApp.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
+                mail: t => PlantillasMail.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
                 textoApp: t => $"{t.NombreProfesional} te propuso un turno para el {Formato.FechaHora(t.Momento)}. " +
                                $"Para confirmarlo, ingresá a tu panel en la web: {Op.UrlIngresoTurno}");
         });
@@ -95,6 +100,7 @@ public class NotificadorTurnos : INotificadorTurnos
         AvisarPaciente(idTurno, "TurnoConfirmado", CanalesEvento, false,
             "Turno confirmado",
             textoChat: t => PlantillasWhatsApp.TurnoConfirmado(t.Momento),
+            mail: t => PlantillasMail.TurnoConfirmado(t.Momento),
             textoApp: t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} quedó confirmado.",
             estadoEsperado: "Confirmado"));
 
@@ -102,6 +108,7 @@ public class NotificadorTurnos : INotificadorTurnos
         AvisarPaciente(idTurno, "TurnoCancelado", CanalesEvento, respondidoPorChat,
             "Turno cancelado",
             textoChat: t => PlantillasWhatsApp.TurnoCancelado(t.Momento),
+            mail: t => PlantillasMail.TurnoCancelado(t.Momento, Op.UrlIngresoTurno),
             textoApp: t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} fue cancelado. " +
                            "Si querés pedir otro, escribí \"menu\" por acá o ingresá a la web.",
             estadoEsperado: "Cancelado"));
@@ -122,11 +129,12 @@ public class NotificadorTurnos : INotificadorTurnos
         AvisarPaciente(idTurno, "Turno24h", CanalesRecordatorio, false,
             "Recordatorio de turno",
             textoChat: null,   // no hay texto de WhatsApp: el recordatorio no sale por ahí
+            mail: t => PlantillasMail.Recordatorio(t.Momento, Op.UrlIngresoTurno),   // el mail: solo el día y la hora
             textoApp: t => TextoRecordatorio(t) +
                 "\n\nSi no vas a poder asistir, avisanos desde la web.",
             estadoEsperado: "Confirmado"));
 
-    // El del mail y la campanita (con sesión): lleva con quién es el turno y cómo es.
+    // El de la campanita (con sesión, en el panel): lleva con quién es el turno y cómo es. El del mail es PlantillasMail.Recordatorio: solo el día y la hora.
     private string TextoRecordatorio(TurnoAviso t) =>
         $"Recordatorio: tenés turno el {Formato.FechaHora(t.Momento)} con {t.NombreProfesional} " +
         $"({t.Modalidad ?? "Virtual"}).\nPara ingresar: {Op.UrlIngresoTurno}";
@@ -184,10 +192,11 @@ public class NotificadorTurnos : INotificadorTurnos
 
     // ── Envío a pacientes ───────────────────────────────────────
 
-    // textoChat: lo que sale por WhatsApp (siempre una plantilla de PlantillasWhatsApp), o null si el aviso no sale por WhatsApp. textoApp: lo que va a la
-    // campanita del panel y al mail.
+    // textoChat: lo que sale por WhatsApp (siempre una plantilla de PlantillasWhatsApp), o null si el aviso no sale por WhatsApp. mail: el asunto y el cuerpo del mail
+    // (siempre una plantilla de PlantillasMail: solo el día y la hora); no es opcional, para que ningún mail lleve el texto de la campanita. titulo y textoApp: la
+    // campanita del panel (con sesión: puede llevar el detalle completo).
     private void AvisarPaciente(int idTurno, string tipo, IReadOnlyList<string> canales, bool respondidoPorChat, string titulo,
-        Func<TurnoAviso, string>? textoChat, Func<TurnoAviso, string> textoApp, string? estadoEsperado = null)
+        Func<TurnoAviso, string>? textoChat, Func<TurnoAviso, MailDeTurno> mail, Func<TurnoAviso, string> textoApp, string? estadoEsperado = null)
     {
         var t = _datos.ObtenerTurnoAviso(idTurno);
         if (t is null) return;
@@ -202,7 +211,12 @@ public class NotificadorTurnos : INotificadorTurnos
             string estado; string? error;
             try
             {
-                var cuerpo = canal == "Chat" ? textoChat?.Invoke(t) ?? "" : textoApp(t);
+                var cuerpo = canal switch
+                {
+                    "Chat" => textoChat?.Invoke(t) ?? "",
+                    "App"  => textoApp(t),
+                    _      => ""                      // "Email" arma su mail aparte (asunto y cuerpo de PlantillasMail)
+                };
                 (estado, error) = canal switch
                 {
                     "Chat" when textoChat is null => ("Omitido", "Este aviso no sale por WhatsApp."),
@@ -210,7 +224,7 @@ public class NotificadorTurnos : INotificadorTurnos
                     "Chat"  => EnviarChat(t, cuerpo),
                     "Email" => string.IsNullOrWhiteSpace(t.MailPaciente)
                                    ? ("Omitido", "El paciente no tiene mail cargado.")
-                                   : EnviarMail(t.MailPaciente, "YoSoy – " + titulo, cuerpo),
+                                   : EnviarMail(t.MailPaciente, mail(t)),
                     "App"   => Campanita(t, titulo, cuerpo),
                     _       => ("Omitido", $"Canal desconocido: {canal}")
                 };
@@ -226,10 +240,15 @@ public class NotificadorTurnos : INotificadorTurnos
 
     private (string, string?) EnviarChat(TurnoAviso t, string texto)
     {
+        // La llave de los avisos por WhatsApp, ANTES que cualquier otra cosa: apagada (por defecto) no se consulta el consentimiento (que es la tabla
+        // ConsentimientoWhatsApp), no se arma la conversación y no se toca el canal. El mail y la campanita no dependen de esto.
+        if (!Op.AvisosPorWhatsApp) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
+
         // Consentimiento de WhatsApp (ConsentimientoWhatsApp): si el paciente revocó, no se manda nada, y ni se arma la conversación. Con una
         // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
         // decide él (solo le escribe a quien le escribió primero al número de la clínica).
         var permiso = _politicaWhatsApp.Evaluar(t.IdPaciente, t.TelefonoPaciente);
+        if (permiso == PermisoEnvioWhatsApp.Apagado) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
         if (permiso == PermisoEnvioWhatsApp.Revocado) return ("Omitido", "El paciente revocó los avisos por WhatsApp.");
 
         // El número nacional de 10 dígitos si se lo entiende como teléfono argentino ("011 15 5555-0001" es 1155550001); si no, lo de
@@ -261,6 +280,8 @@ public class NotificadorTurnos : INotificadorTurnos
         _datos.CrearNotificacionPaciente(t.IdPaciente, titulo, texto, null);
         return ("Enviado", null);
     }
+
+    private (string, string?) EnviarMail(string destinatario, MailDeTurno m) => EnviarMail(destinatario, m.Asunto, m.Cuerpo);
 
     // EmailService es opcional: si el correo no está configurado (falta Email:Host, Email:From o Email:Password) el aviso
     // se omite. EmailService deja en el log el aviso "Correo no configurado" con las claves que faltan.

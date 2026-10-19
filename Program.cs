@@ -494,7 +494,10 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppSe
     // Avisos por WhatsApp: la casilla NUNCA viene tildada por defecto; solo cuenta un true explícito, con la versión del texto que la persona
     // leyó. Se valida ANTES de crear la cuenta (celular argentino válido, mayor de edad, texto vigente): así no queda una cuenta creada con el
     // registro a medias porque el teléfono no servía.
-    var pideWhatsApp = req.AceptaWhatsApp == true;
+    // Con la llave Mensajeria:AvisosPorWhatsApp apagada (por defecto) el consentimiento de WhatsApp no existe: no se pide, no se valida y NO se toca la tabla
+    // ConsentimientoWhatsApp (se puede publicar la API sin haber aplicado la migración 16). Un cliente que igual mande aceptaWhatsApp:true se registra bien, sin avisos.
+    var avisosPorWhatsApp = consentimientoWhatsApp.Habilitado;
+    var pideWhatsApp = avisosPorWhatsApp && req.AceptaWhatsApp == true;
     if (pideWhatsApp && consentimientoWhatsApp.ValidarAceptacionEnRegistro(req.Telefono, req.FechaNacimiento, req.VersionTextoWhatsApp) is { } errorWhatsApp)
         return ConsentimientoWhatsAppEndpoints.Error(errorWhatsApp);
 
@@ -526,7 +529,7 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppSe
         idUsuario  = idUsuarioNuevo,
         paciente.Nombre, paciente.Dni, paciente.FechaNacimiento,
         paciente.Domicilio, paciente.Telefono, paciente.Mail, paciente.Estado,
-        consentimientoWhatsApp = new { pedido = pideWhatsApp, estado = aceptoWhatsApp ? "acepta" : "sin-decision" }
+        consentimientoWhatsApp = new { pedido = pideWhatsApp, estado = !avisosPorWhatsApp ? "no-disponible" : aceptoWhatsApp ? "acepta" : "sin-decision" }
     });
 }).RequireRateLimiting("registro");
 

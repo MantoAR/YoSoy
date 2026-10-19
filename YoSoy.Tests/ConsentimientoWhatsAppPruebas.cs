@@ -46,10 +46,14 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
     /// <summary>Si no es null, cualquier lectura o escritura tira esto (la base caída, la tabla que no existe).</summary>
     public Exception? Falla { get; set; }
 
+    /// <summary>Cuántas veces se le pidió algo a la "tabla" (cualquier método, con o sin Falla): con la llave apagada tiene que quedar en 0.</summary>
+    public int Llamadas { get; private set; }
+
     private int _siguiente = 100;
 
     public ConsentimientoWhatsAppFila? Ultimo(int idPaciente)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         return Filas.Where(f => f.IdPaciente == idPaciente).OrderByDescending(f => f.IdConsentimientoWhatsApp).FirstOrDefault();
     }
@@ -57,6 +61,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
     public ConsentimientoWhatsAppFila? Aceptar(int idPaciente, int idUsuario, string telefono, string origen, string versionTexto,
         string hashTexto, DateTime aceptadoUtc, string motivoSiReemplaza)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         if (SimularCarrera)
         {
@@ -79,6 +84,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public bool Revocar(int idPaciente, DateTime revocadoUtc, string motivo)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         var i = Filas.FindIndex(f => f.IdPaciente == idPaciente && f.EstaAbierta);
         if (i < 0) return false;
@@ -95,6 +101,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public List<(int IdConsentimientoWhatsApp, int IdPaciente)> RevocarVigentesDelTelefono(string telefono, DateTime revocadoUtc, string motivo)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         TelefonosDeBaja.Add(telefono);
         var revocadas = new List<(int, int)>();
@@ -109,6 +116,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public DatosPacienteParaWhatsApp? ObtenerDatosPaciente(int idPaciente)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         return Pacientes.GetValueOrDefault(idPaciente);
     }
@@ -151,13 +159,16 @@ public sealed class EscenarioWhatsApp
     public readonly FakeTextoConsentimientoWhatsApp Textos = new();
     public readonly RelojFijo Reloj = new(new DateTime(2031, 3, 4, 10, 0, 0));
     public readonly LogsCapturados Logs = new();
+    public readonly OpcionesFijas Opciones = new();
     public readonly ConsentimientoWhatsAppService Servicio;
 
-    public EscenarioWhatsApp()
+    /// <param name="llave">Mensajeria:AvisosPorWhatsApp. Prendida por defecto: casi todas las pruebas son del consentimiento encendido; las del apagado la ponen en false.</param>
+    public EscenarioWhatsApp(bool llave = true)
     {
+        Opciones.CurrentValue.AvisosPorWhatsApp = llave;
         Repo.Pacientes[IdPaciente] = new DatosPacienteParaWhatsApp(TelefonoDelPaciente, new DateTime(1990, 5, 5), false);
         Repo.Pacientes[IdOtroPaciente] = new DatosPacienteParaWhatsApp("351 412-3456", new DateTime(1985, 1, 1), false);
-        Servicio = new ConsentimientoWhatsAppService(Repo, Textos, Auditoria, Reloj, Logs.CreateLogger<ConsentimientoWhatsAppService>());
+        Servicio = new ConsentimientoWhatsAppService(Repo, Textos, Auditoria, Opciones, Reloj, Logs.CreateLogger<ConsentimientoWhatsAppService>());
     }
 
     public static Identidad Paciente(int idUsuario = IdUsuario, int idPaciente = IdPaciente) => new(idUsuario, Roles.Paciente, idPaciente, null);

@@ -29,7 +29,7 @@ vez del script consolidado, es:
 | 13 | `migrations/add_chats_notas_etiquetas_respuestas.sql` | Tablas `NotaInternaConversacion`, `EtiquetaConversacion`, `ConversacionEtiqueta`, `RespuestaRapida` |
 | 14 | `migrations/add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` |
 | 15 | `migrations/add_consentimiento_video.sql` | Tabla `ConsentimientoVideo`; `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 |
-| 16 | `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (consentimiento de los avisos de turnos por WhatsApp: una fila por aceptación, con la versión y el hash del texto, el número y las fechas en UTC) con su índice único filtrado y sus dos claves foráneas. Solo agrega: no toca ninguna tabla que ya exista. Requiere `Paciente` y `Usuario` |
+| 16 | `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (consentimiento de los avisos de turnos por WhatsApp: una fila por aceptación, con la versión y el hash del texto, el número y las fechas en UTC) con su índice único filtrado y sus dos claves foráneas. Solo agrega: no toca ninguna tabla que ya exista. Requiere `Paciente` y `Usuario`. **Solo hace falta si se prende `Mensajeria__AvisosPorWhatsApp`** (apagada por defecto: con ella apagada la API no toca la tabla) |
 
 **Dato mínimo obligatorio** (no esquema, pero sin él una funcionalidad entera
 no tiene con qué andar): la fila de `TipoConsentimiento` para telemedicina
