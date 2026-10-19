@@ -206,7 +206,7 @@ consolidadas en `docs/produccion/01-produccion.sql`; una base que ya existe reci
 ```bash
 FECHA=20261015
 sudo mkdir -p /var/opt/mssql/backup && sudo chown mssql:mssql /var/opt/mssql/backup
-sqlcmd -S localhost -U <usuario-administrador> -C -Q "BACKUP DATABASE [yosoy] TO DISK = N'/var/opt/mssql/backup/yosoy-$FECHA.bak' WITH COMPRESSION, CHECKSUM, INIT"
+sqlcmd -S localhost -U <usuario-administrador> -C -Q "BACKUP DATABASE [yosoy] TO DISK = N'/var/opt/mssql/backup/yosoy-$FECHA.bak' WITH CHECKSUM, INIT"   # sin COMPRESSION: Express no crea backups comprimidos (Msg 1844)
 sudo ls -la /var/opt/mssql/backup/
 ```
 
@@ -374,7 +374,7 @@ curl -s http://127.0.0.1:5000/capacidades                                   # ti
 
 Con la API en `Personal`, escribirle al número desde otro teléfono **no tiene que recibir ninguna respuesta automática**; la conversación aparece en CRM → Chats como "Para atender".
 **Volver atrás:** `Mensajeria__ModoAtencion=Asistente` (o borrar la variable) y reiniciar. Los mensajes guardados quedan; las conversaciones "para atender" las ve el Configurador.
-Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet: cómo se publica queda por decidir.
+Ojo: con la bandeja detrás de Caddy, `Mensajeria__SoloLocal=true` (el valor por defecto) la deja en 404 desde internet, y ponerlo en `false` deja abiertas al público las dos rutas anónimas del simulador (`/mensajeria/simulado/*`): cómo se publica en producción (`SoloLocal=false` más un bloque de Caddy que corta el simulador), con todos los pasos, está en [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md).
 
 ### La migración 17: orden del despliegue
 
