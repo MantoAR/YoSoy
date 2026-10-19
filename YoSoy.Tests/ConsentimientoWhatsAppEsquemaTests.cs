@@ -123,6 +123,7 @@ public class ConsentimientoWhatsAppMigracionTests
 }
 
 [Trait("Categoria", "Integracion")]
+[Trait("Tabla", "ConsentimientoWhatsApp")]   // necesita la tabla de la migración 16: se saltea con -Filtro 'Tabla!=ConsentimientoWhatsApp' contra una base sin ella
 public class ConsentimientoWhatsAppEsquemaBaseRealTests
 {
     private const string Hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

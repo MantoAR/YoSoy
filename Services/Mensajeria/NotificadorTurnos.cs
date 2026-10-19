@@ -235,6 +235,7 @@ public class NotificadorTurnos : INotificadorTurnos
         // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
         // decide él (solo le escribe a quien le escribió primero al número de la clínica).
         var permiso = _politicaWhatsApp.Evaluar(t.IdPaciente, t.TelefonoPaciente);
+        if (permiso == PermisoEnvioWhatsApp.Apagado) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
         if (permiso == PermisoEnvioWhatsApp.Revocado) return ("Omitido", "El paciente revocó los avisos por WhatsApp.");
 
         // El número nacional de 10 dígitos si se lo entiende como teléfono argentino ("011 15 5555-0001" es 1155550001); si no, lo de

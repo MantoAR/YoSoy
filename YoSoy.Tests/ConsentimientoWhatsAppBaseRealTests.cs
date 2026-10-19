@@ -13,6 +13,7 @@ using Microsoft.Extensions.Configuration;
 //  · La BAJA que llega por el webhook de WhatsApp revoca en la base.
 // Cada prueba crea sus filas con DatosDePrueba y las borra al terminar (la cascada sigue las claves foráneas).
 [Trait("Categoria", "Integracion")]
+[Trait("Tabla", "ConsentimientoWhatsApp")]   // necesita la tabla de la migración 16: se saltea con -Filtro 'Tabla!=ConsentimientoWhatsApp' contra una base sin ella
 public class ConsentimientoWhatsAppBaseRealTests
 {
     private const string Hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

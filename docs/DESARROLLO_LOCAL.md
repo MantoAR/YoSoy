@@ -114,6 +114,18 @@ de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base
 Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.
 
+### Probar contra una base sin la tabla de la migración 16
+
+Producción tiene hoy 44 tablas (sin `ConsentimientoWhatsApp`, la de la migración 16). Con la llave `Mensajeria:AvisosPorWhatsApp` apagada (la de por defecto) la API no toca esa tabla; para comprobarlo
+con la suite entera, armá una base **sin** ella y corré todo lo que no sea de la tabla misma (los tests marcados `[Trait("Tabla", "ConsentimientoWhatsApp")]`):
+
+```powershell
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp          # 44 tablas
+.\Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'
+```
+
+Tienen que pasar todos. (Con `-SinConsentimientoWhatsApp` el script crea la base como siempre y borra esa tabla; solo toca la base que él mismo acaba de crear.) Es una base más de pruebas: borrala igual que `yosoy_test` (abajo).
+
 ### Correr los tests
 
 ```powershell

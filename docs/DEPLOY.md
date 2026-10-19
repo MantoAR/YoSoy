@@ -233,7 +233,7 @@ sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -b -f 65001 -i ~/a
 
 ```bash
 sqlcmd -S localhost -d yosoy -U <usuario-administrador> -C -I -Q "SELECT COUNT(*) AS tablas FROM sys.tables"
-# 45  (44 hasta la migración 16, add_consentimiento_whatsapp.sql: si todavía no se la aplicaste, tiene que dar 44)
+# 45  (44 hasta la migración 16, add_consentimiento_whatsapp.sql: si todavía no se la aplicaste, tiene que dar 44, y está bien: la migración 16 solo hace falta si prendés Mensajeria__AvisosPorWhatsApp)
 ```
 
 **Registrar:** anotá qué migración se aplicó, cuándo y sobre qué commit en la tabla "Migraciones aplicadas" de
@@ -272,21 +272,29 @@ El seed **no** va en la base de pruebas de los tests de integración: ahí los t
 
 ## Consentimiento de WhatsApp (migración 16): orden del despliegue
 
-La versión con el consentimiento de WhatsApp ([`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) agrega una tabla
-(`ConsentimientoWhatsApp`) y cambia lo que la API le manda al servicio de WhatsApp. **El orden importa:**
+El consentimiento de WhatsApp ([`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`](PROGRESO_CONSENTIMIENTO_WHATSAPP.md)) agrega una tabla (`ConsentimientoWhatsApp`, migración 16) y cambia lo
+que la API le manda al servicio de WhatsApp. Está **dormido por defecto**: la llave `Mensajeria__AvisosPorWhatsApp` viene **apagada**, y con ella apagada los cuatro avisos de turno por
+evento no salen por WhatsApp y el consentimiento no se ofrece en ninguna pantalla (ni la casilla del registro, ni la tarjeta del perfil, ni el link `wa.me`).
+
+**La migración 16 solo hace falta si vas a prender la llave.** Con la llave apagada, **la API no toca la tabla `ConsentimientoWhatsApp`**: ni en el registro de pacientes, ni en el perfil, ni
+en los envíos, ni cuando llega una BAJA. Se puede publicar sin haberla aplicado y todo anda igual. Está probado contra una base **sin** esa tabla (la suite de pruebas entera, salvo lo que es
+de la tabla misma; ver [`DESARROLLO_LOCAL.md`](DESARROLLO_LOCAL.md), "Probar contra una base sin la tabla de la migración 16"). Producción hoy tiene 44 tablas (sin la 16):
+**para esta versión no hace falta aplicarla**.
+
+### Si querés prender la llave: el orden importa
 
 1. **Backup de la base** (sección "Migraciones").
 2. **Aplicar `migrations/add_consentimiento_whatsapp.sql`** a `yosoy`, con el login administrador y `-I -b -f 65001` (es el mismo comando de
    "Aplicar la migración", con este archivo). Es idempotente, solo **agrega** una tabla, dos claves foráneas y dos índices, y no toca ningún
-   dato. **Antes** de publicar la API: la API nueva lee y escribe esa tabla (la anterior la ignora, así que aplicarla antes no corta nada).
+   dato. **Antes** de prender la llave: con la llave prendida la API lee y escribe esa tabla (con la llave apagada, o con la API anterior, la ignoran).
    **Verificar:** la consulta que trae el encabezado del script da `1, 2, 2`, y `SELECT COUNT(*) FROM sys.tables` da `45`.
-3. **Variables** (todas opcionales, en `/opt/yosoy/config/.env`; nombres en [`SERVIDOR.md`](SERVIDOR.md), "Variables de entorno"):
+3. **Variables** (en `/opt/yosoy/config/.env`; nombres en [`SERVIDOR.md`](SERVIDOR.md), "Variables de entorno"): `Mensajeria__AvisosPorWhatsApp=true` y, opcionales,
    `Mensajeria__WhatsAppNumeroClinica` (el número que atiende `whatsapp-service`; **sin él no se muestra ningún link `wa.me`**) y, si querés
    otro saludo, `Mensajeria__WhatsAppTextoInicio` (por defecto `Hola`). La versión del texto del consentimiento
    (`Mensajeria__ConsentimientoWhatsApp__VersionTexto`) queda en `v0-provisorio`: no hace falta tocarla.
-4. **Publicar la API** (pasos 1 a 4 de arriba).
+4. **Publicar la API** (pasos 1 a 4 de arriba) o, si ya está publicada, reiniciarla para que lea el `.env`.
 5. **Probar** con un paciente de prueba, mirando el log:
-   - `curl -s https://<dominio>/consentimiento-whatsapp/texto` devuelve `"disponible":true` y `"version":"v0-provisorio"`.
+   - `curl -s https://<dominio>/consentimiento-whatsapp/texto` devuelve `"disponible":true` y `"version":"v0-provisorio"` (con la llave apagada devuelve `"disponible":false`).
    - En el registro aparece el bloque "Avisos por WhatsApp (opcional)" con la casilla **sin tildar**; en el perfil, la tarjeta "Avisos por
      WhatsApp" en **Desactivados**. Activar y desactivar desde el perfil anda, y la tarjeta cambia de estado sin recargar.
    - El log no trae teléfonos: `sudo journalctl -u yosoy-api --since '10 minutes ago' --no-pager | grep -E '[0-9]{10}'` no tiene que mostrar
@@ -298,12 +306,15 @@ La versión con el consentimiento de WhatsApp ([`PROGRESO_CONSENTIMIENTO_WHATSAP
 
 **Si algo falla**
 
-- **Sin la tabla** (la migración no se aplicó), la API arranca igual: aceptar y revocar contestan error y los avisos por WhatsApp quedan en
-  "Error" y no salen (se prefiere no mandar a mandar sin saber si hay consentimiento); los avisos de la campanita y del mail siguen.
+- **Con la llave apagada** (por defecto) la tabla no se usa: la API anda igual aunque la migración no esté aplicada. Si ves en el log una queja de la base por `ConsentimientoWhatsApp`
+  con la llave apagada, es un defecto: avisá.
+- **Con la llave prendida y sin la tabla** (la migración no se aplicó), la API arranca igual: aceptar y revocar contestan error y los avisos por WhatsApp quedan en
+  "Error" y no salen (se prefiere no mandar a mandar sin saber si hay consentimiento); los avisos de la campanita y del mail siguen. Aplicá la migración o apagá la llave.
 - **Rollback de la API** (sección "Rollback"): la API anterior ignora la tabla, y **no hay que borrarla** (es el registro de quién aceptó
   recibir WhatsApp; el encabezado de la migración dice qué hacer si de verdad hace falta). **Ojo:** la API anterior **no conoce las
   revocaciones**, así que si ya hay pacientes que revocaron y se vuelve atrás, apagá el canal (`Mensajeria__CanalActivo=Simulado`, reiniciar
   la API) hasta volver a desplegar esta versión.
+- **Apagar la llave después de haberla prendido** no borra ni revoca nada: las aceptaciones quedan en la tabla tal cual, dormidas, hasta que se vuelva a prender.
 
 **Antes de usarlo con pacientes reales:** el texto `v0-provisorio` es un borrador que **no validó** el equipo legal. Un texto nuevo es una
 versión nueva (un archivo `Services/Mensajeria/Consentimiento/<versión>.txt` y `Mensajeria__ConsentimientoWhatsApp__VersionTexto`); **al
@@ -398,10 +409,10 @@ a vos: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md) 
 3. **El número dedicado**, con WhatsApp ya activo en un teléfono que tengas a mano para escanear el QR.
 4. **El valor de `Mensajeria__CanalActivo` en la API** ([WhatsApp en la API](#whatsapp-en-la-api-mensajeria__canalactivo-y-recordatorios)): la API nueva no
    arranca con `WhatsAppWebJs`. Publicá primero esa API (con `Baileys` o `Simulado`), y recién después este servicio.
-5. **Consentimiento.** La API con el consentimiento de WhatsApp (migración 16: [más arriba](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue))
-   manda `optIn:true` **solo a quien aceptó**; sin ella, solo reciben WhatsApp quienes le escribieron primero al número de la clínica. Desplegá **primero** esa
-   API con su migración y recién después prendé este canal. Y **antes de usarlo con pacientes reales**, el texto del consentimiento (`v0-provisorio`) tiene
-   que estar validado por el equipo legal (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales").
+5. **Consentimiento.** Con la llave `Mensajeria__AvisosPorWhatsApp` apagada (por defecto) los avisos de turno no salen por WhatsApp y el consentimiento está dormido (no hace falta la
+   migración 16). Si la **prendés** (migración 16: [más arriba](#consentimiento-de-whatsapp-migración-16-orden-del-despliegue)), la API manda `optIn:true` **solo a quien aceptó**; sin
+   aceptación, solo reciben WhatsApp quienes le escribieron primero al número de la clínica. Desplegá **primero** esa API con su migración y recién después prendé este canal. Y **antes de
+   usarlo con pacientes reales**, el texto del consentimiento (`v0-provisorio`) tiene que estar validado por el equipo legal (`PROGRESO_CONSENTIMIENTO_WHATSAPP.md`, "Pasos manuales").
 6. **Topes iniciales bajos** para un número nuevo (abajo, paso 5). Después se suben de a poco, durante semanas.
 7. **Horario.** Reiniciar el servicio corta WhatsApp unos segundos; los mensajes que estén en la cola se pierden.
 

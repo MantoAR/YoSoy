@@ -46,10 +46,14 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
     /// <summary>Si no es null, cualquier lectura o escritura tira esto (la base caída, la tabla que no existe).</summary>
     public Exception? Falla { get; set; }
 
+    /// <summary>Cuántas veces se le pidió algo a la "tabla" (cualquier método, con o sin Falla): con la llave apagada tiene que quedar en 0.</summary>
+    public int Llamadas { get; private set; }
+
     private int _siguiente = 100;
 
     public ConsentimientoWhatsAppFila? Ultimo(int idPaciente)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         return Filas.Where(f => f.IdPaciente == idPaciente).OrderByDescending(f => f.IdConsentimientoWhatsApp).FirstOrDefault();
     }
@@ -57,6 +61,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
     public ConsentimientoWhatsAppFila? Aceptar(int idPaciente, int idUsuario, string telefono, string origen, string versionTexto,
         string hashTexto, DateTime aceptadoUtc, string motivoSiReemplaza)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         if (SimularCarrera)
         {
@@ -79,6 +84,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public bool Revocar(int idPaciente, DateTime revocadoUtc, string motivo)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         var i = Filas.FindIndex(f => f.IdPaciente == idPaciente && f.EstaAbierta);
         if (i < 0) return false;
@@ -95,6 +101,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public List<(int IdConsentimientoWhatsApp, int IdPaciente)> RevocarVigentesDelTelefono(string telefono, DateTime revocadoUtc, string motivo)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         TelefonosDeBaja.Add(telefono);
         var revocadas = new List<(int, int)>();
@@ -109,6 +116,7 @@ public class FakeConsentimientoWhatsAppRepo : IConsentimientoWhatsAppRepositorio
 
     public DatosPacienteParaWhatsApp? ObtenerDatosPaciente(int idPaciente)
     {
+        Llamadas++;
         if (Falla is not null) throw Falla;
         return Pacientes.GetValueOrDefault(idPaciente);
     }

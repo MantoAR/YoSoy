@@ -24,7 +24,9 @@ public enum PermisoEnvioWhatsApp
     /// <summary>Aceptación vigente: se manda con optIn:true.</summary>
     ConConsentimiento,
     /// <summary>Revocó: no se manda nada por WhatsApp.</summary>
-    Revocado
+    Revocado,
+    /// <summary>La llave Mensajeria:AvisosPorWhatsApp está apagada: no se manda nada por WhatsApp y ni se mira la tabla del consentimiento.</summary>
+    Apagado
 }
 
 public interface IPoliticaEnvioWhatsApp
@@ -166,6 +168,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     /// </summary>
     public ErrorDeConsentimiento? ValidarAceptacionEnRegistro(string? telefono, DateTime? fechaNacimiento, string? version)
     {
+        if (!Habilitado) return new ErrorDeConsentimiento(TipoErrorConsentimiento.Conflicto, AvisosApagados, MensajeApagado);
         var rechazo = ReglasParaAceptar(_textos.Actual(), version, TelefonoArgentino.Normalizar(telefono), fechaNacimiento, tieneTutor: false);
         if (rechazo is null) return null;
         // El teléfono y la edad son datos que mandó la persona en este mismo pedido (400); el texto es un estado del servidor (409).
@@ -179,6 +182,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     /// </summary>
     public bool AceptarEnRegistro(int idPaciente, int idUsuario, string? telefono, string? version)
     {
+        if (!Habilitado) return false;   // sin tocar la tabla
         try
         {
             var texto = _textos.Actual();
@@ -206,6 +210,7 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     /// </summary>
     public PermisoEnvioWhatsApp Evaluar(int idPaciente, string? telefonoActual)
     {
+        if (!Habilitado) return PermisoEnvioWhatsApp.Apagado;   // sin leer la tabla
         var estado = EstadoDe(_repo.Ultimo(idPaciente), TelefonoArgentino.Normalizar(telefonoActual), _textos.Actual());
         return estado switch
         {
@@ -221,6 +226,8 @@ public class ConsentimientoWhatsAppService : IPoliticaEnvioWhatsApp, IBajaDeWhat
     /// </summary>
     public int RegistrarBaja(string telefonoNormalizado)
     {
+        // Apagado el consentimiento no hay aceptaciones que revocar ni tabla que tocar. El servicio de WhatsApp igual bloquea a esa persona (BAJA gana sobre todo).
+        if (!Habilitado) return 0;
         var telefono = TelefonoArgentino.Normalizar(telefonoNormalizado);
         if (telefono is null) return 0;
         try
