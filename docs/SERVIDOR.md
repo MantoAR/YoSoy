@@ -259,7 +259,8 @@ no existe y la API no arranca con él), en `.env`.
 [`DEPLOY.md`](DEPLOY.md), "Chat de WhatsApp para el personal"): `Mensajeria__ModoAtencion` (`Asistente`, por defecto, o `Personal`; otro valor frena el arranque),
 `Mensajeria__Personal__RespuestaDeEmergencia` (`false` por defecto: en modo `Personal`, el mensaje de emergencia que se le manda al paciente ante una frase de riesgo; aunque sea `true`
 no sale mientras alguna línea esté sin completar) y `Mensajeria__LineasEmergencia__0__Nombre`, `__0__Telefono`, `__1__Nombre` y `__1__Telefono` (las líneas de ese mensaje; hoy dicen
-`[COMPLETAR Y VALIDAR]` en `appsettings.json`). Los chats son **solo del Configurador**: los profesionales reciben 403 en `/mensajeria`.
+`[COMPLETAR Y VALIDAR]` en `appsettings.json`). Los chats son **solo del Configurador**: los profesionales reciben 403 en `/mensajeria`. Con `Personal` hace falta la migración 17 (`migrations/add_chat_personal_entrantes.sql`; el orden, en
+`DEPLOY.md`), y `GET /salud` de `whatsapp-service` trae `entrantes` (cuántos mensajes se procesaron, ignoraron, reenviaron, reintentaron y perdieron: solo números).
 
 ## Verificación rápida (solo lectura)
 
