@@ -399,6 +399,31 @@ Alternativa que **no** tomé: subir `WHATSAPP_TOPE_POR_PERSONA` a 20, que afloja
   **10 mutaciones**, todas detectadas, incluidas las del acceso a datos (que cuente cualquier dirección o cualquier conversación): sin la regla, la regla también para el equipo, sin la excepción de los avisos, el notificador sin declararla, `Sistema` como no automático, `optIn` como excepción, guardar igual el mensaje bloqueado y perder el código del error.
 - **Adaptadas:** `ServicioMensajesOpcionesTests` (modelan opciones y el código de rechazo, no el origen), los dobles de `IMensajeChatDAO` y las pruebas del notificador (ahora también comprueban `IniciaElNegocio`).
 
+## Segunda tanda (2026-10-19): los avisos por WhatsApp, apagados por defecto
+
+Rama `chore/whatsapp-apagado-por-defecto`, desde `origin/main` `adee87e` (con el PR #44, el de Baileys solo, ya mergeado). Un commit por punto. Lo decidió Agustín: los cuatro avisos de turno por
+evento **no salen por WhatsApp por defecto**, el consentimiento de WhatsApp queda **dormido** (no se borra) y **no hay doble opt-in por ahora**. Límites duros de siempre: nada de `.env` ni secretos,
+sin deploy, sin tocar el VPS ni la base `yosoy`, sin aplicar migraciones, nada a WhatsApp real, sin merge a `main` ni `--force`.
+
+### Punto 5: ¿el mail es obligatorio al registrar un paciente?
+
+**Sí, en el registro.** El único camino que crea pacientes es el registro público (`POST /pacientes` → `PacienteDAO.RegistrarConAcceso`: paciente, usuario y vínculo en una sola transacción; `PacienteDAO.Insertar`
+no lo llama nadie). Lo exigen las dos puntas:
+
+- **El servidor:** sin mail, o con uno mal formado, contesta **400** "El mail es obligatorio y tiene que tener un formato válido." antes de tocar la base (`Program.cs`; el formato se comprueba con
+  `new MailAddress(mail).Address == mail`, así que tampoco vale "Nombre <a@b.com>"). Un mail que ya usa otro usuario da **409** (`Usuario.Mail` es `UNIQUE`).
+- **La pantalla:** el campo Email lleva el asterisco de obligatorio y se valida (obligatorio y con formato) antes de mandar el pedido.
+
+Probado: `RegistroPacienteMailTests` (nueve casos: sin el campo, vacío, en blanco y seis formas mal escritas; la pantalla; y, con la base, que el mail queda en `Paciente.Mail` y en `Usuario.Mail`) con 3 mutaciones detectadas.
+
+**Pero no es obligatorio *después* de registrarse.** La edición de la ficha (`PUT /pacientes/{id}`) no valida el mail, la pantalla del perfil solo mira el formato si hay algo escrito, y la columna `Paciente.Mail`
+admite `NULL`. Un paciente registrado con mail **puede borrarlo** y quedarse sin él (probado con la base; `RegistroPacienteMailBaseRealTests` lo deja anotado como caracterización: si se arregla, esa prueba se invierte).
+Y puede haber pacientes de antes de la regla, o cargados por otra vía, sin mail. A ellos el recordatorio por mail les queda `Omitido` ("El paciente no tiene mail cargado.") y **solo les queda la campanita**: es el hueco que
+dejó sacar el WhatsApp del recordatorio.
+
+Para saber cuántos son en producción (solo lectura): `SELECT COUNT(*) FROM Paciente WHERE Mail IS NULL OR LTRIM(RTRIM(Mail)) = ''`. Para cerrarlo hace falta exigir el mail también en `PUT /pacientes/{id}` y en la pantalla del
+perfil. **No lo hice:** no estaba pedido y cambia una pantalla que usan todos los pacientes.
+
 ## Pasos manuales para Agustín
 
 En este orden. Nada de esto lo hice yo: lo que toca producción o el teléfono del número es tuyo.
