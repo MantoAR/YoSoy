@@ -6,6 +6,9 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 > **Nota (2026-10-18):** después de esta tarea la clase `CanalWhatsAppWebJs` pasó a llamarse `CanalBaileys` (se sacó whatsapp-web.js) y **la API dejó de mandar recordatorios por
 > WhatsApp** (siguen por mail y campanita): donde este archivo habla de "recordatorios" por WhatsApp o de `CanalWhatsAppWebJs`, ya no rige. Qué se decidió sobre el consentimiento a
 > partir de eso: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md).
+>
+> **Nota (2026-10-19):** el consentimiento quedó **dormido por defecto**: la llave `Mensajeria__AvisosPorWhatsApp` viene apagada, con ella apagada no se ofrece en ninguna pantalla y la API **no toca la tabla `ConsentimientoWhatsApp`**
+> (la migración 16 solo hace falta si se prende la llave). Nada de lo de este archivo se borró. Detalle: la "Segunda tanda" de [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md) y `docs/DEPLOY.md`.
 
 - **Rama:** `feat/consentimiento-whatsapp`, creada desde `origin/main` (316f530, PR #42: el canal Baileys, apagado por defecto).
   Sin merge a `main`.

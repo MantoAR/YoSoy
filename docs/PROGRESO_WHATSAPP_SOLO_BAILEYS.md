@@ -10,7 +10,8 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
   - Se pausa el uso saliente por el riesgo de bloqueo de una API no oficial: **lo que quede de WhatsApp tiene que ser de bajo riesgo**.
 - **Límites duros:** no se leen ni imprimen `.env`, `whatsapp.env`, `signaling.env` ni `video.env`; sin deploy, sin `sudo`, sin tocar el VPS ni la
   base `yosoy`, sin aplicar migraciones; **nada se conecta ni se manda a WhatsApp real**; sin merge a `main` ni `--force`. Un commit por etapa.
-- **Última actualización:** 2026-10-18, tras la etapa 5 (anti-bloqueo): las cinco etapas están hechas. Lo que falta es tuyo: ver "Pasos manuales para Agustín" y "Qué falta".
+- **Segunda tanda (2026-10-19):** los avisos por WhatsApp **apagados por defecto** y el consentimiento dormido, con mails mínimos: ver "Segunda tanda" más abajo (rama `chore/whatsapp-apagado-por-defecto`).
+- **Última actualización:** 2026-10-19, tras la segunda tanda (seis puntos hechos). Lo que falta es tuyo: ver "Pasos manuales para Agustín" y "Qué falta".
 
 ## Estado de las etapas
 
@@ -21,7 +22,9 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
 | 2 | Eliminar los recordatorios por WhatsApp, con tests | **hecho** | `341807f` |
 | 3 | Revisar el resto de los flujos salientes (solo se lista y se recomienda) | **hecho** | `e25061f` |
 | 4 | Consentimiento de WhatsApp: opciones y recomendación (sin tocar migraciones ni tablas) | **hecho** | `e9f0962` |
-| 5 | Anti-bloqueo de lo que quede | **hecho** | (este commit) |
+| 5 | Anti-bloqueo de lo que quede | **hecho** | `5d53a70` |
+
+Todo esto se mergeó como el PR #44 (`adee87e`). La **segunda tanda** (abajo) sale de ese `main`.
 
 ## Cómo retomar
 
@@ -29,7 +32,9 @@ sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está
 2. Tests del servicio de WhatsApp: `cd whatsapp-service && npm test` (Node 22 o más nuevo; sin red ni WhatsApp: socket simulado).
 3. Tests de la API: `Scripts\correr-tests.ps1` (usa la base `yosoy_test`, que tiene que tener las **45 tablas**; el script se niega a usar `yosoy`).
 4. Línea base de esta rama, antes de cambiar nada: ver "Línea base" más abajo.
-5. Seguir por la primera etapa en `pendiente` de la tabla de arriba.
+5. Seguir por la primera etapa en `pendiente` de la tabla de arriba. Las cinco están hechas.
+6. **Segunda tanda:** `git switch chore/whatsapp-apagado-por-defecto` (un commit por punto). Para probar la API como está producción, sin la tabla de la migración 16:
+   `Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp` y `Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'` (la base se borra al terminar: `docs/DESARROLLO_LOCAL.md`).
 
 ## Línea base (origin/main, antes de tocar nada)
 
@@ -278,6 +283,8 @@ El riesgo que queda es el de siempre con una API no oficial: **mensajes que abre
 
 **No hice nada de esto** (ni el interruptor ni el mail): el encargo era listar y recomendar. Decime y lo agrego en una etapa aparte.
 
+> **Actualización (2026-10-19):** Agustín eligió la recomendación 1: la llave `Mensajeria:AvisosPorWhatsApp` existe y viene **apagada**. El mail para estos avisos (la recomendación 2) **no** se agregó; ver "Segunda tanda".
+
 ### Lo que no cambia
 
 - Las respuestas del asistente y las de una persona del equipo (S6 y S7) se dejan: responden dentro de una conversación y las acota el servicio.
@@ -339,6 +346,8 @@ Borrar el módulo entero: reglas, DAO, endpoints, pantallas, texto, pruebas y do
 - Si algún día se decide **no volver a mandar nada saliente por WhatsApp** → B, que ahí sí vale el esfuerzo.
 
 **Nada de esto lo implementé:** el encargo de esta etapa es evaluar y dejar la recomendación.
+
+> **Actualización (2026-10-19):** Agustín eligió la opción A: el consentimiento queda **dormido, no se borra**, y no hay doble opt-in por ahora. Ver "Segunda tanda".
 
 ### Detalles a tener en cuenta
 
@@ -405,6 +414,77 @@ Rama `chore/whatsapp-apagado-por-defecto`, desde `origin/main` `adee87e` (con el
 evento **no salen por WhatsApp por defecto**, el consentimiento de WhatsApp queda **dormido** (no se borra) y **no hay doble opt-in por ahora**. Límites duros de siempre: nada de `.env` ni secretos,
 sin deploy, sin tocar el VPS ni la base `yosoy`, sin aplicar migraciones, nada a WhatsApp real, sin merge a `main` ni `--force`.
 
+| Punto | Qué | Commit |
+|---|---|---|
+| 1 | La llave `Mensajeria:AvisosPorWhatsApp`, apagada por defecto, con pruebas | `7584eeb` |
+| 2 | Toda la parte visible del consentimiento de WhatsApp, oculta con la llave apagada | `1b6fb0b` |
+| 3 | Con la llave apagada la API no toca la tabla `ConsentimientoWhatsApp` (se publica sin la migración 16) | `2a7baec` |
+| 4 | Mails de turno con contenido mínimo: solo día y hora | `db7db5e` |
+| 5 | ¿El mail es obligatorio al registrar un paciente? (confirmado y anotado) | `f527fbe` |
+| 6 | Todo anotado en este archivo | (este commit) |
+
+### Punto 1: la llave `Mensajeria:AvisosPorWhatsApp` (apagada por defecto)
+
+- **Qué es:** `MensajeriaOptions.AvisosPorWhatsApp` (`false`), escrita también en `appsettings.json`. Se prende con `Mensajeria__AvisosPorWhatsApp=true` y se puede cambiar **sin reiniciar** (`IOptionsMonitor`).
+- **Qué hace apagada:** `NotificadorTurnos.EnviarChat` la mira **antes que nada**: no consulta el consentimiento, no arma la conversación y no toca el canal. El aviso queda `Omitido` en `Recordatorio` ("Los avisos por WhatsApp están apagados
+  (Mensajeria:AvisosPorWhatsApp)."). Alcanza a los **cuatro avisos de turno por evento** (solicitud recibida, turno propuesto, confirmado y cancelado), sea cual sea la decisión del paciente.
+- **Lo que no toca:** el mail, la campanita, las respuestas del asistente a quien le escribe y lo que escribe el equipo desde la bandeja. Ni el recordatorio: ese nunca sale por WhatsApp.
+- **Prendida y con consentimiento:** como antes (`optIn` solo con aceptación vigente; nada si el paciente revocó).
+- **Pruebas:** `AvisosPorWhatsAppLlaveTests` (41 casos) con el `NotificadorTurnos` y el `ServicioMensajes` **reales** y un canal que anota cada envío: apagada, para los cuatro avisos y los tres estados del consentimiento, no llega nada al canal, no queda
+  mensaje, no se arma la conversación y ni se consulta el consentimiento; la campanita sale igual y con su texto completo; prendida, como hoy; la llave se enciende y se apaga sin reiniciar; viene apagada en el código, en `appsettings.json` y en la
+  aplicación real; y la variable `Mensajeria__AvisosPorWhatsApp` llega a la opción. Las pruebas que miran lo que sale por WhatsApp prenden la llave. **6 mutaciones**, todas detectadas.
+
+### Punto 2: la parte visible del consentimiento, oculta con la llave apagada
+
+- **Qué se oculta:** la casilla del registro, la tarjeta "Avisos por WhatsApp" del perfil, el **link `wa.me`** (ya no hay link aunque haya un número de la clínica configurado) y el diálogo que aparece después de pedir o confirmar un turno.
+- **Cómo:** `ConsentimientoWhatsAppService.Habilitado` mira la llave en cada pedido. Apagada: `GET /consentimiento-whatsapp/texto` dice `disponible:false` (el registro no dibuja el bloque), `GET /consentimiento-whatsapp` dice `no-disponible` con
+  motivo **`avisos-apagados`** y sin texto ni link, y aceptar y revocar contestan **409** `avisos-apagados`. La identidad se mira antes: un profesional sigue recibiendo 403. `ContactoWhatsApp.Enlace()` devuelve `null`.
+- **Las pantallas:** la tarjeta del perfil **nace oculta** y solo se muestra si la API la ofrece; con `avisos-apagados` queda oculta y vacía (`YS.whatsapp.apagado(estado)`). El link y la sugerencia de después de un turno tampoco se arman. Un navegador que
+  tuviera el JavaScript viejo en caché vería, como mucho, "los avisos por WhatsApp no están disponibles en este momento": tampoco promete nada.
+- **Pruebas:** `ConsentimientoWhatsAppApagadoTests.cs` (16 casos: servicio, endpoints con la aplicación real y pantallas): con un doble de la base que **revienta si se lo toca**, apagada no se lee ni se escribe nada; prendida, anda como antes; la llave se enciende y se apaga sin
+  reiniciar (apagarla no borra ni revoca lo que ya estaba). Las pruebas del consentimiento encendido (servicio, endpoints, base real, link) prenden la llave. **12 mutaciones**, todas detectadas.
+- **Banco de navegador real** (Chrome + la API real contra bases descartables, **no versionado**): con la llave apagada y contra una base **sin** la tabla, **24 verificaciones sin fallas** (no se ve casilla, tarjeta, link ni diálogo en toda la página; el registro y el perfil andan;
+  la API contesta 200 y el log no tiene errores ni teléfonos); con la llave prendida y la tabla, **20 sin fallas** (se ve todo, la casilla no viene tildada, aceptar queda registrado y el perfil dice "Activados").
+
+### Punto 3: con la llave apagada la API no toca la tabla `ConsentimientoWhatsApp`
+
+- **Por qué:** producción tiene **44 tablas** (sin la migración 16). Así se puede publicar esta API **sin aplicarla** y todo anda igual.
+- **Qué cubre:** el **registro de pacientes** (un cliente que igual mande `aceptaWhatsApp:true` se registra bien; la respuesta dice `pedido:false` y `estado:"no-disponible"`), el **perfil** (punto 2), los **envíos** (`Evaluar` devuelve el permiso nuevo `Apagado` sin leer la tabla;
+  `NotificadorTurnos` lo trata como `Omitido`) y la **BAJA** (`RegistrarBaja` devuelve 0 sin tocar la tabla: el servicio de WhatsApp igual la respeta, porque BAJA gana sobre todo). Con eso queda cubierto todo lo público del servicio, y una prueba de reflexión
+  obliga a decidir qué hace con la llave cada método público que se agregue.
+- **Cómo se probó** (tres capas):
+  1. **En memoria**, con un doble de la tabla que cuenta cada llamada y revienta ("Invalid object name"): con la llave apagada, todo lo público del servicio, el notificador (los cuatro avisos) y el asistente (una BAJA) contestan con **cero llamadas** y sin una queja en el log. El mismo doble, con la llave
+     prendida, sí revienta: el "0" no es vacío.
+  2. **De punta a punta** con la aplicación real y los DAOs reales (`ConsentimientoWhatsAppSinTablaBaseRealTests`; el archivo entero, `ConsentimientoWhatsAppSinTablaTests.cs`, son 10 casos): registro con `aceptaWhatsApp:true`, perfil, avisos de turno (en una base sin la tabla, si el servicio la tocara el aviso quedaría `Error`, no `Omitido`) y BAJA por el webhook.
+  3. **Contra una base de verdad sin la tabla:** `Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp` (44 tablas; solo toca la base que acaba de crear) y `Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'`:
+     **toda la suite menos las 45 pruebas que son de la tabla misma** (marcadas `Trait("Tabla", "ConsentimientoWhatsApp")`) pasa: **1497 de 1497**. 9 mutaciones, todas detectadas (las de los DAOs reales, sobre esa base).
+- **Docs:** `DEPLOY.md` ("Consentimiento de WhatsApp": la migración 16 **solo hace falta si se prende la llave**, el orden para prenderla y qué pasa si falta la tabla), `SERVIDOR.md`, `README.md`, `CATALOGO_SCRIPTS_SQL.md` y `DESARROLLO_LOCAL.md` ("Probar contra una base sin la tabla de la migración 16").
+- **Apagar la llave después de haberla prendido** no borra ni revoca nada: las aceptaciones quedan en la tabla, dormidas.
+
+### Punto 4: mails con contenido mínimo
+
+- **Qué mails le llegan a un paciente por un turno:** revisé todos los caminos de mail del código. A un paciente, por un turno, **hoy solo le sale el recordatorio** (por mail y campanita). Los cuatro avisos por evento (solicitud, propuesta, confirmación, cancelación) **no tienen canal de mail**: salen por la campanita
+  y, con la llave prendida, por WhatsApp. Los otros mails de `EmailService` no llevan datos de turnos (aprobación de un profesional y recuperación de contraseña), y el aviso al profesional de "un paciente no va a asistir" es interno (ver "Qué falta").
+- **Qué hice:** `Services/Mensajeria/PlantillasMail.cs`, una plantilla por aviso (los cinco) que devuelve el **asunto y el cuerpo** (`MailDeTurno`). La garantía está en las **firmas**, igual que en `PlantillasWhatsApp`: solo reciben el momento del turno y el link de ingreso, no hay por dónde pasarles un nombre,
+  una especialidad, un motivo ni la modalidad. `NotificadorTurnos` pasa a tener **tres textos por aviso** (WhatsApp, mail y campanita) y el parámetro del mail **no es opcional**: ningún mail puede salir con el texto de la campanita, ni siquiera si un día otro aviso empieza a salir también por mail.
+  `EmailService.EnviarAviso` pasa a `virtual` para que las pruebas vean qué diría el mail sin SMTP ni red.
+- **Qué dicen ahora** (ejemplo con un turno el martes 4/3 a las 10:30):
+
+  | Aviso | Asunto | Cuerpo |
+  |---|---|---|
+  | Recordatorio (24 h antes) | YoSoy – Recordatorio de turno | Recordatorio: tenés un turno el martes 04/03 a las 10:30. Para ver los detalles o ingresar: *(link)*. Si no vas a poder asistir, avisanos desde la web. |
+  | Solicitud recibida | YoSoy – Solicitud de turno recibida | Recibimos tu solicitud de turno para el martes 04/03 a las 10:30. Queda pendiente de confirmación. |
+  | Turno propuesto | YoSoy – Te propusieron un turno | Te propusieron un turno para el martes 04/03 a las 10:30. Para confirmarlo, ingresá a tu panel en la web: *(link)* |
+  | Confirmado | YoSoy – Turno confirmado | Tu turno del martes 04/03 a las 10:30 quedó confirmado. |
+  | Cancelado | YoSoy – Turno cancelado | Tu turno del martes 04/03 a las 10:30 fue cancelado. Si querés pedir otro, ingresá a la web: *(link)* |
+
+  Antes, el recordatorio decía además **con quién** era el turno y **la modalidad** ("...con *{profesional}* (*{modalidad}*)"). La **campanita no cambia**: su texto exacto está fijado por una prueba.
+- **Lo que NO cambió, a propósito:** por qué canales sale cada aviso. Pediste que "mail y campanita sigan igual": los cuatro avisos por evento **siguen sin salir por mail**. Sus plantillas de mail mínimas ya están hechas y probadas; para que salgan por mail alcanza con agregar `"Email"` a `NotificadorTurnos.CanalesEvento`
+  (una línea; una prueba documenta que hoy no salen). Es una **decisión tuya** (ver "Qué falta"): con WhatsApp apagado, es lo único que los avisaría a un paciente que no entra a la app.
+- **Pruebas:** `PlantillasMailTests` (15 casos): por la firma (por reflexión), por el texto (ni el asunto ni el cuerpo traen una palabra que revele la atención; los asuntos son cortos, neutros y **sin fecha**, porque se ven en la bandeja sin abrir el mail), y **de punta a punta con el notificador real**: con un turno cargado de datos marcados (profesional,
+  especialidad, modalidad, motivo, paciente) el mail del recordatorio es **exactamente la plantilla** y no trae ninguna marca, mientras que la campanita **sí** trae las del profesional y la modalidad (así se sabe que, de colarse, se verían). Sin mail cargado o con el correo sin configurar queda `Omitido` como siempre, y una prueba sobre el
+  código fuente obliga a que cada aviso del notificador traiga su plantilla. **8 mutaciones**, todas detectadas.
+
 ### Punto 5: ¿el mail es obligatorio al registrar un paciente?
 
 **Sí, en el registro.** El único camino que crea pacientes es el registro público (`POST /pacientes` → `PacienteDAO.RegistrarConAcceso`: paciente, usuario y vínculo en una sola transacción; `PacienteDAO.Insertar`
@@ -424,18 +504,38 @@ dejó sacar el WhatsApp del recordatorio.
 Para saber cuántos son en producción (solo lectura): `SELECT COUNT(*) FROM Paciente WHERE Mail IS NULL OR LTRIM(RTRIM(Mail)) = ''`. Para cerrarlo hace falta exigir el mail también en `PUT /pacientes/{id}` y en la pantalla del
 perfil. **No lo hice:** no estaba pedido y cambia una pantalla que usan todos los pacientes.
 
+### Decisiones de la tanda y límites
+
+1. **Se implementó lo que recomendaba la etapa 3** (la llave apagada por defecto) y, de la etapa 4, la opción A ("dejarlo dormido"): no se borró nada del consentimiento (código, texto, tabla, migración, pantallas, pruebas).
+2. **No hay doble opt-in por ahora** (decisión de Agustín): con la llave apagada no hace falta; si se prende, queda el límite de siempre (el número no se verifica: cualquiera puede tildar la casilla con el celular de otra persona; lo mitigan los textos mínimos y la BAJA).
+3. **Los cuatro avisos por evento ya no avisan fuera de la app**: apagado WhatsApp y sin mail, al paciente le queda la campanita. Es una consecuencia de la decisión, no un descuido: está en "Qué falta".
+4. **Producción no necesita la migración 16 ni ninguna variable nueva** para publicar esta versión.
+5. **No se tocó** `whatsapp-service`, ni migraciones, ni el esquema, ni los textos del consentimiento (`v0-provisorio`, que además promete un recordatorio por WhatsApp que ya no existe), ni el mail al profesional.
+6. **Las bases descartables** de las pruebas (`yosoy_test_44` y `yosoy_test_ui`) se crearon y se borraron; `yosoy` y `yosoy_test` quedaron como estaban.
+
+### Cómo se probó la tanda
+
+| Qué | Resultado |
+|---|---|
+| Suite de la API contra `yosoy_test` (45 tablas), `Scripts\correr-tests.ps1` | **1542 de 1542** (en la rama anterior eran 1448: +94) |
+| La misma suite contra una base **sin** la tabla de la migración 16 (`yosoy_test_44`, 44 tablas), sin las 45 pruebas que son de esa tabla | **1497 de 1497** |
+| `npm test` en `whatsapp-service` | 398 (392 pasan, 6 saltadas de permisos POSIX, 0 fallas): sin cambios |
+| Mutaciones (romper el código a propósito y comprobar que las pruebas fallan) | **38, todas detectadas**: 6 (punto 1), 12 (punto 2), 9 (punto 3), 8 (punto 4) y 3 (punto 5) |
+| Banco de navegador real (Chrome + la API real, bases descartables, no versionado) | Llave apagada y sin la tabla: 24 de 24. Llave prendida y con la tabla: 20 de 20 |
+| WhatsApp real, base `yosoy`, VPS, despliegue, migraciones | **Nada tocado** |
+
 ## Pasos manuales para Agustín
 
 En este orden. Nada de esto lo hice yo: lo que toca producción o el teléfono del número es tuyo.
 
-1. **Abrir y revisar el PR** (`refactor/whatsapp-solo-baileys` contra `main`; el link de compare, con título y descripción, está en el mensaje final). Son la auditoría y cinco etapas, un commit cada una. No hay migraciones.
-2. **Antes de publicar la API: mirá el valor de `Mensajeria__CanalActivo` en el servidor.** Con esto se imprime solo esa línea:
-   `sudo grep -n '^Mensajeria__CanalActivo=' /opt/yosoy/config/.env`. Si dice **`WhatsAppWebJs`**, cambialo a `Baileys` (anda igual con el servicio viejo) o a `Simulado`; si no, la API **no arranca**.
-   Detalle: `docs/DEPLOY.md`, "WhatsApp en la API".
-3. **Publicar la API** con el flujo de siempre. Desde ese momento **el recordatorio de 24 h sale solo por mail y campanita** (nada por WhatsApp), y cerrar o reabrir una conversación le manda el aviso a la persona solo si ella escribió.
-4. **Desplegar el servicio nuevo y vincular el número** (`docs/DEPLOY.md`, "Despliegue de whatsapp-service (Baileys)"): instalar al lado, backup, corte, topes iniciales bajos, vincular y probar con tu teléfono.
-   **Dos cosas para tener presentes:** (a) **el asistente gasta los mismos topes** de día y de hora (con 30 por día, unas seis charlas de pedir turno): subilos de a poco según lo que reciba el consultorio; (b) hay un tope por persona nuevo, `WHATSAPP_TOPE_EN_CONVERSACION` (30 por defecto; no hace falta tocarlo).
-5. **Decidir** qué hacer con los cuatro avisos de turno por WhatsApp (etapa 3: la recomendación es una llave `Mensajeria:AvisosPorWhatsApp` apagada por defecto, y decidir si también salen por mail) y, según eso, con el consentimiento de WhatsApp (etapa 4: dejarlo dormido, simplificarlo o sacarlo). **No hace falta decidir para publicar:** mientras tanto los avisos siguen saliendo solo a quien aceptó o escribió primero.
+1. **Revisar y mergear los PR.** Esta tanda: `chore/whatsapp-apagado-por-defecto` contra `main` (seis commits, uno por punto; el link de compare, con título y descripción, está en el mensaje final). Sin migraciones.
+2. **Antes de publicar la API: mirá el valor de `Mensajeria__CanalActivo` en el servidor** (si todavía no publicaste la API del PR #44). Con esto se imprime solo esa línea:
+   `sudo grep -n '^Mensajeria__CanalActivo=' /opt/yosoy/config/.env`. Si dice **`WhatsAppWebJs`**, cambialo a `Baileys` (anda igual con el servicio viejo) o a `Simulado`; si no, la API **no arranca**. Detalle: `docs/DEPLOY.md`, "WhatsApp en la API".
+3. **Publicar la API** con el flujo de siempre. **No hace falta aplicar la migración 16 ni definir ninguna variable nueva**: `Mensajeria__AvisosPorWhatsApp` no se define (queda apagada). Desde ese momento: el recordatorio de 24 h sale solo por mail y campanita (y el mail dice solo el día y la hora), los avisos de turno por evento
+   no salen por WhatsApp, cerrar o reabrir una conversación avisa solo si la persona escribió, y no se ofrece nada del consentimiento de WhatsApp en ninguna pantalla.
+4. **Cargar las credenciales del correo** (`Email__From` y `Email__Password` en `/opt/yosoy/config/.env`, ver `docs/DEPLOY.md`, "Credenciales de correo") **si todavía no están**: sin ellas, el recordatorio por mail queda `Omitido` y los pacientes solo reciben la campanita. Cargalas **antes** de que empiece a haber turnos para recordar: un recordatorio omitido **no se reenvía** cuando después se configura el correo.
+5. **Si vas a usar el asistente por WhatsApp: desplegar el servicio nuevo y vincular el número** (`docs/DEPLOY.md`, "Despliegue de whatsapp-service (Baileys)"): instalar al lado, backup, corte, topes iniciales bajos, vincular y probar con tu teléfono. El asistente gasta los mismos topes de día y de hora que cualquier mensaje, y
+   `WHATSAPP_TOPE_EN_CONVERSACION` (30 por defecto) no hace falta tocarlo. Ahora lo único que sale por WhatsApp son **respuestas a quien escribió primero** y lo que escribe el equipo.
 6. **Cuando lleve unos días estable, limpiar lo viejo** (`DEPLOY.md`, "10. Limpieza de lo viejo"): ya **no hace falta instalar ni mantener** en el VPS
    - **Chromium y sus paquetes** (`libnss3`, `libatk1.0-0t64`, `libatk-bridge2.0-0t64`, `libgtk-3-0t64`, `libgbm1`, `libasound2t64`): opcional, con `apt remove --dry-run` primero (algunas las usan otros programas);
    - **`/opt/yosoy/whatsapp/sesion`**: la sesión vieja de whatsapp-web.js, **una credencial** (desvinculá antes el dispositivo viejo desde el teléfono);
@@ -443,16 +543,21 @@ En este orden. Nada de esto lo hice yo: lo que toca producción o el teléfono d
    - **`app-anterior-<fecha>`** y el backup de la unit y del `whatsapp.env` viejos, pasados unos días;
    - las **variables viejas** de `whatsapp.env`: `WHATSAPP_BACKEND`, `WHATSAPP_SESSION_PATH`, `WHATSAPP_WEB_VERSION`, `WHATSAPP_DEBUG` y `PUPPETEER_*` (el servicio las nombra en el log al arrancar; solo nombres);
    - cualquier ajuste de AppArmor o de `kernel.apparmor_restrict_unprivileged_userns` que hayas hecho para el sandbox de Chromium (el servicio viejo arrancaba con `--no-sandbox`, así que probablemente ninguno).
-7. **En tu PC**: si tenías una carpeta `.wwebjs_auth` o `.wwebjs_cache` de pruebas viejas dentro de `whatsapp-service/`, borrala (era la sesión de una cuenta). No encontré ninguna en este árbol.
+7. **(Opcional) Ver cuántos pacientes no tienen mail**, solo lectura: `SELECT COUNT(*) FROM Paciente WHERE Mail IS NULL OR LTRIM(RTRIM(Mail)) = ''`. A ellos el recordatorio por mail no les llega.
+8. **En tu PC**: si tenías una carpeta `.wwebjs_auth` o `.wwebjs_cache` de pruebas viejas dentro de `whatsapp-service/`, borrala (era la sesión de una cuenta). No encontré ninguna en este árbol. Para probar la API contra una base como la de producción (sin la tabla de la migración 16): `docs/DESARROLLO_LOCAL.md`, "Probar contra una base sin la tabla de la migración 16".
+
+**Si algún día querés prender los avisos por WhatsApp:** `Mensajeria__AvisosPorWhatsApp=true`, con la migración 16 aplicada **antes** y el texto del consentimiento validado por el equipo legal (`docs/DEPLOY.md`, "Consentimiento de WhatsApp (migración 16): orden del despliegue").
 
 ## Qué falta / pendiente de decisión
 
-1. **Los cuatro avisos de turno por WhatsApp** (solicitud, propuesta, confirmación, cancelación): son lo único que abre una conversación sin que la persona haya escrito (solo con consentimiento). Opciones y recomendación: etapa 3. Si se pausan, la campanita queda como único aviso de turno (a menos que se agregue el mail a esos avisos).
-2. **El consentimiento de WhatsApp** (etapa 4): dejarlo dormido (recomendado), simplificarlo o sacarlo. En cualquier caso, **el texto `v0-provisorio` promete un recordatorio que ya no existe**; antes de usarlo con pacientes reales hay que publicar una versión nueva con el equipo legal.
-3. **Un paciente sin mail** (el registro público lo exige, pero la columna admite `NULL`) **ya no se entera del recordatorio** si no entra a la app: antes le llegaba por WhatsApp.
-4. **`BotReservasService.ResponderRecordatorio`** (el "1 = asisto, 2 = no puedo") quedó como código heredado para las conversaciones que ya estaban esperando esa respuesta. Se puede borrar cuando esas conversaciones hayan vencido.
-5. **Ventana de tiempo para las respuestas automáticas:** la API pide que la persona haya escrito *alguna vez* en la conversación, y el servicio la acota con `WHATSAPP_CONSENTIMIENTO_DIAS` (365). Si querés que solo se pueda contestar dentro de las 24 horas de su último mensaje, ponelo en `1` (el costo: una respuesta humana al día siguiente se rechaza).
-6. **Nada de esto se probó contra WhatsApp real** (límite de la tarea): ni los topes, ni las pausas, ni el "escribiendo...". Los valores por defecto son una opinión prudente, no un dato de WhatsApp; el primer despliegue es la primera vez que algo corre contra el servicio de verdad, y hay que hacerlo con el teléfono del número en la mano.
-7. **El chat simulado usa el canal activo** (H7): con `Baileys`, un pedido local al simulador hace que el asistente le conteste por WhatsApp real a ese teléfono (acotado: solo desde la propia máquina, y el servicio exige constancia de esa persona).
-8. **`CanalWhatsAppCloud`** (la API oficial de Meta) sigue siendo un enchufe sin usar: es la salida natural si algún día se quiere volver a mandar avisos de forma legítima.
-9. **En el VPS hoy corre el servicio viejo** (`whatsapp-web.js` + Chromium): todo lo de este PR es código en `main` y no está desplegado.
+1. **Los cuatro avisos de turno por evento (solicitud, propuesta, confirmación, cancelación) hoy no avisan fuera de la app**: con WhatsApp apagado y sin canal de mail, solo llegan a la campanita. Opciones: (a) **agregarles el mail**, que ya está listo con contenido mínimo: alcanza con agregar `"Email"` a
+   `NotificadorTurnos.CanalesEvento` y actualizar la prueba que documenta que hoy no salen por mail; (b) prender WhatsApp para ellos (llave + migración 16 + texto legal validado); (c) dejarlo así.
+2. **Pacientes sin mail.** El registro público exige el mail, pero la edición de la ficha (`PUT /pacientes/{id}`) y la pantalla del perfil **dejan borrarlo**, y puede haber pacientes anteriores a la regla: a ellos el recordatorio por mail no les llega y solo ven la campanita. Para cerrarlo, exigir el mail también en la edición.
+3. **El consentimiento de WhatsApp** quedó dormido (opción A de la etapa 4), no resuelto del todo: el texto `v0-provisorio` es un borrador sin validar por legal y **promete un recordatorio por WhatsApp que ya no existe**; hay que rehacerlo antes de prender la llave. El doble opt-in (verificar el número) queda para cuando se prenda.
+4. **El mail al profesional cuando un paciente avisa que no va a asistir** lleva el nombre del paciente y la fecha (`NotificadorTurnos.AvisarNoAsistencia`). Es un aviso interno, con el profesional como destinatario, y no se tocó; decidir si también tiene que ser mínimo.
+5. **`BotReservasService.ResponderRecordatorio`** (el "1 = asisto, 2 = no puedo") quedó como código heredado para las conversaciones que ya estaban esperando esa respuesta. Se puede borrar cuando esas conversaciones hayan vencido.
+6. **Ventana de tiempo para las respuestas automáticas:** la API pide que la persona haya escrito *alguna vez* en la conversación, y el servicio la acota con `WHATSAPP_CONSENTIMIENTO_DIAS` (365). Si querés que solo se pueda contestar dentro de las 24 horas de su último mensaje, ponelo en `1` (el costo: una respuesta humana al día siguiente se rechaza).
+7. **Nada de esto se probó contra WhatsApp real** (límite de las dos tareas): ni los topes, ni las pausas, ni el "escribiendo...". Los valores por defecto son una opinión prudente, no un dato de WhatsApp; el primer despliegue es la primera vez que algo corre contra el servicio de verdad, y hay que hacerlo con el teléfono del número en la mano.
+8. **El chat simulado usa el canal activo** (H7): con `Baileys`, un pedido local al simulador hace que el asistente le conteste por WhatsApp real a ese teléfono (acotado: solo desde la propia máquina, y el servicio exige constancia de esa persona).
+9. **`CanalWhatsAppCloud`** (la API oficial de Meta) sigue siendo un enchufe sin usar: es la salida natural si algún día se quiere volver a mandar avisos de forma legítima.
+10. **En el VPS hoy corre el servicio viejo** (`whatsapp-web.js` + Chromium): todo lo de estas dos tandas es código en `main` y no está desplegado.
