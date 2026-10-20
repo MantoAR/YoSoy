@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 
@@ -42,6 +43,16 @@ public static class MensajeriaEndpoints
                 canalActivo = disponible ? canal.Nombre : null
             });
         });
+
+        // ¿Está conectado WhatsApp? Para la bandeja de Chats (módulo CRM): le alcanza con saberlo para avisar y para deshabilitar "Enviar por". Es lo mínimo:
+        // ni el número, ni el QR, ni nada de la vinculación (eso es del Configurador). Con otro canal activo (el simulado) dice aplica:false.
+        g.MapGet("/conexion-whatsapp", async (WhatsAppAdminService admin, IMessageChannel canal, HttpContext ctx) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            if (canal.Nombre != "WhatsApp") return Results.Ok(new { aplica = false });
+            var e = await admin.ObtenerEstadoAsync(conDesde: false);
+            return Results.Ok(new { aplica = true, servicioDisponible = e.ServicioDisponible, conectado = e.Conectado, estado = e.Estado, motivo = e.Motivo });
+        }).RequireRateLimiting("whatsapp-estado");
 
         // ── Chat simulado: lado paciente ─────────────────────────
         // Excepción al RequireAuthorization del grupo: estos dos simulan un mensaje
@@ -130,6 +141,67 @@ public static class MensajeriaEndpoints
             AuditarWhatsApp(ctx, "Desvinculación de WhatsApp",
                 previo.Conectado ? $"Número desvinculado: {previo.Numero}" : "Sin número conectado al momento de desvincular.");
             return Results.Ok(new { exito = true });
+        }).RequireRateLimiting("whatsapp-admin");
+
+        // Pide un código QR para vincular el número (la pantalla de WhatsApp del Configurador). Sin tocar el reintento automático ni las ventanas de QR del
+        // servicio: solo lo que el servicio ya ofrece a pedido de una persona (POST /vincular, idempotente de su lado: si ya hay un QR esperando, no abre otro).
+        //   - Ya conectado: 409 (para cambiar de número está "desvincular", con su confirmación).
+        //   - El servicio necesita revisión (cuenta restringida, sesión reemplazada...): 409; un QR no lo arregla y no se intenta.
+        //   - Todavía conectando: 409 en_curso.
+        //   - Ya hay un QR esperando: 200 yaAbierta, sin abrir otro. Con { nuevo: true } se reemplaza por uno nuevo (solo sin número vinculado).
+        //   - Abrir una ventana nueva respeta el enfriamiento de 30 s (429 con los segundos que faltan): pedir QR en bucle puede terminar en un bloqueo del número.
+        //   - Servicio caído: 503. El pedido se audita (sin número ni QR).
+        wa.MapPost("/vincular", async ([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] SolicitudQrWhatsApp? req,
+            WhatsAppAdminService admin, EnfriamientoQr enfriamiento, HttpContext ctx) =>
+        {
+            ctx.Response.Headers.CacheControl = "no-store";
+            var previo = await admin.ObtenerEstadoAsync(conDesde: false);
+            if (!previo.ServicioDisponible)
+                return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+            if (previo.Conectado)
+                return Results.Json(new { exito = false, codigo = "ya_vinculado", mensaje = "Ya hay un número vinculado. Para cambiarlo, primero hay que desvincularlo." }, statusCode: 409);
+            if (previo.Estado == "requiere_atencion")
+                return Results.Json(new { exito = false, codigo = "requiere_atencion", estado = previo.Estado, motivo = previo.Motivo,
+                    mensaje = "El servicio de WhatsApp necesita revisión antes de vincular; un código QR no lo arregla." }, statusCode: 409);
+            if (previo.Estado is "iniciando" or "reconectando" or "detenido")
+                return Results.Json(new { exito = false, codigo = "en_curso", estado = previo.Estado, motivo = previo.Motivo,
+                    mensaje = "WhatsApp se está conectando: todavía no se puede pedir un código." }, statusCode: 409);
+
+            var nuevo = req?.Nuevo == true;
+            var esperandoEscaneo = previo.Estado == "requiere_vincular" && previo.Motivo == "esperando_escaneo";
+            if (esperandoEscaneo && !nuevo)
+                return Results.Ok(new { exito = true, yaAbierta = true, estado = previo.Estado, motivo = previo.Motivo });
+
+            var falta = enfriamiento.SegundosRestantes();
+            if (falta > 0)
+                return Results.Json(new { exito = false, codigo = "enfriamiento", reintentarEnSegundos = falta,
+                    mensaje = $"Esperá {falta} segundos antes de pedir otro código." }, statusCode: 429);
+
+            if (esperandoEscaneo)
+            {
+                // Sin número vinculado "desvincular" no cierra ninguna sesión en WhatsApp: solo descarta la ventana actual y abre una nueva. Pero el estado
+                // de arriba puede tener unos segundos (alguien pudo escanear el código entre medio): se lee de nuevo justo antes y, si ya quedó conectado,
+                // NO se desvincula (eso sí cerraría la sesión recién vinculada).
+                var ahora = await admin.ObtenerEstadoAsync(conDesde: false);
+                if (!ahora.ServicioDisponible)
+                    return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+                if (ahora.Conectado)
+                    return Results.Json(new { exito = false, codigo = "ya_vinculado", mensaje = "Ya hay un número vinculado. Para cambiarlo, primero hay que desvincularlo." }, statusCode: 409);
+                enfriamiento.Registrar();
+                if (!await admin.DesvincularAsync())
+                    return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+                AuditarWhatsApp(ctx, "Código QR nuevo de WhatsApp", "Reemplazó el código que estaba esperando escaneo.");
+                return Results.Ok(new { exito = true, yaAbierta = false, estado = "iniciando", motivo = (string?)null });
+            }
+
+            enfriamiento.Registrar();
+            var resultado = await admin.VincularAsync();
+            if (resultado is null)
+                return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+            AuditarWhatsApp(ctx, "Pedido de código QR de WhatsApp", $"Estado {previo.Estado}/{previo.Motivo}: {(resultado.Exito ? "ventana abierta" : "rechazado (" + resultado.Codigo + ")")}.");
+            return resultado.Exito
+                ? Results.Ok(new { exito = true, yaAbierta = resultado.YaAbierta, estado = resultado.Estado, motivo = resultado.Motivo })
+                : Results.Json(new { exito = false, codigo = resultado.Codigo, mensaje = resultado.Error, estado = resultado.Estado, motivo = resultado.Motivo }, statusCode: 409);
         }).RequireRateLimiting("whatsapp-admin");
 
         // Disparado por el frontend cuando su polling nota la transición a conectado — pero
@@ -714,6 +786,9 @@ public static class MensajeriaEndpoints
         catch (Exception) { /* la auditoría no debe impedir responder */ }
     }
 }
+
+// Cuerpo de POST /mensajeria/whatsapp/vincular: Nuevo = reemplazar el código que está esperando escaneo por uno nuevo ("Generar uno nuevo").
+public record SolicitudQrWhatsApp(bool? Nuevo);
 
 // Cuerpo del webhook de whatsapp-service (y del simulador, que solo usa los dos primeros). Los cuatro últimos son del contrato v2 y opcionales: sin ellos, el cuerpo es el de
 // siempre. tipo: texto, audio, imagen... (TiposDeMensaje); id: el del mensaje en WhatsApp; ts: la hora a la que se escribió, en segundos desde 1970; nombre: el del perfil.

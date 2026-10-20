@@ -69,6 +69,7 @@ public static class MensajeriaServiceCollectionExtensions
         // envío de arriba, tiene que poder usarse para vincular el número ANTES de activar
         // "Baileys". La URL sale de MensajeriaOptions (configurable, a diferencia de la
         // de CanalBaileys) para poder apuntar los tests a un listener falso.
+        services.AddSingleton<EnfriamientoQr>();
         services.AddHttpClient<WhatsAppAdminService>((sp, http) =>
         {
             var opciones = sp.GetRequiredService<IOptionsMonitor<MensajeriaOptions>>().CurrentValue;
