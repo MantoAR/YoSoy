@@ -3,7 +3,7 @@
 Runbook para llevar a producción el chat de WhatsApp para el personal (CRM → Chats, solo el Configurador). Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de
 siempre de [`DEPLOY.md`](DEPLOY.md). Escrito el 2026-10-19 contra `main` en `4cff56e` (con los PR #46 a #50) más la rama `fix/chat-simulado-cerrado` (el simulador anónimo cerrado en el código), que tiene que estar en `main` antes de armar el paquete (paso 1.0). Qué se decidió y qué se construyó: [`PROGRESO_CHAT_PERSONAL_WHATSAPP.md`](PROGRESO_CHAT_PERSONAL_WHATSAPP.md).
 
-- **Se escribió sin acceso al VPS y se ejecutó a mano el 19/10/2026** ("Registro de la ejecución del 19/10/2026", al final). Lo que se probó antes de ejecutarlo, y cómo, está en "Qué se verificó y qué no"; lo que no, también. Las frases en presente sobre el VPS (lo que "corre hoy", que "casi seguro tiene una API más vieja") son de antes de esa ejecución: el estado actual está en [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 19/10/2026** (el paso 7 y la prueba de apagado, el 20/10/2026; "Registro de la ejecución del 19/10/2026", al final). Lo que se probó antes de ejecutarlo, y cómo, está en "Qué se verificó y qué no"; lo que no, también. Las frases en presente sobre el VPS (lo que "corre hoy", que "casi seguro tiene una API más vieja") son de antes de esa ejecución: el estado actual está en [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`; si alguno lo hiciera, pará.
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 
@@ -482,13 +482,13 @@ un mensaje, el nombre del perfil, un teléfono completo (queda `***4455`), el QR
 | Configuración | `EnvironmentFile=/opt/yosoy/config/whatsapp.env` (sin `-`: si falta, no arranca) y `Environment=WHATSAPP_BAILEYS_SESSION_PATH=/opt/yosoy/whatsapp/sesion-baileys` | El secreto y los topes viven en `whatsapp.env`; la sesión no está en el código ni en el repositorio |
 | Reinicios | `Restart=on-failure`, `RestartSec=10`, y `StartLimitBurst=5` en `StartLimitIntervalSec=300` | Si cae 5 veces en 5 minutos, systemd se rinde: un proceso en bucle volvería a golpear la puerta de WhatsApp |
 | Apagado | `TimeoutStopSec=20`; el servicio atiende `SIGTERM`, termina en 1 a 3 segundos y sale con 0 | Cierra sin cortar la sesión; los reintentos que esperaban se pierden |
-| Memoria | `MemoryMax=512M` | Corta una fuga antes de que moleste a la API o a SQL Server. **Es una estimación**: confirmar con `Memory:` en `systemctl status` |
+| Memoria | `MemoryMax=512M` | Corta una fuga antes de que moleste a la API o a SQL Server. **Era una estimación**: el 20/10/2026, con el servicio recién arrancado, `Memory:` marcó 56.3M (pico 63.5M); seguir mirándola en `systemctl status` |
 | Endurecimiento | `NoNewPrivileges`, `ProtectSystem=strict` con `ReadWritePaths=` solo la carpeta de la sesión, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, `ProtectKernelTunables/Modules`, `ProtectControlGroups`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`, `SystemCallArchitectures=native`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK`, `CapabilityBoundingSet=` vacío, `UMask=0077` | Solo escribe en la sesión; sin privilegios nuevos ni capacidades |
 | Red | Escucha **solo** en `127.0.0.1` (en el código: `escuchar(app, puerto, cb, host = "127.0.0.1")`, el host no es configurable); no hay regla en UFW | Nunca expuesto a internet |
 
 **Es razonable para este servicio.** Lo que **no** tiene, a propósito, y no probé: `MemoryDenyWriteExecute` (Node no arranca con él) ni filtros de llamadas al sistema. Mejoras opcionales para más adelante, sin aplicar: que el servicio no
 pueda leer `/opt/yosoy/config` (corre como `yosoy`, el mismo dueño del `.env`: un compromiso del servicio podría leerlo; se resolvería con un usuario propio o con `InaccessiblePaths=` en un drop-in), y `ProtectKernelLogs`, `ProtectClock`, `ProtectHostname`, `RestrictNamespaces`.
-**La unit nunca corrió en un systemd real:** si alguna opción de endurecimiento impidiera arrancar, la unit lo dice: se comenta esa línea y se sigue.
+**La unit ya corre en un systemd real** (desde el 19/10/2026, ver el "Registro de la ejecución"); si alguna opción de endurecimiento impidiera arrancar, la unit lo dice: se comenta esa línea y se sigue.
 
 ### 5.8 Si no arranca
 
@@ -649,7 +649,7 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 | ☐ | **`CanalActivo=Simulado` no apaga nada** | Guarda las respuestas del equipo como "Enviado" aunque no salgan. Para apagar: `sudo systemctl stop whatsapp-service` (paso 8) |
 | ☐ | **Los profesionales no ven chats** | Es la decisión D2; ya no tienen el botón Chats y el servidor les contesta 403 |
 | ☐ | **La sesión de Baileys es una credencial** | `sesion-baileys/` (700) da acceso al WhatsApp de la clínica: no copiarla ni pegarla en un chat o ticket. Si se pierde, se vuelve a escanear un QR (no se pierde el número). Respaldarla o no es una decisión pendiente (`PROGRESO_BAILEYS.md`); si se respalda, cifrada |
-| ☐ | **La unit nunca corrió en un systemd real** | `MemoryMax=512M` es una estimación: mirá `Memory:` y busca `OOMKilled` en `systemctl status` en la primera semana |
+| ☐ | **La memoria se midió una sola vez** | El 20/10/2026, con el servicio recién arrancado: `Memory: 56.3M` (pico 63.5M) contra `MemoryMax=512M`. Falta verla con uso real: mirá `Memory:` y buscá `OOMKilled` en `systemctl status` en la primera semana |
 | ☐ | **El servicio corre con el mismo usuario que la API** | Un compromiso del servicio podría leer `/opt/yosoy/config/.env` (ver 5.7) |
 | ☐ | **Backups de la base** | Contienen todos los chats. Solo en tu PC, fuera de cualquier repositorio; el `.bak` del VPS 2025 no se restaura en tu SQL Server 2019 |
 
@@ -662,7 +662,7 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 3. **El selector "Enviar por: Chat simulado"** de Chats aparecía aunque el canal activo fuera `Baileys`. **Arreglado** (PR #50, ya en `main`): `/capacidades` informa `canalActivo`, el selector dice "WhatsApp" y la insignia de cada conversación de la lista dice el canal de esa conversación.
 4. **`CanalActivo=Simulado` hace que las respuestas figuren "Enviado"** aunque no salgan. **Documentado** con la misma fuerza en "Antes de empezar" (5), en el paso 8 y en el 9: apagar de verdad es `sudo systemctl stop whatsapp-service`.
 5. **El ejemplo de backup de `DEPLOY.md` falla en SQL Server Express:** usa `WITH COMPRESSION`, que Express no admite (`Msg 1844`, comprobado en la Express 2019). En este runbook va sin compresión y se corrigió también el ejemplo de `DEPLOY.md`.
-6. **El servicio nuevo de WhatsApp nunca habló con WhatsApp real:** este despliegue y el paso 7 son la primera vez. Hacelos con tiempo y con el teléfono del número a mano.
+6. **El servicio nuevo de WhatsApp nunca habló con WhatsApp real:** este despliegue y el paso 7 son la primera vez. Hacelos con tiempo y con el teléfono del número a mano. **Ya habló:** el 20/10/2026 se vinculó el número y la prueba de humo salió bien (ver el "Registro de la ejecución").
 
 ---
 
@@ -700,13 +700,15 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 
 ### No se pudo verificar (sin acceso al VPS ni a WhatsApp)
 
+Lo que se verificó después, al ejecutar el runbook (la vinculación, el envío y la recepción reales, el apagado y la memoria), se sacó de esta lista: está en el "Registro de la ejecución del 19/10/2026".
+
 - **El estado real del VPS**: qué versión de la API corre hoy, si el servicio viejo existe y está vinculado, el `Caddyfile` y la versión de Caddy, el drop-in `whatsapp.conf`, los permisos de `/opt/yosoy`, la versión de Node, el espacio y la memoria libres, el valor de `Mensajeria__CanalActivo` y de `Email__From` en el `.env`. Para eso es el paso 1.2.
 - **Los comandos con `sudo`, `systemctl`, `sqlcmd` contra SQL Server 2025 y el login administrador** (el nombre del login es un dato que no tengo). Se probó su lógica, no su ejecución.
 - **`npm ci` en Linux** (en Windows instala 183 paquetes; los opcionales por plataforma pueden diferir) y **las 6 pruebas de permisos POSIX** del servicio (en Windows se saltan). Corrieron por primera vez en el paso 5.2 del 19/10/2026: una estaba desactualizada y se corrigió (ver "Registro de la ejecución del 19/10/2026").
-- **La unit en un systemd real** (`systemd-analyze verify` y `security`), el apagado en 1 a 3 segundos, el uso real de memoria (`MemoryMax=512M`) y que `ProtectSystem=strict` deje escribir la carpeta de la sesión.
-- **Cualquier conexión a WhatsApp**: los tiempos reales del QR (~20 s por código, ~2,7 min por ventana), los códigos de desconexión que manda WhatsApp, los umbrales de bloqueo, el envío y la recepción de verdad. Todo está probado con un socket simulado y la red bloqueada.
+- **`systemd-analyze verify` y `security` de la unit** y que **`ProtectSystem=strict` deje escribir la carpeta de la sesión** (la unit corre desde el 19/10/2026 y el número se vinculó el 20/10, pero esas dos comprobaciones no se informaron).
+- **Lo de WhatsApp real que sigue sin verificarse**: los umbrales de bloqueo, un QR vencido real (los tiempos reales: ~20 s por código, ~2,7 min por ventana), la reconexión tras una caída y los códigos de desconexión que manda WhatsApp. La vinculación, el envío y la recepción de verdad se verificaron el 20/10/2026; el resto está probado con un socket simulado y la red bloqueada.
 - **El simulador cerrado contra el Caddy y la API reales del VPS.** Se probó con Caddy 2.7.0 y la API en una PC. Lo que hace que el código lo cierre es que el pedido llegue con `X-Forwarded-For` (Caddy lo agrega por defecto, ver `NOTAS_MERGE.md`: si se cambia el proxy o su configuración hay que volver a verificarlo); las sondas del 4.4 son la comprobación real en el servidor.
-- **La salida a internet del VPS hacia WhatsApp** (el paso 1.2 lo comprueba con una conexión TCP) y la hora sincronizada.
+- **La hora sincronizada del VPS** (el paso 1.2 la comprueba). La salida a internet hacia WhatsApp ya está probada: es la conexión real del 20/10/2026.
 - **El mensaje de emergencia con líneas oficiales** (desactivado) y los textos legales.
 
 ---
@@ -716,6 +718,15 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 Agustín ejecutó este runbook a mano en el VPS el 19/10/2026, con la API del commit `7889226`. Lo que quedó en el servidor está en [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
 
 - **Pasos hechos: 1 a 5.** Backup de la base (solo en su PC, fuera del repositorio), respaldo de la configuración en `/opt/yosoy/backups/chat-20261019/`, migración 17, bloque de Caddy del simulador, secreto y variables, API publicada (rollback en `app-anterior-chat-20261019`) y `whatsapp-service` instalado (el anterior quedó en `/opt/yosoy/whatsapp/app-anterior-20261019`).
-- **El servicio quedó sin vincular, a propósito:** activo, con `/salud` en 503. El paso 7 (escanear el QR con el teléfono dedicado de la clínica y la prueba de humo) sigue pendiente, igual que la limpieza de lo viejo (`DEPLOY.md`, paso 10): la sesión de whatsapp-web.js (`/opt/yosoy/whatsapp/sesion`) no se tocó.
+- **El servicio quedó sin vincular, a propósito:** activo, con `/salud` en 503. El paso 7 (escanear el QR con el teléfono dedicado de la clínica y la prueba de humo) se hizo el 20/10/2026 (ver abajo). La limpieza de lo viejo (`DEPLOY.md`, paso 10) sigue pendiente: la sesión de whatsapp-web.js (`/opt/yosoy/whatsapp/sesion`) no se tocó.
 - **Cuatro ajustes que salieron de la ejecución**, ya incorporados arriba: (1) el `sed` del 3.4 también saca `Mensajeria__ChatSimuladoHabilitado`; (2) los `ls` sobre `/opt/yosoy` llevan `sudo` y los `*` van dentro de `sudo sh -c '...'` (5.2, 5.3 y el chequeo 1.2); (3) la prueba de permisos de la sesión estaba desactualizada y `datos/` también queda en 700 (5.2 y 5.5); (4) los comandos se pegan de a uno, después de `sudo -v`.
 - **Comprobado el 19 y el 20/10:** el login, el pedido y la reprogramación de turnos y el registro de un paciente con mail (sin la casilla ni la tarjeta de WhatsApp). Todo bien.
+
+### Paso 7 y prueba de apagado (5.9), 20/10/2026
+
+Lo verificó Agustín en el VPS. Es la primera conexión real del servicio a WhatsApp.
+
+- **Paso 7.1, vinculación:** se escaneó el QR desde Configurador → WhatsApp con el teléfono dedicado de la clínica. La pantalla quedó en "Conectado".
+- **Paso 7.3, prueba de humo con un celular personal** (filas 1 a 3 del cuadro): el mensaje entró a CRM → Chats (conversación `Contacto: <nombre de perfil>`, "Para atender", 1 sin leer y aviso en la campanita); **no hubo respuesta automática**; la respuesta que escribió el Configurador llegó al teléfono, con "Enviar por: WhatsApp".
+- **Paso 5.9, apagado y memoria:** `systemctl stop whatsapp-service` tardó **0,43 s** (el runbook esperaba de 1 a 3 s; el tope es `TimeoutStopSec=20`). Con el servicio recién arrancado, `Memory: 56.3M (peak 63.5M)` contra `MemoryMax=512M`.
+- **Sigue sin verificarse** (ver "No se pudo verificar"): los umbrales de bloqueo de WhatsApp, un QR vencido real y la reconexión tras una caída. La limpieza de lo viejo (`DEPLOY.md`, paso 10) sigue pendiente.

@@ -254,7 +254,7 @@ correo (Gmail u otro) — nunca alcanza con cambiar el archivo.
 
 ## Mensajería: chatbot de reservas y recordatorios
 
-> **Estado:** el chatbot funciona sobre un **chat simulado** tipo WhatsApp Web dentro de YoSoy y, con `Mensajeria__CanalActivo=Baileys`, por **WhatsApp** a través de `whatsapp-service` (Baileys es el único motor; **desplegado en producción el 19/10/2026, todavía sin vincular a ningún número**, ver `docs/SERVIDOR.md`). **No hay conexión con Instagram ni Facebook**; el diseño deja preparado el lugar donde se enchufan (ver [Etapa siguiente](#etapa-siguiente)).
+> **Estado:** el chatbot funciona sobre un **chat simulado** tipo WhatsApp Web dentro de YoSoy y, con `Mensajeria__CanalActivo=Baileys`, por **WhatsApp** a través de `whatsapp-service` (Baileys es el único motor; **desplegado en producción el 19/10/2026 y vinculado a un número el 20/10/2026**, ver `docs/SERVIDOR.md`). **No hay conexión con Instagram ni Facebook**; el diseño deja preparado el lugar donde se enchufan (ver [Etapa siguiente](#etapa-siguiente)).
 
 ### Qué hace
 

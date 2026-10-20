@@ -425,9 +425,9 @@ y `sudo systemctl restart yosoy-api`. Los valores válidos de la API son `Simula
 - **La sesión no sobrevive un deploy de la API:** a propósito — `/opt/yosoy/whatsapp/` está fuera de `/opt/yosoy/app`, que el script de
   deploy de la API borra y reescribe entero en cada publish. Si algún día se automatiza el deploy de este servicio también, nunca debe tocar
   `/opt/yosoy/whatsapp/sesion-baileys`.
-- **Cuánta memoria hace falta:** `MemoryMax=512M` es una estimación (sin navegador, el proceso ocupa unos pocos cientos de MB); confirmarla con la
-  primera conexión real (`Memory:` en `systemctl status whatsapp-service`) y revisar `systemctl status` por un `OOMKilled` antes de asumir que
-  es otra cosa.
+- **Cuánta memoria hace falta:** `MemoryMax=512M` es una estimación (sin navegador, el proceso ocupa unos pocos cientos de MB). En el VPS, el 20/10/2026, con el
+  servicio recién arrancado, `Memory:` marcó 56.3M (pico 63.5M); seguir mirándola (`Memory:` en `systemctl status whatsapp-service`) y revisar
+  `systemctl status` por un `OOMKilled` antes de asumir que es otra cosa.
 
 ## Qué NO hacer
 
