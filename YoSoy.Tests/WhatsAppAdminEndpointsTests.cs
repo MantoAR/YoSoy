@@ -304,5 +304,309 @@ public class WhatsAppAdminEndpointsTests
         }
     }
 
+    // ── Estados, pedido de código QR y aviso de la bandeja (Fase 2 de WhatsApp) ─────────────────────────────────────────────
+
+    // whatsapp-service falso que contesta según la ruta (estado, salud, vincular, desvincular) y anota qué se le pidió.
+    private sealed record Respuestas(string Estado, string Salud = """{"estado":"x","desde":"2026-10-20T15:30:00.000Z","intentosDeReconexion":0}""",
+        string Vincular = """{"exito":true,"estado":"requiere_vincular","motivo":"esperando_escaneo","qrPendiente":false}""");
+
+    private static ServidorFalso ServicioFalso(Respuestas r, System.Collections.Concurrent.ConcurrentQueue<string> pedidos) =>
+        new() { Responder = req =>
+        {
+            var ruta = req.Url!.AbsolutePath;
+            pedidos.Enqueue($"{req.HttpMethod} {ruta}");
+            return ruta switch
+            {
+                "/estado" => (200, r.Estado),
+                "/salud" => (200, r.Salud),
+                "/vincular" => (200, r.Vincular),
+                "/desvincular" => (200, """{"exito":true}"""),
+                _ => (404, "{}")
+            };
+        } };
+
+    private const string EstadoQrVencido = """{"conectado":false,"numero":null,"qrPendiente":false,"qr":null,"estado":"requiere_vincular","motivo":"qr_vencido"}""";
+    private const string EstadoEsperandoEscaneo = """{"conectado":false,"numero":null,"qrPendiente":true,"qr":"data:image/png;base64,xx","estado":"requiere_vincular","motivo":"esperando_escaneo"}""";
+
+    private static async Task<(int Cantidad, string? Detalle)> AuditoriaDe(int idUsuario, string accion)
+    {
+        using var con = Conexion.ObtenerConexion();
+        await con.OpenAsync();
+        using var cmd = new SqlCommand(
+            "SELECT COUNT(*), MAX(Detalle) FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = @A AND IdUsuario = @Id", con);
+        cmd.Parameters.AddWithValue("@A", accion);
+        cmd.Parameters.AddWithValue("@Id", idUsuario);
+        using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (reader.GetInt32(0), reader.IsDBNull(1) ? null : reader.GetString(1));
+    }
+
+    [Fact]
+    public async Task Estado_trae_el_estado_el_motivo_y_desde_cuando_del_servicio()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoQrVencido,
+            Salud: """{"estado":"requiere_vincular","desde":"2026-10-20T15:30:00.000Z","intentosDeReconexion":4}"""), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        var cliente = ClienteCon(factory, emisor.Emitir(1, Roles.Configurador));
+
+        var r = await cliente.GetAsync("/mensajeria/whatsapp/estado");
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(j.GetProperty("servicioDisponible").GetBoolean());
+        Assert.Equal("requiere_vincular", j.GetProperty("estado").GetString());
+        Assert.Equal("qr_vencido", j.GetProperty("motivo").GetString());
+        Assert.Equal(new DateTimeOffset(2026, 10, 20, 15, 30, 0, TimeSpan.Zero), j.GetProperty("desde").GetDateTimeOffset());
+        Assert.Equal(4, j.GetProperty("intentosDeReconexion").GetInt32());
+    }
+
+    [Fact]
+    public async Task Estado_sigue_andando_si_solo_falla_salud()
+    {
+        using var servidor = new ServidorFalso { Responder = req => req.Url!.AbsolutePath == "/salud" ? (500, "no") : (200, EstadoQrVencido) };
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        var cliente = ClienteCon(factory, emisor.Emitir(1, Roles.Configurador));
+
+        var r = await cliente.GetAsync("/mensajeria/whatsapp/estado");
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(j.GetProperty("servicioDisponible").GetBoolean());
+        Assert.Equal("qr_vencido", j.GetProperty("motivo").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, j.GetProperty("desde").ValueKind);
+    }
+
+    [Fact]
+    public async Task Vincular_sin_token_da_401_y_profesional_o_CRM_dan_403()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoQrVencido), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await ClienteCon(factory, emisor.Emitir(2, Roles.Profesional, idProfesional: 1)).PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await ClienteCon(factory, emisor.Emitir(3, Roles.Crm)).PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+        Assert.Empty(pedidos); // ni siquiera llegó al servicio
+    }
+
+    [Fact]
+    public async Task Vincular_en_qr_vencido_abre_la_ventana_y_audita_sin_numero_ni_qr()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoQrVencido), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
+        var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
+
+        var r = await cliente.PostAsync("/mensajeria/whatsapp/vincular", null);
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("no-store", r.Headers.CacheControl?.ToString());
+        Assert.Contains("POST /vincular", pedidos);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.True(j.GetProperty("exito").GetBoolean());
+        Assert.False(j.GetProperty("yaAbierta").GetBoolean());
+        var (cantidad, detalle) = await AuditoriaDe(idAdmin, "Pedido de código QR de WhatsApp");
+        Assert.Equal(1, cantidad);
+        Assert.DoesNotContain("data:image", detalle);
+    }
+
+    [Fact]
+    public async Task Vincular_dos_veces_seguidas_respeta_el_enfriamiento_de_30_segundos()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoQrVencido), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var cliente = ClienteCon(factory, emisor.Emitir(datos.Usuario(), Roles.Configurador));
+
+        Assert.Equal(HttpStatusCode.OK, (await cliente.PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+        var segunda = await cliente.PostAsync("/mensajeria/whatsapp/vincular", null);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, segunda.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await segunda.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("enfriamiento", j.GetProperty("codigo").GetString());
+        var falta = j.GetProperty("reintentarEnSegundos").GetInt32();
+        Assert.InRange(falta, 1, EnfriamientoQr.Segundos);
+        Assert.Equal(1, pedidos.Count(p => p == "POST /vincular")); // el segundo no llegó al servicio
+    }
+
+    [Fact]
+    public async Task Vincular_con_un_codigo_ya_esperando_escaneo_no_abre_otro_ni_gasta_el_enfriamiento()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoEsperandoEscaneo), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var cliente = ClienteCon(factory, emisor.Emitir(datos.Usuario(), Roles.Configurador));
+
+        for (var i = 0; i < 3; i++)
+        {
+            var r = await cliente.PostAsync("/mensajeria/whatsapp/vincular", null);
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+            Assert.True(j.GetProperty("yaAbierta").GetBoolean());
+        }
+        Assert.DoesNotContain("POST /vincular", pedidos);
+        Assert.DoesNotContain("POST /desvincular", pedidos);
+    }
+
+    [Fact]
+    public async Task Vincular_con_nuevo_reemplaza_el_codigo_que_esperaba_escaneo_audita_y_despues_enfria()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoEsperandoEscaneo), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
+        var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
+
+        var r = await cliente.PostAsJsonAsync("/mensajeria/whatsapp/vincular", new { nuevo = true });
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Contains("POST /desvincular", pedidos);
+        Assert.Equal(1, (await AuditoriaDe(idAdmin, "Código QR nuevo de WhatsApp")).Cantidad);
+        var otra = await cliente.PostAsJsonAsync("/mensajeria/whatsapp/vincular", new { nuevo = true });
+        Assert.Equal(HttpStatusCode.TooManyRequests, otra.StatusCode);
+        Assert.Equal(1, pedidos.Count(p => p == "POST /desvincular"));
+    }
+
+    [Theory]
+    [InlineData("""{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null,"estado":"conectado","motivo":null}""", "ya_vinculado")]
+    [InlineData("""{"conectado":false,"numero":null,"qrPendiente":false,"qr":null,"estado":"requiere_atencion","motivo":"cuenta_restringida"}""", "requiere_atencion")]
+    [InlineData("""{"conectado":false,"numero":null,"qrPendiente":false,"qr":null,"estado":"reconectando","motivo":null}""", "en_curso")]
+    [InlineData("""{"conectado":false,"numero":null,"qrPendiente":false,"qr":null,"estado":"iniciando","motivo":null}""", "en_curso")]
+    public async Task Vincular_donde_un_codigo_no_corresponde_da_409_y_no_toca_al_servicio(string estado, string codigoEsperado)
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(estado), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var cliente = ClienteCon(factory, emisor.Emitir(datos.Usuario(), Roles.Configurador));
+
+        var r = await cliente.PostAsJsonAsync("/mensajeria/whatsapp/vincular", new { nuevo = true });
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal(codigoEsperado, j.GetProperty("codigo").GetString());
+        Assert.DoesNotContain("POST /vincular", pedidos);
+        Assert.DoesNotContain("POST /desvincular", pedidos); // con un número vinculado, "nuevo" jamás lo desvincula
+    }
+
+    [Fact]
+    public async Task Vincular_con_el_servicio_caido_da_503_sin_excepcion_y_no_audita()
+    {
+        var puerto = ServidorFalso.PuertoLibre();
+        using var factory = Factory($"http://127.0.0.1:{puerto}/");
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
+        var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
+
+        var r = await cliente.PostAsync("/mensajeria/whatsapp/vincular", null);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("servicio_no_disponible", j.GetProperty("codigo").GetString());
+        Assert.Equal(0, (await AuditoriaDe(idAdmin, "Pedido de código QR de WhatsApp")).Cantidad);
+    }
+
+    [Fact]
+    public async Task Vincular_tiene_limite_de_pedidos_por_IP()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas("""{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null,"estado":"conectado"}"""), pedidos);
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var token = emisor.Emitir(datos.Usuario(), Roles.Configurador);
+
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.Conflict, (await ClienteCon(factory, token).PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await ClienteCon(factory, token).PostAsync("/mensajeria/whatsapp/vincular", null)).StatusCode);
+    }
+
+    // La bandeja de Chats (módulo CRM) solo necesita saber si WhatsApp está conectado: ni número ni QR.
+    private static WebApplicationFactory<Program> FactoryConCanal(string urlDelServicio, string canal) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            // UseSetting y no ConfigureAppConfiguration: AddMensajeria lee CanalActivo mientras se arma el host (ver CanalActivoTests).
+            b.UseSetting("Mensajeria:CanalActivo", canal);
+            b.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Mensajeria:WhatsApp:Secreto"] = SecretoDePrueba,
+                ["Mensajeria:WhatsAppServiceUrl"] = urlDelServicio
+            }));
+        });
+
+    [Fact]
+    public async Task Conexion_de_la_bandeja_la_ve_el_CRM_sin_numero_ni_qr_y_los_demas_no()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoEsperandoEscaneo), pedidos);
+        using var factory = FactoryConCanal(servidor.BaseUrl, "Baileys");
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await factory.CreateClient().GetAsync("/mensajeria/conexion-whatsapp")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await ClienteCon(factory, emisor.Emitir(2, Roles.Profesional, idProfesional: 1)).GetAsync("/mensajeria/conexion-whatsapp")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await ClienteCon(factory, emisor.Emitir(1, Roles.Configurador)).GetAsync("/mensajeria/conexion-whatsapp")).StatusCode);
+
+        var r = await ClienteCon(factory, emisor.Emitir(3, Roles.Crm)).GetAsync("/mensajeria/conexion-whatsapp");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var texto = await r.Content.ReadAsStringAsync();
+        var j = System.Text.Json.JsonDocument.Parse(texto).RootElement;
+        Assert.True(j.GetProperty("aplica").GetBoolean());
+        Assert.False(j.GetProperty("conectado").GetBoolean());
+        Assert.Equal("esperando_escaneo", j.GetProperty("motivo").GetString());
+        Assert.DoesNotContain("qr", texto.Replace("qrPendiente", ""), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("numero", texto, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("data:image", texto);
+    }
+
+    [Fact]
+    public async Task Conexion_de_la_bandeja_con_el_canal_simulado_dice_que_no_aplica_y_no_llama_al_servicio()
+    {
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var servidor = ServicioFalso(new Respuestas(EstadoQrVencido), pedidos);
+        using var factory = FactoryConCanal(servidor.BaseUrl, "Simulado");
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+
+        var r = await ClienteCon(factory, emisor.Emitir(3, Roles.Crm)).GetAsync("/mensajeria/conexion-whatsapp");
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(j.GetProperty("aplica").GetBoolean());
+        Assert.Empty(pedidos);
+    }
+
+    [Fact]
+    public async Task Conexion_de_la_bandeja_con_el_servicio_caido_responde_sin_excepcion()
+    {
+        var puerto = ServidorFalso.PuertoLibre();
+        using var factory = FactoryConCanal($"http://127.0.0.1:{puerto}/", "Baileys");
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+
+        var r = await ClienteCon(factory, emisor.Emitir(3, Roles.Crm)).GetAsync("/mensajeria/conexion-whatsapp");
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.False(j.GetProperty("servicioDisponible").GetBoolean());
+    }
+
     private record RespuestaEstadoDeTest(bool ServicioDisponible, bool Conectado, string? Numero, bool QrPendiente, string? Qr);
 }
