@@ -13,14 +13,34 @@
     // ── Configuración ───────────────────────────────────────────
     // Servido por la propia API (http://localhost:5000/pantallas/...) la base es el
     // mismo origen; abierto como archivo suelto cae al puerto de desarrollo.
-    YS.API = location.protocol.startsWith("http") ? location.origin : "http://localhost:5000";
+    // Abierto con Live Server de VS Code (puertos 5500/5501) la página no la sirve la API:
+    // sin este ajuste el login se mandaba a Live Server y "no tomaba" las credenciales.
+    const LIVE_SERVER = ["5500", "5501"];
+    YS.API = !location.protocol.startsWith("http")
+        ? "http://localhost:5000"
+        : LIVE_SERVER.includes(location.port)
+            ? location.protocol + "//" + location.hostname + ":5000"
+            : location.origin;
     YS.rutas = {
         login: "/pantallas/index.html",
         paciente: "/pantallas/Pantalla_Paciente/dashboard.html",
         profesional: "/pantallas/Pantalla_Profesional/nuevo_dashboard.html",
         configurador: "/pantallas/Pantalla_Configurador/dashboard.html",
-        chats: "/pantallas/Pantalla_ChatSimulado/"
+        // Roles y permisos: panel de gestión (la misma pantalla) para CRM y para Admisión y Auditoría
+        // del módulo Profesional. Cada módulo ve solo sus secciones.
+        gestion: "/pantallas/Pantalla_Configurador/dashboard.html",
+        chats: "/pantallas/Pantalla_ChatSimulado/",
+        // Etapa 2: módulos que todavía no tienen pantalla propia (Facturación).
+        enConstruccion: "/pantallas/Pantalla_Modulo/en_construccion.html"
     };
+
+    /** Adónde va cada módulo después de ingresar o de cambiar de módulo. */
+    YS.rutaModulo = modulo =>
+        modulo === "profesional" ? YS.rutas.profesional :
+        modulo === "configurador" ? YS.rutas.configurador :
+        modulo === "crm" ? YS.rutas.gestion :
+        modulo === "paciente" ? YS.rutas.paciente :
+        YS.rutas.enConstruccion + "#" + encodeURIComponent(modulo || "");
 
     /**
      * Para volver a la reserva por link público después de loguearse o registrarse
@@ -242,14 +262,56 @@
     };
 
     // ── Sesión ──────────────────────────────────────────────────
+    // Claves de localStorage que sobreviven al cierre de sesión (preferencias del usuario en
+    // este navegador). Todo lo demás se borra.
+    const PREFIJO_PREFERENCIA = "ys-pref-";
+    const leerJson = (clave, porDefecto) => { try { return JSON.parse(localStorage.getItem(clave)) ?? porDefecto; } catch { return porDefecto; } };
+
     YS.sesion = {
         rol: () => localStorage.getItem("rol"),
+        /** Etapa 2: módulo activo y los disponibles ([{ clave, nombre, descripcion }]). */
+        modulo: () => localStorage.getItem("modulo") || localStorage.getItem("rol"),
+        modulos: () => leerJson("modulos", []),
+        permisos: () => leerJson("permisos", []),
+        privilegios: () => leerJson("privilegios", []),
+        tienePermiso: p => YS.sesion.permisos().includes(p),
+        tienePrivilegio: p => YS.sesion.privilegios().includes(p),
+        /** Guarda la respuesta de POST /login o POST /sesion/modulo. */
+        guardar(data) {
+            localStorage.setItem("idUsuario", data.idUsuario);
+            localStorage.setItem("rol", data.rol);
+            if (data.token) localStorage.setItem("token", data.token);
+            for (const [clave, valor] of [["idPaciente", data.idPaciente], ["idProfesional", data.idProfesional], ["modulo", data.modulo]]) {
+                if (valor != null) localStorage.setItem(clave, valor); else localStorage.removeItem(clave);
+            }
+            for (const clave of ["modulos", "permisos", "privilegios"]) {
+                if (data[clave]) localStorage.setItem(clave, JSON.stringify(data[clave])); else localStorage.removeItem(clave);
+            }
+        },
+        /** Borra la sesión pero conserva las preferencias (ys-pref-*). */
+        limpiar() {
+            Object.keys(localStorage).filter(k => !k.startsWith(PREFIJO_PREFERENCIA)).forEach(k => localStorage.removeItem(k));
+        },
+        /**
+         * Pide el token de otro módulo (POST /sesion/modulo) y va a su pantalla. tokenSeleccion:
+         * el que devuelve el login cuando hay que elegir; si no se pasa, se usa el de la sesión.
+         */
+        async elegirModulo(modulo, tokenSeleccion) {
+            const opciones = { method: "POST", json: { modulo }, sinRedireccion: true };
+            if (tokenSeleccion) opciones.headers = { Authorization: "Bearer " + tokenSeleccion };
+            const res = await YS.fetch("/sesion/modulo", opciones);
+            if (!res.ok) throw new Error(await YS.leerMensaje(res, "No se pudo abrir ese módulo."));
+            const data = await res.json();
+            YS.sesion.guardar(data);
+            sessionStorage.clear();   // el nombre en la barra y otros datos del módulo anterior
+            location.href = YS.rutaModulo(data.modulo);
+        },
         idUsuario: () => parseInt(localStorage.getItem("idUsuario")) || null,
         idPaciente: () => parseInt(localStorage.getItem("idPaciente")) || null,
         idProfesional: () => parseInt(localStorage.getItem("idProfesional")) || null,
         /** Corta la carga de la pantalla si no hay sesión del rol indicado y vuelve al login. */
         requerir(rol) {
-            const ids = { paciente: "idPaciente", profesional: "idProfesional", configurador: "idUsuario" };
+            const ids = { paciente: "idPaciente", profesional: "idProfesional", configurador: "idUsuario", crm: "idUsuario" };
             const okRol = YS.sesion.rol() === rol || (!YS.sesion.rol() && localStorage.getItem(ids[rol]));
             if (okRol && localStorage.getItem(ids[rol])) return true;
             location.replace(YS.rutas.login);
@@ -259,7 +321,7 @@
             if (preguntar && !await YS.confirmar({
                 titulo: "Cerrar sesión", mensaje: "¿Querés cerrar la sesión en este equipo?", textoConfirmar: "Cerrar sesión"
             })) return;
-            localStorage.clear();
+            YS.sesion.limpiar();
             location.href = YS.rutas.login;
         },
         /** La API respondió 401: la sesión no es válida (con JWT, porque venció). */
@@ -267,7 +329,7 @@
             if (YS.sesion._expirando) return;
             YS.sesion._expirando = true;
             YS.toast("Tu sesión ya no es válida. Ingresá de nuevo.", "warn");
-            setTimeout(() => { localStorage.clear(); location.href = YS.rutas.login; }, 1600);
+            setTimeout(() => { YS.sesion.limpiar(); location.href = YS.rutas.login; }, 1600);
         }
     };
 
@@ -309,11 +371,23 @@
         return res;
     };
 
-    /** El campo "mensaje" que manda el backend en los errores (400, 403, 409 de RN-02, etc.). */
+    /**
+     * El campo "mensaje" que manda el backend en los errores (400, 403, 409 de RN-02, etc.).
+     * Si el servidor registró el error con un código (encabezado X-Codigo-Error, errores 5xx),
+     * se agrega al final para que el usuario se lo pueda pasar a soporte.
+     */
     YS.leerMensaje = async (res, porDefecto) => {
-        try { const d = await res.clone().json(); if (d && (d.mensaje || d.message)) return d.mensaje || d.message; } catch { }
-        try { const t = (await res.clone().text()).trim(); if (t && t.length < 240 && !t.includes("\n") && !t.startsWith("<")) return t; } catch { }
-        return porDefecto ?? YS.mensajeHttp(res.status);
+        const codigo = res.headers && res.headers.get("X-Codigo-Error");
+        const conCodigo = m => (codigo && m && !m.includes(codigo)) ? `${m} Código: ${codigo}.` : m;
+        try {
+            const d = await res.clone().json();
+            if (d && (d.mensaje || d.message || d.detail)) return conCodigo(d.mensaje || d.message || d.detail);
+        } catch { }
+        try {
+            const t = (await res.clone().text()).trim();
+            if (t && t.length < 240 && !t.includes("\n") && !t.startsWith("<") && !t.startsWith("{")) return conCodigo(t);
+        } catch { }
+        return conCodigo(porDefecto ?? YS.mensajeHttp(res.status));
     };
 
     /**

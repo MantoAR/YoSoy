@@ -363,7 +363,7 @@
 
     // La pertenencia la decide el servidor en cada pedido (Paso 2): esto puede pasar en
     // cualquier momento mientras la conversación está abierta (otra persona la tomó, el
-    // Configurador la reasignó). En vez de un error genérico, se saca de la vista como si
+    // CRM la reasignó). En vez de un error genérico, se saca de la vista como si
     // nunca hubiera estado - para esta identidad, deja de existir.
     function yaNoVisible(id) {
         est.convs.delete(id);
@@ -759,10 +759,10 @@
         $("#chatsTexto").focus();
     }
 
-    // Globales (dueño null) solo las toca el Configurador; las de dueño son siempre propias
+    // Globales (dueño null) solo las toca CRM; las de dueño son siempre propias
     // (la API ya filtra a "mías + globales" - ver RespuestaRapidaDAO.ObtenerParaUso).
     function abrirAdministrarPlantillas() {
-        const esConfigurador = YS.shell.rol === "configurador";
+        const esConfigurador = esAdministradorChats();   // (nombre histórico: hoy es CRM)
         const puedeEditar = p => p.idProfesional === null ? esConfigurador : true;
         const dibujar = () => `
             <div class="chats-admin-plantillas-lista">
@@ -996,8 +996,7 @@
                     ${consentimiento != null && !consentimiento.firmado ? `<p class="chats-contexto-nota">Sin firma no se pueden confirmar sus turnos (RN-02).</p>
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsLinkFirma">Insertar link para firmar</button>` : ""}
                     <div class="chats-contexto-acciones">
-                        <button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>
-                        <button class="ui-btn ui-btn--sm" type="button" id="chatsVerFicha">${YS.icono("usuario")}Ver ficha</button>
+                        ${puedeVerTurnos() ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>` : ""}
                     </div>
                 </div>`;
         }
@@ -1009,7 +1008,7 @@
                         <div class="chats-nota-cuerpo">${YS.esc(n.texto)}</div>
                         <div class="chats-nota-meta">
                             <span>${YS.esc(n.nombreUsuario || "Equipo")} · ${YS.esc(YS.fecha.corta(n.fechaCreacion))} ${YS.esc(YS.fecha.hora(n.fechaCreacion))}</span>
-                            ${YS.shell.rol === "configurador" || n.idUsuario === YS.sesion.idUsuario()
+                            ${esAdministradorChats() || n.idUsuario === YS.sesion.idUsuario()
                                 ? `<button type="button" class="ui-btn-icono chats-nota-borrar" data-id="${n.idNota}" aria-label="Borrar nota">${YS.icono("papelera")}</button>` : ""}
                         </div>
                     </div>`).join("") : `<p class="chats-dato-vacio">Sin notas todavía.</p>`}</div>
@@ -1036,7 +1035,6 @@
             ajustarAlto(); t.focus();
         });
         $("#chatsVerTurnos")?.addEventListener("click", () => irAlPanel(`turnos?paciente=${p.idPaciente}`));
-        $("#chatsVerFicha")?.addEventListener("click", () => irAlPanel(`usuarios?paciente=${p.idPaciente}`));
         $("#chatsBtnEtiquetas")?.addEventListener("click", () => abrirEtiquetas(id, idsEtiquetas));
         $("#chatsNotaAgregar")?.addEventListener("click", () => agregarNota(id));
         raiz.querySelectorAll(".chats-nota-borrar").forEach(b => b.addEventListener("click", () => borrarNota(id, parseInt(b.dataset.id))));
@@ -1069,7 +1067,7 @@
         try { est.etiquetasCatalogo = await YS.api(`${BASE}/etiquetas`); } catch (e) { YS.toast(e.message, "error"); return; }
         const catalogo = est.etiquetasCatalogo;
         if (!catalogo.length) {
-            YS.toast("Todavía no hay etiquetas en el catálogo. Las crea tu Configurador.", "info");
+            YS.toast("Todavía no hay etiquetas en el catálogo. Las crea CRM y atención al cliente.", "info");
             return;
         }
         const idsElegidos = new Set(idsActuales);
@@ -1107,13 +1105,19 @@
         });
     }
 
-    // Accesos al panel del configurador: si ya estamos ahí, cambia de sección sin recargar.
+    // Etapa 2 de roles: el lado administrador de los chats es el módulo CRM (antes el Configurador).
+    function esAdministradorChats() { return YS.shell?.rol === "crm"; }
+    // "Ver turnos del paciente" lleva a CRM > Turnos, que existe solo con Gestión de agendas. ("Ver ficha" se sacó: llevaba a Usuarios del
+    // Configurador, que ya no opera chats; los datos de contacto del paciente ya están en este panel.)
+    function puedeVerTurnos() { return esAdministradorChats() && YS.sesion.tienePrivilegio("gestion_agendas"); }
+
+    // Accesos al panel de gestión (CRM): si ya estamos ahí, cambia de sección sin recargar.
     function irAlPanel(hash) {
-        if (location.pathname.toLowerCase() === YS.rutas.configurador.toLowerCase()) {
+        if (location.pathname.toLowerCase() === YS.rutas.gestion.toLowerCase()) {
             location.hash = hash;
             if (est.expandido) expandir(false);
             cerrar();
-        } else location.href = YS.rutas.configurador + "#" + hash;
+        } else location.href = YS.rutas.gestion + "#" + hash;
     }
 
     // ── Avisos: contador, toast y sonido ────────────────────────
@@ -1300,7 +1304,7 @@
             document.body.appendChild(raiz);
         }
         if (YS.shell?.boton) {
-            // alPulsarBoton: lo usa el configurador integrado (CRM > Chats es una sección propia,
+            // alPulsarBoton: lo usa el módulo CRM (Chats es una sección propia,
             // no un cajón) para que el botón navegue ahí en vez de abrir/cerrar algo.
             est.boton = YS.shell.boton({
                 id: "btnChats", icono: "chat", etiqueta: "Chats", antes: true,
@@ -1324,7 +1328,7 @@
         instalarAvisosInternos();
     }
 
-    // ── Avisos internos del módulo (campana del configurador) ───
+    // ── Avisos internos del módulo (campana de CRM) ───
     // Los que antes estaban en la campanita de la pantalla de mensajería: urgencias y
     // escalamientos a una persona (los de "un paciente avisó que no va a asistir" son para el
     // profesional, no para acá: se piden aparte con destinatario=Administrador). Una misma
