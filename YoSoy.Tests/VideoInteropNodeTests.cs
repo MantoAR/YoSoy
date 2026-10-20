@@ -118,15 +118,14 @@ public class VideoInteropNodeTests
 
     // El camino completo: login → POST /video/acceso → token → signaling real.
     [FactConNode]
-    public async Task Un_token_emitido_por_la_api_lo_acepta_el_signaling_real_con_los_tres_roles_de_la_api()
+    public async Task Un_token_emitido_por_la_api_lo_acepta_el_signaling_real_con_los_dos_roles_de_la_sala()
     {
         using var app = new VideoApp();
 
         foreach (var (cliente, rolEsperado, sub) in new[]
         {
             (app.Paciente(), "paciente", "31"),
-            (app.Profesional(), "profesional", "21"),
-            (app.Configurador(), "profesional", "11")
+            (app.Profesional(), "profesional", "21")
         })
         {
             var r = await VideoApp.Acceder(cliente, "turno", VideoApp.IdTurno);
@@ -148,7 +147,7 @@ public class VideoInteropNodeTests
     public async Task Un_token_de_una_admision_tambien_lo_acepta_el_signaling_real()
     {
         using var app = new VideoApp();
-        var j = await VideoApp.Json(await VideoApp.Acceder(app.Configurador(), "admision", VideoApp.IdInforme));
+        var j = await VideoApp.Json(await VideoApp.Acceder(app.Admision(), "admision", VideoApp.IdInforme));
 
         var v = NodeSignaling.Verificar(j.GetProperty("token").GetString()!, VideoApp.SecretoSenal);
 

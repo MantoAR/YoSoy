@@ -59,6 +59,10 @@ public class CrearUsuarioProfesionalEndpointsTests
         {
             Factory.Dispose();
             // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
+            // El permiso "profesional" que recibe el usuario creado (etapa 2 de roles) cuelga del usuario: va antes.
+            Ejecutar("DELETE FROM UsuarioPrivilegio WHERE IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username LIKE @m)", ("@m", Marca + "%"));
+            Ejecutar("DELETE FROM UsuarioPermiso WHERE IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username LIKE @m)", ("@m", Marca + "%"));
+            Ejecutar("DELETE FROM UsuarioRol WHERE IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username LIKE @m)", ("@m", Marca + "%"));
             Ejecutar("DELETE FROM UsuarioProfesional WHERE IdProfesional IN (SELECT IdProfesional FROM Profesional WHERE Apellido = @m)", ("@m", Marca));
             // El administrador de la prueba actuó (figura en LogAuditoria, de solo agregar): ese usuario no se puede borrar y queda con su marca.
             Ejecutar("DELETE FROM Usuario WHERE Username LIKE @m AND NOT EXISTS (SELECT 1 FROM LogAuditoria l WHERE l.IdUsuario = Usuario.IdUsuario)", ("@m", Marca + "%"));

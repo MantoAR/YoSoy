@@ -30,6 +30,8 @@ public class GuardiaEndpointsTests
         ("GET", "/especialidades/{id}"),                              // idem, por id
         ("GET", "/profesionales/{id}/agenda"),                        // cualquier paciente necesita ver el horario de CUALQUIER profesional al pedir turno (decisión preexistente, ver README)
         ("POST", "/turnos"),                                          // Paso 3: apagado (410 Gone) para todos por igual, no expone nada — ver el comentario en Program.cs
+        ("GET", "/cuentas/invitacion"),                               // 18/10: quien recibió la invitación todavía no tiene contraseña; busca por hash del token, rate-limited
+        ("POST", "/cuentas/activar"),                                 // idem: confirma la cuenta con el token del mail, rate-limited
     };
 
     [Fact]

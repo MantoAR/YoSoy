@@ -26,7 +26,9 @@ public class IdsCeroPersonasTests
         var marca = "XTEST-" + Guid.NewGuid().ToString("N")[..10];
         using var datos = new DatosDePrueba();
         using var factory = new WebApplicationFactory<Program>();
-        using var client = ClienteCon(factory, datos.Usuario(), Roles.Configurador);
+        // Etapa 2 de roles: los tutores los carga el profesional (antes también el Configurador, que ya no opera lo clínico).
+        var idProfesional = datos.Profesional();
+        using var client = DatosDePrueba.Cliente(factory, datos.UsuarioDeProfesional(idProfesional), Roles.Profesional, idProfesional: idProfesional);
 
         var respuesta = await client.PostAsJsonAsync("/tutores", new { nombre = marca, dni = marca, vinculo = "Padre", contacto = "1100000000" });
         try

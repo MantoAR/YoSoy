@@ -186,7 +186,7 @@ public class RespuestasAutomaticasTests
     [Fact]
     public void Solo_NotificadorTurnos_declara_que_inicia_el_negocio()
     {
-        // La excepción es una decisión de producto (los avisos de turno por evento: ver docs/PROGRESO_WHATSAPP_SOLO_BAILEYS.md, etapa 3): que otro
+        // La excepción es una decisión de producto (los avisos de turno por evento: ver docs/PROGRESO_WHATSAPP_SOLO_BAILEYS.md, roles y permisos): que otro
         // código la use, a propósito o por costumbre, tiene que hacer fallar esta prueba y obligar a pensarlo.
         var raiz = VideoAccesoEndpointsTests.RaizDelRepositorio();
         var archivos = Directory.EnumerateFiles(raiz, "*.cs", SearchOption.AllDirectories)
@@ -222,20 +222,20 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
     private readonly CanalQueRegistra _canal = new();
     private DatosDePrueba _datos = null!;
     private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _configurador = null!, _sinToken = null!;
+    private HttpClient _crm = null!, _sinToken = null!;
 
     public Task InitializeAsync()
     {
         _datos = new DatosDePrueba();
-        var idUsuarioConfigurador = _datos.Usuario();
+        var idUsuarioCrm = _datos.Usuario();
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b => b.ConfigureServices(servicios =>
         {
             foreach (var d in servicios.Where(x => x.ServiceType == typeof(IMessageChannel)).ToList()) servicios.Remove(d);
             servicios.AddSingleton<IMessageChannel>(_canal);
         }));
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
-        _configurador = _factory.CreateClient();
-        _configurador.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", emisor.Emitir(idUsuarioConfigurador, Roles.Configurador));
+        _crm = _factory.CreateClient();
+        _crm.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", emisor.Emitir(idUsuarioCrm, Roles.Crm));
         _sinToken = _factory.CreateClient();
         return Task.CompletedTask;
     }
@@ -297,13 +297,13 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
         var idConversacion = Convert.ToInt32(DatosDePrueba.Escalar("SELECT IdConversacion FROM Conversacion WHERE Telefono = @t", ("@t", telefono)));
         var antes = _canal.A(telefono).Count;
 
-        var cierre = await _configurador.PutAsync($"/mensajeria/conversaciones/{idConversacion}/cerrar", null);
+        var cierre = await _crm.PutAsync($"/mensajeria/conversaciones/{idConversacion}/cerrar", null);
         Assert.Equal(HttpStatusCode.OK, cierre.StatusCode);
         Assert.Equal("Cerrada", Estado(idConversacion));
         Assert.Equal(1, AvisosDelSistema(idConversacion));
         Assert.Contains("cerró esta conversación", Assert.Single(_canal.A(telefono).Skip(antes)).Texto);
 
-        var reapertura = await _configurador.PutAsync($"/mensajeria/conversaciones/{idConversacion}/reabrir", null);
+        var reapertura = await _crm.PutAsync($"/mensajeria/conversaciones/{idConversacion}/reabrir", null);
         Assert.Equal(HttpStatusCode.OK, reapertura.StatusCode);
         Assert.Equal("DerivadaHumano", Estado(idConversacion));
         Assert.Equal(2, AvisosDelSistema(idConversacion));
@@ -321,13 +321,13 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
         var telefono = TelefonoNuevo();
         var idConversacion = ConversacionDeUnAviso(telefono);
 
-        var cierre = await _configurador.PutAsync($"/mensajeria/conversaciones/{idConversacion}/cerrar", null);
+        var cierre = await _crm.PutAsync($"/mensajeria/conversaciones/{idConversacion}/cerrar", null);
         var cuerpo = await cierre.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(HttpStatusCode.OK, cierre.StatusCode);                                         // el equipo cierra y la acción funciona
         Assert.Equal("Cerrada", Estado(idConversacion));
         Assert.Equal("Cerrada", cuerpo.GetProperty("estado").GetString());
 
-        var reapertura = await _configurador.PutAsync($"/mensajeria/conversaciones/{idConversacion}/reabrir", null);
+        var reapertura = await _crm.PutAsync($"/mensajeria/conversaciones/{idConversacion}/reabrir", null);
         Assert.Equal(HttpStatusCode.OK, reapertura.StatusCode);
         Assert.Equal("DerivadaHumano", Estado(idConversacion));
 
@@ -344,7 +344,7 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
         var telefono = TelefonoNuevo();
         var idConversacion = ConversacionDeUnAviso(telefono);
 
-        var r = await _configurador.PostAsJsonAsync($"/mensajeria/conversaciones/{idConversacion}/responder", new { texto = "Hola, te escribimos del consultorio." });
+        var r = await _crm.PostAsJsonAsync($"/mensajeria/conversaciones/{idConversacion}/responder", new { texto = "Hola, te escribimos del consultorio." });
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("Hola, te escribimos del consultorio.", Assert.Single(_canal.A(telefono)).Texto);

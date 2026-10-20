@@ -128,6 +128,8 @@ public sealed class EscenarioEmociones
     public Identidad Profesional => new(UsuarioProfesional, Roles.Profesional, null, IdProfesional);
     public Identidad OtroProfesional => new(UsuarioOtroProfesional, Roles.Profesional, null, IdOtroProfesional);
     public Identidad Configurador => new(UsuarioConfigurador, Roles.Configurador, null, null);
+    // Etapa 2 de roles: la entrevista de admisión la hace un profesional con el privilegio Admisión (antes, el Configurador).
+    public Identidad Admision => new(23, Roles.Profesional, null, 203) { Privilegios = new[] { Privilegios.Admision } };
 
     /// <summary>La versión del texto vigente, tal como la ve el paciente.</summary>
     public TextoConsentimiento Texto => Textos.Actual()!;

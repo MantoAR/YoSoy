@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
@@ -249,7 +250,9 @@ public class VideoBaseRealTests : IDisposable
             var paciente = app.Cliente(usuarioPaciente, Roles.Paciente, idPaciente: IdPacienteReal);
             var profesional = app.Cliente(usuarioProfesional, Roles.Profesional, idProfesional: IdProfesionalReal);
             var ajeno = app.Cliente(usuarioAjeno, Roles.Profesional, idProfesional: IdOtroProfesionalReal);
-            var configurador = app.Cliente(UsuarioConfiguradorReal, Roles.Configurador);
+            // Etapa 2 de roles: la entrevista de admisión la hace un profesional con el privilegio Admisión (antes, el Configurador).
+            var configurador = app.ConToken(app.Factory.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(UsuarioConfiguradorReal,
+                new SesionModulo(Modulos.Profesional, new[] { Roles.Profesional }, new[] { Privilegios.Admision }, IdProfesionalReal)));
 
             // El paciente y el profesional del turno entran, cada uno con su rol, a la sala que está en la base.
             var rPaciente = await VideoApp.Acceder(paciente, "turno", idTurno);
@@ -288,7 +291,7 @@ public class VideoBaseRealTests : IDisposable
             Assert.Equal(HttpStatusCode.Conflict, rCancelado.StatusCode);
             Assert.Equal("estado-invalido", (await VideoApp.Json(rCancelado)).GetProperty("codigo").GetString());
 
-            // Admisión: el Configurador entra a la entrevista; un profesional no.
+            // Admisión: entra quien tiene el privilegio Admisión; un profesional sin él, no.
             var rAdmision = await VideoApp.Acceder(configurador, "admision", idInforme);
             var jAdmision = await VideoApp.Json(rAdmision);
             Assert.Equal(HttpStatusCode.OK, rAdmision.StatusCode);

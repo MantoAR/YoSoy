@@ -77,15 +77,15 @@ public class GuardiaEmocionesServiceTests
     }
 
     [Fact]
-    public void El_configurador_puede_guardar_las_emociones_de_un_turno_y_de_una_admision()
+    public void El_profesional_guarda_las_de_su_turno_y_quien_hace_la_admision_las_de_la_admision()
     {
         var e = new EscenarioEmociones();
         e.Acepta("turno");
         e.Acepta("admision", EscenarioEmociones.IdInforme);
         e.Reloj.Avanzar(TimeSpan.FromMinutes(30));
 
-        var turno = Evaluar(e, e.Emociones(T0, T0.AddMinutes(30)), e.Configurador);
-        var admision = Evaluar(e, e.Emociones(T0, T0.AddMinutes(30), origen: "admision", id: EscenarioEmociones.IdInforme), e.Configurador);
+        var turno = Evaluar(e, e.Emociones(T0, T0.AddMinutes(30)), e.Profesional);
+        var admision = Evaluar(e, e.Emociones(T0, T0.AddMinutes(30), origen: "admision", id: EscenarioEmociones.IdInforme), e.Admision);
 
         Assert.True(turno.Aprobada);
         Assert.True(admision.Aprobada);
@@ -359,7 +359,7 @@ public class GuardiaEmocionesServiceTests
         e.Reloj.Avanzar(TimeSpan.FromMinutes(30));
         var req = e.Emociones(T0, T0.AddMinutes(30), origen: "Admisión", id: EscenarioEmociones.IdInforme);
 
-        var ev = Evaluar(e, req, e.Configurador);
+        var ev = Evaluar(e, req, e.Admision);
 
         Assert.True(ev.Aprobada);
         Assert.Equal("admision", ev.Origen);

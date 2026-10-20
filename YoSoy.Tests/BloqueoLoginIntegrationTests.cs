@@ -34,6 +34,11 @@ public class BloqueoLoginIntegrationTests
                        VALUES (@u, @h, N'Activo', @m, @i, @b)",
                 ("@u", username), ("@h", hash.Length > 0 ? hash : HashClave), ("@m", username + "@example.com"),
                 ("@i", intentos), ("@b", (object?)bloqueadoHasta ?? DBNull.Value));
+            // Etapa 2 de roles: el equipo ingresa por los permisos que tiene asignados; un usuario sin ninguno recibe 403 SIN_PERMISOS (después de comprobar la
+            // contraseña y de poner los intentos en cero). Estas pruebas son del bloqueo, no del acceso: el usuario tiene el permiso de Configurador.
+            Ejecutar(@"INSERT INTO UsuarioRol (IdUsuario, IdRol) SELECT u.IdUsuario, p.IdRol FROM Usuario u, Permiso p WHERE u.Username = @u AND p.Clave = 'configurador';
+                       INSERT INTO UsuarioPermiso (IdUsuario, IdRol, IdPermiso) SELECT u.IdUsuario, p.IdRol, p.IdPermiso FROM Usuario u, Permiso p WHERE u.Username = @u AND p.Clave = 'configurador'",
+                ("@u", username));
             return username;
         }
 
@@ -53,7 +58,10 @@ public class BloqueoLoginIntegrationTests
 
         public void Dispose()
         {
-            foreach (var n in _nombres) Ejecutar("DELETE FROM Usuario WHERE Username = @u", ("@u", n));
+            // Cada ingreso (y cada bloqueo) queda en la auditoría, que es de solo agregar (migración 19): el usuario que ingresó no se puede borrar y queda
+            // con su marca en la base de pruebas.
+            foreach (var n in _nombres) Ejecutar("DELETE FROM UsuarioPermiso WHERE IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username = @u); DELETE FROM UsuarioRol WHERE IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username = @u)", ("@u", n));
+            foreach (var n in _nombres) Ejecutar("DELETE FROM Usuario WHERE Username = @u AND NOT EXISTS (SELECT 1 FROM LogAuditoria l WHERE l.IdUsuario = Usuario.IdUsuario)", ("@u", n));
         }
     }
 
