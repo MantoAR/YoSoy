@@ -2,7 +2,7 @@
 
 Runbook para llevar a producción la **etapa 2** de la integración de la rama `nuevo-circuito1` de Alearmas01: el acceso del equipo pasa a salir de **roles, permisos y privilegios** (migraciones **20 a 23**), el ingreso con **módulos** (Configurador, CRM, Profesional, Facturación) y el **alta de usuarios del equipo por invitación**. Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de siempre de [`DEPLOY.md`](DEPLOY.md) y el mismo formato que [`DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md`](DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md). Escrito el 2026-10-20 contra la rama `integracion/nuevo-circuito1-etapa2` (sale de `main` en `8086924`, con la etapa 1 ya desplegada); **antes de armar el paquete tiene que estar mergeada en `main`** (paso 0).
 
-- **Se escribió sin acceso al VPS y todavía no se ejecutó.** Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 20/10/2026** (API desde `main` `9988d3c`, migraciones 20 a 23, 54 tablas, versión 23, cadena de auditoría `Íntegra`, rollback en `/opt/yosoy/app-anterior-e2-20261020`; el estado, en [`SERVIDOR.md`](SERVIDOR.md)). Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`; las contraseñas las escribís vos cuando el comando las pide (nunca en la línea de comandos).
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 - **Es un despliegue que cambia cómo entra todo el equipo.** Exige el backup del paso 1 y que **todos tengan que volver a ingresar** (paso 7).
