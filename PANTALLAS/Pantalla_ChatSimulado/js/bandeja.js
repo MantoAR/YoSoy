@@ -1108,7 +1108,7 @@
     }
 
     // Etapa 2 de roles: el lado administrador de los chats es el módulo CRM (antes el Configurador).
-    function esAdministradorChats() { return YS.shell?.rol === "crm"; }
+    function esAdministradorChats() { return YS.shell?.rol === "crm" || (YS.shell?.rol === "configurador" && YS.sesion.tienePermiso("crm")); }
     // "Ver turnos del paciente" lleva a CRM > Turnos, que existe solo con Gestión de agendas. ("Ver ficha" se sacó: llevaba a Usuarios del
     // Configurador, que ya no opera chats; los datos de contacto del paciente ya están en este panel.)
     function puedeVerTurnos() { return esAdministradorChats() && YS.sesion.tienePrivilegio("gestion_agendas"); }
