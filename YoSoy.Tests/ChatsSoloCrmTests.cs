@@ -230,11 +230,14 @@ public class ChatsSoloCrmTests
     {
         var shell = Pantalla("shared", "shell.js");
 
-        // La condición que decide quién tiene el botón Chats y la bandeja: solo el módulo "crm". Ni el profesional ni el configurador sin CRM.
-        Assert.Matches(@"if \(cfg\.rol === ""crm""\) \{\s*capacidades = YS\.api\(""/capacidades""\)", shell);
+        // La condición que decide quién tiene el botón Chats y la bandeja: el módulo "crm" (o el Configurador que además trae el permiso crm en la sesión,
+        // el menú CRM del panel de gestión). Ni el profesional ni el Configurador sin CRM: lo decide grupoDeChats(rol).
+        Assert.Matches(@"const grupoChats = grupoDeChats\(cfg\.rol\);\s*if \(grupoChats\) \{\s*capacidades = YS\.api\(""/capacidades""\)", shell);
+        Assert.Matches(@"function grupoDeChats\(rol\) \{\s*if \(rol === ""crm""\) return GRUPO_CHATS;\s*if \(rol === ""configurador"" && YS\.sesion\.tienePermiso\(""crm""\)\) return GRUPO_CRM_CONFIGURADOR;\s*return null;\s*\}", shell);
         Assert.DoesNotContain(@"cfg.rol === ""crm"" || cfg.rol === ""profesional""", shell);
         Assert.DoesNotMatch(@"cfg\.rol === ""profesional""\)\s*\{\s*capacidades", shell);
         Assert.DoesNotMatch(@"cfg\.rol === ""configurador""\)\s*\{\s*capacidades", shell);
+        Assert.DoesNotMatch(@"rol === ""profesional"".*return GRUPO_", shell);
     }
 
     [Theory]
