@@ -82,14 +82,16 @@ Lo verificó quien opera el VPS, en el servidor. Es la primera conexión real de
 Lo que quedó en el VPS después de dos despliegues hechos a mano el 20/10/2026, con los runbooks
 [`DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md`](DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md) y
 [`DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md`](DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md). Lo informó quien ejecutó el despliegue
-de la etapa 2 y lo verificó; de la etapa 1 solo constan los datos que figuran abajo. Sin secretos, sin nombres de usuarios reales.
+de la etapa 2 y lo verificó; de la etapa 1 constan los datos que figuran abajo. Sin secretos, sin nombres de usuarios reales.
 
 **Etapa 1 (errores con código y auditoría inalterable)**
 - **Base `yosoy`: 46 tablas** (las 44 más `VersionEsquema` y `LogError`), con las **migraciones 18 y 19** aplicadas
   (`add_registro_errores_version_esquema.sql` y `add_auditoria_inalterable.sql`).
 - **`LogAuditoria` y `LogError` son de solo agregar** (triggers; los registros nuevos se encadenan por hash).
 - **Verificador de esquema apagado** (`Esquema:Verificar` en `false`, el valor por defecto): no se definió `Esquema__Verificar`.
+- **API publicada desde `main` en el commit `8086924`** (merge del PR #56).
 - **Para volver atrás (API):** `/opt/yosoy/app-anterior-e1-20261020`.
+- **Backup de la base antes del despliegue:** `yosoy-pre-e1-20261020-b.bak`, verificado, **solo en la PC del dueño** (no está en el servidor ni en el repositorio).
 
 **Etapa 2 (roles, permisos, módulos y alta de equipo por invitación)**
 - **API publicada desde `main` en el commit `9988d3c`** (merge del PR #57), en `/opt/yosoy/app`. Para volver atrás:
