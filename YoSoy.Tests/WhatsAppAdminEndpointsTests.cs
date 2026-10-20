@@ -89,16 +89,6 @@ public class WhatsAppAdminEndpointsTests
         return c;
     }
 
-    private static async Task LimpiarAuditoria(string accion, int idUsuario)
-    {
-        using var con = Conexion.ObtenerConexion();
-        await con.OpenAsync();
-        using var cmd = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'WhatsApp' AND Accion = @Accion AND IdUsuario = @Id", con);
-        cmd.Parameters.AddWithValue("@Accion", accion);
-        cmd.Parameters.AddWithValue("@Id", idUsuario);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
     [Fact]
     public async Task Estado_sin_token_da_401()
     {
@@ -193,7 +183,6 @@ public class WhatsAppAdminEndpointsTests
         var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
-        try
         {
             var r = await cliente.PostAsync("/mensajeria/whatsapp/desvincular", null);
             Assert.Equal(HttpStatusCode.OK, r.StatusCode);
@@ -207,10 +196,6 @@ public class WhatsAppAdminEndpointsTests
             Assert.True(await reader.ReadAsync());
             Assert.Equal(idAdmin, reader.GetInt32(0));
             Assert.Contains("5491112345678", reader.GetString(1));
-        }
-        finally
-        {
-            await LimpiarAuditoria("Desvinculación de WhatsApp", idAdmin);
         }
     }
 
@@ -268,7 +253,6 @@ public class WhatsAppAdminEndpointsTests
         var idAdmin = datos.Usuario();
         var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
 
-        try
         {
             var r = await cliente.PostAsync("/mensajeria/whatsapp/confirmar-vinculacion", null);
             Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
@@ -282,10 +266,6 @@ public class WhatsAppAdminEndpointsTests
             Assert.True(await reader.ReadAsync());
             Assert.Equal(idAdmin, reader.GetInt32(0));
             Assert.Contains("5491112345678", reader.GetString(1));
-        }
-        finally
-        {
-            await LimpiarAuditoria("Vinculación de WhatsApp", idAdmin);
         }
     }
 
@@ -304,7 +284,6 @@ public class WhatsAppAdminEndpointsTests
         var idAdmin = datos.Usuario();
         var token = emisor.Emitir(idAdmin, Roles.Configurador);
 
-        try
         {
             HttpResponseMessage? ultima = null;
             for (var i = 0; i < 10; i++)
@@ -322,10 +301,6 @@ public class WhatsAppAdminEndpointsTests
             clienteOtraIp.DefaultRequestHeaders.Add("X-Forwarded-For", "203.0.113.9");
             var rOtraIp = await clienteOtraIp.PostAsync("/mensajeria/whatsapp/desvincular", null);
             Assert.NotEqual(HttpStatusCode.TooManyRequests, rOtraIp.StatusCode);
-        }
-        finally
-        {
-            await LimpiarAuditoria("Desvinculación de WhatsApp", idAdmin);
         }
     }
 

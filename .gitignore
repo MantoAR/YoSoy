@@ -29,3 +29,6 @@ app-state-sync-version-*.json
 lid-mapping-*.json
 device-list-*.json
 tctoken-*.json
+
+# Registro de errores local (Services/RegistroErrores.cs)
+logs/

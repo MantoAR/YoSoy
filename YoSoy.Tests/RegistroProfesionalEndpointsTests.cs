@@ -56,7 +56,7 @@ public class RegistroProfesionalEndpointsTests
         {
             Publico.Dispose();
             Factory.Dispose();
-            Ejecutar("DELETE FROM LogAuditoria WHERE Entidad = N'Profesional' AND Detalle LIKE @m", ("@m", "%" + Marca + "%"));
+            // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
             Ejecutar("DELETE FROM Profesional WHERE Apellido = @m", ("@m", Marca));
             Ejecutar("DELETE FROM Usuario WHERE Username = @m", ("@m", Marca));
             Ejecutar("DELETE FROM Especialidad WHERE IdEspecialidad = @i", ("@i", IdEspecialidad));

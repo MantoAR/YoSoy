@@ -68,10 +68,7 @@ public class RegistroPublicoProfesionalTests
             using var con = Conexion.ObtenerConexion();
             con.Open();
 
-            using var cmdDelLog = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'Profesional' AND Detalle LIKE @d", con);
-            cmdDelLog.Parameters.AddWithValue("@d", "%" + marca);
-            await cmdDelLog.ExecuteNonQueryAsync();
-
+            // La auditoría es de solo agregar (migración 19): el registro de este alta queda.
             using var cmdDelProf = new SqlCommand("DELETE FROM Profesional WHERE Matricula = @m", con);
             cmdDelProf.Parameters.AddWithValue("@m", marca);
             await cmdDelProf.ExecuteNonQueryAsync();
@@ -134,10 +131,7 @@ public class RegistroPublicoProfesionalTests
             using var con = Conexion.ObtenerConexion();
             con.Open();
 
-            using var cmdDelLog = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'Profesional' AND Detalle LIKE @d", con);
-            cmdDelLog.Parameters.AddWithValue("@d", "%" + marca);
-            await cmdDelLog.ExecuteNonQueryAsync();
-
+            // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
             using var cmdDelProf = new SqlCommand("DELETE FROM Profesional WHERE Matricula = @m", con);
             cmdDelProf.Parameters.AddWithValue("@m", marca);
             await cmdDelProf.ExecuteNonQueryAsync();

@@ -137,9 +137,9 @@ public class Migracion17ScriptTests
     }
 
     [Fact]
-    public void El_encabezado_del_esquema_cuenta_17_migraciones()
+    public void El_encabezado_del_esquema_cuenta_19_migraciones()
     {
-        Assert.Contains("más las 17 migraciones de migrations/", Esquema);
+        Assert.Contains("más las 19 migraciones de migrations/", Esquema);
     }
 }
 

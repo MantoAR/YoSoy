@@ -140,8 +140,11 @@ cd YoSoy
    | 14 | `add_conversacion_asignacion.sql` | `Conversacion.IdProfesionalAsignado` (pertenencia de conversaciones: quién puede ver/tomar/devolver un chat escalado — cierre de seguridad) — requiere el 5 | Sí |
    | 15 | `add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y `SesionClinica.IdConsentimientoVideo`, `EmocionesAnuladasUtc`, `EmocionesAnuladasMotivo` (consentimiento de la lectura de emociones de la sala de video, PR 6) — requiere el 8 y el 9 | Sí |
    | 16 | `add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto, el número y las fechas en UTC). Solo agrega — requiere `Paciente` y `Usuario` | **Solo si se prende `Mensajeria__AvisosPorWhatsApp`** (apagada por defecto: con ella apagada la API no toca esta tabla y se publica sin esta migración) |
+   | 17 | `add_chat_personal_entrantes.sql` | `MensajeChat.IdExterno` y `Tipo`, `Conversacion.NombreContacto` (chat de WhatsApp para el personal) | Sí |
+   | 18 | `add_registro_errores_version_esquema.sql` | Tablas `VersionEsquema` y `LogError` (errores de la API con código corto para soporte) | Sí |
+   | 19 | `add_auditoria_inalterable.sql` | Auditoría de solo agregar y encadenada por hash (`LogAuditoria`, `LogError`); ver `docs/CATALOGO_SCRIPTS_SQL.md` | Sí |
 
-   Las 16 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 19 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash

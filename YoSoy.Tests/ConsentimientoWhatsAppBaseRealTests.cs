@@ -524,7 +524,6 @@ public class ConsentimientoWhatsAppBaseRealTests
         using var cliente = fabrica.CreateClient();
         cliente.DefaultRequestHeaders.Add("X-Shared-Secret", SecretoDePrueba);
 
-        try
         {
             // Llega como lo manda whatsapp-service: con el 549 adelante.
             var r = await cliente.PostAsJsonAsync("/mensajeria/whatsapp/entrante", new { telefono = "549" + telefono, texto = "BAJA" });
@@ -544,10 +543,7 @@ public class ConsentimientoWhatsAppBaseRealTests
             Assert.Equal(0, DatosDePrueba.Contar(@"SELECT COUNT(*) FROM MensajeChat m JOIN Conversacion c ON c.IdConversacion = m.IdConversacion
                 WHERE c.Telefono = @t AND m.Direccion = 'Saliente'", ("@t", telefono)));
         }
-        finally
-        {
-            DatosDePrueba.Ejecutar("DELETE FROM LogAuditoria WHERE IdUsuario IS NULL AND Entidad = 'Paciente' AND IdEntidad = @p AND Accion LIKE 'Consentimiento de WhatsApp%'", ("@p", paciente));
-        }
+        // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
     }
 
     [Fact]
