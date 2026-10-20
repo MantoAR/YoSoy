@@ -561,9 +561,10 @@
         const opciones = { ...(cfg.chats || {}), modoAtencion: caps?.modoAtencion, canalActivo: caps?.canalActivo };
         if (YS.bandeja) { YS.bandeja.iniciar(opciones); return; }
         document.head.appendChild(YS.el("link", { rel: "stylesheet", href: YS.rutas.chats + "css/bandeja.css" }));
-        const s = YS.el("script", { src: YS.rutas.chats + "js/bandeja.js" });
-        s.onload = () => YS.bandeja?.iniciar(opciones);
-        document.body.appendChild(s);
+        // El módulo compartido que traduce el estado de WhatsApp para el aviso de la bandeja; si no carga, la bandeja funciona igual, sin ese aviso.
+        const cargar = (src, alCargar) => { const s = YS.el("script", { src }); s.onload = alCargar; s.onerror = alCargar; document.body.appendChild(s); };
+        const conBandeja = () => cargar(YS.rutas.chats + "js/bandeja.js", () => YS.bandeja?.iniciar(opciones));
+        if (YS.whatsappEstado) conBandeja(); else cargar("/pantallas/shared/whatsapp-estado.js", conBandeja);
     }
 
     // Suma un grupo al menú ya dibujado, sin reconstruir la barra (las conversaciones llegan

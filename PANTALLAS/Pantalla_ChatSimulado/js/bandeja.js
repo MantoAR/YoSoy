@@ -83,6 +83,7 @@
                     <button class="ui-btn-icono solo-cajon" type="button" id="chatsCerrar" aria-label="Cerrar chats (Esc)" title="Cerrar (Esc)">${YS.icono("cerrar")}</button>
                 </div>
             </header>
+            <div class="ui-alerta chats-aviso-wa oculto" id="chatsAvisoWa" role="status"></div>
             <div class="chats-cuerpo">
                 <section class="chats-lista" aria-label="Conversaciones">
                     <div class="chats-lista-herramientas">
@@ -407,6 +408,7 @@
             </form>
             <div class="chats-composer-ayuda"><span class="ui-kbd">Enter</span> envía · <span class="ui-kbd">Shift</span>+<span class="ui-kbd">Enter</span> nueva línea · <span class="ui-kbd">/</span> respuestas rápidas</div>`;
         dibujarCabeceraHilo();
+        dibujarAvisoWhatsApp();
         const m = $("#chatsMensajes");
         m.addEventListener("scroll", alScrollHilo, { passive: true });
         $("#chatsIrAbajo").addEventListener("click", () => irAbajo(true));
@@ -1266,10 +1268,46 @@
     // El módulo se apagó con la pantalla abierta (o el pedido dejó de ser local): se saca todo.
     function apagar() {
         clearTimeout(est.timer);
+        clearTimeout(est.timerWa);
         est.boton?.boton.remove();
         if (est.modo === "cajon") raiz?.remove();
         raiz = null;
         YS.shell.contadorTitulo(0);
+    }
+
+    // ── Conexión de WhatsApp ────────────────────────────────────
+    // Con WhatsApp como canal activo, mientras el número no está conectado los mensajes no salen ni llegan. Quien atiende los chats no vincula el
+    // número (lo hace el Configurador), así que acá solo se avisa, de forma permanente, y se deshabilita "Enviar por" con el mismo aviso.
+    // La traducción del estado es la de shared/whatsapp-estado.js; si ese archivo no está cargado, simplemente no se avisa.
+    const INTERVALO_WA = 10000;
+    async function sondearWhatsApp() {
+        clearTimeout(est.timerWa);
+        if (!raiz || est.canalActivo !== "WhatsApp" || !YS.whatsappEstado) return;
+        try {
+            est.waAviso = YS.whatsappEstado.avisoDeBandeja(await YS.api(`${BASE}/conexion-whatsapp`));
+        } catch (e) {
+            if (e.status === 404) return; // el módulo se apagó: lo resuelve pulso()
+            // Sin respuesta de la API: no se cambia lo que ya se mostraba (el "Sin conexión" de arriba cubre ese caso).
+        }
+        dibujarAvisoWhatsApp();
+        if (raiz) est.timerWa = setTimeout(sondearWhatsApp, INTERVALO_WA);
+    }
+
+    function dibujarAvisoWhatsApp() {
+        const aviso = est.waAviso;
+        const banner = $("#chatsAvisoWa");
+        if (banner) {
+            banner.classList.toggle("oculto", !aviso);
+            banner.classList.toggle("ui-alerta--warn", aviso?.tono === "warn");
+            banner.classList.toggle("ui-alerta--info", aviso?.tono === "info");
+            banner.textContent = aviso ? aviso.texto : "";
+        }
+        const canal = $("#chatsCanalEnvio");
+        if (canal) {
+            canal.disabled = !!aviso;
+            if (aviso) { canal.title = aviso.texto; canal.setAttribute("aria-describedby", "chatsAvisoWa"); }
+            else { canal.removeAttribute("title"); canal.removeAttribute("aria-describedby"); }
+        }
     }
 
     // ── Utilidades ──────────────────────────────────────────────
@@ -1325,6 +1363,7 @@
         YS.api(`${BASE}/etiquetas`).then(c => { est.etiquetasCatalogo = c; dibujarFiltroEtiquetas(); dibujarLista(); }).catch(() => { est.etiquetasCatalogo = []; });
         dibujarLista();
         pulso();
+        sondearWhatsApp();
         instalarAvisosInternos();
     }
 

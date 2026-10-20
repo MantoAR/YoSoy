@@ -32,6 +32,7 @@
 .chats-cabecera-acciones { display: flex; align-items: center; gap: 2px; }
 .chats-conexion { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; font-size: var(--fs-sm); font-weight: 500; color: var(--warn); }
 .chats-conexion svg { width: 15px; height: 15px; }
+.chats-aviso-wa { margin: 0; border-radius: 0; flex: none; }
 .chats .ui-btn-icono.activo, .chats .ui-btn-icono[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-strong); }
 
 .chats-cuerpo { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 290px minmax(0, 1fr); }

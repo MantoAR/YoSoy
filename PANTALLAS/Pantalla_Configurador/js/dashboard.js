@@ -1896,9 +1896,13 @@ async function waPulso() {
         YS.fetch("/mensajeria/whatsapp/confirmar-vinculacion", { method: "POST" }).catch(() => {});
     _waEstabaConectado = e.conectado;
 
-    document.getElementById("waEstado").innerHTML = waHtml(e);
+    const v = YS.whatsappEstado.vista(e);
+    document.getElementById("waEstado").innerHTML = waHtml(e, v);
+    waActualizarEnfriamiento();
 
-    const espera = (!e.servicioDisponible || !e.conectado) ? 3000 : 30000;
+    // Conectado: heartbeat lento. Necesita revisión del servidor: nada que cambie solo, alcanza con mirar de vez en cuando.
+    // El resto (conectando, QR, hay que vincular): rápido, para que el QR aparezca y el cambio de estado se note enseguida.
+    const espera = v.clave === "conectado" ? 30000 : v.clave === "atencion" ? 10000 : 3000;
     _waTimer = setTimeout(waPulso, espera);
 }
 
@@ -1906,46 +1910,86 @@ document.addEventListener("visibilitychange", () => {
     if (!document.hidden && YS.shell.actual === "whatsapp" && !_waTimer) waPulso();
 });
 
-function waHtml(e) {
-    if (!e.servicioDisponible) {
+const WA_CHIP = { ok: "ui-chip--ok", warn: "ui-chip--warn", danger: "ui-chip--danger", info: "ui-chip--info", neutral: "ui-chip--neutral" };
+
+// "Conectado desde ..." con el desde del servicio (desde cuándo está en ese estado; se reinicia si el servicio se reinicia).
+function waDesdeTexto(desde) {
+    const d = desde ? new Date(desde) : null;
+    if (!d || isNaN(d)) return "";
+    return d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function waHtml(e, v) {
+    v = v || YS.whatsappEstado.vista(e);
+    const chip = (texto) => `<span class="ui-chip ${WA_CHIP[v.tono] || "ui-chip--neutral"}">${YS.esc(texto)}</span>`;
+    const detalle = v.detalle ? `<p class="ui-muted mt-12">${YS.esc(v.detalle)}</p>` : "";
+
+    if (v.clave === "conectado") {
+        const desde = waDesdeTexto(e.desde);
         return `
-            <span class="ui-chip ui-chip--neutral">Servicio no disponible</span>
-            <p class="ui-muted mt-12">No se pudo conectar con whatsapp-service. Si recién se reinició puede demorar unos segundos; si sigue así, revisar por SSH (systemctl status whatsapp-service).</p>`;
-    }
-    if (e.conectado) {
-        return `
-            <span class="ui-chip ui-chip--ok">Conectado (+${YS.esc(e.numero || "?")})</span>
+            ${chip(`Conectado (+${e.numero || "?"})`)}
+            ${desde ? `<p class="ui-muted mt-12">Conectado desde ${YS.esc(desde)}</p>` : ""}
             <p class="mt-12"><button class="ui-btn ui-btn--danger-solido" type="button" onclick="waDesvincular()">Desvincular y cambiar número</button></p>`;
     }
-    const chip = e.qrPendiente
-        ? `<span class="ui-chip ui-chip--warn">Esperando escaneo del QR</span>`
-        : `<span class="ui-chip ui-chip--danger">Desconectado</span>`;
-    if (!e.qr) return `${chip}<p class="ui-muted mt-12">Generando el código QR...</p>`;
-    return `${chip}
-        <div class="wa-qr-caja"><img src="${e.qr}" alt="Código QR para vincular WhatsApp" class="wa-qr"></div>
-        <p>Abrí WhatsApp en el chip dedicado → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>, y escaneá este código.</p>
-        <p class="ui-alerta ui-alerta--warn">Quien escanee este código controla ese WhatsApp — usar solo el chip dedicado de la clínica.</p>
-        <p><button class="ui-btn ui-btn--ghost ui-btn--sm" type="button" onclick="waGenerarQrNuevo()">¿El código no funciona? Generar uno nuevo</button></p>`;
+    if (v.clave === "escanear") {
+        if (!v.mostrarQr) return `${chip(v.titulo)}${detalle}`;
+        return `${chip(v.titulo)}
+            <div class="wa-qr-caja"><img src="${e.qr}" alt="Código QR para vincular WhatsApp" class="wa-qr"></div>
+            <p>Abrí WhatsApp en el chip dedicado → <b>Dispositivos vinculados</b> → <b>Vincular un dispositivo</b>, y escaneá este código.</p>
+            <p class="ui-alerta ui-alerta--warn">Quien escanee este código controla ese WhatsApp — usar solo el chip dedicado de la clínica.</p>
+            <p><button class="ui-btn ui-btn--ghost ui-btn--sm" type="button" data-wa-enfria="¿El código no funciona? Generar uno nuevo" onclick="waPedirQr(true)">¿El código no funciona? Generar uno nuevo</button></p>`;
+    }
+    if (v.clave === "vincular") {
+        return `${chip(v.titulo)}${detalle}
+            <p class="mt-12"><button class="ui-btn ui-btn--primary" type="button" data-wa-enfria="Mostrar código QR" onclick="waPedirQr(false)">Mostrar código QR</button></p>`;
+    }
+    // no-disponible, conectando, atencion: solo informan; en "atencion" no hay botón (reintentar no lo arregla y el servicio no lo reintenta solo).
+    return `${chip(v.titulo)}${detalle}`;
+}
+
+// Enfriamiento del botón de código QR (30 s, el mismo que aplica la API): los botones con data-wa-enfria muestran la cuenta regresiva.
+let _waEnfriaHasta = 0;
+let _waTick = null;
+
+function waActualizarEnfriamiento() {
+    const falta = Math.max(0, Math.ceil((_waEnfriaHasta - Date.now()) / 1000));
+    document.querySelectorAll("[data-wa-enfria]").forEach(b => {
+        b.disabled = falta > 0;
+        b.textContent = falta > 0 ? `Podés pedir otro código en ${falta} s` : b.dataset.waEnfria;
+    });
+    clearInterval(_waTick);
+    _waTick = null;
+    if (falta > 0 && YS.shell.actual === "whatsapp") _waTick = setInterval(waActualizarEnfriamiento, 1000);
 }
 
 async function waDesvincular() {
-    if (!await confirmar("Esto corta la conexión actual de WhatsApp. Vas a necesitar escanear un código QR nuevo para vincular un número (el mismo u otro).",
+    if (!await confirmar("Se borra la sesión de WhatsApp de este servidor y el número deja de estar vinculado: mientras tanto los mensajes no salen ni llegan. " +
+        "Para volver a usarlo vas a tener que escanear un código QR nuevo (con el mismo número u otro).",
         { titulo: "Desvincular WhatsApp", textoConfirmar: "Desvincular", peligro: true })) return;
-    await waEjecutarDesvincular("Desvinculado. Generando un código QR nuevo...");
-}
-
-async function waGenerarQrNuevo() {
-    if (!await confirmar("¿Generar un código QR nuevo? El código actual, si todavía no lo escaneaste, deja de servir.",
-        { titulo: "Generar un QR nuevo", textoConfirmar: "Generar" })) return;
-    await waEjecutarDesvincular("Generando un código QR nuevo...");
-}
-
-async function waEjecutarDesvincular(mensajeOk) {
     try {
         const res = await YS.fetch("/mensajeria/whatsapp/desvincular", { method: "POST" });
-        if (res.ok) toast(mensajeOk);
+        if (res.ok) { toast("Desvinculado. Generando un código QR nuevo..."); _waEnfriaHasta = Date.now() + 30000; }
         else toast(await YS.leerMensaje(res, "No se pudo completar la acción."), "error");
     } catch { toast("No se pudo conectar con el servidor.", "error"); }
+    await waPulso();
+}
+
+// nuevo = true: reemplazar el código que está esperando escaneo ("Generar uno nuevo"); false: pedir uno cuando venció o se cerró la sesión.
+async function waPedirQr(nuevo) {
+    if (_waEnfriaHasta > Date.now()) return;
+    _waEnfriaHasta = Date.now() + 30000; // se asume el enfriamiento ya, para que un doble clic no pida dos veces
+    waActualizarEnfriamiento();
+    try {
+        const res = await YS.fetch("/mensajeria/whatsapp/vincular", { method: "POST", json: { nuevo: !!nuevo } });
+        if (res.ok) toast(nuevo ? "Generando un código QR nuevo..." : "Pidiendo el código QR...");
+        else {
+            if (res.status === 429) {
+                const d = await res.clone().json().catch(() => null);
+                _waEnfriaHasta = Date.now() + ((d && d.reintentarEnSegundos) || 30) * 1000;
+            } else _waEnfriaHasta = 0; // no se llegó a abrir ninguna ventana: se puede volver a intentar
+            toast(await YS.leerMensaje(res, "No se pudo pedir el código QR."), "error");
+        }
+    } catch { _waEnfriaHasta = 0; toast("No se pudo conectar con el servidor.", "error"); }
     await waPulso();
 }
 
