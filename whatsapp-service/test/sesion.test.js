@@ -208,13 +208,14 @@ test("preparar crea la carpeta en 700 y lo que escriba la librería después que
     process.umask(0o022);                              // como un usuario común: sin preparar(), la librería escribiría 644
     await sesion.preparar();
     assert.equal(modo(dir), 0o700);
+    assert.equal(modo(path.join(dir, "datos")), 0o700);   // datos/ (consentimientos y contadores) la crea preparar() y es del servicio: mismos permisos
 
     const { saveCreds } = await sesion.abrirAuth(libreriaFalsa());
     await saveCreds();
     await saveCreds();                                 // la segunda deja el respaldo
     assert.equal(modo(path.join(dir, CREDS)), 0o600);
     assert.equal(modo(path.join(dir, RESPALDO)), 0o600);
-    assert.deepEqual(fs.readdirSync(dir).sort(), [CREDS, RESPALDO].sort(), "ni temporales sueltos");
+    assert.deepEqual(fs.readdirSync(dir).sort(), [CREDS, RESPALDO, "datos"].sort(), "ni temporales sueltos (datos/ la crea preparar() a propósito)");
 }));
 
 test("preparar deja datos/ en 700 y sus archivos en 600", { skip: SOLO_POSIX }, conRaiz(async raiz => {
