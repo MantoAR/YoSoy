@@ -8,8 +8,8 @@ se versiona. Cómo se publica una versión nueva: [`DEPLOY.md`](DEPLOY.md). El p
 > **De dónde sale lo que dice este archivo.** De los runbooks del repositorio (`DESPLIEGUE_VIDEO.md`,
 > `whatsapp-service/README.md`, `deploy/`) y de lo informado por el equipo después de los despliegues. **No se
 > verificó contra el servidor al escribirlo**: la sección "Verificación rápida" tiene los comandos para comprobarlo
-> (solo lectura, ninguno imprime un secreto). La sección "Estado de producción al 19/10/2026" la informó quien ejecutó
-> ese despliegue, con lo que comprobó el 19 y el 20/10.
+> (solo lectura, ninguno imprime un secreto). Las secciones "Estado de producción al 19/10/2026" y "al 20/10/2026" las informó
+> quien ejecutó esos despliegues, con lo que comprobó el 19 y el 20/10.
 
 - **Servidor:** Ubuntu 24.04.5 LTS, IP `179.199.155.50`.
 - **Dominio:** `yosoytelemedicina.tech`, apuntando a esa IP (directo, sin CDN ni proxy: TURN usa UDP y un proxy HTTP no
@@ -35,7 +35,7 @@ final, cuenta cómo salió). Solo hay nombres y valores que no son secretos.
   `Mensajeria__SoloLocal=false`. **No están definidas** `Mensajeria__ChatSimuladoHabilitado` (con `false` se apagaría todo
   `/mensajeria`, también Chats), `Mensajeria__AvisosPorWhatsApp` ni `Mensajeria__Personal__RespuestaDeEmergencia`: valen sus
   valores por defecto (Chats habilitados, avisos apagados y mensaje de emergencia desactivado).
-- **Modo Personal:** el asistente automático está apagado. Los chats son solo del Configurador (CRM → Chats): los ve y los
+- **Modo Personal:** el asistente automático está apagado. Los chats eran solo del Configurador (CRM → Chats; desde la etapa 2 del 20/10/2026 son del módulo CRM, ver "Estado de producción al 20/10/2026"): los ve y los
   contesta; los profesionales reciben 403 en `/mensajeria`. El mensaje de emergencia está desactivado y sus líneas siguen
   pendientes de validar.
 - **El simulador del chat está cerrado en dos capas:** en el código (`POST /mensajeria/simulado/entrante` y
@@ -76,6 +76,39 @@ Lo verificó quien opera el VPS, en el servidor. Es la primera conexión real de
 - **Uso:** por ahora quien atiende los Chats es solo el Configurador (recepción); todavía no hay uso real de la app.
 - **Sigue pendiente:** la limpieza de lo viejo ([`DEPLOY.md`](DEPLOY.md), paso 10). Siguen sin verificarse los umbrales de
   bloqueo de WhatsApp, un QR vencido real y la reconexión tras una caída.
+
+## Estado de producción al 20/10/2026 (etapas 1 y 2 de la integración de `nuevo-circuito1`)
+
+Lo que quedó en el VPS después de dos despliegues hechos a mano el 20/10/2026, con los runbooks
+[`DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md`](DEPLOY_ETAPA1_ERRORES_AUDITORIA_PRODUCCION.md) y
+[`DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md`](DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md). Lo informó quien ejecutó el despliegue
+de la etapa 2 y lo verificó; de la etapa 1 solo constan los datos que figuran abajo. Sin secretos, sin nombres de usuarios reales.
+
+**Etapa 1 (errores con código y auditoría inalterable)**
+- **Base `yosoy`: 46 tablas** (las 44 más `VersionEsquema` y `LogError`), con las **migraciones 18 y 19** aplicadas
+  (`add_registro_errores_version_esquema.sql` y `add_auditoria_inalterable.sql`).
+- **`LogAuditoria` y `LogError` son de solo agregar** (triggers; los registros nuevos se encadenan por hash).
+- **Verificador de esquema apagado** (`Esquema:Verificar` en `false`, el valor por defecto): no se definió `Esquema__Verificar`.
+- **Para volver atrás (API):** `/opt/yosoy/app-anterior-e1-20261020`.
+
+**Etapa 2 (roles, permisos, módulos y alta de equipo por invitación)**
+- **API publicada desde `main` en el commit `9988d3c`** (merge del PR #57), en `/opt/yosoy/app`. Para volver atrás:
+  `/opt/yosoy/app-anterior-e2-20261020`.
+- **Base `yosoy`: 54 tablas, versión de esquema 23**, con las **migraciones 20 a 23** aplicadas (permisos y privilegios, auditoría de
+  cambios de permisos, invitaciones, mapeo de usuarios existentes). **Cadena de auditoría `Íntegra`** (`sp_VerificarCadenaAuditoria`).
+- **Backup de la base antes del despliegue:** `yosoy-pre-e2-20261020.bak`, verificado, **solo en la PC del dueño** (no está en el
+  servidor ni en el repositorio).
+- **Quién tiene qué:** el administrador tiene los módulos **Configurador y CRM**; los dos profesionales tienen el permiso
+  `profesional`. Los pacientes entran por su flujo, sin permisos del equipo.
+- **Chats (`/mensajeria`) solo para el módulo CRM:** el pedido de Chats responde **403 a los profesionales y al Configurador sin el
+  módulo CRM** (comprobado en producción). Esto reemplaza lo que decía el estado del 19/10 ("solo del Configurador"): hoy los ve y
+  los contesta quien trabaja en el módulo CRM.
+- **Sesiones:** los tokens emitidos antes del despliegue siguen valiendo con el rol de antes, sin CRM ni privilegios; para usar los
+  módulos hay que volver a ingresar (detalle en el runbook de la etapa 2, paso 7).
+- **Sigue igual:** el simulador `/mensajeria/simulado/*` cerrado (código y Caddy), `Mensajeria__ModoAtencion=Personal`, WhatsApp
+  vinculado, el cifrado de emociones y el consentimiento por sala de video.
+- **Queda pendiente, aparte:** endurecer `yosoy_app` con `DENY UPDATE, DELETE` sobre la auditoría
+  (Apéndice A del runbook de la etapa 1; no forma parte de estos despliegues) y la etapa 3 de la integración (circuito de atención).
 
 ## Cómo entra el tráfico
 
@@ -261,6 +294,12 @@ Ninguna contraseña de ninguno de los dos está en este archivo ni en el repo.
 | `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (migración 16): el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto que vio, el número y las fechas en UTC. Solo agrega una tabla, dos claves foráneas y dos índices; idempotente. | **No hace falta por ahora.** Solo se aplica si se prende `Mensajeria__AvisosPorWhatsApp` (apagada por defecto: con ella apagada la API no toca la tabla y se publica sin esta migración); en ese caso va **antes** de prender la llave: ver [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp". |
 | `migrations/add_chat_personal_entrantes.sql` | Migración 17, del chat de WhatsApp para el personal: `MensajeChat.IdExterno` (con el índice único filtrado `UQ_MensajeChat_IdExterno`), `MensajeChat.Tipo` (con su `CHECK` y su valor por defecto) y `Conversacion.NombreContacto`. No crea tablas; idempotente; es independiente de la 16. | **Aplicada el 19/10/2026** (la base sigue con 44 tablas). Hace falta con `Mensajeria__ModoAtencion=Personal`. (`01-produccion.sql` ya la incluye, pero la base del servidor es anterior) |
 | `migrations/seed_catalogos.sql` | Catálogos iniciales que la base nacida de `01-produccion.sql` no traía: especialidades, estados de turno con ids fijos (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado) y el tipo de consentimiento de telemedicina. Idempotente. | **Aplicada.** Versionada en el repo; para un servidor nuevo, ver [`DEPLOY.md`](DEPLOY.md), "Servidor nuevo: base y catálogos" |
+| `migrations/add_registro_errores_version_esquema.sql` | Migración 18: tablas `VersionEsquema` (una fila por migración aplicada) y `LogError` (errores de la API con código corto). Solo agrega; idempotente. | **Aplicada el 20/10/2026** (etapa 1; la base pasó a 46 tablas) |
+| `migrations/add_auditoria_inalterable.sql` | Migración 19: `LogAuditoria` gana `Categoria`, `Espacio`, `Hash` y `HashAnterior`; triggers que encadenan cada registro nuevo y vuelven de solo agregar a `LogAuditoria` y `LogError`; `sp_VerificarCadenaAuditoria`. Reclasifica como clínicos los accesos viejos a datos clínicos (no se deshace sin backup). | **Aplicada el 20/10/2026** (etapa 1) |
+| `migrations/add_permisos_roles_privilegios.sql` | Migración 20: roles, permisos y privilegios (`Permiso`, `Privilegio`, `PermisoPrivilegio`, `UsuarioPermiso`, `UsuarioPrivilegio`, `Organizacion`, `ConfiguracionOrganizacion`), columnas nuevas de `Usuario`, `Profesional`, `Especialidad` y `Rol`, vista `vw_UsuarioAccesos`. No asigna permisos. | **Aplicada el 20/10/2026** (etapa 2) |
+| `migrations/add_privilegio_agendas_auditoria_permisos.sql` | Migración 21: el privilegio Gestión de agendas y tres triggers que auditan los cambios de roles, permisos y privilegios. | **Aplicada el 20/10/2026** (etapa 2) |
+| `migrations/add_alta_equipo_invitaciones.sql` | Migración 22: `Usuario.Telefono` e `InvitacionCuenta` (alta de equipo por invitación). | **Aplicada el 20/10/2026** (etapa 2) |
+| `migrations/mapear_usuarios_existentes_a_permisos.sql` | Migración 23 (datos): da permisos a los usuarios que ya existían, una sola vez. | **Aplicada el 20/10/2026** (etapa 2; la base quedó con 54 tablas y versión 23) |
 
 Cómo se aplican (`-I` es obligatorio, `-f 65001` por los acentos): [`DEPLOY.md`](DEPLOY.md), sección "Migraciones".
 
@@ -330,7 +369,7 @@ no existe y la API no arranca con él), en `.env`.
 [`DEPLOY.md`](DEPLOY.md), "Chat de WhatsApp para el personal"): `Mensajeria__ModoAtencion` (`Asistente`, por defecto, o `Personal`; otro valor frena el arranque),
 `Mensajeria__Personal__RespuestaDeEmergencia` (`false` por defecto: en modo `Personal`, el mensaje de emergencia que se le manda al paciente ante una frase de riesgo; aunque sea `true`
 no sale mientras alguna línea esté sin completar) y `Mensajeria__LineasEmergencia__0__Nombre`, `__0__Telefono`, `__1__Nombre` y `__1__Telefono` (las líneas de ese mensaje; hoy dicen
-`[COMPLETAR Y VALIDAR]` en `appsettings.json`). Los chats son **solo del Configurador**: los profesionales reciben 403 en `/mensajeria`. Con `Personal` hace falta la migración 17 (`migrations/add_chat_personal_entrantes.sql`; el orden, en
+`[COMPLETAR Y VALIDAR]` en `appsettings.json`). Los chats son **solo del módulo CRM** (etapa 2): los profesionales y el Configurador sin ese módulo reciben 403 en `/mensajeria`. Con `Personal` hace falta la migración 17 (`migrations/add_chat_personal_entrantes.sql`; el orden, en
 `DEPLOY.md`), y `GET /salud` de `whatsapp-service` trae `entrantes` (cuántos mensajes se procesaron, ignoraron, reenviaron, reintentaron y perdieron: solo números).
 
 ## Verificación rápida (solo lectura)
