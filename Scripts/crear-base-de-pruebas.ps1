@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Arma una copia temporal de docs\produccion\01-produccion.sql con el nombre de la base reemplazado (el original no se
-    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 47 tablas (46 con
+    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 55 tablas (54 con
     -SinConsentimientoWhatsApp).
 
     Se niega a:
@@ -25,7 +25,7 @@
     Nombre de la base a crear. Por defecto, yosoy_test. Letras, números y guion bajo; no puede ser "yosoy".
 
 .PARAMETER SinConsentimientoWhatsApp
-    Después de armar el esquema borra la tabla ConsentimientoWhatsApp (la de la migración 16): la base queda con 46 tablas,
+    Después de armar el esquema borra la tabla ConsentimientoWhatsApp (la de la migración 16): la base queda con 54 tablas,
     como está producción mientras no se aplique esa migración. Sirve para comprobar que la API anda sin esa tabla con la
     llave Mensajeria:AvisosPorWhatsApp apagada (la de por defecto):
         .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp
@@ -64,7 +64,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TablasEsperadas = if ($SinConsentimientoWhatsApp) { 46 } else { 47 }
+$TablasEsperadas = if ($SinConsentimientoWhatsApp) { 54 } else { 55 }
 
 # ── 1) Guardas que no necesitan SQL Server: si alguna falla, no se toca nada ─────────────────────────────────────────
 if (-not $PSScriptRoot) { throw 'Ejecutá el archivo (por ejemplo: .\Scripts\crear-base-de-pruebas.ps1), no pegues su contenido en la consola.' }
@@ -129,7 +129,7 @@ finally {
 if ($SinConsentimientoWhatsApp) {
     Write-Host "3b/4 Borrando la tabla ConsentimientoWhatsApp de '$Base' (la base queda como producción sin la migración 16)..."
     & sqlcmd -S $Servidor -d $Base -E -C -I -b -Q 'DROP TABLE dbo.ConsentimientoWhatsApp' | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "No pude borrar la tabla ConsentimientoWhatsApp de '$Base' (código $LASTEXITCODE). La base quedó con 47 tablas: borrala antes de repetir." }
+    if ($LASTEXITCODE -ne 0) { throw "No pude borrar la tabla ConsentimientoWhatsApp de '$Base' (código $LASTEXITCODE). La base quedó con 55 tablas: borrala antes de repetir." }
 }
 
 # ── 4c) Sin la migración 17 (solo en la base que acabamos de crear) ──────────────────────────────────────────────────
@@ -148,7 +148,7 @@ if ($SinMigracion17) {
     if ($LASTEXITCODE -ne 0) { throw "No pude deshacer la migración 17 en '$Base' (código $LASTEXITCODE). La base quedó con las columnas nuevas: borrala antes de repetir." }
 }
 
-# ── 5) Verificar: tiene que tener 47 tablas (y las columnas de la migración 17, salvo con -SinMigracion17) ───────────────
+# ── 5) Verificar: tiene que tener 55 tablas (y las columnas de la migración 17, salvo con -SinMigracion17) ───────────────
 Write-Host '4/4 Verificando el esquema...'
 $cuenta = "$(Invoke-Consulta -EnBase $Base -Consulta 'SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables')".Trim()
 if ($cuenta -notmatch '^\d+$') { throw "No pude contar las tablas de '$Base' (respuesta: '$cuenta')." }
