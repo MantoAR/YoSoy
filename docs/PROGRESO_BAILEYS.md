@@ -8,6 +8,9 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 > pasó a llamarse `CanalBaileys`), y la API **ya no manda recordatorios por WhatsApp**: ver [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md).
 > Lo que sigue describe la tarea tal como se hizo: donde habla de dos backends, de `webjs` o de `WhatsAppWebJs`, ya no rige.
 
+> **Nota (2026-10-20):** el servicio nuevo se desplegó en el VPS el 19/10/2026 y está sin vincular. Donde este archivo dice que no está desplegado, era cierto cuando se escribió: para el
+> estado actual, ver [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
+
 - **Rama:** `feat/whatsapp-baileys`, creada desde `origin/main` (b3c94af, PR #41). Sin merge a `main`.
 - **Decisión de producto (Agustín):** Baileys (WhatsApp Web no oficial) en vez de la API oficial: más simple y menos RAM.
   Riesgo asumido: WhatsApp puede bloquear el número, por eso va un **número dedicado de la clínica**, nunca uno personal.

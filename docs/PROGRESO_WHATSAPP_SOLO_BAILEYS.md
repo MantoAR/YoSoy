@@ -3,6 +3,9 @@
 Punto de retoma de la tarea "dejar Baileys como único motor de WhatsApp y eliminar los recordatorios por WhatsApp". Si se corta una
 sesión, **este archivo manda**: dice qué hay hoy, qué se decidió, qué está hecho, qué falta y qué pasos manuales le tocan a Agustín.
 
+> **Nota (2026-10-20):** el servicio nuevo de WhatsApp (Baileys) se desplegó en el VPS el 19/10/2026 y está sin vincular. Lo que sigue dice, como lo dijo en su momento, que
+> "hoy" corre el servicio viejo y que no está desplegado: para el estado actual, ver [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
+
 - **Rama:** `refactor/whatsapp-solo-baileys`, creada desde `origin/main` (ff7e673: el PR #43, consentimiento de WhatsApp). Sin merge a `main`.
 - **Decisiones de Agustín:**
   - WhatsApp sigue, pero **solo con Baileys**. WhatsApp Web JS (`whatsapp-web.js`, Puppeteer, Chromium) se saca por completo.

@@ -3,7 +3,7 @@
 Runbook para llevar a producción el chat de WhatsApp para el personal (CRM → Chats, solo el Configurador). Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de
 siempre de [`DEPLOY.md`](DEPLOY.md). Escrito el 2026-10-19 contra `main` en `4cff56e` (con los PR #46 a #50) más la rama `fix/chat-simulado-cerrado` (el simulador anónimo cerrado en el código), que tiene que estar en `main` antes de armar el paquete (paso 1.0). Qué se decidió y qué se construyó: [`PROGRESO_CHAT_PERSONAL_WHATSAPP.md`](PROGRESO_CHAT_PERSONAL_WHATSAPP.md).
 
-- **Nada de esto se ejecutó en el VPS** (desde donde se escribió no hay acceso). Lo que sí se probó, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 19/10/2026** ("Registro de la ejecución del 19/10/2026", al final). Lo que se probó antes de ejecutarlo, y cómo, está en "Qué se verificó y qué no"; lo que no, también. Las frases en presente sobre el VPS (lo que "corre hoy", que "casi seguro tiene una API más vieja") son de antes de esa ejecución: el estado actual está en [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`; si alguno lo hiciera, pará.
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 
@@ -61,7 +61,8 @@ nunca se instaló (el paso 1.2 dice cuál es el caso). **Nunca los dos servicios
 ## Convenciones
 
 - **[PC]** es PowerShell en tu PC. **[VPS]** es una sesión SSH que ya abriste (`ssh agustin@179.199.155.50`): pegá las líneas ahí. No uses `ssh servidor 'comando con sudo'`: `sudo` necesita una terminal para
-  pedirte la contraseña. Los comandos del VPS que **cambian algo** son **una sola línea** con `&&`: si un paso falla, los siguientes no corren. Los de chequeo (paso 1.2) son líneas sueltas de solo lectura. Los tests de existencia sobre `/opt/yosoy` llevan `sudo`: tu usuario no puede entrar a esas carpetas.
+  pedirte la contraseña. Los comandos del VPS que **cambian algo** son **una sola línea** con `&&`: si un paso falla, los siguientes no corren. Los de chequeo (paso 1.2) son líneas sueltas de solo lectura. Los tests de existencia y los `ls` sobre `/opt/yosoy` llevan `sudo`: tu usuario no puede entrar a esas carpetas; y si el comando usa un `*`, va dentro de `sudo sh -c '...'`, porque tu shell lo expande antes de `sudo` y no encuentra nada.
+  **Pegá un comando por vez**, y corré `sudo -v` antes de empezar (pide la contraseña una vez y `sudo` la recuerda unos minutos): si pegás varias líneas juntas y alguna pide la contraseña de `sudo`, las que siguen se mezclan con lo que escribas.
 - `FECHA` es **la de la PC** (`Get-Date -Format yyyyMMdd`), no la del `date` del servidor; si el despliegue cruza la medianoche, seguí usando la del día en que armaste los paquetes. `TAG` es `chat`. Lo primero en la sesión SSH (y de nuevo si la cerrás):
   ```bash
   FECHA=YYYYMMDD; TAG=chat; export PATH="$PATH:/opt/mssql-tools18/bin"      # FECHA: la de la PC
@@ -138,7 +139,7 @@ migración 17 solo agrega.
 
 ### 1.2 [VPS] Chequeo previo (todo de solo lectura)
 
-Pegá estas líneas de a una o en bloque. Si algo no da lo esperado, **no sigas** hasta entender por qué.
+Pegá estas líneas **de a una**. Si algo no da lo esperado, **no sigas** hasta entender por qué.
 
 ```bash
 # Sistema
@@ -160,7 +161,7 @@ sudo ss -ltnp | grep -E ':(3001|3002|5000) '                                    
 # Configuración de la API (imprimen solo esas líneas o un conteo)
 sudo grep -n -E '^Mensajeria__(CanalActivo|ModoAtencion|SoloLocal|ChatSimuladoHabilitado|AvisosPorWhatsApp|Personal__RespuestaDeEmergencia)=' /opt/yosoy/config/.env     # ideal: nada, o CanalActivo=Simulado|Baileys. Si dice WhatsAppWebJs: el paso 3.4 lo cambia. AvisosPorWhatsApp o RespuestaDeEmergencia en true: sacalas. ChatSimuladoHabilitado=false: sacala (apaga Chats)
 sudo grep -c -E '^Email__From=.+' /opt/yosoy/config/.env                                # 1. Si da 0, cargá Email__From antes de publicar (DEPLOY.md, "Credenciales de correo")
-sudo stat -c '%a %U:%G %n' /opt/yosoy/config/*                                          # 600 yosoy:yosoy en cada .env
+sudo sh -c "stat -c '%a %U:%G %n' /opt/yosoy/config/.env /opt/yosoy/config/*.env"       # 600 yosoy:yosoy en cada .env
 sudo ls /opt/yosoy/app | grep -i appsettings                                            # appsettings.json y nada más: el corte del paso 4.3 vacía la carpeta, y un appsettings.Production.json propio del servidor se perdería (quedaría solo en app-anterior-*)
 systemctl cat yosoy-api --no-pager | grep -E '^EnvironmentFile='                        # .env, whatsapp.env (drop-in whatsapp.conf) y -video.env. Si falta whatsapp.env, el paso 3.3 instala el drop-in
 sudo grep -c -E '^Mensajeria__WhatsApp__Secreto=.{32,}$' /opt/yosoy/config/whatsapp.env # 1: ya hay un secreto de 32+ caracteres. 0 o "No such file": el paso 3.3 lo crea
@@ -169,7 +170,7 @@ sudo grep -c -E '^Mensajeria__WhatsApp__Secreto=.{32,}$' /opt/yosoy/config/whats
 ```bash
 # Lo que hay instalado de WhatsApp y de despliegues anteriores
 sudo ls -la /opt/yosoy /opt/yosoy/whatsapp                                              # ¿existe whatsapp/app? ¿sesion/ (la vieja)? sesion-baileys/ no tiene que existir todavía
-sudo ls -d /opt/yosoy/app-anterior-* /opt/yosoy/backups/* 2>/dev/null                   # lo que dejaron despliegues anteriores (no se borra)
+sudo sh -c 'ls -d /opt/yosoy/app-anterior-* /opt/yosoy/backups/* 2>/dev/null'           # lo que dejaron despliegues anteriores (no se borra)
 systemctl cat whatsapp-service --no-pager 2>/dev/null | grep -E '^(ExecStart|WorkingDirectory|MemoryMax)=|PUPPETEER|WHATSAPP_BACKEND'     # el viejo: MemoryMax=2G y variables PUPPETEER. Sin salida: no había servicio
 sudo cat /etc/caddy/Caddyfile                                                           # sin secretos: tiene que parecerse al de SERVIDOR.md (el sitio, el import de video.caddy y el reverse_proxy)
 ```
@@ -245,7 +246,7 @@ Todo **antes** de publicar la API. **No reinicies la API vieja entre el 3.4 y el
 | `Mensajeria__CanalActivo` | `/opt/yosoy/config/.env` | `Baileys` | El canal real (habla con `whatsapp-service`). Valores válidos: `Simulado` y `Baileys` |
 | `Mensajeria__ModoAtencion` | `.env` | `Personal` | El asistente no contesta; el chat es del personal. Un valor inválido o vacío frena el arranque |
 | `Mensajeria__SoloLocal` | `.env` | `false` | Para que Chats sea visible por el sitio. El simulador anónimo sigue cerrado: en el código (siempre solo local) y por el bloque de Caddy del 3.2 |
-| `Mensajeria__ChatSimuladoHabilitado` | — | **no tocar** (`true` en `appsettings.json`) | Con `false` se apaga todo `/mensajeria`, también la bandeja |
+| `Mensajeria__ChatSimuladoHabilitado` | — | **no definir** (`true` en `appsettings.json`; el 3.4 saca la que hubiera) | Con `false` se apaga todo `/mensajeria`, también la bandeja |
 | `Mensajeria__AvisosPorWhatsApp` | — | **no definir** (apagada) | Sin avisos de turno por WhatsApp |
 | `Mensajeria__Personal__RespuestaDeEmergencia` | — | **no definir** (desactivada) | Ver "Qué sale a producción" |
 | `Mensajeria__WhatsApp__Secreto` | `/opt/yosoy/config/whatsapp.env` | generado en el VPS, nunca visible | Secreto compartido API ↔ servicio (`X-Shared-Secret`) |
@@ -308,10 +309,10 @@ Mirá lo que dio el chequeo del paso 1.2 (`Mensajeria__WhatsApp__Secreto` con 32
 
 ### 3.4 [VPS] Las variables de la API
 
-Quita las que ya estuvieran (incluido un `WhatsAppWebJs` viejo) y agrega las tres, sin imprimir el resto del archivo:
+Quita las que ya estuvieran (incluido un `WhatsAppWebJs` viejo), saca también un `Mensajeria__ChatSimuladoHabilitado` si lo hubiera (con `false` se apagaría todo `/mensajeria`, también Chats) y agrega las tres, sin imprimir el resto del archivo:
 
 ```bash
-sudo sed -i '/^Mensajeria__ModoAtencion=/d;/^Mensajeria__CanalActivo=/d;/^Mensajeria__SoloLocal=/d' /opt/yosoy/config/.env && printf '\nMensajeria__ModoAtencion=Personal\nMensajeria__CanalActivo=Baileys\nMensajeria__SoloLocal=false\n' | sudo tee -a /opt/yosoy/config/.env >/dev/null && sudo grep -n -E '^Mensajeria__(CanalActivo|ModoAtencion|SoloLocal)=' /opt/yosoy/config/.env
+sudo sed -i '/^Mensajeria__ModoAtencion=/d;/^Mensajeria__CanalActivo=/d;/^Mensajeria__SoloLocal=/d;/^Mensajeria__ChatSimuladoHabilitado=/d' /opt/yosoy/config/.env && printf '\nMensajeria__ModoAtencion=Personal\nMensajeria__CanalActivo=Baileys\nMensajeria__SoloLocal=false\n' | sudo tee -a /opt/yosoy/config/.env >/dev/null && sudo grep -n -E '^Mensajeria__(CanalActivo|ModoAtencion|SoloLocal)=' /opt/yosoy/config/.env
 ```
 
 ### 3.5 [VPS] Comprobar sin imprimir
@@ -413,7 +414,7 @@ scp "$env:TEMP\whatsapp-service-${fecha}.tar.gz" agustin@179.199.155.50:/home/ag
 ### 5.2 [VPS] Instalar al lado y probar en Linux
 
 ```bash
-sudo test ! -e /opt/yosoy/whatsapp/app-nueva && sudo install -d -o yosoy -g yosoy /opt/yosoy/whatsapp /opt/yosoy/whatsapp/app-nueva /opt/yosoy/whatsapp/cache && sudo tar -xzf ~/whatsapp-service-$FECHA.tar.gz -C /opt/yosoy/whatsapp/app-nueva && sudo chown -R yosoy:yosoy /opt/yosoy/whatsapp/app-nueva && sudo -u yosoy bash -c 'cd /opt/yosoy/whatsapp/app-nueva && HOME=/opt/yosoy/whatsapp/cache npm ci --omit=dev --cache /opt/yosoy/whatsapp/cache/npm' && ls /opt/yosoy/whatsapp/app-nueva/index.js /opt/yosoy/whatsapp/app-nueva/deploy/whatsapp-service.service
+sudo test ! -e /opt/yosoy/whatsapp/app-nueva && sudo install -d -o yosoy -g yosoy /opt/yosoy/whatsapp /opt/yosoy/whatsapp/app-nueva /opt/yosoy/whatsapp/cache && sudo tar -xzf ~/whatsapp-service-$FECHA.tar.gz -C /opt/yosoy/whatsapp/app-nueva && sudo chown -R yosoy:yosoy /opt/yosoy/whatsapp/app-nueva && sudo -u yosoy bash -c 'cd /opt/yosoy/whatsapp/app-nueva && HOME=/opt/yosoy/whatsapp/cache npm ci --omit=dev --cache /opt/yosoy/whatsapp/cache/npm' && sudo ls /opt/yosoy/whatsapp/app-nueva/index.js /opt/yosoy/whatsapp/app-nueva/deploy/whatsapp-service.service
 ```
 
 ```bash
@@ -421,15 +422,17 @@ sudo -u yosoy bash -c 'cd /opt/yosoy/whatsapp/app-nueva && HOME=/opt/yosoy/whats
 ```
 
 **Esperado:** `npm ci` sin errores (en la PC, con Windows, dice `added 183 packages`; en Linux el número puede diferir por los paquetes opcionales de cada plataforma). `npm ls` muestra `@whiskeysockets/baileys@6.7.24`,
-`express`, `qrcode` y `qrcode-terminal`. `npm test` termina con `tests 454`, `fail 0` y `skipped 6` (las que necesitan el repositorio o `docs/`, que acá no están; las 6 de permisos POSIX **corren de verdad por primera vez en Linux**).
-Si falla alguna, **no sigas**. Si `app-nueva/` ya existía, el primer comando se frena: algo quedó de antes, mirá qué es.
+`express`, `qrcode` y `qrcode-terminal`. `npm test` termina con `tests 454`, `fail 0` y `skipped 6` (las que necesitan el repositorio o `docs/`, que acá no están; las 6 de permisos POSIX **sí corren acá**: en Windows se saltan).
+Si falla alguna, **no sigas**, salvo el caso conocido de abajo. Si `app-nueva/` ya existía, el primer comando se frena: algo quedó de antes, mirá qué es.
+
+**Caso conocido (paquete anterior a `fix/test-sesion-posix`, PR #53):** si el `sesion.test.js` del paquete es el viejo, falla **1** prueba, en `sesion.test.js` línea 205 ("preparar crea la carpeta en 700 y lo que escriba la librería después queda en 600"), y el resumen dice `pass 447` y `fail 1`. **No es un defecto del servicio:** esa prueba esperaba la carpeta de la sesión sin `datos/`, que `preparar()` crea a propósito. Con un `main` que ya trae el arreglo da `fail 0`. La carpeta de la sesión y `datos/` en 700 se comprueban otra vez, en el servidor, en el 5.5.
 
 ### 5.3 [VPS] Corte y reemplazo
 
 La carpeta de la sesión nueva (**700**, dueño `yosoy`, fuera del código), se para el servicio viejo (si lo hay), se intercambian las carpetas y se instala la unit:
 
 ```bash
-sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys && { sudo systemctl stop whatsapp-service || true; } && { sudo test ! -d /opt/yosoy/whatsapp/app || sudo mv /opt/yosoy/whatsapp/app /opt/yosoy/whatsapp/app-anterior-$FECHA; } && sudo mv /opt/yosoy/whatsapp/app-nueva /opt/yosoy/whatsapp/app && sudo cp /opt/yosoy/whatsapp/app/deploy/whatsapp-service.service /etc/systemd/system/whatsapp-service.service && sudo sed -i 's/\r$//' /etc/systemd/system/whatsapp-service.service && sudo systemctl daemon-reload && ls /opt/yosoy/whatsapp
+sudo install -d -m 700 -o yosoy -g yosoy /opt/yosoy/whatsapp/sesion-baileys && { sudo systemctl stop whatsapp-service || true; } && { sudo test ! -d /opt/yosoy/whatsapp/app || sudo mv /opt/yosoy/whatsapp/app /opt/yosoy/whatsapp/app-anterior-$FECHA; } && sudo mv /opt/yosoy/whatsapp/app-nueva /opt/yosoy/whatsapp/app && sudo cp /opt/yosoy/whatsapp/app/deploy/whatsapp-service.service /etc/systemd/system/whatsapp-service.service && sudo sed -i 's/\r$//' /etc/systemd/system/whatsapp-service.service && sudo systemctl daemon-reload && sudo ls /opt/yosoy/whatsapp
 ```
 
 ```bash
@@ -456,7 +459,7 @@ sudo systemctl enable --now whatsapp-service && sleep 8 && systemctl is-active w
 ```
 
 **Esperado:** `active`, `503` (sin vincular, y es lo correcto), y un JSON con `"estado":"requiere_vincular"`, `"motivo":"esperando_escaneo"`, `"qrPendiente":true`, `"conectado":false` (en los primeros segundos puede decir
-`"estado":"iniciando"`); `127.0.0.1:3002` (nunca `0.0.0.0` ni `*`); y `700 yosoy:yosoy` para la carpeta y para `datos`. En el navegador, Configurador → WhatsApp muestra el **QR** ("Esperando escaneo del QR"): **no lo escanees todavía**.
+`"estado":"iniciando"`); `127.0.0.1:3002` (nunca `0.0.0.0` ni `*`); y `700 yosoy:yosoy` para la carpeta y para `datos` (`datos/` la crea el servicio al arrancar, a propósito: aunque no haya nada vinculado, la carpeta de la sesión ya la trae adentro; lo que escriba Baileys al vincular queda en `600`). En el navegador, Configurador → WhatsApp muestra el **QR** ("Esperando escaneo del QR"): **no lo escanees todavía**.
 
 ### 5.6 [VPS] El log, sin texto de pacientes ni teléfonos completos
 
@@ -523,7 +526,7 @@ time sudo systemctl stop whatsapp-service; sudo journalctl -u whatsapp-service -
 
 - Anotá el commit desplegado (`4cff56e` o el que hayas publicado), la fecha, el nombre del `app-anterior-chat-<fecha>` y que se aplicó la migración 17: es lo que pide `DEPLOY.md` ("Al terminar") y lo que va en la tabla "Migraciones aplicadas" de [`SERVIDOR.md`](SERVIDOR.md).
 - Borrá del home del VPS lo que ya no hace falta (no tiene secretos, pero ocupa lugar): `rm -rf ~/Publish-YoSoy-$FECHA-$TAG ~/Publish-YoSoy-$FECHA-$TAG.tar.gz ~/whatsapp-service-$FECHA.tar.gz ~/add_chat_personal_entrantes.sql`. Los `app-anterior-chat-*` y los respaldos de `/opt/yosoy/backups/chat-*` se quedan unos días.
-- Actualizá [`SERVIDOR.md`](SERVIDOR.md) con el estado real (servicios, carpetas, variables): hoy dice que lo que corre es el servicio viejo de WhatsApp.
+- Actualizá [`SERVIDOR.md`](SERVIDOR.md) con el estado real (servicios, carpetas, variables): antes del 19/10/2026 decía que lo que corría era el servicio viejo de WhatsApp (ya se actualizó: "Estado de producción al 19/10/2026").
 - Si cerraste la sesión SSH, las variables `FECHA` y `TAG` se pierden: no las necesitás para operar.
 
 ---
@@ -699,9 +702,20 @@ Marcá cada uno como "visto" antes de dar el servicio por entregado.
 
 - **El estado real del VPS**: qué versión de la API corre hoy, si el servicio viejo existe y está vinculado, el `Caddyfile` y la versión de Caddy, el drop-in `whatsapp.conf`, los permisos de `/opt/yosoy`, la versión de Node, el espacio y la memoria libres, el valor de `Mensajeria__CanalActivo` y de `Email__From` en el `.env`. Para eso es el paso 1.2.
 - **Los comandos con `sudo`, `systemctl`, `sqlcmd` contra SQL Server 2025 y el login administrador** (el nombre del login es un dato que no tengo). Se probó su lógica, no su ejecución.
-- **`npm ci` en Linux** (en Windows instala 183 paquetes; los opcionales por plataforma pueden diferir) y **las 6 pruebas de permisos POSIX** del servicio: corren por primera vez en el paso 5.2.
+- **`npm ci` en Linux** (en Windows instala 183 paquetes; los opcionales por plataforma pueden diferir) y **las 6 pruebas de permisos POSIX** del servicio (en Windows se saltan). Corrieron por primera vez en el paso 5.2 del 19/10/2026: una estaba desactualizada y se corrigió (ver "Registro de la ejecución del 19/10/2026").
 - **La unit en un systemd real** (`systemd-analyze verify` y `security`), el apagado en 1 a 3 segundos, el uso real de memoria (`MemoryMax=512M`) y que `ProtectSystem=strict` deje escribir la carpeta de la sesión.
 - **Cualquier conexión a WhatsApp**: los tiempos reales del QR (~20 s por código, ~2,7 min por ventana), los códigos de desconexión que manda WhatsApp, los umbrales de bloqueo, el envío y la recepción de verdad. Todo está probado con un socket simulado y la red bloqueada.
 - **El simulador cerrado contra el Caddy y la API reales del VPS.** Se probó con Caddy 2.7.0 y la API en una PC. Lo que hace que el código lo cierre es que el pedido llegue con `X-Forwarded-For` (Caddy lo agrega por defecto, ver `NOTAS_MERGE.md`: si se cambia el proxy o su configuración hay que volver a verificarlo); las sondas del 4.4 son la comprobación real en el servidor.
 - **La salida a internet del VPS hacia WhatsApp** (el paso 1.2 lo comprueba con una conexión TCP) y la hora sincronizada.
 - **El mensaje de emergencia con líneas oficiales** (desactivado) y los textos legales.
+
+---
+
+## Registro de la ejecución del 19/10/2026
+
+Agustín ejecutó este runbook a mano en el VPS el 19/10/2026, con la API del commit `7889226`. Lo que quedó en el servidor está en [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
+
+- **Pasos hechos: 1 a 5.** Backup de la base (solo en su PC, fuera del repositorio), respaldo de la configuración en `/opt/yosoy/backups/chat-20261019/`, migración 17, bloque de Caddy del simulador, secreto y variables, API publicada (rollback en `app-anterior-chat-20261019`) y `whatsapp-service` instalado (el anterior quedó en `/opt/yosoy/whatsapp/app-anterior-20261019`).
+- **El servicio quedó sin vincular, a propósito:** activo, con `/salud` en 503. El paso 7 (escanear el QR con el teléfono dedicado de la clínica y la prueba de humo) sigue pendiente, igual que la limpieza de lo viejo (`DEPLOY.md`, paso 10): la sesión de whatsapp-web.js (`/opt/yosoy/whatsapp/sesion`) no se tocó.
+- **Cuatro ajustes que salieron de la ejecución**, ya incorporados arriba: (1) el `sed` del 3.4 también saca `Mensajeria__ChatSimuladoHabilitado`; (2) los `ls` sobre `/opt/yosoy` llevan `sudo` y los `*` van dentro de `sudo sh -c '...'` (5.2, 5.3 y el chequeo 1.2); (3) la prueba de permisos de la sesión estaba desactualizada y `datos/` también queda en 700 (5.2 y 5.5); (4) los comandos se pegan de a uno, después de `sudo -v`.
+- **Comprobado el 19 y el 20/10:** el login, el pedido y la reprogramación de turnos y el registro de un paciente con mail (sin la casilla ni la tarjeta de WhatsApp). Todo bien.

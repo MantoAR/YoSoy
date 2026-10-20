@@ -8,12 +8,57 @@ se versiona. Cómo se publica una versión nueva: [`DEPLOY.md`](DEPLOY.md). El p
 > **De dónde sale lo que dice este archivo.** De los runbooks del repositorio (`DESPLIEGUE_VIDEO.md`,
 > `whatsapp-service/README.md`, `deploy/`) y de lo informado por el equipo después de los despliegues. **No se
 > verificó contra el servidor al escribirlo**: la sección "Verificación rápida" tiene los comandos para comprobarlo
-> (solo lectura, ninguno imprime un secreto).
+> (solo lectura, ninguno imprime un secreto). La sección "Estado de producción al 19/10/2026" la informó quien ejecutó
+> ese despliegue, con lo que comprobó el 19 y el 20/10.
 
 - **Servidor:** Ubuntu 24.04.5 LTS, IP `179.199.155.50`.
 - **Dominio:** `yosoytelemedicina.tech`, apuntando a esa IP (directo, sin CDN ni proxy: TURN usa UDP y un proxy HTTP no
   lo deja pasar).
 - **Zona horaria del servidor:** `America/Argentina/Buenos_Aires`.
+
+## Estado de producción al 19/10/2026
+
+Lo que quedó en el VPS después de desplegar el chat de WhatsApp para el personal, el 19/10/2026, a mano y con el paso a
+paso de [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md) (su "Registro de la ejecución", al
+final, cuenta cómo salió). Solo hay nombres y valores que no son secretos.
+
+- **API:** .NET 9, servicio `yosoy-api` en `127.0.0.1:5000`. Publicada el 19/10/2026 desde el commit `7889226` en
+  `/opt/yosoy/app`. Para volver atrás: `/opt/yosoy/app-anterior-chat-20261019`.
+- **Backups del despliegue:** `/opt/yosoy/backups/chat-20261019/` (copia del `.env`, del `Caddyfile`, de `whatsapp.env`,
+  de la unit de `whatsapp-service` y del drop-in). El backup de la base está **solo en la PC del dueño del proyecto**,
+  fuera del repositorio y del servidor.
+- **Base `yosoy`** (SQL Server Express, **44 tablas**): **migración 17 aplicada** (`migrations/add_chat_personal_entrantes.sql`):
+  `MensajeChat.IdExterno` con su índice único filtrado `UQ_MensajeChat_IdExterno`, `MensajeChat.Tipo` con su restricción
+  `CHECK` y su valor por defecto, y `Conversacion.NombreContacto`. La **migración 16 no se aplicó y no hace falta**:
+  `Mensajeria__AvisosPorWhatsApp` está apagada y la API no toca esa tabla.
+- **Mensajería, en `/opt/yosoy/config/.env`:** `Mensajeria__ModoAtencion=Personal`, `Mensajeria__CanalActivo=Baileys` y
+  `Mensajeria__SoloLocal=false`. **No están definidas** `Mensajeria__ChatSimuladoHabilitado` (con `false` se apagaría todo
+  `/mensajeria`, también Chats), `Mensajeria__AvisosPorWhatsApp` ni `Mensajeria__Personal__RespuestaDeEmergencia`: valen sus
+  valores por defecto (Chats habilitados, avisos apagados y mensaje de emergencia desactivado).
+- **Modo Personal:** el asistente automático está apagado. Los chats son solo del Configurador (CRM → Chats): los ve y los
+  contesta; los profesionales reciben 403 en `/mensajeria`. El mensaje de emergencia está desactivado y sus líneas siguen
+  pendientes de validar.
+- **El simulador del chat está cerrado en dos capas:** en el código (`POST /mensajeria/simulado/entrante` y
+  `GET /mensajeria/simulado/conversacion` solo responden a la propia máquina: filtro `SoloDesdeLaPropiaMaquina`) y en Caddy
+  (`handle /mensajeria/simulado/* { respond 404 }` en `/etc/caddy/Caddyfile`, ver "Caddy").
+- **`whatsapp-service` nuevo** (Baileys `6.7.24`, versión exacta; sin navegador): usuario `yosoy`, `127.0.0.1:3002`, código en
+  `/opt/yosoy/whatsapp/app`. Unit `/etc/systemd/system/whatsapp-service.service`, con endurecimiento de systemd,
+  `MemoryMax=512M` y `StartLimitBurst=5` en `StartLimitIntervalSec=300` (si cae 5 veces en 5 minutos, systemd se rinde).
+  Sesión en `/opt/yosoy/whatsapp/sesion-baileys` (carpeta `700`, `datos/` `700`, archivos `600`). Configuración en
+  `/opt/yosoy/config/whatsapp.env` (`600`, `yosoy:yosoy`) y el drop-in `whatsapp.conf` de `yosoy-api`. Topes de envío: 30 por
+  día y 10 por hora. El servicio anterior quedó en `/opt/yosoy/whatsapp/app-anterior-20261019`.
+- **Lo viejo sigue en el disco:** la sesión de whatsapp-web.js, `/opt/yosoy/whatsapp/sesion`, no se tocó. Su baja está
+  pendiente: [`DEPLOY.md`](DEPLOY.md), paso 10, "Limpieza de lo viejo".
+- **WhatsApp: instalado, activo y SIN vincular.** El servicio corre pero no tiene ningún número: `GET /salud` contesta 503
+  mientras no se escanee el QR. El QR se va a escanear después, con el teléfono dedicado de la clínica
+  ([`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md), paso 7). **Cuando se vincule, hay que
+  actualizar esta línea**, con la fecha.
+- **Pruebas del servicio:** la que falló al correr `npm test` en el VPS (`sesion.test.js`, línea 205) estaba desactualizada
+  —esperaba la carpeta de la sesión sin `datos/`, que el servicio crea a propósito—, no era un defecto del servicio. Se
+  corrigió en `fix/test-sesion-posix` (PR #53, ya en `main`). La suite queda en 454 pruebas: 448 pasan, 6 se saltan y 0
+  fallan (en Windows se saltan las 6 de permisos POSIX).
+- **Chequeos del 19 y el 20/10/2026:** el login, el pedido y la reprogramación de turnos y el registro de un paciente con
+  mail (sin la casilla ni la tarjeta de WhatsApp) anduvieron bien.
 
 ## Cómo entra el tráfico
 
@@ -95,7 +140,7 @@ las marcas de tiempo de auditoría y el bloqueo del login se corren (los horario
 | `caddy` | Reverse proxy. HTTPS real, certificado de Let's Encrypt con renovación automática. **Caddy 2.7 o más nuevo** (la 2.6 no valida `video.caddy`). | 80, 443 | `caddy` | `/etc/caddy/Caddyfile` y `/etc/caddy/video.caddy` |
 | `signaling-server` | Socket.IO de las videollamadas (Node 22), en `/opt/yosoy/signaling/app`. `MemoryMax=256M`. | `127.0.0.1:3001` | `yosoy` | `/opt/yosoy/config/signaling.env`; unit en `deploy/signaling-server.service` |
 | `coturn` | STUN/TURN del video. Paquete de Ubuntu. | 3478 (UDP/TCP), 49160–49200 (UDP) | `turnserver` | `/etc/turnserver.conf` (640 `root:turnserver`); modelo en `deploy/coturn/turnserver.conf` |
-| `whatsapp-service` | Puente HTTP interno hacia WhatsApp con **Baileys** (WhatsApp Web sin navegador): es el único motor del código. **El que corre hoy en el VPS todavía es el viejo** (whatsapp-web.js + Chromium, `MemoryMax=2G`) hasta que se despliegue el nuevo (ver "WhatsApp (whatsapp-service con Baileys)", abajo); el nuevo no usa navegador y lleva `MemoryMax=512M`. En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; unit en `whatsapp-service/deploy/whatsapp-service.service` |
+| `whatsapp-service` | Puente HTTP interno hacia WhatsApp con **Baileys** (WhatsApp Web sin navegador): es el único motor del código. **Desde el 19/10/2026 corre el nuevo**, que reemplazó al viejo (whatsapp-web.js + Chromium, `MemoryMax=2G`): sin navegador, con `MemoryMax=512M`, instalado y **sin vincular** (ver "Estado de producción al 19/10/2026", arriba, y "WhatsApp (whatsapp-service con Baileys)", abajo). En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; unit en `whatsapp-service/deploy/whatsapp-service.service` |
 | `mssql-server` | SQL Server 2025, edición Express. | 1433 | `mssql` | — |
 | `fail2ban` | Ver arriba. | — | `root` | — |
 
@@ -110,9 +155,16 @@ Los secretos de signaling y TURN **son los mismos** en los dos lados: `SIGNALING
 ```
 yosoytelemedicina.tech {
     import /etc/caddy/video.caddy
+    handle /mensajeria/simulado/* {
+        respond 404
+    }
     reverse_proxy localhost:5000
 }
 ```
+
+El bloque `handle /mensajeria/simulado/*` se agregó el 19/10/2026: es la segunda capa que cierra el simulador anónimo del chat
+(la primera está en el código; ver "Estado de producción al 19/10/2026"). La copia anterior del `Caddyfile` está en
+`/opt/yosoy/backups/chat-20261019/`.
 
 `/etc/caddy/video.caddy` (copia de `deploy/caddy/video.caddy`) agrega solo una cosa: `handle /socket.io/*` →
 `reverse_proxy 127.0.0.1:3001` con `stream_close_delay 5m` (que una recarga de Caddy no corte de golpe los WebSocket de
@@ -124,13 +176,14 @@ Antes de recargar: `sudo caddy validate --config /etc/caddy/Caddyfile --adapter 
 ### WhatsApp (whatsapp-service con Baileys)
 
 `whatsapp-service` usa **Baileys** (WhatsApp Web sin navegador, no oficial) como único motor: `whatsapp-web.js`, Puppeteer y Chromium se sacaron del código
-([`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)). **Lo que corre hoy en el VPS todavía es el servicio viejo**: nada de lo nuevo está en el
-servidor. El paso a paso para reemplazarlo, con backup, limpieza de lo viejo y rollback, es [`DEPLOY.md`](DEPLOY.md), "Despliegue de whatsapp-service (Baileys)".
+([`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)). **Desde el 19/10/2026 lo que corre en el VPS es el servicio nuevo**, instalado y **sin vincular** (ver "Estado de
+producción al 19/10/2026", arriba); la limpieza de lo viejo (la sesión de whatsapp-web.js y, si quedó, Chromium) está
+pendiente. El paso a paso para reemplazar el servicio viejo, con backup, limpieza de lo viejo y rollback, es [`DEPLOY.md`](DEPLOY.md), "Despliegue de whatsapp-service (Baileys)".
 
-| | Hoy en el VPS (servicio viejo) | Versión nueva (Baileys) |
+| | Antes (servicio viejo) | Hoy en el VPS (Baileys) |
 |---|---|---|
 | Librería | whatsapp-web.js + Chromium | `@whiskeysockets/baileys` 6.7.24 (versión exacta), sin navegador |
-| Unit | la que está instalada (queda de backup al reemplazarla) | `whatsapp-service/deploy/whatsapp-service.service` (se instala con el mismo nombre) |
+| Unit | la que estaba instalada (hay copia en `/opt/yosoy/backups/chat-20261019/`) | `whatsapp-service/deploy/whatsapp-service.service` (se instala con el mismo nombre) |
 | Memoria | `MemoryMax=2G` | `MemoryMax=512M` (a confirmar con la primera conexión real) |
 | Sesión | `/opt/yosoy/whatsapp/sesion` | `/opt/yosoy/whatsapp/sesion-baileys` (700; adentro, `datos/` con los consentimientos y los contadores de envío) |
 | Escribe en disco | `sesion/` y `cache/` | solo `sesion-baileys/` |
@@ -189,6 +242,7 @@ Ninguna contraseña de ninguno de los dos está en este archivo ni en el repo.
 | `docs/produccion/01-produccion.sql` | El esquema completo (45 tablas; la base del servidor se creó con 44, antes de la migración 16). Siembra `TipoConsentimiento` (telemedicina) y, aparte y opcional, preguntas frecuentes y respuestas rápidas del chat. | Aplicado al crear la base |
 | `migrations/add_consentimiento_video.sql` | Tabla `ConsentimientoVideo` y tres columnas de `SesionClinica` (consentimiento de la lectura de emociones, PR 6). Solo agrega; idempotente. | **Aplicada.** (En un servidor nuevo, `01-produccion.sql` ya la incluye) |
 | `migrations/add_consentimiento_whatsapp.sql` | Tabla `ConsentimientoWhatsApp` (migración 16): el paciente acepta o revoca recibir avisos de sus turnos por WhatsApp; una fila por aceptación, con la versión y el hash del texto que vio, el número y las fechas en UTC. Solo agrega una tabla, dos claves foráneas y dos índices; idempotente. | **No hace falta por ahora.** Solo se aplica si se prende `Mensajeria__AvisosPorWhatsApp` (apagada por defecto: con ella apagada la API no toca la tabla y se publica sin esta migración); en ese caso va **antes** de prender la llave: ver [`DEPLOY.md`](DEPLOY.md), "Consentimiento de WhatsApp". |
+| `migrations/add_chat_personal_entrantes.sql` | Migración 17, del chat de WhatsApp para el personal: `MensajeChat.IdExterno` (con el índice único filtrado `UQ_MensajeChat_IdExterno`), `MensajeChat.Tipo` (con su `CHECK` y su valor por defecto) y `Conversacion.NombreContacto`. No crea tablas; idempotente; es independiente de la 16. | **Aplicada el 19/10/2026** (la base sigue con 44 tablas). Hace falta con `Mensajeria__ModoAtencion=Personal`. (`01-produccion.sql` ya la incluye, pero la base del servidor es anterior) |
 | `migrations/seed_catalogos.sql` | Catálogos iniciales que la base nacida de `01-produccion.sql` no traía: especialidades, estados de turno con ids fijos (1 Pendiente, 2 Confirmado, 3 Cancelado, 4 Realizado) y el tipo de consentimiento de telemedicina. Idempotente. | **Aplicada.** Versionada en el repo; para un servidor nuevo, ver [`DEPLOY.md`](DEPLOY.md), "Servidor nuevo: base y catálogos" |
 
 Cómo se aplican (`-I` es obligatorio, `-f 65001` por los acentos): [`DEPLOY.md`](DEPLOY.md), sección "Migraciones".
@@ -264,7 +318,8 @@ no sale mientras alguna línea esté sin completar) y `Mensajeria__LineasEmergen
 
 ## Verificación rápida (solo lectura)
 
-Ninguno de estos comandos imprime un secreto.
+Ninguno de estos comandos imprime un secreto. (`/opt/yosoy/config` es `750` de `yosoy`: un `*` sobre esa carpeta va dentro de
+`sudo sh -c`, porque el shell de `agustin` lo expande antes de `sudo` y no encuentra nada.)
 
 ```bash
 timedatectl | grep -E "Time zone|Local time"          # America/Argentina/Buenos_Aires
@@ -274,12 +329,12 @@ sudo ss -ltnp | grep -E ':(3001|3002|5000) '          # todo en 127.0.0.1, nunca
 sudo ss -lunp | grep ':3478'                          # coturn (UDP); y el TCP con ss -ltnp
 caddy version                                         # v2.7.0 o más nuevo
 sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-sudo stat -c '%a %U:%G %n' /opt/yosoy/config/*        # los .env en 600 yosoy:yosoy
+sudo sh -c "stat -c '%a %U:%G %n' /opt/yosoy/config/.env /opt/yosoy/config/*.env"    # los .env en 600 yosoy:yosoy
 sudo ls -la /opt/yosoy                                # app, config, signaling, whatsapp, backups (y app-anterior-*)
 curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost:5000/    # 302 .../pantallas/index.html
 sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Video:'   # "/video/acceso habilitado."
 sudo journalctl -u yosoy-api --since '30 minutes ago' --no-pager | grep 'Zona horaria de la clínica'   # America/Argentina/Buenos_Aires, -03:00:00
-# Con el servicio de Baileys (cuando se despliegue):
+# Con el servicio de Baileys:
 curl -s http://127.0.0.1:3002/salud                   # 200 y "estado":"conectado"; 503 con el estado y el motivo si no
 sudo stat -c '%a %U:%G %n' /opt/yosoy/whatsapp/sesion-baileys /opt/yosoy/whatsapp/sesion-baileys/datos    # 700 yosoy:yosoy
 sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]{7,}'    # no tiene que devolver nada: sin teléfonos completos
@@ -295,9 +350,10 @@ sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]
   un backup de `yosoy` y del código desplegado que no dependa de que el servidor siga existiendo. Además, la
   **clave de cifrado de las emociones** no se puede regenerar: tiene que estar respaldada fuera. (La sesión de WhatsApp sí se puede rehacer escaneando un QR: la de Baileys,
   `sesion-baileys/`, respaldarla o no es una decisión pendiente, ver `PROGRESO_BAILEYS.md`; si se respalda, cifrada. La vieja, `sesion/`, se borra con la limpieza de lo viejo.)
-- **WhatsApp con Baileys (único motor):** desplegarlo (número dedicado, topes iniciales bajos), probar el apagado y la memoria reales y, cuando esté estable, **limpiar lo
-  viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché). Antes, mirar que `Mensajeria__CanalActivo` en el `.env` no sea `WhatsAppWebJs` (la API no
-  arranca con ese valor). Todo en [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md). El consentimiento ya está resuelto en el
+- **WhatsApp con Baileys (único motor):** desplegado el 19/10/2026 con topes iniciales bajos (30 por día y 10 por hora) y **sin vincular**. Falta escanear el QR con el
+  teléfono dedicado de la clínica y la prueba de humo (paso 7 de [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md)), probar el apagado y la
+  memoria reales y, cuando esté estable, **limpiar lo viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché: [`DEPLOY.md`](DEPLOY.md), paso 10).
+  Todo en [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md). El consentimiento ya está resuelto en el
   código (las opciones A y B de esa decisión: ver el punto siguiente); falta aplicarlo.
 - **Consentimiento de WhatsApp (dormido por defecto):** con `Mensajeria__AvisosPorWhatsApp` apagada (lo de siempre) **no hace falta aplicar la migración 16** para publicar la API. Si se decide prenderla:
   aplicar la migración 16 **antes** de prender la llave, cargar `Mensajeria__WhatsAppNumeroClinica` si se quiere el link `wa.me`, y **validar el texto con el equipo legal** antes de usarlo con pacientes reales (`v0-provisorio` es un borrador).
