@@ -32,6 +32,16 @@ public static class AutorizacionReporte
             return (false, null, "No tenés acceso a este reporte.");
         }
 
+        // Roles y permisos: el alcance total es del Profesional auditor (antes del Configurador).
+        if (identidad.EsAuditor)
+        {
+            Auditar(idUsuario, "Descarga Reporte HTML", idProfesionalSolicitado,
+                idProfesionalSolicitado.HasValue
+                    ? $"Alcance auditor, filtrado por idProfesional={idProfesionalSolicitado.Value}"
+                    : "Alcance auditor, todos los profesionales");
+            return (true, idProfesionalSolicitado, "");
+        }
+
         if (identidad.EsProfesional)
         {
             // El profesional del token es su propio alcance y nadie más.
@@ -49,13 +59,9 @@ public static class AutorizacionReporte
             return (true, identidad.IdProfesional, "");
         }
 
-        // Configurador: alcance total, o filtrado si pidió un profesional puntual.
-        Auditar(idUsuario, "Descarga Reporte HTML", idProfesionalSolicitado,
-            idProfesionalSolicitado.HasValue
-                ? $"Alcance configurador, filtrado por idProfesional={idProfesionalSolicitado.Value}"
-                : "Alcance configurador, todos los profesionales");
-
-        return (true, idProfesionalSolicitado, "");
+        // Configurador, CRM y cualquier otro módulo: sin acceso (datos de pacientes).
+        Auditar(idUsuario, "Reporte HTML denegado", idProfesionalSolicitado, $"Módulo {identidad.Modulo ?? identidad.Rol} sin acceso a reportes.");
+        return (false, null, "Los reportes de atención son del Profesional auditor.");
     }
 
     // Mismo patrón de auditoría que ya usan los endpoints de alta y baja.
@@ -66,6 +72,8 @@ public static class AutorizacionReporte
             Accion    = accion,
             Entidad   = "Reporte",
             IdEntidad = idEntidad,
-            Detalle   = detalle
+            Detalle   = detalle,
+            // Roles y permisos: el reporte lleva nombre, DNI y NHC de pacientes → auditoría clínica.
+            Categoria = CategoriaAuditoria.Clinica
         });
 }

@@ -8,6 +8,14 @@ using Microsoft.IdentityModel.Tokens;
 public class JwtEmisorService
 {
     public const int HorasExpiracion = 8;
+
+    // Etapa 2 (acceso por módulo).
+    public const string ClaimModulo = "modulo";
+    public const string ClaimPrivilegio = "privilegio";
+    public const string ClaimUso = "uso";
+    public const string UsoSeleccion = "seleccion-modulo";
+    public const int MinutosSeleccion = 5;
+
     private readonly SymmetricSecurityKey _clave;
 
     public JwtEmisorService(IConfiguration config)
@@ -25,9 +33,40 @@ public class JwtEmisorService
         if (idPaciente is not null) claims.Add(new(IdentidadActualService.ClaimIdPaciente, idPaciente.Value.ToString()));
         if (idProfesional is not null) claims.Add(new(IdentidadActualService.ClaimIdProfesional, idProfesional.Value.ToString()));
 
+        return Firmar(claims, DateTime.UtcNow.AddHours(HorasExpiracion));
+    }
+
+    // Token de trabajo de un módulo: un claim de rol por permiso y uno por privilegio.
+    public string EmitirModulo(int idUsuario, SesionModulo sesion)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, idUsuario.ToString()),
+            new(ClaimModulo, sesion.Modulo)
+        };
+        claims.AddRange(sesion.Permisos.Select(p => new Claim(ClaimTypes.Role, p)));
+        claims.AddRange(sesion.Privilegios.Select(p => new Claim(ClaimPrivilegio, p)));
+        if (sesion.IdProfesional is not null) claims.Add(new(IdentidadActualService.ClaimIdProfesional, sesion.IdProfesional.Value.ToString()));
+        return Firmar(claims, DateTime.UtcNow.AddHours(HorasExpiracion));
+    }
+
+    // Token de selección: sin roles, 5 minutos, y Program.cs lo rechaza en cualquier ruta
+    // que no sea POST /sesion/modulo (evento OnTokenValidated de AddJwtBearer).
+    public string EmitirSeleccion(int idUsuario)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, idUsuario.ToString()),
+            new(ClaimUso, UsoSeleccion)
+        };
+        return Firmar(claims, DateTime.UtcNow.AddMinutes(MinutosSeleccion));
+    }
+
+    private string Firmar(IEnumerable<Claim> claims, DateTime vence)
+    {
         var token = new JwtSecurityToken(
             claims: claims,
-            expires: DateTime.UtcNow.AddHours(HorasExpiracion),
+            expires: vence,
             signingCredentials: new SigningCredentials(_clave, SecurityAlgorithms.HmacSha256));
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

@@ -27,8 +27,8 @@ public static class CasosEndpoints
 
         g.MapPost("/grupos", (CrearGrupoRequest req, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede crear grupos." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede crear grupos." }, statusCode: 403);
             if (string.IsNullOrWhiteSpace(req.Nombre)) return Results.BadRequest(new { mensaje = "El nombre es obligatorio." });
 
             var id = new GrupoDAO().Insertar(new Grupo { Nombre = req.Nombre.Trim(), Descripcion = req.Descripcion, Activo = true });
@@ -37,8 +37,8 @@ public static class CasosEndpoints
 
         g.MapPut("/grupos/{id}", (int id, CrearGrupoRequest req, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede editar grupos." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede editar grupos." }, statusCode: 403);
             var dao = new GrupoDAO();
             var gr = dao.ObtenerPorId(id);
             if (gr is null) return Results.NotFound();
@@ -50,16 +50,16 @@ public static class CasosEndpoints
 
         g.MapPut("/grupos/{id}/desactivar", (int id, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar grupos." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede desactivar grupos." }, statusCode: 403);
             new GrupoDAO().Desactivar(id);
             return Results.NoContent();
         });
 
         g.MapPut("/grupos/{id}/activar", (int id, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede activar grupos." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede activar grupos." }, statusCode: 403);
             new GrupoDAO().Activar(id);
             return Results.NoContent();
         });
@@ -68,16 +68,16 @@ public static class CasosEndpoints
 
         g.MapPost("/grupos/{id}/miembros", (int id, MiembroGrupoRequest req, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede gestionar los miembros de un grupo." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede gestionar los miembros de un grupo." }, statusCode: 403);
             new GrupoDAO().AgregarMiembro(id, req.IdProfesional);
             return Results.NoContent();
         });
 
         g.MapDelete("/grupos/{id}/miembros/{idProfesional}", (int id, int idProfesional, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede gestionar los miembros de un grupo." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede gestionar los miembros de un grupo." }, statusCode: 403);
             new GrupoDAO().QuitarMiembro(id, idProfesional);
             return Results.NoContent();
         });
@@ -87,8 +87,8 @@ public static class CasosEndpoints
 
         g.MapPost("/reglasderivacion", (CrearReglaRequest req, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede crear reglas de derivación." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede crear reglas de derivación." }, statusCode: 403);
             var id = new ReglaDerivacionDAO().Insertar(new ReglaDerivacion
             {
                 IdEspecialidad = req.IdEspecialidad, IdGrupoDestino = req.IdGrupoDestino,
@@ -101,8 +101,8 @@ public static class CasosEndpoints
         // configuración (Pantalla_Configurador/js/dashboard.js), igual que /especialidades/{id}.
         g.MapPut("/reglasderivacion/{id}", (int id, ReglaDerivacion req, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede editar reglas de derivación." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede editar reglas de derivación." }, statusCode: 403);
             req.IdRegla = id;
             new ReglaDerivacionDAO().Modificar(req);
             return Results.Ok(req);
@@ -112,24 +112,24 @@ public static class CasosEndpoints
         // /especialidades/{id} (EspecialidadDAO.Baja). No borra la fila.
         g.MapDelete("/reglasderivacion/{id}", (int id, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar reglas." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede desactivar reglas." }, statusCode: 403);
             new ReglaDerivacionDAO().CambiarActiva(id, false);
             return Results.NoContent();
         });
 
         g.MapPut("/reglasderivacion/{id}/desactivar", (int id, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede desactivar reglas." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede desactivar reglas." }, statusCode: 403);
             new ReglaDerivacionDAO().CambiarActiva(id, false);
             return Results.NoContent();
         });
 
         g.MapPut("/reglasderivacion/{id}/activar", (int id, HttpContext ctx) =>
         {
-            var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede activar reglas." }, statusCode: 403);
+            var esAdmin = AutorizacionCasos.EsConfigurador(ctx);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo el Configurador puede activar reglas." }, statusCode: 403);
             new ReglaDerivacionDAO().CambiarActiva(id, true);
             return Results.NoContent();
         });
@@ -179,7 +179,7 @@ public static class CasosEndpoints
         g.MapPut("/casos/{id}/reasignar", (int id, ReasignarCasoRequest req, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede reasignar un caso." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede reasignar un caso." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try
             {
@@ -209,7 +209,7 @@ public static class CasosEndpoints
             var caso = casoDao.ObtenerAbiertoPorPaciente(id);
             if (caso is null) return Results.NotFound();
             return Results.Ok(casoDao.ObtenerDetalle(caso.IdCaso));
-        }).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+        }).Solo(Quien.Profesional | Quien.Crm);
 
         // ── Mis casos (profesional) ───────────────────────────────
         g.MapGet("/profesionales/{id}/casos", (int id, HttpContext ctx) =>
@@ -224,14 +224,14 @@ public static class CasosEndpoints
         g.MapGet("/casosderivaciones/pendientes", (HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador ve la cola de derivaciones." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente ve la cola de derivaciones." }, statusCode: 403);
             return Results.Ok(new CasoDerivacionDAO().ObtenerPendientes());
         });
 
         g.MapPut("/casosderivaciones/{id}/confirmar", (int id, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede confirmar una derivación." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede confirmar una derivación." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.ConfirmarDerivacion(id, idUsuario); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
@@ -240,7 +240,7 @@ public static class CasosEndpoints
         g.MapPut("/casosderivaciones/{id}/corregir", (int id, CorregirDerivacionRequest req, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede corregir una derivación." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede corregir una derivación." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.CorregirDerivacion(id, idUsuario, req.IdGrupo, req.IdProfesional); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
@@ -249,7 +249,7 @@ public static class CasosEndpoints
         g.MapPut("/casosderivaciones/{id}/rechazar", (int id, HttpContext ctx, AsignacionService asignacion) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede rechazar una derivación." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede rechazar una derivación." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
             try { asignacion.RechazarDerivacion(id, idUsuario); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
