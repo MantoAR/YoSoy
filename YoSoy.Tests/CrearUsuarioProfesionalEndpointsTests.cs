@@ -58,9 +58,10 @@ public class CrearUsuarioProfesionalEndpointsTests
         public void Dispose()
         {
             Factory.Dispose();
-            Ejecutar("DELETE FROM LogAuditoria WHERE Entidad IN (N'Usuario', N'Profesional') AND Detalle LIKE @m", ("@m", "%" + Marca + "%"));
+            // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
             Ejecutar("DELETE FROM UsuarioProfesional WHERE IdProfesional IN (SELECT IdProfesional FROM Profesional WHERE Apellido = @m)", ("@m", Marca));
-            Ejecutar("DELETE FROM Usuario WHERE Username LIKE @m", ("@m", Marca + "%"));
+            // El administrador de la prueba actuó (figura en LogAuditoria, de solo agregar): ese usuario no se puede borrar y queda con su marca.
+            Ejecutar("DELETE FROM Usuario WHERE Username LIKE @m AND NOT EXISTS (SELECT 1 FROM LogAuditoria l WHERE l.IdUsuario = Usuario.IdUsuario)", ("@m", Marca + "%"));
             Ejecutar("DELETE FROM Profesional WHERE Apellido = @m", ("@m", Marca));
             Ejecutar("DELETE FROM Especialidad WHERE IdEspecialidad = @i", ("@i", IdEspecialidad));
         }

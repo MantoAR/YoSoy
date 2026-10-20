@@ -78,14 +78,28 @@ public sealed class DatosDePrueba : IDisposable
     {
         if (profundidad > 6) throw new InvalidOperationException($"Cascada de borrado demasiado profunda en {tabla}.");
 
+        var hijas = HijasDe(tabla);
+
+        // La auditoría es de solo agregar (migración 19: el trigger rechaza el DELETE, error 50018): no se puede borrar lo que dejó
+        // la aplicación en LogAuditoria. Si alguna de sus filas apunta a lo que se iba a borrar (un usuario que actuó), eso queda
+        // como está: no se toca nada de esta rama (ni sus hijas) y la fila retenida es una más de la base de pruebas, con marca.
+        foreach (var (hija, columnaHija, columnaPadre) in hijas)
+            if (EsDeSoloAgregar(hija) &&
+                Contar($"SELECT COUNT(*) FROM {hija} WHERE {columnaHija} IN (SELECT {columnaPadre} FROM {tabla} WHERE {condicion})", ("@v", valor)) > 0)
+                return;
+
         // Primero lo que apunta a estas filas (las claves foráneas que referencian a la tabla), de forma recursiva.
-        foreach (var (hija, columnaHija, columnaPadre) in HijasDe(tabla))
+        foreach (var (hija, columnaHija, columnaPadre) in hijas)
         {
             if (string.Equals(hija, tabla, StringComparison.OrdinalIgnoreCase)) continue;   // auto-referencia
+            if (EsDeSoloAgregar(hija)) continue;   // ya se comprobó arriba que no tiene filas que apunten acá
             BorrarEnCascada(hija, $"{columnaHija} IN (SELECT {columnaPadre} FROM {tabla} WHERE {condicion})", valor, profundidad + 1);
         }
         Ejecutar($"DELETE FROM {tabla} WHERE {condicion}", ("@v", valor));
     }
+
+    private static bool EsDeSoloAgregar(string tablaCalificada) =>
+        tablaCalificada.EndsWith("[LogAuditoria]", StringComparison.OrdinalIgnoreCase) || tablaCalificada.EndsWith("[LogError]", StringComparison.OrdinalIgnoreCase);
 
     private static List<(string Hija, string ColumnaHija, string ColumnaPadre)> HijasDe(string tabla)
     {

@@ -2,7 +2,7 @@
    01-produccion.sql — Esquema completo de YoSoy para un servidor nuevo.
 
    Qué es: la base [yosoy] tal como la necesita el código hoy — el script base
-   de la rama `DataBase` más las 17 migraciones de migrations/, consolidados
+   de la rama `DataBase` más las 19 migraciones de migrations/, consolidados
    en un solo archivo con la forma FINAL de cada tabla (no un replay histórico
    de cada ALTER). Pensado para correr UNA vez contra un servidor recién
    instalado, sin nada previo.
@@ -237,7 +237,13 @@ CREATE TABLE [dbo].[LogAuditoria](
     [Entidad] [nvarchar](50) NOT NULL,
     [IdEntidad] [int] NULL,
     [Detalle] [nvarchar](500) NULL,
-    [FechaHora] [datetime] NOT NULL CONSTRAINT [DF_LogAuditoria_FechaHora] DEFAULT (getdate())
+    [FechaHora] [datetime] NOT NULL CONSTRAINT [DF_LogAuditoria_FechaHora] DEFAULT (getdate()),
+    -- Migración 19: categoría, módulo y cadena de hashes (ver los triggers más abajo, sección 7b).
+    [Espacio] [nvarchar](30) NULL,
+    [Categoria] [nvarchar](20) NOT NULL CONSTRAINT [DF_LogAuditoria_Categoria] DEFAULT ('Administrativa')
+        CONSTRAINT [CK_LogAuditoria_Categoria] CHECK ([Categoria] IN ('Administrativa', 'Clinica')),
+    [Hash] [varbinary](32) NULL,
+    [HashAnterior] [varbinary](32) NULL
 );
 GO
 
@@ -580,6 +586,38 @@ CREATE TABLE [dbo].[RespuestaRapida](
 );
 GO
 
+-- ── 5b) Tablas — versión del esquema y registro de errores (migración 18) ───────
+CREATE TABLE VersionEsquema (
+    Numero          INT           NOT NULL PRIMARY KEY,
+    Archivo         NVARCHAR(200) NOT NULL,
+    FechaAplicacion DATETIME2(0)  NOT NULL CONSTRAINT DF_VersionEsquema_Fecha DEFAULT SYSDATETIME(),
+    Origen          NVARCHAR(20)  NOT NULL CONSTRAINT DF_VersionEsquema_Origen DEFAULT 'Script'
+        CONSTRAINT CK_VersionEsquema_Origen CHECK (Origen IN ('Script', 'Detectada'))
+);
+GO
+
+CREATE TABLE LogError (
+    IdLogError  BIGINT         IDENTITY(1,1) PRIMARY KEY,
+    Codigo      CHAR(9)        NOT NULL,
+    FechaHora   DATETIME2(3)   NOT NULL CONSTRAINT DF_LogError_Fecha DEFAULT SYSDATETIME(),
+    Metodo      NVARCHAR(10)   NULL,
+    Ruta        NVARCHAR(300)  NULL,
+    StatusCode  INT            NULL,
+    IdUsuario   INT            NULL,
+    Rol         NVARCHAR(30)   NULL,
+    TipoError   NVARCHAR(200)  NULL,
+    Mensaje     NVARCHAR(1000) NULL,
+    Detalle     NVARCHAR(MAX)  NULL,
+    VersionApi  NVARCHAR(50)   NULL
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.LogError') AND name = 'UX_LogError_Codigo')
+    CREATE UNIQUE INDEX UX_LogError_Codigo ON LogError(Codigo);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.LogError') AND name = 'IX_LogError_Fecha')
+    CREATE INDEX IX_LogError_Fecha ON LogError(FechaHora DESC);
+GO
+
+
 -- ── 6) Índices (únicos filtrados y de búsqueda) ─────────────────────────────
 SET QUOTED_IDENTIFIER ON;
 GO
@@ -763,6 +801,156 @@ GO
 ALTER TABLE [dbo].[ConversacionEtiqueta] ADD CONSTRAINT [FK_ConvEtiqueta_Etiqueta] FOREIGN KEY([IdEtiqueta]) REFERENCES [dbo].[EtiquetaConversacion]([IdEtiqueta]);
 GO
 ALTER TABLE [dbo].[RespuestaRapida] ADD CONSTRAINT [FK_RespuestaRapida_Profesional] FOREIGN KEY([IdProfesional]) REFERENCES [dbo].[Profesional]([IdProfesional]);
+GO
+
+-- ── 7b) Auditoría inalterable (migración 19): hash encadenado y solo agregar ──
+-- Hash de un registro ────────────────────────────────────
+-- Una sola función para el trigger y para la verificación, así nunca calculan distinto.
+-- No incluye IdLog: se asigna al insertar. El orden lo protege HashAnterior.
+CREATE OR ALTER FUNCTION dbo.fn_HashAuditoria (
+    @Anterior  VARBINARY(32),
+    @IdUsuario INT,
+    @Accion    NVARCHAR(100),
+    @Entidad   NVARCHAR(50),
+    @IdEntidad INT,
+    @Detalle   NVARCHAR(500),
+    @FechaHora DATETIME,
+    @Categoria NVARCHAR(20),
+    @Espacio   NVARCHAR(30))
+RETURNS VARBINARY(32)
+AS
+BEGIN
+    RETURN HASHBYTES('SHA2_256', CONCAT(
+        CONVERT(NVARCHAR(64), @Anterior, 2), N'|',
+        @IdUsuario, N'|', @Accion, N'|', @Entidad, N'|', @IdEntidad, N'|', @Detalle, N'|',
+        CONVERT(NVARCHAR(23), @FechaHora, 126), N'|', @Categoria, N'|', @Espacio));
+END;
+GO
+
+-- Cada registro nuevo se encadena al anterior ───────────
+-- INSTEAD OF INSERT: el trigger hace el INSERT real, de a una fila, con el hash del último
+-- registro encadenado. UPDLOCK + HOLDLOCK: dos inserciones simultáneas no pueden tomar el
+-- mismo "anterior" (la segunda espera a la primera).
+CREATE OR ALTER TRIGGER TR_LogAuditoria_Encadenar ON LogAuditoria INSTEAD OF INSERT AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @IdUsuario INT, @Accion NVARCHAR(100), @Entidad NVARCHAR(50), @IdEntidad INT,
+            @Detalle NVARCHAR(500), @FechaHora DATETIME, @Categoria NVARCHAR(20), @Espacio NVARCHAR(30),
+            @Anterior VARBINARY(32);
+
+    DECLARE filas CURSOR LOCAL FAST_FORWARD FOR
+        SELECT IdUsuario, Accion, Entidad, IdEntidad, Detalle,
+               ISNULL(FechaHora, GETDATE()), ISNULL(Categoria, 'Administrativa'), Espacio
+        FROM inserted;
+    OPEN filas;
+    FETCH NEXT FROM filas INTO @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @Anterior = NULL;
+        SELECT TOP 1 @Anterior = Hash
+        FROM LogAuditoria WITH (UPDLOCK, HOLDLOCK)
+        WHERE Hash IS NOT NULL
+        ORDER BY IdLog DESC;
+
+        INSERT INTO LogAuditoria (IdUsuario, Accion, Entidad, IdEntidad, Detalle, FechaHora, Categoria, Espacio, Hash, HashAnterior)
+        VALUES (@IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio,
+                dbo.fn_HashAuditoria(@Anterior, @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio),
+                @Anterior);
+
+        FETCH NEXT FROM filas INTO @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio;
+    END;
+    CLOSE filas;
+    DEALLOCATE filas;
+END;
+GO
+
+-- Solo agregar ───────────────────────────────────────────
+-- RN-18: nadie modifica ni borra la auditoría ni el registro de errores, tampoco el backend.
+-- Para depurar registros viejos (si algún día se define un plazo de conservación) hace
+-- falta un administrador de la base que desactive el trigger a mano, y eso queda en el
+-- registro del propio SQL Server.
+CREATE OR ALTER TRIGGER TR_LogAuditoria_SoloAgregar ON LogAuditoria INSTEAD OF UPDATE, DELETE AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS (SELECT 1 FROM deleted)
+        THROW 50018, N'RN-18: el registro de auditoría es de solo lectura. No se puede modificar ni borrar.', 1;
+END;
+GO
+
+CREATE OR ALTER TRIGGER TR_LogError_SoloAgregar ON LogError INSTEAD OF UPDATE, DELETE AS
+BEGIN
+    SET NOCOUNT ON;
+    IF EXISTS (SELECT 1 FROM deleted)
+        THROW 50019, N'RN-18: el registro de errores es de solo lectura. No se puede modificar ni borrar.', 1;
+END;
+GO
+
+-- Verificación de la cadena ──────────────────────────────
+-- EXEC sp_VerificarCadenaAuditoria;
+-- Devuelve una fila: 'Íntegra' con la cantidad revisada, o 'Rota' con el primer registro
+-- donde falla y por qué. Los registros anteriores a esta migración (Hash nulo) no se revisan.
+CREATE OR ALTER PROCEDURE sp_VerificarCadenaAuditoria AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @IdLog INT, @IdUsuario INT, @Accion NVARCHAR(100), @Entidad NVARCHAR(50), @IdEntidad INT,
+            @Detalle NVARCHAR(500), @FechaHora DATETIME, @Categoria NVARCHAR(20), @Espacio NVARCHAR(30),
+            @Hash VARBINARY(32), @HashAnterior VARBINARY(32),
+            @Anterior VARBINARY(32) = NULL, @Revisados INT = 0;
+
+    DECLARE filas CURSOR LOCAL FAST_FORWARD FOR
+        SELECT IdLog, IdUsuario, Accion, Entidad, IdEntidad, Detalle, FechaHora, Categoria, Espacio, Hash, HashAnterior
+        FROM LogAuditoria
+        WHERE Hash IS NOT NULL
+        ORDER BY IdLog;
+    OPEN filas;
+    FETCH NEXT FROM filas INTO @IdLog, @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio, @Hash, @HashAnterior;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF ISNULL(@HashAnterior, 0x) <> ISNULL(@Anterior, 0x)
+        BEGIN
+            CLOSE filas; DEALLOCATE filas;
+            SELECT N'Rota' AS Estado, @Revisados AS RegistrosRevisados, @IdLog AS IdLog,
+                   N'El registro no sigue al anterior: se borró o se insertó uno en el medio.' AS Motivo;
+            RETURN;
+        END;
+        IF @Hash <> dbo.fn_HashAuditoria(@HashAnterior, @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio)
+        BEGIN
+            CLOSE filas; DEALLOCATE filas;
+            SELECT N'Rota' AS Estado, @Revisados AS RegistrosRevisados, @IdLog AS IdLog,
+                   N'El contenido del registro cambió después de guardarse.' AS Motivo;
+            RETURN;
+        END;
+        SET @Anterior = @Hash;
+        SET @Revisados += 1;
+        FETCH NEXT FROM filas INTO @IdLog, @IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @FechaHora, @Categoria, @Espacio, @Hash, @HashAnterior;
+    END;
+    CLOSE filas;
+    DEALLOCATE filas;
+    SELECT N'Íntegra' AS Estado, @Revisados AS RegistrosRevisados, CAST(NULL AS INT) AS IdLog, CAST(NULL AS NVARCHAR(200)) AS Motivo;
+END;
+GO
+
+-- ── 7c) Versión del esquema: lo que este script ya deja aplicado (1 a 19) ────
+INSERT INTO [dbo].[VersionEsquema] ([Numero], [Archivo], [Origen]) VALUES
+(1, N'add_columnas_faltantes.sql', 'Script'),
+(2, N'add_creadopor_turno.sql', 'Script'),
+(3, N'add_token_profesional.sql', 'Script'),
+(4, N'add_token_recuperacion.sql', 'Script'),
+(5, N'add_mensajeria.sql', 'Script'),
+(6, N'add_consentimiento_telemedicina.sql', 'Script'),
+(7, N'add_lectura_conversacion.sql', 'Script'),
+(8, N'alter_logauditoria_idusuario_nullable.sql', 'Script'),
+(9, N'add_tablas_sin_migracion_previa.sql', 'Script'),
+(10, N'add_grupos_casos_derivacion.sql', 'Script'),
+(11, N'add_link_publico_profesional.sql', 'Script'),
+(12, N'alter_casoderivacion_motivo_cerrado.sql', 'Script'),
+(13, N'add_chats_notas_etiquetas_respuestas.sql', 'Script'),
+(14, N'add_conversacion_asignacion.sql', 'Script'),
+(15, N'add_consentimiento_video.sql', 'Script'),
+(16, N'add_consentimiento_whatsapp.sql', 'Script'),
+(17, N'add_chat_personal_entrantes.sql', 'Script'),
+(18, N'add_registro_errores_version_esquema.sql', 'Script'),
+(19, N'add_auditoria_inalterable.sql', 'Script');
 GO
 
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────

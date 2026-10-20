@@ -9,7 +9,14 @@ if (args.Contains("--recifrar-emociones"))
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
-    opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+    opt.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()
+        // Para que una pantalla abierta desde otro origen (Live Server) pueda leer el código de error.
+        .WithExposedHeaders(RegistroErroresExtensions.Encabezado)));
+// Etapa 1 (errores y auditoría): registro de errores con código (Services/RegistroErrores.cs) y aviso de migraciones
+// faltantes (Services/VerificadorEsquema.cs; viene APAGADO, se prende con Esquema:Verificar=true).
+builder.Services.AddSingleton<IInspectorEsquema, InspectorEsquemaSql>();
+builder.Services.AddSingleton<VerificadorEsquema>();
+builder.Services.AddRegistroErrores(builder.Environment.ContentRootPath, builder.Configuration["RegistroErrores:Carpeta"]);
 builder.Services.AddSingleton<EmailService>();
 // El reloj de TODA la aplicación, con la zona horaria de la clínica explícita (Turnos:ZonaHoraria, por defecto
 // America/Argentina/Buenos_Aires): ya no depende de la zona del sistema operativo del servidor. Tiene que ir antes de
@@ -141,11 +148,13 @@ opcionesForwarded.KnownNetworks.Clear();
 opcionesForwarded.KnownProxies.Add(System.Net.IPAddress.Loopback);
 opcionesForwarded.KnownProxies.Add(System.Net.IPAddress.IPv6Loopback);
 app.UseForwardedHeaders(opcionesForwarded);
+app.UseRegistroErrores();      // envuelve todo lo que sigue (después de los encabezados reenviados, que corrigen la IP)
 
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseVerificacionEsquema();  // después de la autorización: un 401/403 no toca la base. Apagado por defecto.
 
 // Cierre de seguridad, Paso 7: antes estos headers solo salían en /public y /reservar
 // (pensados para la superficie pública, Fase 3a). Pasan a ser globales — toda la app es

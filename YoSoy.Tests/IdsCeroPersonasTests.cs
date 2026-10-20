@@ -125,8 +125,7 @@ public class IdsCeroPersonasTests
         {
             using var con = Conexion.ObtenerConexion();
             con.Open();
-            using (var del = new SqlCommand("DELETE FROM LogAuditoria WHERE Entidad = 'Usuario' AND Detalle = @m", con))
-            { del.Parameters.AddWithValue("@m", marca); await del.ExecuteNonQueryAsync(); }
+            // La auditoría es de solo agregar (migración 19): lo que la API deja en LogAuditoria queda, como en producción.
             using (var del = new SqlCommand("DELETE FROM Usuario WHERE Username = @m", con))
             { del.Parameters.AddWithValue("@m", marca); await del.ExecuteNonQueryAsync(); }
             using var chk = new SqlCommand("SELECT COUNT(*) FROM Usuario WHERE Username = @m", con);

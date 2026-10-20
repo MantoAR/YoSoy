@@ -187,7 +187,8 @@ public sealed class DatosEmociones : IDisposable
     public void Dispose()
     {
         // En el orden de las claves foráneas. Todo lo de esta prueba, y nada más.
-        Intentar("DELETE FROM LogAuditoria WHERE IdUsuario IN (@A, @B, @C)", ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
+        // La auditoría es de solo agregar (migración 19): no se borra lo que dejó la API. Un usuario que actuó (tiene filas en
+        // LogAuditoria) no se puede borrar (FK_LogAuditoria_Usuario) y queda en la base de pruebas, con la marca; ver más abajo.
         Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM ConsentimientoVideo WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM InformeAdmision WHERE IdPaciente = @P", ("@P", IdPaciente));
@@ -207,7 +208,8 @@ public sealed class DatosEmociones : IDisposable
         Intentar("DELETE FROM Turno WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Profesional WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Paciente WHERE IdPaciente = @P", ("@P", IdPaciente));
-        Intentar("DELETE FROM Usuario WHERE IdUsuario IN (@A, @B, @C)", ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
+        Intentar("DELETE FROM Usuario WHERE IdUsuario IN (@A, @B, @C) AND NOT EXISTS (SELECT 1 FROM LogAuditoria l WHERE l.IdUsuario = Usuario.IdUsuario)",
+            ("@A", IdUsuarioPaciente), ("@B", IdUsuarioProfesional), ("@C", IdUsuarioConfigurador));
         if (_idEspecialidadCreada is int e) Intentar("DELETE FROM Especialidad WHERE IdEspecialidad = @E", ("@E", e));
         if (_estadoTomado)
         {

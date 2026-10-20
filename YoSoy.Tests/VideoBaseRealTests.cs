@@ -106,12 +106,10 @@ public class VideoBaseRealTests : IDisposable
     // Los recordatorios del turno (Recordatorio.IdTurno) los puede haber creado el servicio de recordatorios de una aplicación
     // de prueba: van antes que el turno, o el DELETE choca con FK_Recordatorio_Turno y la prueba falla a veces.
     private static void BorrarTurno(int idTurno) => Ejecutar(@"
-        DELETE FROM LogAuditoria WHERE Entidad = 'Turno' AND IdEntidad = @Id AND Accion LIKE 'Acceso a sala de video%';
         DELETE FROM Recordatorio WHERE IdTurno = @Id;
         DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", idTurno));
 
     private static void BorrarAdmision(int idInforme) => Ejecutar(@"
-        DELETE FROM LogAuditoria WHERE Entidad = 'InformeAdmision' AND IdEntidad = @Id AND Accion LIKE 'Acceso a sala de video%';
         DELETE FROM InformeAdmision WHERE IdInforme = @Id", ("@Id", idInforme));
 
     private static List<(int IdUsuario, string Accion, string Detalle)> Auditoria(string entidad, int idEntidad)
@@ -349,7 +347,6 @@ public class VideoBaseRealTests : IDisposable
         var auditoria = new AuditoriaVideo(logs.CreateLogger<AuditoriaVideo>());
         var concedido = ResultadoAcceso.Concedido("paciente", "SALA-X", VideoApp.Utc(VideoApp.Inicio), VideoApp.Utc(VideoApp.Inicio), VideoApp.Utc(VideoApp.Inicio.AddHours(1)));
 
-        try
         {
             var error = Record.Exception(() => auditoria.Registrar(UsuarioConfiguradorReal, "turno", idQueNoExiste, new string('r', 600), concedido));
 
@@ -359,10 +356,6 @@ public class VideoBaseRealTests : IDisposable
             Assert.Contains("SqlException", aviso);
             Assert.DoesNotContain("rrrrr", aviso);   // ni el valor que no entró
             Assert.Empty(Auditoria("Turno", idQueNoExiste));
-        }
-        finally
-        {
-            Ejecutar("DELETE FROM LogAuditoria WHERE Entidad = 'Turno' AND IdEntidad = @Id AND Accion LIKE 'Acceso a sala de video%'", ("@Id", idQueNoExiste));
         }
     }
 
