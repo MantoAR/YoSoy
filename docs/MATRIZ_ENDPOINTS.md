@@ -28,8 +28,8 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | POST | `/public/profesionales/{slug}/reservar` | Reserva pública, misma superficie (rate-limited). |
 | GET | `/capacidades` | Lo consulta cualquier pantalla antes de saber quién sos; sin datos sensibles (solo flags). |
 | GET | `/consentimiento-whatsapp/texto` | El texto del consentimiento de los avisos por WhatsApp (versión, título, párrafos): la pantalla de registro lo muestra antes de que haya sesión. Es texto legal, sin datos de nadie; rate-limited (`consentimiento-whatsapp`). |
-| POST | `/mensajeria/simulado/entrante` | Equivalente a un webhook: no hay sesión del otro lado. |
-| GET | `/mensajeria/simulado/conversacion` | Idem; ambos ya cierran con `Disponible()`/`SoloLocal`, no con JWT. |
+| POST | `/mensajeria/simulado/entrante` | Equivalente a un webhook: no hay sesión del otro lado. Cierra con `Disponible()` y, siempre (aunque `SoloLocal` sea `false`), con `EsLocal()`: un pedido remoto da 404 (`SimuladorSoloLocalTests`). |
+| GET | `/mensajeria/simulado/conversacion` | Idem; ambos cierran con `Disponible()` y, siempre, con `EsLocal()`, no con JWT. |
 | POST | `/mensajeria/whatsapp/entrante` | Webhook real de `whatsapp-service`. Sin JWT a propósito (lo llama una máquina) — cierra con `EsLocal()` + secreto compartido, no con `Disponible()`/`SoloLocal` (candado propio, no depende de `ChatSimuladoHabilitado`). Cuerpo v2: `{ telefono, texto, tipo?, id?, ts?, nombre? }` (los cuatro últimos opcionales: sin ellos es el cuerpo de siempre); un mismo `id` por teléfono se atiende una sola vez. Responde `{ idConversacion, respuestas }`, más `ignorado` (`duplicado` o `no_textual`) o `idMensaje` cuando corresponde. |
 
 Archivos estáticos (`/pantallas/*`) no aparecen en ninguna tabla: los sirve
@@ -84,8 +84,8 @@ nunca se la vuelve a servir, pero el *caché local* de esa sesión no se entera 
 
 | Método | Ruta | Rol | Pertenencia | Notas |
 |---|---|---|---|---|
-| POST | `/mensajeria/simulado/entrante` | Público | — | Simula un mensaje entrante (equivalente al webhook real). No tiene, ni tendría sentido, sesión del otro lado. |
-| GET | `/mensajeria/simulado/conversacion` | Público | — | Idem — el simulador del lado paciente todavía no tiene sesión. |
+| POST | `/mensajeria/simulado/entrante` | Público | — | Simula un mensaje entrante (equivalente al webhook real). No tiene, ni tendría sentido, sesión del otro lado. Solo desde la propia máquina. |
+| GET | `/mensajeria/simulado/conversacion` | Público | — | Idem — el simulador del lado paciente todavía no tiene sesión. Solo desde la propia máquina. |
 | POST | `/mensajeria/whatsapp/entrante` | Público (candado propio) | — | Webhook real: lo llama `whatsapp-service`, nunca una persona. `EsLocal()` + secreto compartido (`X-Shared-Secret`, comparación en tiempo constante); un pedido que llega por Caddy desde internet da 404 aunque el secreto sea correcto. |
 | GET | `/mensajeria/whatsapp/estado` | **Solo Configurador** | — | Pantalla de WhatsApp del Configurador: estado + QR (data-URL) en la misma respuesta. `servicioDisponible:false` si no se pudo contactar a `whatsapp-service`, distinto de `conectado:false`. `Cache-Control: no-store`; el cuerpo (con el QR) nunca se loguea. Rate limit propio por IP (`whatsapp-estado`, más laxo — es polling). |
 | POST | `/mensajeria/whatsapp/desvincular` | **Solo Configurador** | — | Cierra la sesión de WhatsApp y fuerza un QR nuevo (también lo usa el botón "¿no funciona? generar uno nuevo" durante el escaneo). Audita qué número se desvinculó. Rate limit propio por IP (`whatsapp-admin`, más estricto — acción deliberada). |

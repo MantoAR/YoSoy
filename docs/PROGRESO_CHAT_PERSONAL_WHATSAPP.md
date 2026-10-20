@@ -138,7 +138,7 @@ Solo se miran los eventos de tipo `notify` (mensajes nuevos); `append` (historia
 | Grupo | Rutas | Quién |
 |---|---|---|
 | Webhook de WhatsApp | `POST /mensajeria/whatsapp/entrante` | Solo `whatsapp-service`: pedido local **y** secreto compartido. Sin JWT |
-| Chat simulado | `POST /mensajeria/simulado/entrante`, `GET /mensajeria/simulado/conversacion` | Anónimo, pero solo con `ChatSimuladoHabilitado` y (con `SoloLocal`) desde la propia máquina |
+| Chat simulado | `POST /mensajeria/simulado/entrante`, `GET /mensajeria/simulado/conversacion` | Anónimo, pero solo con `ChatSimuladoHabilitado` y **siempre** desde la propia máquina, aunque `SoloLocal` sea `false` (`fix/chat-simulado-cerrado`: antes, con `SoloLocal=false`, quedaban abiertas a internet) |
 | Bandeja | `GET /mensajeria/conversaciones` (filtros `estado`, `desdeMensaje`, `idEtiqueta`), `GET /{id}`, `GET /{id}/paciente`, `GET /{id}/mensajes` (`desde`, `antes`, `limite`), `PUT /{id}/leida`, `POST /{id}/responder`, `PUT /{id}/cerrar`, `PUT /{id}/reabrir` | Profesional y Configurador, filtrado por pertenencia (404 si no se puede ver) |
 | Propiedad del hilo | `PUT /{id}/tomar` (Profesional), `PUT /{id}/devolver` (dueño o Configurador), `PUT /{id}/asignar` (Configurador) | Solo en conversaciones escaladas |
 | Notas y etiquetas | `GET/POST/DELETE /{id}/notas`, `POST/DELETE /{id}/etiquetas/{idEtiqueta}`, catálogo `/etiquetas` | Catálogo: alta/baja/cambio solo Configurador |
@@ -154,6 +154,8 @@ Solo se miran los eventos de tipo `notify` (mensajes nuevos); `append` (historia
 - `Mensajeria__SoloLocal` (por defecto `true`): rechaza con 404 todo pedido a `/mensajeria` que no venga de la propia máquina. Un pedido que pasó por
   un proxy (Caddy, con `X-Forwarded-For`) cuenta como remoto aunque llegue desde 127.0.0.1. En tu PC no hay proxy y anda; **en el VPS la bandeja
   daría 404 desde internet con estos valores** (no leí el `.env` del servidor: hay que verificar qué valen allá).
+- Con `Mensajeria__SoloLocal=false` (hace falta para ver la bandeja desde el sitio) el grupo se abre a la red, pero las dos rutas anónimas del simulador y el webhook de WhatsApp siguen siendo
+  solo locales: a un pedido remoto le contestan 404 (`fix/chat-simulado-cerrado`; lo prueba `SimuladorSoloLocalTests`).
 - `POST /mensajeria/simulado/entrante` corre el mismo asistente que el webhook real, pero con el canal activo: con `CanalActivo=Baileys` la respuesta
   a un teléfono simulado saldría por WhatsApp real (el servicio igual exige que esa persona haya escrito antes). No usar el simulador con Baileys activo,
   salvo con tu propio número.

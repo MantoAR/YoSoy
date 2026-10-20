@@ -46,7 +46,8 @@ public class MensajeriaOptions
 
     // Apaga todos los endpoints /mensajeria (chat simulado y administración).
     public bool ChatSimuladoHabilitado { get; set; }
-    // Rechaza pedidos a /mensajeria que no vengan de la propia máquina.
+    // Rechaza pedidos a /mensajeria que no vengan de la propia máquina. Con false la administración (la bandeja del Configurador) se abre a la red, como en producción; las dos rutas
+    // anónimas del simulador (/mensajeria/simulado/*) y el webhook de WhatsApp siguen siendo solo locales siempre.
     public bool SoloLocal { get; set; } = true;
 
     public string UrlRegistroWeb { get; set; } = "";
