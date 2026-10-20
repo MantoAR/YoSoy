@@ -10,7 +10,7 @@ Cada **rol** es un **módulo** del sistema. Al ingresar se trabaja con **uno**; 
 |---|---|---|
 | **Profesional** (`profesional`) | Sus pacientes, su agenda, sus casos, la sala de video, las historias clínicas de quien atiende | Nunca ve `/mensajeria` (403) |
 | **CRM y atención al cliente** (`crm`) | Chats (`/mensajeria`), casos, derivaciones de casos, etiquetas y respuestas rápidas | Nunca ve historias clínicas |
-| **Configurador** (`configurador`) | Usuarios, permisos, privilegios, configuración (especialidades, grupos, reglas de derivación, coberturas), vinculación del número de WhatsApp, auditoría administrativa | Nada clínico ni operativo; no ve los chats si no tiene también el módulo CRM |
+| **Configurador** (`configurador`) | Usuarios (registrar usuario, permisos con sus privilegios, lista de usuarios, solicitudes de registro), configuración (WhatsApp con el código QR de conexión y especialidades), auditoría administrativa. Sin pantalla de inicio. Grupos, reglas de derivación, coberturas, roles, privilegios y la recuperación de contraseña **no están en el menú** (el código, los endpoints y los datos siguen) | Nada clínico ni operativo; no ve los chats si no tiene también el módulo CRM |
 | **Facturación** (`facturacion`) | Todavía una página "en construcción" | — |
 
 ## Permisos y privilegios
@@ -26,7 +26,7 @@ Dentro de un módulo hay **permisos**; un **privilegio** es una capacidad puntua
 
 - **Configurador › Registrar usuario**: da de alta a alguien del equipo (nombre, CUIL, mail, usuario, rol y privilegios) y le manda un mail con un link (un solo uso, 72 horas) para confirmar la cuenta y elegir la contraseña. La cuenta queda `Pendiente` hasta entonces.
 - **Configurador › Permisos**: los módulos, permisos y privilegios de cada usuario (`PUT /usuarios/{id}/accesos`). Para darle un **segundo módulo** a alguien (por ejemplo, el CRM al administrador), se tilda en esa pantalla; se aplica en el **próximo ingreso o cambio de módulo** de esa persona. Nadie puede quitarse a sí mismo el permiso de Configurador.
-- **Configurador › Privilegios**: a quién se le agrega Admisión o Gestión de agendas.
+- **Privilegios** (Admisión, Gestión de agendas): se asignan desde **Configurador › Permisos**, junto con el permiso que los admite. La pantalla "Privilegios", que listaba quién tiene cada uno, ya no está en el menú (su código y sus endpoints siguen).
 - Todo cambio queda en la auditoría administrativa (lo registra la base, aunque se haga con SQL).
 - Soporte: `SELECT * FROM vw_UsuarioAccesos WHERE Username = '...'` dice qué tiene una persona y si está sin permisos.
 

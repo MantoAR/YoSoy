@@ -52,34 +52,29 @@
         },
         // Roles y permisos: el Configurador administra usuarios, permisos,
         // configuración y la auditoría administrativa. Nada clínico ni operativo.
+        // Sin "Inicio" ni resumen: se aterriza en Usuarios (ver `inicial` en dashboard.js). Quedan
+        // fuera del menú (su código, sus endpoints y sus datos siguen): Grupos, Reglas de derivación,
+        // Coberturas, Privilegios (se asignan desde Permisos), Roles y Recuperación de contraseña.
+        // El grupo CRM se suma solo si la sesión trae el permiso crm (ver grupoDeChats).
         configurador: {
             etiqueta: "Panel configurador",
             items: [
-                { id: "inicio", texto: "Inicio" },
+                {
+                    texto: "Configuración", items: [
+                        // Ítem de WhatsApp: vincular el número es una configuración independiente del chat
+                        // simulado (los avisos y las respuestas por WhatsApp pueden usarse con el simulado apagado).
+                        { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono", desc: "Estado de la conexión y código QR" },
+                        { id: "especialidades", texto: "Especialidades", icono: "etiqueta" }
+                    ]
+                },
                 {
                     texto: "Usuarios", items: [
                         { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
                         { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
-                        { id: "privilegios", texto: "Privilegios", icono: "candado", desc: "Admisión y Gestión de agendas: a quién se le agregan" },
-                        { id: "usuarios", texto: "Cuentas", icono: "pacientes", desc: "Altas y bajas de pacientes y profesionales" },
-                        { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" },
-                        { id: "recuperacion", texto: "Recuperación de contraseña", icono: "candado", desc: "Pedidos de contraseña temporal" }
+                        { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Altas y bajas de pacientes y profesionales" },
+                        { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" }
                     ]
                 },
-                {
-                    texto: "Configuración", items: [
-                        { id: "roles", texto: "Roles", icono: "escudo" },
-                        { id: "especialidades", texto: "Especialidades", icono: "etiqueta" },
-                        { id: "grupos", texto: "Grupos", icono: "pacientes", desc: "A qué grupo de profesionales se derivan los casos" },
-                        { id: "reglasderivacion", texto: "Reglas de derivación", icono: "flechas", desc: "Qué especialidad va a qué grupo" },
-                        { id: "coberturas", texto: "Coberturas", icono: "tarjeta" }
-                    ]
-                },
-                // Ítem estático, no a través de agregarGrupo(GRUPO_CHATS): esa ruta solo aparece si
-                // ChatSimuladoHabilitado está prendido, pero vincular WhatsApp es una
-                // configuración independiente (los avisos y las respuestas por WhatsApp pueden
-                // usarse con el chat simulado apagado).
-                { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono" },
                 { id: "auditoria", texto: "Auditoría", titulo: "Auditoría administrativa" }
             ],
             usuario: []
@@ -110,6 +105,12 @@
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" },
             { id: "etiquetas", texto: "Etiquetas de chats", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" }
+        ]
+    };
+    // El Configurador que además tiene el módulo CRM (permiso crm en la sesión): Chats en su propio grupo.
+    const GRUPO_CRM_CONFIGURADOR = {
+        texto: "CRM", items: [
+            { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" }
         ]
     };
     const GRUPO_AGENDAS = {
@@ -153,6 +154,15 @@
         if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
         return { ...base, items };
     }
+    // El grupo de conversaciones que corresponde a este módulo, o null si no tiene chats: solo el módulo CRM, o el
+    // Configurador que trae el permiso crm. Ni el profesional ni el Configurador sin CRM (el servidor responde 403).
+    function grupoDeChats(rol) {
+        if (rol === "crm") return GRUPO_CHATS;
+        if (rol === "configurador" && YS.sesion.tienePermiso("crm")) return GRUPO_CRM_CONFIGURADOR;
+        return null;
+    }
+    // Dónde entra un grupo agregado "al principio": después de Inicio si el menú lo tiene, o primero si no.
+    const posicionInicial = items => items.some(it => it.id === "inicio") ? 1 : 0;
     const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
@@ -185,7 +195,8 @@
     // ── Construcción de la barra ────────────────────────────────
     function crearBarra() {
         const barra = YS.el("header", { class: "ui-topbar" });
-        const inicio = buscar("inicio");
+        // Sin "Inicio" en el menú (Configurador), la marca lleva al aterrizaje de esta pantalla (cfg.inicial).
+        const inicio = buscar("inicio") || buscar(cfg.inicial) || plano().find(i => esLocal(i) && !i.deUsuario);
         barra.appendChild(YS.el("a", {
             class: "ui-marca", href: enlace(inicio), "aria-label": "YoSoy, ir al inicio",
             html: `<img src="${LOGO}" alt=""><span class="ui-marca-nombre">Yo<b>Soy</b></span>`
@@ -577,10 +588,11 @@
         frag.appendChild(YS.el("div", { class: "ui-desplegable-titulo", text: grupo.texto }));
         grupo.items.forEach(s => frag.appendChild(itemDesplegable(s)));
         if (alPrincipio) {
-            // después de "Inicio", que queda siempre primero
-            menu.items.splice(1, 0, grupo);
-            ul?.children[1] ? ul.insertBefore(crearGrupo(grupo), ul.children[1]) : ul?.appendChild(crearGrupo(grupo));
-            panelCompacto?.children[1] ? panelCompacto.insertBefore(frag, panelCompacto.children[1]) : panelCompacto?.appendChild(frag);
+            // después de "Inicio", que queda siempre primero (o primero de todo si el menú no tiene Inicio)
+            const pos = posicionInicial(menu.items);
+            menu.items.splice(pos, 0, grupo);
+            ul?.children[pos] ? ul.insertBefore(crearGrupo(grupo), ul.children[pos]) : ul?.appendChild(crearGrupo(grupo));
+            panelCompacto?.children[pos] ? panelCompacto.insertBefore(frag, panelCompacto.children[pos]) : panelCompacto?.appendChild(frag);
         } else {
             menu.items.push(grupo);
             ul?.appendChild(crearGrupo(grupo));
@@ -630,20 +642,21 @@
             document.body.prepend(els.barra, els.encabezado);
             if (AVISOS[cfg.rol]) campana.iniciar(AVISOS[cfg.rol]);
 
-            // Chats: SOLO para el módulo CRM (sección propia, con Chats, Escalamientos y Etiquetas). Los profesionales no ven ningún chat ni reciben sus avisos
+            // Chats: SOLO para el módulo CRM (sección propia, con Chats, Escalamientos y Etiquetas) y el Configurador que trae el permiso crm (grupo CRM). Los profesionales no ven ningún chat ni reciben sus avisos
             // (decisión D2 del chat para el personal): no tienen botón Chats ni cajón, y el servidor les contesta 403 en todo /mensajeria. El Configurador sin el
             // módulo CRM tampoco (403); quien tiene los dos módulos ve Chats al trabajar en CRM. Solo si la mensajería está disponible para este pedido:
             // /capacidades usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se agrega nada al menú ni se carga la bandeja.
-            if (cfg.rol === "crm") {
+            const grupoChats = grupoDeChats(cfg.rol);
+            if (grupoChats) {
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
                 capacidades.then(c => {
                     if (!c?.mensajeria) return;
-                    agregarGrupo(GRUPO_CHATS, true);
+                    agregarGrupo(grupoChats, true);
                     // Si la URL ya pedía una sección de este grupo antes de que esto
                     // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
                     // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
                     // reintentar con el id que se pidió en realidad, no con el hash actual.
-                    if (cfg.navegar && GRUPO_CHATS.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
+                    if (cfg.navegar && grupoChats.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
                         cfg.navegar(hashInicial.id, hashInicial.params);
                     cargarBandeja(c);
                 });
@@ -684,6 +697,13 @@
         /** Para módulos que traen sus propios avisos (la bandeja de chats en el configurador). */
         instalarCampana(def) { if (!campana.def) campana.iniciar(def); },
         generarSala,
+        /** El menú de un módulo según la sesión (con conChats, el grupo de conversaciones ya agregado). Solo lectura: lo usan las pruebas. */
+        menuDe(rol, { conChats = false } = {}) {
+            const m = menuPara(rol);
+            if (!m) return null;
+            const g = conChats ? grupoDeChats(rol) : null;
+            return g ? { ...m, items: [...m.items.slice(0, posicionInicial(m.items)), g, ...m.items.slice(posicionInicial(m.items))] } : m;
+        },
         /** Etapa 2: diálogo para pasar a otro módulo (lo usa el menú del usuario y en_construccion.html). */
         elegirModulo: elegirModuloDialogo
     };

@@ -10,7 +10,9 @@ const API = YS.API;   // mismo origen que la página (shared/ui.js)
 //     auditor, reportes de la organización, lecturas clínicas y auditoría clínica.
 const MODULO = ["configurador", "crm", "profesional"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
 const SECCIONES_POR_MODULO = {
-    configurador: ["inicio", "altausuario", "permisos", "privilegios", "usuarios", "solicitudes", "recuperacion", "roles", "especialidades", "grupos", "reglasderivacion", "coberturas", "whatsapp", "auditoria"],
+    // Configurador: sin Inicio. Fuera del menu (su codigo y sus endpoints siguen): grupos, reglasderivacion, coberturas, privilegios, roles, recuperacion.
+    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "especialidades", "auditoria",
+          ...(YS.sesion.tienePermiso("crm") ? ["chats"] : [])],
     crm: ["inicio", "chats", "escalamientos", "etiquetas", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
     profesional: [
@@ -18,6 +20,11 @@ const SECCIONES_POR_MODULO = {
         ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
     ]
 };
+
+// Donde se aterriza al ingresar o ante un enlace a una seccion que no esta en el menu: la primera con permiso (Configurador: Usuarios).
+const ATERRIZAJE = MODULO === "configurador" ? "usuarios" : "inicio";
+// Chats: el modulo CRM, o el Configurador que trae el permiso crm.
+const CON_CHATS = MODULO === "crm" || (MODULO === "configurador" && YS.sesion.tienePermiso("crm"));
 
 // Avisos y confirmaciones del sistema de diseño (shared/ui.js). Los botones de la
 // confirmación conservan los ids confirmSi / confirmNo.
@@ -119,7 +126,7 @@ const columnas = {
 };
 
 const titulos = {
-    usuarios:        "Cuentas",
+    usuarios:        "Usuarios",
     asignaciones:    "Asignaciones",
     solicitudes:     "Solicitudes de Registro",
     derivaciones:    "Solicitudes de Cambio de Profesional",
@@ -166,7 +173,7 @@ document.addEventListener("ys:chats-ir-a-pagina", () => {
 });
 
 async function mostrarTab(tab, params = {}) {
-    if (!SECCIONES.includes(tab)) tab = SECCIONES.includes("inicio") ? "inicio" : SECCIONES[0];
+    if (!SECCIONES.includes(tab)) tab = SECCIONES.includes(ATERRIZAJE) ? ATERRIZAJE : SECCIONES.includes("inicio") ? "inicio" : SECCIONES[0];
     if (!tab) { sinSecciones(); return; }
     YS.shell.marcar(tab);
 
@@ -217,7 +224,7 @@ async function mostrarTab(tab, params = {}) {
 
 // ── USUARIOS ─────────────────────────────────────────────────
 // Dos modos (roles y permisos):
-//   - "usuarios" (Configurador › Cuentas): altas, bajas y link público. Sin relaciones: quién
+//   - "usuarios" (Configurador › Usuarios): altas, bajas y link público. Sin relaciones: quién
 //     atiende a quién es información de salud y el Configurador no la necesita.
 //   - "asignaciones" (Profesional con Admisión): las relaciones paciente-profesional,
 //     asignar y cambiar de profesional.
@@ -379,7 +386,7 @@ function seleccionarProfesional(idProf) {
         : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="darDeBajaProfesional(${idProf})">Dar de baja</button>`;
     const botonLink = !asignando && prof?.linkPublicoActivo
         ? `<button class="ui-btn ui-btn--sm" onclick="apagarLinkPublicoAdmin(${idProf})">Apagar link público</button>` : "";
-    // Un profesional aprobado no puede ingresar hasta que tiene usuario (solo en Cuentas, que es del Configurador)
+    // Un profesional aprobado no puede ingresar hasta que tiene usuario (solo en Usuarios, que es del Configurador)
     const sinUsuario = !asignando && prof?.estado === "Activo" && window._profSinUsuario?.has(idProf);
     const botonUsuario = sinUsuario
         ? `<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="abrirModalCrearUsuario(${idProf})">Crear usuario</button>` : "";
@@ -2539,9 +2546,9 @@ async function abrirEditorPermisos(idUsuario) {
 }
 
 YS.shell.iniciar({
-    rol: MODULO, pagina: "gestion", navegar: (id, params) => mostrarTab(id, params),
-    // Chats como sección propia solo en CRM; el profesional usa el cajón de siempre.
-    chats: MODULO === "crm"
+    rol: MODULO, pagina: "gestion", navegar: (id, params) => mostrarTab(id, params), inicial: ATERRIZAJE,
+    // Chats como seccion propia en CRM y en el Configurador que trae el permiso crm; el profesional usa el cajon de siempre.
+    chats: CON_CHATS
         ? { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }
         : undefined
 });
