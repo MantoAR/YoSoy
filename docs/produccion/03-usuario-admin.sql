@@ -9,12 +9,10 @@
    son los de los scripts de demo (ver docs/CATALOGO_SCRIPTS_SQL.md), que no
    van a producción. Este script rompe ese círculo, una sola vez.
 
-   Cómo decide la app que este usuario es "Configurador": no por ninguna fila
-   en Rol/UsuarioRol (el login no las mira). Es automático: si el Username
-   existe en Usuario y NO tiene una fila en UsuarioPaciente ni en
-   UsuarioProfesional, POST /login le asigna el rol "configurador". Este
-   script solo inserta en Usuario — a propósito, no toca esas otras tablas.
-
+   Cómo decide la app que este usuario es "Configurador" (etapa 2 de roles y permisos): por los permisos que tiene asignados
+   (UsuarioRol / UsuarioPermiso, migración 20). Este script le da los DOS módulos: "configurador" (usuarios, permisos y configuración) y
+   "crm" (los chats y los casos), así el primer administrador puede además atender la bandeja de Chats. Al ingresar elige con cuál trabajar
+   y puede cambiar sin volver a entrar. Sin esas filas el ingreso da 403 SIN_PERMISOS. Requiere haber corrido antes 01-produccion.sql.
    Hash de la contraseña: igual que Program.cs (POST /usuarios) —
    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password))).
    En SQL Server: HASHBYTES('SHA2_256', ...) sobre un literal SIN el prefijo
@@ -69,4 +67,17 @@ BEGIN
     );
     PRINT 'Usuario "admin" creado.';
 END
+GO
+
+-- Los dos módulos del administrador (idempotente: no repite lo que ya tiene).
+DECLARE @IdAdmin INT = (SELECT IdUsuario FROM Usuario WHERE Username = N'admin');
+INSERT INTO UsuarioRol (IdUsuario, IdRol)
+SELECT @IdAdmin, r.IdRol FROM Rol r
+WHERE r.Clave IN ('configurador', 'crm')
+  AND NOT EXISTS (SELECT 1 FROM UsuarioRol x WHERE x.IdUsuario = @IdAdmin AND x.IdRol = r.IdRol);
+INSERT INTO UsuarioPermiso (IdUsuario, IdRol, IdPermiso)
+SELECT @IdAdmin, p.IdRol, p.IdPermiso FROM Permiso p
+WHERE p.Clave IN ('configurador', 'crm')
+  AND NOT EXISTS (SELECT 1 FROM UsuarioPermiso x WHERE x.IdUsuario = @IdAdmin AND x.IdPermiso = p.IdPermiso);
+PRINT 'Usuario "admin" con los módulos Configurador y CRM.';
 GO

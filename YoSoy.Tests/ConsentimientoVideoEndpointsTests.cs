@@ -151,10 +151,10 @@ public class ConsentimientoVideoEndpointsTests
     }
 
     [Fact]
-    public async Task El_configurador_consulta_el_permiso_de_una_admision()
+    public async Task Quien_hace_la_admision_consulta_el_permiso_de_una_admision()
     {
         using var app = new App();
-        var (_, j) = await Pedir(app.Video.Configurador(), HttpMethod.Get, "/video/emociones/permiso?origen=admision&id=5");
+        var (_, j) = await Pedir(app.Video.Admision(), HttpMethod.Get, "/video/emociones/permiso?origen=admision&id=5");
 
         Assert.False(j.GetProperty("permitido").GetBoolean());
         Assert.Equal("sin-decision", j.GetProperty("estado").GetString());

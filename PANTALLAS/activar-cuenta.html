@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YoSoy · Confirmar cuenta</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="/pantallas/shared/tema.css">
+    <link rel="stylesheet" href="/pantallas/shared/acceso.css">
+</head>
+<body class="acceso">
+<!-- Se llega desde el mail de invitación (?token=...) que se envía cuando el Configurador da de
+     alta a alguien del equipo (Usuarios › Registrar usuario). El token sirve una sola vez y
+     vence a las 72 horas; el servidor lo busca por su hash (Services/AltaEquipo.cs). -->
+<main class="acceso-tarjeta" aria-labelledby="titulo">
+    <a class="acceso-marca" href="/pantallas/index.html" aria-label="YoSoy, ir al ingreso">
+        <img src="/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png" alt="">
+        <span class="ui-marca-nombre">Yo<b>Soy</b></span>
+    </a>
+    <h1 class="acceso-titulo" id="titulo">Confirmá tu cuenta</h1>
+    <p class="acceso-bajada" id="bajada">Revisando tu invitación…</p>
+
+    <form id="form" class="acceso-form oculto" novalidate>
+        <div class="ui-campo">
+            <label for="usuario">Tu usuario</label>
+            <input type="text" id="usuario" class="ui-input" autocomplete="username" readonly>
+        </div>
+        <div class="ui-campo">
+            <label for="pass1">Contraseña</label>
+            <div class="campo-clave">
+                <input type="password" id="pass1" class="ui-input" placeholder="8 o más caracteres, con letras y números" autocomplete="new-password">
+                <button type="button" class="ver-clave" data-para="pass1" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            </div>
+        </div>
+        <div class="ui-campo">
+            <label for="pass2">Repetí la contraseña</label>
+            <div class="campo-clave">
+                <input type="password" id="pass2" class="ui-input" autocomplete="new-password">
+                <button type="button" class="ver-clave" data-para="pass2" aria-label="Mostrar contraseña" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+            </div>
+        </div>
+        <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg ui-btn--bloque" id="btnConfirmar">Confirmar cuenta</button>
+    </form>
+    <div id="mensaje" class="ui-alerta mt-12 oculto" role="status"></div>
+    <a id="irIngreso" class="ui-btn ui-btn--primary ui-btn--bloque mt-12 oculto" href="/pantallas/index.html">Ir a ingresar</a>
+
+    <p class="acceso-pie"><a href="/pantallas/index.html">Volver al inicio de sesión</a></p>
+</main>
+
+<script src="/pantallas/shared/ui.js"></script>
+<script>
+(function () {
+    const token = YS.param("token");
+    const $ = id => document.getElementById(id);
+
+    function mostrar(tipo, texto) {
+        const m = $("mensaje");
+        m.className = `ui-alerta ui-alerta--${tipo} mt-12`;
+        m.textContent = texto;
+    }
+
+    document.querySelectorAll(".ver-clave").forEach(b => b.addEventListener("click", () => {
+        const inp = $(b.dataset.para);
+        const ver = inp.type === "password";
+        inp.type = ver ? "text" : "password";
+        b.setAttribute("aria-pressed", ver);
+        b.setAttribute("aria-label", ver ? "Ocultar contraseña" : "Mostrar contraseña");
+    }));
+
+    async function revisar() {
+        if (!token) { $("bajada").textContent = ""; mostrar("danger", "El link no es válido. Abrilo desde el mail de invitación."); return; }
+        try {
+            const res = await YS.fetch("/cuentas/invitacion?token=" + encodeURIComponent(token), { sinRedireccion: true });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { $("bajada").textContent = ""; mostrar(res.status === 410 ? "warn" : "danger", data.mensaje || YS.mensajeHttp(res.status)); return; }
+            $("bajada").textContent = `Hola${data.nombre ? " " + data.nombre : ""}: elegí la contraseña con la que vas a ingresar a YoSoy.`;
+            $("usuario").value = data.username;
+            $("form").classList.remove("oculto");
+            $("pass1").focus();
+        } catch (e) {
+            $("bajada").textContent = "";
+            mostrar("danger", e.message || "No se pudo conectar con el servidor.");
+        }
+    }
+
+    $("form").addEventListener("submit", async ev => {
+        ev.preventDefault();
+        if (!YS.form.validar([
+            { id: "pass1", requerido: "Elegí una contraseña.",
+              validar: v => v.length < 8 ? "Tiene que tener al menos 8 caracteres."
+                  : (!/[a-zA-Z]/.test(v) || !/[0-9]/.test(v)) ? "Tiene que tener letras y números." : null },
+            { id: "pass2", requerido: "Repetí la contraseña.", validar: v => v !== $("pass1").value ? "Las contraseñas no coinciden." : null }
+        ])) return;
+        const btn = $("btnConfirmar");
+        btn.classList.add("cargando");
+        try {
+            const res = await YS.fetch("/cuentas/activar", { method: "POST", json: { token, password: $("pass1").value }, sinRedireccion: true });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok) {
+                $("form").classList.add("oculto");
+                $("bajada").textContent = "";
+                mostrar("ok", `${data.mensaje || "Tu cuenta quedó confirmada."} Tu usuario es ${data.username}.`);
+                $("irIngreso").classList.remove("oculto");
+            } else mostrar(res.status === 410 ? "warn" : "danger", data.mensaje || YS.mensajeHttp(res.status));
+        } catch (e) {
+            mostrar("danger", e.message || "No se pudo conectar con el servidor.");
+        } finally { btn.classList.remove("cargando"); }
+    });
+
+    revisar();
+})();
+</script>
+</body>
+</html>

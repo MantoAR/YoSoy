@@ -92,8 +92,8 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 
 ### Qué necesitan
 
-- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 47 tablas, con
-  el resultado de las 19 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
+- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 55 tablas, con
+  el resultado de las 23 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
   el tipo de consentimiento y el contenido de arranque del chat.
 - **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
   falta `migrations/seed_catalogos.sql`: ese es para servidores reales (ver [`DEPLOY.md`](DEPLOY.md)).
@@ -109,7 +109,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 ```
 
 El script arma una copia temporal de `01-produccion.sql` con el nombre de la base cambiado, la ejecuta con `sqlcmd` (autenticación
-de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 47 tablas. El original no se toca: dice
+de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 55 tablas. El original no se toca: dice
 `[yosoy]` fijo en tres lugares y, corrido tal cual en una instancia donde `yosoy` ya existe, apuntaría a la base de desarrollo.
 Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.
@@ -129,16 +129,25 @@ sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i .\migrations\add_re
 sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i .\migrations\add_auditoria_inalterable.sql
 ```
 
+**Si tu `yosoy_test` es de antes de las migraciones 20 a 23** (roles, permisos y alta por invitación; las pruebas de ingreso por módulos y las de los chats las necesitan), aplicalas **en este orden**
+(la 23 da permisos a todos los usuarios que hubiera en la base y corre una sola vez):
+
+```powershell
+foreach ($m in 'add_permisos_roles_privilegios', 'add_privilegio_agendas_auditoria_permisos', 'add_alta_equipo_invitaciones', 'mapear_usuarios_existentes_a_permisos') {
+    sqlcmd -S .\SQLEXPRESS -d yosoy_test -E -C -I -f 65001 -b -i ".\migrations\$m.sql"
+}
+```
+
 ### Probar contra una base sin la migración 17
 
 Producción tampoco tiene la migración 17 (las columnas `MensajeChat.IdExterno`, `MensajeChat.Tipo` y `Conversacion.NombreContacto`). Con `Mensajeria:ModoAtencion=Asistente` (la de por defecto) la API no las
 toca; para comprobarlo con la suite entera, armá una base **sin** ellas y corré todo lo que no sea de la migración misma (los tests marcados `[Trait("Migracion", "17")]`):
 
 ```powershell
-.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17                         # 47 tablas, sin las columnas de la 17
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17                         # 55 tablas, sin las columnas de la 17
 .\Scripts\correr-tests.ps1 -Base yosoy_test_16 -Filtro 'Migracion!=17'
 
-# lo más parecido a producción hoy: sin la 16 (46 tablas: las 44 de producción más VersionEsquema y LogError de las migraciones 18 y 19) y sin la 17
+# lo más parecido a producción hoy: sin la 16 (54 tablas: las 44 de producción más las 10 de las migraciones 18 a 22) y sin la 17
 .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_prod -SinMigracion17 -SinConsentimientoWhatsApp
 .\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=17&Tabla!=ConsentimientoWhatsApp'
 ```
@@ -147,11 +156,11 @@ Tienen que pasar todos. En esas bases el modo `Personal` también anda (guarda l
 
 ### Probar contra una base sin la tabla de la migración 16
 
-Producción tiene hoy 44 tablas (sin `ConsentimientoWhatsApp`, la de la migración 16, y antes de las migraciones 18 y 19, que agregan 2); esta base de pruebas queda con 46. Con la llave `Mensajeria:AvisosPorWhatsApp` apagada (la de por defecto) la API no toca esa tabla; para comprobarlo
+Producción tiene hoy 44 tablas (sin `ConsentimientoWhatsApp`, la de la migración 16, y antes de las migraciones 18 a 22, que agregan 10); esta base de pruebas queda con 54. Con la llave `Mensajeria:AvisosPorWhatsApp` apagada (la de por defecto) la API no toca esa tabla; para comprobarlo
 con la suite entera, armá una base **sin** ella y corré todo lo que no sea de la tabla misma (los tests marcados `[Trait("Tabla", "ConsentimientoWhatsApp")]`):
 
 ```powershell
-.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp          # 46 tablas
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp          # 54 tablas
 .\Scripts\correr-tests.ps1 -Base yosoy_test_44 -Filtro 'Tabla!=ConsentimientoWhatsApp'
 ```
 

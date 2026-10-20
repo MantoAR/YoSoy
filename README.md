@@ -143,8 +143,12 @@ cd YoSoy
    | 17 | `add_chat_personal_entrantes.sql` | `MensajeChat.IdExterno` y `Tipo`, `Conversacion.NombreContacto` (chat de WhatsApp para el personal) | Sí |
    | 18 | `add_registro_errores_version_esquema.sql` | Tablas `VersionEsquema` y `LogError` (errores de la API con código corto para soporte) | Sí |
    | 19 | `add_auditoria_inalterable.sql` | Auditoría de solo agregar y encadenada por hash (`LogAuditoria`, `LogError`); ver `docs/CATALOGO_SCRIPTS_SQL.md` | Sí |
+   | 20 | `add_permisos_roles_privilegios.sql` | Roles, permisos y privilegios (tablas `Permiso`, `Privilegio`, `UsuarioPermiso`...; columnas nuevas de `Usuario`, `Profesional` y `Especialidad`) | Sí |
+   | 21 | `add_privilegio_agendas_auditoria_permisos.sql` | Privilegio Gestión de agendas y auditoría de los cambios de permisos | Sí |
+   | 22 | `add_alta_equipo_invitaciones.sql` | `Usuario.Telefono` e `InvitacionCuenta` (alta de equipo por invitación) | Sí |
+   | 23 | `mapear_usuarios_existentes_a_permisos.sql` | Da permisos a los usuarios que ya existen; corre una sola vez | Sí (la segunda corrida no hace nada) |
 
-   Las 19 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 23 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash

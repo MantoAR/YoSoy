@@ -6,18 +6,21 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
-// D2 del chat para el personal: los chats son SOLO del Configurador, que hace de recepción. Los profesionales atienden, no contestan mensajes: no ven ningún
-// chat ni reciben sus notificaciones. Un Profesional (o un paciente) recibe 403 en cada ruta de /mensajeria, y sin sesión 401.
+// D2 del chat para el personal (con el modelo de roles de la etapa 2): los chats son SOLO del módulo CRM (atención al cliente). Los profesionales atienden, no
+// contestan mensajes: no ven ningún chat ni reciben sus notificaciones. Un Profesional, un paciente o un Configurador SIN el módulo CRM reciben 403 en cada ruta
+// de /mensajeria, y sin sesión 401. Quien tiene los dos módulos (Configurador y CRM) entra con el token del módulo CRM. La única excepción de los 403 para el
+// Configurador es la vinculación del número de WhatsApp (/mensajeria/whatsapp/estado, desvincular, confirmar-vinculacion): no es leer ni contestar chats, es una
+// tarea de administración, y por eso es del Configurador (y el CRM, a su vez, no la hace).
 //
 // Estas pruebas no miran una lista escrita a mano: leen la tabla de rutas de la aplicación (ReflexionEndpoints, la misma que usa GuardiaEndpointsTests), así que una
 // ruta nueva dentro de /mensajeria que quede abierta a un profesional rompe la prueba en vez de pasar en silencio. Las únicas rutas de /mensajeria que no piden sesión
 // son las que no tienen una persona del otro lado: el simulador y el webhook de whatsapp-service.
 //
-// ChatsSoloConfiguradorTests no toca la base. ChatsSoloConfiguradorBaseRealTests (abajo) comprueba, contra la base de pruebas, que el Configurador sí entra y que
+// ChatsSoloCrmTests no toca la base. ChatsSoloCrmBaseRealTests (abajo) comprueba, contra la base de pruebas, que el CRM sí entra y que
 // lo que no era de los chats (la campanita de turnos del profesional) sigue andando.
-public class ChatsSoloConfiguradorTests
+public class ChatsSoloCrmTests
 {
-    private const string ClaveJwt = "clave-de-prueba-de-los-chats-solo-configurador-0123456789";
+    private const string ClaveJwt = "clave-de-prueba-de-los-chats-solo-crm-0123456789";
 
     // Las únicas rutas de /mensajeria sin sesión: no hay una persona del otro lado (ver GuardiaEndpointsTests.Publicos).
     private static readonly HashSet<(string Metodo, string Ruta)> SinSesion = new()
@@ -62,7 +65,7 @@ public class ChatsSoloConfiguradorTests
     }
 
     [Fact]
-    public void Toda_ruta_de_chats_exige_sesion_y_el_rol_configurador_y_solo_ese()
+    public void Toda_ruta_de_chats_exige_sesion()
     {
         using var fabrica = Fabrica();
 
@@ -70,10 +73,10 @@ public class ChatsSoloConfiguradorTests
 
         // Que la lista no esté vacía por un cambio en cómo se leen las rutas: hoy hay unas treinta y cuatro.
         Assert.True(rutas.Count >= 30, $"Se esperaban al menos 30 rutas de /mensajeria y hay {rutas.Count}: ¿cambió la forma de listarlas?");
-        var mal = rutas.Where(r => !r.RequiereAuth || r.Roles != Roles.Configurador).ToList();
+        var mal = rutas.Where(r => !r.RequiereAuth).ToList();
         Assert.True(mal.Count == 0,
-            "Estas rutas de /mensajeria no exigen SOLO el rol configurador (D2: los profesionales no ven chats):\n" +
-            string.Join("\n", mal.Select(r => $"  {r.Metodo} {r.Ruta} (auth: {r.RequiereAuth}, roles: {r.Roles ?? "ninguno"})")));
+            "Estas rutas de /mensajeria no piden sesión (y no están en la lista de las que no tienen una persona del otro lado):\n" +
+            string.Join("\n", mal.Select(r => $"  {r.Metodo} {r.Ruta}")));
     }
 
     [Fact]
@@ -113,6 +116,65 @@ public class ChatsSoloConfiguradorTests
         var distintas = await RecorrerLasRutas(fabrica, paciente, HttpStatusCode.Forbidden);
 
         Assert.True(distintas.Count == 0, "Un paciente tiene que recibir 403 en toda ruta de /mensajeria. Contestaron otra cosa:\n  " + string.Join("\n  ", distintas));
+    }
+
+    // La vinculación del número de WhatsApp es de administración (Configurador), no de los chats: no es del CRM.
+    private static bool EsDeVinculacion(string ruta) => ruta.StartsWith("/mensajeria/whatsapp/", StringComparison.OrdinalIgnoreCase);
+
+    // Pide cada ruta y devuelve las que contestaron distinto de lo esperado (403 o no) según el grupo al que pertenecen.
+    private static async Task<List<string>> RecorrerPorGrupo(WebApplicationFactory<Program> fabrica, HttpClient cliente, Func<string, bool> esperaProhibido)
+    {
+        var distintas = new List<string>();
+        foreach (var ruta in RutasDeChats(fabrica))
+        {
+            var url = Regex.Replace(ruta.Ruta, @"\{[^}]+\}", IdInexistente);
+            using var pedido = new HttpRequestMessage(new HttpMethod(ruta.Metodo), url);
+            if (ruta.Metodo is "POST" or "PUT" or "DELETE") pedido.Content = JsonContent.Create(new { });
+            using var respuesta = await cliente.SendAsync(pedido);
+            var prohibido = respuesta.StatusCode == HttpStatusCode.Forbidden;
+            if (esperaProhibido(ruta.Ruta) != prohibido || respuesta.StatusCode == HttpStatusCode.Unauthorized)
+                distintas.Add($"{ruta.Metodo} {ruta.Ruta} -> {(int)respuesta.StatusCode}");
+        }
+        return distintas;
+    }
+
+    [Fact]
+    public async Task Un_Configurador_sin_el_modulo_CRM_recibe_403_en_cada_ruta_de_chats()
+    {
+        using var fabrica = Fabrica();
+        var emisor = fabrica.Services.GetRequiredService<JwtEmisorService>();
+        using var configurador = ClienteCon(fabrica, emisor.Emitir(1, Roles.Configurador));
+
+        // 403 en todo menos en la vinculación de WhatsApp (que es suya).
+        var distintas = await RecorrerPorGrupo(fabrica, configurador, ruta => !EsDeVinculacion(ruta));
+
+        Assert.True(distintas.Count == 0, "El Configurador sin CRM tiene que recibir 403 en los chats (y poder usar la vinculación de WhatsApp). Distinto:\n  " + string.Join("\n  ", distintas));
+    }
+
+    [Fact]
+    public async Task Un_usuario_CRM_entra_a_los_chats_pero_no_a_la_vinculacion_de_WhatsApp()
+    {
+        using var fabrica = Fabrica();
+        var emisor = fabrica.Services.GetRequiredService<JwtEmisorService>();
+        using var crm = ClienteCon(fabrica, emisor.Emitir(1, Roles.Crm));
+
+        // Ninguna ruta de chats da 403 (puede dar 400/404 por el id inexistente, que es lo esperado) y la vinculación sí: 403.
+        var distintas = await RecorrerPorGrupo(fabrica, crm, ruta => EsDeVinculacion(ruta));
+
+        Assert.True(distintas.Count == 0, "El CRM tiene que entrar a toda ruta de chats y recibir 403 en la vinculación de WhatsApp. Distinto:\n  " + string.Join("\n  ", distintas));
+    }
+
+    [Fact]
+    public async Task Quien_tiene_Configurador_y_CRM_entra_a_los_chats_con_el_token_del_modulo_CRM_y_no_con_el_del_Configurador()
+    {
+        using var fabrica = Fabrica();
+        var emisor = fabrica.Services.GetRequiredService<JwtEmisorService>();
+        using var comoCrm = ClienteCon(fabrica, emisor.EmitirModulo(1, new SesionModulo(Modulos.Crm, new[] { Roles.Crm }, Array.Empty<string>(), null)));
+        using var comoConfigurador = ClienteCon(fabrica, emisor.EmitirModulo(1, new SesionModulo(Modulos.Configurador, new[] { Roles.Configurador }, Array.Empty<string>(), null)));
+
+        // El mismo usuario: trabajando como CRM atiende los chats; trabajando como Configurador, no (cada módulo es un token distinto).
+        Assert.NotEqual(HttpStatusCode.Forbidden, (await comoCrm.GetAsync("/mensajeria/conversaciones")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await comoConfigurador.GetAsync("/mensajeria/conversaciones")).StatusCode);
     }
 
     [Fact]
@@ -164,14 +226,15 @@ public class ChatsSoloConfiguradorTests
         File.ReadAllText(Path.Combine(new[] { VideoAccesoEndpointsTests.RaizDelRepositorio(), "PANTALLAS" }.Concat(partes).ToArray()));
 
     [Fact]
-    public void El_shell_solo_carga_los_chats_para_el_rol_configurador()
+    public void El_shell_solo_carga_los_chats_para_el_modulo_crm()
     {
         var shell = Pantalla("shared", "shell.js");
 
-        // La condición que decide quién tiene el botón Chats y la bandeja: solo "configurador".
-        Assert.Matches(@"if \(cfg\.rol === ""configurador""\) \{\s*capacidades = YS\.api\(""/capacidades""\)", shell);
-        Assert.DoesNotContain(@"cfg.rol === ""configurador"" || cfg.rol === ""profesional""", shell);
+        // La condición que decide quién tiene el botón Chats y la bandeja: solo el módulo "crm". Ni el profesional ni el configurador sin CRM.
+        Assert.Matches(@"if \(cfg\.rol === ""crm""\) \{\s*capacidades = YS\.api\(""/capacidades""\)", shell);
+        Assert.DoesNotContain(@"cfg.rol === ""crm"" || cfg.rol === ""profesional""", shell);
         Assert.DoesNotMatch(@"cfg\.rol === ""profesional""\)\s*\{\s*capacidades", shell);
+        Assert.DoesNotMatch(@"cfg\.rol === ""configurador""\)\s*\{\s*capacidades", shell);
     }
 
     [Theory]
@@ -225,13 +288,13 @@ public class ChatsSoloConfiguradorTests
     }
 }
 
-// Contra la base de pruebas: el Configurador entra, y la campanita de turnos del profesional (que no es de los chats) sigue andando.
+// Contra la base de pruebas: el CRM entra, y la campanita de turnos del profesional (que no es de los chats) sigue andando.
 [Trait("Categoria", "Integracion")]
-public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
+public class ChatsSoloCrmBaseRealTests : IAsyncLifetime
 {
     private DatosDePrueba _datos = null!;
     private WebApplicationFactory<Program> _fabrica = null!;
-    private HttpClient _configurador = null!, _profesional = null!, _sinToken = null!;
+    private HttpClient _crm = null!, _configurador = null!, _profesional = null!, _sinToken = null!;
     private int _idProfesional, _idPaciente;
     private string _nombreDelPaciente = null!;
 
@@ -242,11 +305,13 @@ public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
         _nombreDelPaciente = "Juan Garcíaprueba " + _datos.Marca;
         _idPaciente = _datos.Paciente(_nombreDelPaciente);
         _idProfesional = _datos.Profesional();
+        var usuarioCrm = _datos.Usuario();
         var usuarioConfigurador = _datos.Usuario();
         var usuarioProfesional = _datos.UsuarioDeProfesional(_idProfesional);
 
         _fabrica = new WebApplicationFactory<Program>();
         var emisor = _fabrica.Services.GetRequiredService<JwtEmisorService>();
+        _crm = Con(emisor.Emitir(usuarioCrm, Roles.Crm));
         _configurador = Con(emisor.Emitir(usuarioConfigurador, Roles.Configurador));
         _profesional = Con(emisor.Emitir(usuarioProfesional, Roles.Profesional, idProfesional: _idProfesional));
         _sinToken = _fabrica.CreateClient();
@@ -274,25 +339,27 @@ public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
     {
         var telefono = TelefonoNuevo();
         _datos.AlLimpiar("Conversacion", "Telefono", telefono);
-        (await _sinToken.PostAsJsonAsync("/mensajeria/simulado/entrante", new { telefono, texto = "hola, prueba de chats solo configurador" })).EnsureSuccessStatusCode();
+        (await _sinToken.PostAsJsonAsync("/mensajeria/simulado/entrante", new { telefono, texto = "hola, prueba de chats solo crm" })).EnsureSuccessStatusCode();
         var id = Convert.ToInt32(DatosDePrueba.Escalar("SELECT IdConversacion FROM Conversacion WHERE Telefono = @t", ("@t", telefono)));
         DatosDePrueba.Ejecutar("UPDATE Conversacion SET Estado = @e, IdPaciente = @p WHERE IdConversacion = @i", ("@e", estado), ("@p", idPaciente), ("@i", id));
-        return id;   // la auditoría que deje el Configurador se borra con su usuario (LogAuditoria.IdUsuario tiene clave foránea)
+        return id;   // la auditoría que deje el CRM queda (es de solo agregar)
     }
 
     [Fact]
-    public async Task El_Configurador_entra_a_las_rutas_de_lectura_de_los_chats()
+    public async Task El_CRM_entra_a_las_rutas_de_lectura_de_los_chats_y_el_Configurador_sin_CRM_no()
     {
         foreach (var ruta in new[] { "/mensajeria/conversaciones", "/mensajeria/etiquetas", "/mensajeria/respuestas-rapidas",
                                      "/mensajeria/notificaciones-internas?destinatario=Administrador", "/mensajeria/preguntas-frecuentes" })
         {
-            using var r = await _configurador.GetAsync(ruta);
+            using var r = await _crm.GetAsync(ruta);
             Assert.True(r.StatusCode == HttpStatusCode.OK, $"GET {ruta} -> {(int)r.StatusCode}");
+            using var sinCrm = await _configurador.GetAsync(ruta);
+            Assert.True(sinCrm.StatusCode == HttpStatusCode.Forbidden, $"GET {ruta} como Configurador sin CRM -> {(int)sinCrm.StatusCode}");
         }
     }
 
     [Fact]
-    public async Task El_Configurador_ve_cualquier_conversacion_y_un_Profesional_no_ve_ninguna()
+    public async Task El_CRM_ve_cualquier_conversacion_y_un_Profesional_no_ve_ninguna()
     {
         var sinPaciente = await NuevaConversacion(EstadoConversacion.Activa);
         var escalada = await NuevaConversacion(EstadoConversacion.DerivadaHumano);
@@ -301,8 +368,8 @@ public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
 
         foreach (var id in new[] { sinPaciente, escalada, urgente, delPaciente })
         {
-            using var comoConfigurador = await _configurador.GetAsync($"/mensajeria/conversaciones/{id}");
-            Assert.Equal(HttpStatusCode.OK, comoConfigurador.StatusCode);
+            using var comoCrm = await _crm.GetAsync($"/mensajeria/conversaciones/{id}");
+            Assert.Equal(HttpStatusCode.OK, comoCrm.StatusCode);
             // Ni siquiera la que está escalada y sin dueño (antes la veía cualquier profesional) ni la de un paciente suyo: 403 por el rol, no un 404.
             using var comoProfesional = await _profesional.GetAsync($"/mensajeria/conversaciones/{id}");
             Assert.Equal(HttpStatusCode.Forbidden, comoProfesional.StatusCode);
@@ -330,14 +397,14 @@ public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Los_avisos_de_una_conversacion_los_ve_el_Configurador_y_un_Profesional_recibe_403()
+    public async Task Los_avisos_de_una_conversacion_los_ve_el_CRM_y_un_Profesional_recibe_403()
     {
         var id = await NuevaConversacion(EstadoConversacion.DerivadaHumano);
         DatosDePrueba.Ejecutar(@"INSERT INTO NotificacionInterna (Destinatario, IdConversacion, Tipo, Titulo, Mensaje)
                                  VALUES ('Administrador', @i, 'DerivacionHumano', 'Aviso de prueba', 'Mensaje de prueba')", ("@i", id));
 
-        var comoConfigurador = await _configurador.GetFromJsonAsync<JsonElement[]>("/mensajeria/notificaciones-internas?destinatario=Administrador");
-        Assert.Contains(comoConfigurador!, n => n.TryGetProperty("idConversacion", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == id);
+        var comoCrm = await _crm.GetFromJsonAsync<JsonElement[]>("/mensajeria/notificaciones-internas?destinatario=Administrador");
+        Assert.Contains(comoCrm!, n => n.TryGetProperty("idConversacion", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == id);
 
         using var comoProfesional = await _profesional.GetAsync("/mensajeria/notificaciones-internas?destinatario=Administrador");
         Assert.Equal(HttpStatusCode.Forbidden, comoProfesional.StatusCode);
@@ -348,7 +415,7 @@ public class ChatsSoloConfiguradorBaseRealTests : IAsyncLifetime
     {
         var id = await NuevaConversacion(EstadoConversacion.Activa, _idPaciente);
 
-        (await _configurador.GetAsync($"/mensajeria/conversaciones/{id}/paciente")).EnsureSuccessStatusCode();
+        (await _crm.GetAsync($"/mensajeria/conversaciones/{id}/paciente")).EnsureSuccessStatusCode();
 
         var detalle = (string?)DatosDePrueba.Escalar(
             "SELECT TOP 1 Detalle FROM LogAuditoria WHERE Entidad = 'Conversacion' AND IdEntidad = @i AND Accion = N'Apertura de conversación de chat' ORDER BY IdLog DESC", ("@i", id));

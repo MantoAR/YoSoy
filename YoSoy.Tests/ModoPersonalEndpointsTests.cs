@@ -8,8 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 // El chat para el personal (Mensajeria:ModoAtencion = "Personal") por la aplicación entera, con una base de pruebas y el canal de WhatsApp reemplazado por uno que anota
 // cada envío (no sale nada de la máquina). Lo que tiene que pasar, entrando por el webhook real de whatsapp-service (con su secreto) y por el simulador:
 //  · el asistente NO contesta: nada sale por el canal;
-//  · el mensaje queda guardado y la conversación "para atender" (DerivadaHumano), con un aviso "chat nuevo" en la campanita del Configurador;
-//  · el Configurador la ve y le responde (eso sí sale por el canal), y cerrar o reabrir NO le mandan ningún texto automático a la persona;
+//  · el mensaje queda guardado y la conversación "para atender" (DerivadaHumano), con un aviso "chat nuevo" en la campanita del CRM;
+//  · el CRM la ve y le responde (eso sí sale por el canal), y cerrar o reabrir NO le mandan ningún texto automático a la persona;
 //  · una frase de riesgo la marca Urgente y avisa, sin mandarle nada al paciente (el mensaje de emergencia viene apagado: decisión D3).
 // El modo Asistente (el de siempre) lo cubren RespuestasAutomaticasEndpointsTests y las pruebas del asistente: acá solo se comprueba que el valor por defecto sigue siendo ese.
 [Trait("Categoria", "Integracion")]
@@ -33,17 +33,17 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
     private readonly CanalQueRegistra _canal = new();
     private DatosDePrueba _datos = null!;
     private WebApplicationFactory<Program> _factory = null!;
-    private HttpClient _configurador = null!, _profesional = null!, _sinToken = null!, _webhook = null!;
+    private HttpClient _crm = null!, _profesional = null!, _sinToken = null!, _webhook = null!;
 
     public Task InitializeAsync()
     {
         _datos = new DatosDePrueba();
-        var idUsuarioConfigurador = _datos.Usuario();
+        var idUsuarioCrm = _datos.Usuario();
         var idProfesional = _datos.Profesional();
         var idUsuarioProfesional = _datos.UsuarioDeProfesional(idProfesional);
         _factory = Fabrica("Personal", _canal);
         var emisor = _factory.Services.GetRequiredService<JwtEmisorService>();
-        _configurador = ClienteCon(emisor.Emitir(idUsuarioConfigurador, Roles.Configurador));
+        _crm = ClienteCon(emisor.Emitir(idUsuarioCrm, Roles.Crm));
         _profesional = ClienteCon(emisor.Emitir(idUsuarioProfesional, Roles.Profesional, idProfesional: idProfesional));
         _sinToken = _factory.CreateClient();
         _webhook = _factory.CreateClient();
@@ -126,7 +126,7 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task El_aviso_de_chat_nuevo_llega_a_la_campanita_del_Configurador_y_no_lleva_el_texto_del_mensaje()
+    public async Task El_aviso_de_chat_nuevo_llega_a_la_campanita_del_CRM_y_no_lleva_el_texto_del_mensaje()
     {
         var telefono = ConversacionNueva(out var deWhatsApp);
 
@@ -134,7 +134,7 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
 
         var id = IdDe(telefono);
         Assert.Equal(1, Avisos(id, "ChatNuevo"));
-        var avisos = await _configurador.GetFromJsonAsync<JsonElement[]>("/mensajeria/notificaciones-internas?destinatario=Administrador");
+        var avisos = await _crm.GetFromJsonAsync<JsonElement[]>("/mensajeria/notificaciones-internas?destinatario=Administrador");
         var aviso = Assert.Single(avisos!, n => n.TryGetProperty("idConversacion", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == id);
         Assert.Equal("ChatNuevo", aviso.GetProperty("tipo").GetString());
         Assert.Equal("Administrador", aviso.GetProperty("destinatario").GetString());
@@ -159,17 +159,17 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task El_Configurador_ve_la_conversacion_y_sus_mensajes_y_un_Profesional_no()
+    public async Task El_CRM_ve_la_conversacion_y_sus_mensajes_y_un_Profesional_no()
     {
         var telefono = ConversacionNueva(out var deWhatsApp);
         await Entra(_webhook, "/mensajeria/whatsapp/entrante", deWhatsApp, "hola");
         var id = IdDe(telefono);
 
-        var lista = await _configurador.GetFromJsonAsync<JsonElement[]>("/mensajeria/conversaciones");
+        var lista = await _crm.GetFromJsonAsync<JsonElement[]>("/mensajeria/conversaciones");
         var fila = Assert.Single(lista!, c => c.GetProperty("idConversacion").GetInt32() == id);
         Assert.Equal("DerivadaHumano", fila.GetProperty("estado").GetString());
         Assert.Equal(1, fila.GetProperty("noLeidos").GetInt32());
-        var mensajes = await _configurador.GetFromJsonAsync<JsonElement[]>($"/mensajeria/conversaciones/{id}/mensajes");
+        var mensajes = await _crm.GetFromJsonAsync<JsonElement[]>($"/mensajeria/conversaciones/{id}/mensajes");
         Assert.Equal("hola", Assert.Single(mensajes!).GetProperty("texto").GetString());
 
         Assert.Equal(HttpStatusCode.Forbidden, (await _profesional.GetAsync($"/mensajeria/conversaciones/{id}")).StatusCode);
@@ -177,13 +177,13 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task El_Configurador_le_responde_y_eso_si_sale_por_el_canal()
+    public async Task El_CRM_le_responde_y_eso_si_sale_por_el_canal()
     {
         var telefono = ConversacionNueva(out var deWhatsApp);
         await Entra(_webhook, "/mensajeria/whatsapp/entrante", deWhatsApp, "hola");
         var id = IdDe(telefono);
 
-        var r = await _configurador.PostAsJsonAsync($"/mensajeria/conversaciones/{id}/responder", new { texto = "Hola, te escribimos del consultorio. ¿En qué podemos ayudarte?" });
+        var r = await _crm.PostAsJsonAsync($"/mensajeria/conversaciones/{id}/responder", new { texto = "Hola, te escribimos del consultorio. ¿En qué podemos ayudarte?" });
 
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal("Hola, te escribimos del consultorio. ¿En qué podemos ayudarte?", Assert.Single(_canal.A(telefono)).Texto);
@@ -199,11 +199,11 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
         await Entra(_webhook, "/mensajeria/whatsapp/entrante", deWhatsApp, "hola");
         var id = IdDe(telefono);
 
-        var cierre = await _configurador.PutAsync($"/mensajeria/conversaciones/{id}/cerrar", null);
+        var cierre = await _crm.PutAsync($"/mensajeria/conversaciones/{id}/cerrar", null);
         Assert.Equal(HttpStatusCode.OK, cierre.StatusCode);
         Assert.Equal("Cerrada", Estado(id));
 
-        var reapertura = await _configurador.PutAsync($"/mensajeria/conversaciones/{id}/reabrir", null);
+        var reapertura = await _crm.PutAsync($"/mensajeria/conversaciones/{id}/reabrir", null);
         Assert.Equal(HttpStatusCode.OK, reapertura.StatusCode);
         Assert.Equal("DerivadaHumano", Estado(id));
 
@@ -218,7 +218,7 @@ public class ModoPersonalEndpointsTests : IAsyncLifetime
         var telefono = ConversacionNueva(out var deWhatsApp);
         await Entra(_webhook, "/mensajeria/whatsapp/entrante", deWhatsApp, "hola");
         var id = IdDe(telefono);
-        (await _configurador.PutAsync($"/mensajeria/conversaciones/{id}/cerrar", null)).EnsureSuccessStatusCode();
+        (await _crm.PutAsync($"/mensajeria/conversaciones/{id}/cerrar", null)).EnsureSuccessStatusCode();
         Assert.Equal("Cerrada", Estado(id));
 
         var r = await Entra(_webhook, "/mensajeria/whatsapp/entrante", deWhatsApp, "perdón, una cosa más");

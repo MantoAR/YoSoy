@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -16,11 +17,14 @@ public class IdsCeroAgendaTests
     {
         using var datos = new DatosDePrueba();
         var idProfesional = datos.Profesional();
-        var idConfigurador = datos.Usuario();
+        var idCrm = datos.Usuario();
         datos.AlLimpiar("Agenda", "IdProfesional", idProfesional);   // solo las filas de ESTE profesional
 
         using var factory = new WebApplicationFactory<Program>();
-        using var client = DatosDePrueba.Cliente(factory, idConfigurador, Roles.Configurador);
+        // Etapa 2 de roles: las agendas de otro profesional las maneja CRM con el privilegio Gestión de agendas (antes, el Configurador).
+        var token = factory.Services.GetRequiredService<JwtEmisorService>()
+            .EmitirModulo(idCrm, new SesionModulo(Modulos.Crm, new[] { Roles.Crm }, new[] { Privilegios.GestionAgendas }, null));
+        using var client = DatosDePrueba.Cliente(factory, token);
 
         var respuesta = await client.PostAsJsonAsync(ruta, new
         {

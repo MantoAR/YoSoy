@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YoSoy · Panel configurador</title>
+    <title>YoSoy · Panel de gestión</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
@@ -11,7 +11,9 @@
     <link rel="stylesheet" href="css/dashboard.css">
 </head>
 <body>
-    <!-- La barra superior, el menú y el encabezado de página los arma shared/shell.js.
+    <!-- Roles y permisos: panel de GESTIÓN del Configurador, de CRM y de Admisión/Auditoría del módulo
+         Profesional. Cada módulo ve solo sus secciones (ver MODULO en js/dashboard.js).
+         La barra superior, el menú y el encabezado de página los arma shared/shell.js.
          Cada sección (mostrarTab) se dibuja en #contenido. CRM > Chats y Escalamientos usan
          #vistaChatsCRM en vez de #contenido: la bandeja (js/bandeja.js, cargada por shell.js
          si la mensajería está disponible) se dibuja ahí una sola vez y se muestra u oculta al

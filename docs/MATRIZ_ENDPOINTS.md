@@ -8,6 +8,116 @@ mano — así esta tabla no se puede desactualizar en silencio sin que algo la c
 columna "Pertenencia" sí es juicio: la reflexión solo puede ver "autenticado" y "con qué
 rol", nunca "solo el dueño del recurso" — esa parte la decide el código de cada endpoint.
 
+## Etapa 2 de la integración de roles y permisos: qué cambió (octubre 2026)
+
+**Esta sección manda sobre las de abajo** (ya no hay endpoints del circuito de atención: salas, evolución por enfoque y addenda son de la etapa 3 de la integración) donde no coincidan: las secciones siguientes son de
+vueltas anteriores y todavía nombran al Configurador en lugares de los que salió. La tabla la
+generó un script comparando la tabla de rutas antes y después de la etapa (solo las filas que
+cambiaron). Cómo se lee la columna "Ahora":
+
+- **Profesional** incluye al Profesional auditor (su token lleva los dos roles).
+- **Admisión**: profesional (o auditor) con el privilegio Admisión.
+- **CRM con Gestión de agendas**: CRM con ese privilegio (migración 18).
+- La pertenencia sigue en el código de cada endpoint: en lo clínico, `AutorizacionClinica`
+  (lectura: tratante, auditor o Admisión con el paciente en admisión; escritura: tratante o
+  Admisión con el paciente en admisión).
+
+| Método | Ruta | Antes | Ahora |
+|---|---|---|---|
+| POST | `/agenda` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| DELETE | `/agenda/{id}` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| PUT | `/agenda/{id}` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| POST | `/agendas` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| DELETE | `/agendas/{id}` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| PUT | `/agendas/{id}` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| PUT | `/asignaciones/estado` | Profesional, Configurador | Profesional |
+| GET | `/auditoria` | Configurador | Configurador, Profesional auditor |
+| GET | `/consentimientos` | Configurador | Profesional auditor, Admisión |
+| POST | `/consentimientos` | Configurador | Admisión |
+| DELETE | `/consentimientos/{id}` | Configurador | Admisión |
+| GET | `/consentimientos/{id}` | Configurador | Profesional auditor, Admisión |
+| PUT | `/consentimientos/{id}` | Configurador | Admisión |
+| GET | `/derivaciones` | Configurador | Admisión |
+| POST | `/derivaciones` | Configurador | Admisión |
+| POST | `/derivaciones/cambio-directo` | Configurador | Admisión |
+| GET | `/derivaciones/detalle` | Configurador | Admisión |
+| GET | `/derivaciones/pendientes` | Configurador | Admisión |
+| GET | `/derivaciones/{id}` | Configurador | Admisión |
+| PUT | `/derivaciones/{id}` | Configurador | Admisión |
+| PUT | `/derivaciones/{id}/aceptar` | Configurador | Admisión |
+| PUT | `/derivaciones/{id}/rechazar` | Configurador | Admisión |
+| GET | `/eventoscrisis` | Configurador | Profesional auditor |
+| POST | `/eventoscrisis` | Profesional, Configurador | Profesional |
+| GET | `/eventoscrisis/{id}` | Profesional, Configurador | Profesional |
+| PUT | `/eventoscrisis/{id}` | Profesional, Configurador | Profesional |
+| GET | `/evoluciones` | Configurador | Profesional auditor |
+| POST | `/evoluciones` | Profesional, Configurador | Profesional |
+| GET | `/evoluciones/{id}` | Profesional, Configurador | Profesional |
+| PUT | `/evoluciones/{id}` | Profesional, Configurador | Profesional |
+| GET | `/historiasclinicas` | Configurador | Profesional auditor |
+| POST | `/historiasclinicas` | Profesional, Configurador | Profesional |
+| GET | `/historiasclinicas/{id}` | Profesional, Configurador | Profesional |
+| GET | `/historiasclinicas/{id}/evoluciones` | Profesional, Configurador | Profesional |
+| GET | `/informes-admision` | Configurador | Admisión, Profesional auditor |
+| POST | `/informes-admision` | Paciente, Configurador | Paciente, Admisión |
+| GET | `/informes-admision-detalle` | Configurador | Admisión, Profesional auditor |
+| PUT | `/informes-admision/rechazar` | Profesional, Configurador | Profesional |
+| GET | `/informes-admision/{id}` | Configurador | Admisión, Profesional auditor |
+| PUT | `/informes-admision/{id}/derivar` | Configurador | Admisión |
+| PUT | `/informes-admision/{id}/entrevista` | Configurador | Admisión |
+| PUT | `/informes-admision/{id}/estado` | Configurador | Admisión |
+| GET | `/interaccionesia` | Configurador | Profesional auditor |
+| POST | `/interaccionesia` | Profesional, Configurador | Profesional |
+| GET | `/interaccionesia/{id}` | Profesional, Configurador | Profesional |
+| GET | `/pacientes` | Configurador | Configurador, Admisión, Profesional auditor, CRM con Gestión de agendas |
+| DELETE | `/pacientes/{idPac}/profesionales/{idProf}` | Configurador | Admisión |
+| GET | `/pacientes/{id}/caso` | Profesional, Configurador | Profesional, CRM |
+| GET | `/pacientes/{id}/derivaciones` | Configurador | Admisión |
+| GET | `/pacientes/{id}/eventoscrisis` | Profesional, Configurador | Profesional |
+| GET | `/pacientes/{id}/historiaclinica` | Profesional, Configurador | Profesional |
+| GET | `/pacientes/{id}/interaccionesia` | Profesional, Configurador | Profesional |
+| POST | `/pacientes/{id}/profesionales` | Configurador | Admisión |
+| GET | `/pacientes/{id}/sesiones-clinicas` | Profesional, Configurador | Profesional |
+| GET | `/pacientes/{id}/tutores` | Profesional, Configurador | Profesional |
+| POST | `/pacientetutores` | Profesional, Configurador | Profesional |
+| DELETE | `/pacientetutores/{idPaciente}/{idTutor}` | Profesional, Configurador | Profesional |
+| GET | `/profesionales` | Configurador | Configurador, Admisión, Profesional auditor, CRM |
+| GET | `/profesionales/{id}/sesiones-clinicas` | Profesional, Configurador | Profesional |
+| GET | `/reportes/paciente/{id}/evolucion-emocional` | público | Profesional |
+| GET | `/reportes/profesional/{id}/emociones-globales` | público | Profesional |
+| GET | `/reportes/profesional/{id}/kpis` | público | Profesional |
+| GET | `/reportes/profesional/{id}/lista-pacientes` | público | Profesional |
+| GET | `/reportes/profesional/{id}/pacientes-por-cierre` | público | Profesional |
+| GET | `/reportes/profesional/{id}/sesiones-por-mes` | público | Profesional |
+| GET | `/sesion/yo` | — | con sesión |
+| POST | `/sesiones-clinicas` | Profesional, Configurador | Profesional |
+| GET | `/turnos` | Configurador | CRM con Gestión de agendas |
+| POST | `/turnos/profesional-solicitar` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| DELETE | `/turnos/{id}` | Configurador | CRM con Gestión de agendas |
+| PUT | `/turnos/{id}` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| PUT | `/turnos/{id}/generar-sala` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
+| GET | `/tutores` | Profesional, Configurador | Profesional |
+| POST | `/tutores` | Profesional, Configurador | Profesional |
+| GET | `/tutores/{id}` | Profesional, Configurador | Profesional |
+| PUT | `/tutores/{id}` | Profesional, Configurador | Profesional |
+| GET | `/usuarios/accesos` | — | Configurador |
+| GET | `/usuarios/{id}/accesos` | — | Configurador |
+| PUT | `/usuarios/{id}/accesos` | — | Configurador |
+
+Además cambió la pertenencia dentro de estos endpoints, que ya pedían sesión:
+
+| Ruta | Antes | Ahora |
+|---|---|---|
+| `GET /profesionales/{id}/horarios-libres` | el propio o el Configurador | el propio, Admisión o CRM con Gestión de agendas |
+| `GET /profesionales/{id}/pacientes`, `/pacientes-detalle` | el propio o el Configurador | el propio, Admisión o el auditor |
+| `GET /profesionales/{id}/turnos`, `/turnos-confirmados` | el propio o el Configurador | el propio o CRM con Gestión de agendas |
+| `PUT /profesionales/{id}/link-publico` | el propio o el "administrador" de casos | el propio o el Configurador |
+| `GET /pacientes/{id}/informe-admision` | el paciente o **cualquier** usuario del equipo | el paciente, Admisión, el auditor o quien lo atiende |
+| `/reportes/atenciones[/html]` | el propio profesional; el Configurador, todo | el propio profesional; el auditor, todo; el Configurador, nada |
+| `/mensajeria/*`, `/casos*`, `/casosderivaciones/*` | "administrador" = Configurador | "administrador" = CRM |
+| `/grupos*`, `/reglasderivacion*` (escritura) | "administrador" = Configurador | Configurador (sin cambios de fondo) |
+| `GET /auditoria` | todo, al Configurador | la administrativa al Configurador; la clínica al auditor |
+
 ## Guardia automática (Cierre de seguridad, Paso 1)
 
 `YoSoy.Tests/GuardiaEndpointsTests.cs` enumera la tabla de rutas real por reflexión y
@@ -333,6 +443,7 @@ CAMBIOS_AGUS.md.
 
 | Método | Ruta | Rol |
 |---|---|---|
+| POST | `/sesion/modulo` | Cualquier usuario del equipo autenticado (token de trabajo o **token de selección**). Etapa 2: emite el token del módulo elegido después de volver a leer roles, permisos y privilegios en la base. El token de selección (5 minutos, sin roles) se rechaza en cualquier otra ruta (`OnTokenValidated` en `Program.cs`) |
 | GET/POST/PUT/DELETE | `/usuarios[/{id}]`, `/{id}/roles`, `/{id}/paciente`, `/{id}/profesional` | Configurador |
 | POST/DELETE | `/usuarioroles[/...]`, `/usuariopacientes[/...]`, `/usuarioprofesionales[/...]` | Configurador |
 | GET | `/auditoria` | Configurador |

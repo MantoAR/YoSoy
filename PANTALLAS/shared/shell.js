@@ -50,62 +50,110 @@
             ],
             usuario: [{ id: "perfil", texto: "Mis datos", icono: "usuario" }]
         },
+        // Roles y permisos: el Configurador administra usuarios, permisos,
+        // configuración y la auditoría administrativa. Nada clínico ni operativo.
         configurador: {
             etiqueta: "Panel configurador",
             items: [
                 { id: "inicio", texto: "Inicio" },
                 {
                     texto: "Usuarios", items: [
-                        { id: "usuarios", texto: "Pacientes y profesionales", icono: "pacientes", desc: "Asignaciones, altas y bajas" },
+                        { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
+                        { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
+                        { id: "privilegios", texto: "Privilegios", icono: "candado", desc: "Admisión y Gestión de agendas: a quién se le agregan" },
+                        { id: "usuarios", texto: "Cuentas", icono: "pacientes", desc: "Altas y bajas de pacientes y profesionales" },
                         { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" },
-                        { id: "derivaciones", texto: "Solicitudes de cambio", icono: "flechas", desc: "Pedidos de cambio de profesional" },
                         { id: "recuperacion", texto: "Recuperación de contraseña", icono: "candado", desc: "Pedidos de contraseña temporal" }
                     ]
                 },
-                {
-                    texto: "Clínico", items: [
-                        { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Informes y primera entrevista" },
-                        { id: "turnos", texto: "Turnos", icono: "reloj", desc: "Todos los turnos" },
-                        { id: "agendas", texto: "Agendas", icono: "agenda", desc: "Horarios de los profesionales" },
-                        { id: "evoluciones", texto: "Evoluciones", icono: "tendencia", desc: "Solo lectura" },
-                        { id: "eventoscrisis", texto: "Eventos de crisis", icono: "alerta", desc: "Solo lectura" }
-                    ]
-                },
-                { id: "reportes", texto: "Reportes" },
                 {
                     texto: "Configuración", items: [
                         { id: "roles", texto: "Roles", icono: "escudo" },
                         { id: "especialidades", texto: "Especialidades", icono: "etiqueta" },
                         { id: "grupos", texto: "Grupos", icono: "pacientes", desc: "A qué grupo de profesionales se derivan los casos" },
                         { id: "reglasderivacion", texto: "Reglas de derivación", icono: "flechas", desc: "Qué especialidad va a qué grupo" },
-                        { id: "coberturas", texto: "Coberturas", icono: "tarjeta" },
-                        { id: "interaccionesia", texto: "Interacciones IA", icono: "ia" }
+                        { id: "coberturas", texto: "Coberturas", icono: "tarjeta" }
                     ]
                 },
-                // Ítem estático, no a través de agregarGrupoCRM(): esa ruta solo aparece si
+                // Ítem estático, no a través de agregarGrupo(GRUPO_CHATS): esa ruta solo aparece si
                 // ChatSimuladoHabilitado está prendido, pero vincular WhatsApp es una
                 // configuración independiente (los avisos y las respuestas por WhatsApp pueden
                 // usarse con el chat simulado apagado).
                 { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono" },
-                { id: "auditoria", texto: "Auditoría", titulo: "Log de auditoría" }
+                { id: "auditoria", texto: "Auditoría", titulo: "Auditoría administrativa" }
+            ],
+            usuario: []
+        },
+        // Roles y permisos: el grupo CRM que tenía el Configurador pasa a su propio módulo. Las
+        // conversaciones (Chats, Escalamientos, Etiquetas) se suman cuando la mensajería está
+        // disponible (GRUPO_CHATS); Agendas, solo con el privilegio Gestión de agendas.
+        crm: {
+            etiqueta: "CRM y atención al cliente",
+            items: [
+                { id: "inicio", texto: "Inicio" },
+                {
+                    texto: "Casos", items: [
+                        { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
+                        // id "casosderivaciones", no "derivaciones": ese id es Admisión > Solicitudes
+                        // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
+                        { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" }
+                    ]
+                }
             ],
             usuario: []
         }
     };
-    // Grupo CRM: se agrega al menú del configurador solo si la mensajería está disponible
-    // (mismo control que el botón de chats), ver agregarGrupoCRM().
-    const GRUPO_CRM = {
-        texto: "CRM", items: [
+    // Conversaciones del módulo CRM: se agregan al menú solo si la mensajería está disponible
+    // (mismo control que el botón de chats), ver agregarGrupoChats().
+    const GRUPO_CHATS = {
+        texto: "Conversaciones", items: [
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
-            { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
-            // id "casosderivaciones", no "derivaciones": ese id ya es Usuarios > Solicitudes
-            // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
-            { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" },
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" },
             { id: "etiquetas", texto: "Etiquetas de chats", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" }
         ]
     };
-    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador" };
+    const GRUPO_AGENDAS = {
+        texto: "Agendas", items: [
+            { id: "turnos", texto: "Turnos", icono: "reloj", desc: "Turnos de todos los profesionales" },
+            { id: "agendas", texto: "Horarios", icono: "agenda", desc: "Horarios de trabajo de los profesionales" }
+        ]
+    };
+    // Módulo Profesional: lo que suma cada permiso o privilegio. Estas secciones viven en el
+    // panel de gestión (pagina: "gestion"); el resto del menú, en el panel profesional.
+    const GRUPO_ADMISION = {
+        texto: "Admisión", items: [
+            { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Informes y primera entrevista", pagina: "gestion" },
+            { id: "derivaciones", texto: "Solicitudes de cambio", icono: "flechas", desc: "Pedidos de cambio de profesional", pagina: "gestion" },
+            { id: "asignaciones", texto: "Asignaciones", icono: "pacientes", desc: "Qué profesional atiende a cada paciente", pagina: "gestion" }
+        ]
+    };
+    const GRUPO_AUDITOR = {
+        texto: "Auditoría", items: [
+            { id: "reportesgenerales", texto: "Reportes", icono: "reportes", desc: "Atenciones de toda la organización", titulo: "Reportes de la organización", pagina: "gestion" },
+            { id: "evoluciones", texto: "Evoluciones", icono: "tendencia", desc: "Todas, solo lectura", pagina: "gestion" },
+            { id: "eventoscrisis", texto: "Eventos de crisis", icono: "alerta", desc: "Todos, solo lectura", pagina: "gestion" },
+            { id: "interaccionesia", texto: "Interacciones IA", icono: "ia", desc: "Todas, solo lectura", pagina: "gestion" },
+            { id: "auditoriaclinica", texto: "Accesos clínicos", icono: "lista", desc: "Quién abrió qué historia clínica", titulo: "Auditoría clínica", pagina: "gestion" }
+        ]
+    };
+
+    // El menú de cada módulo según los permisos y privilegios de la sesión. Es solo lo que se
+    // muestra: cada endpoint vuelve a controlar el permiso en el servidor.
+    function menuPara(rol) {
+        const base = MENUS[rol];
+        if (!base) return null;
+        const items = base.items.map(it => it.items ? { ...it, items: [...it.items] } : { ...it });
+        if (rol === "profesional") {
+            const pagina = it => it.items ? { ...it, items: it.items.map(s => ({ pagina: "profesional", ...s })) } : { pagina: "profesional", ...it };
+            const propios = items.map(pagina);
+            if (YS.sesion.tienePrivilegio("admision")) propios.push(GRUPO_ADMISION);
+            if (YS.sesion.tienePermiso("auditor")) propios.push(GRUPO_AUDITOR);
+            return { ...base, items: propios };
+        }
+        if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
+        return { ...base, items };
+    }
+    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
     let cfg = null, menu = null, actual = null, primeraMarca = true;
@@ -123,7 +171,12 @@
         return out;
     };
     const buscar = id => plano().find(i => i.id === id);
-    const enlace = item => item.href || (cfg.navegar ? "#" + item.id : YS.rutas[cfg.rol] + "#" + item.id);
+    // Roles y permisos: un ítem puede vivir en otra pantalla del mismo módulo (pagina: "gestion" o
+    // "profesional"); ahí el link va a esa pantalla en vez de cambiar el #hash de esta.
+    const esLocal = item => !item.href && (!item.pagina || item.pagina === cfg.pagina);
+    const enlace = item => item.href
+        || (!esLocal(item) ? YS.rutas[item.pagina] + "#" + item.id
+        : cfg.navegar ? "#" + item.id : YS.rutas[cfg.rol] + "#" + item.id);
     const leerHash = () => {
         const [id, q] = decodeURIComponent(location.hash.slice(1)).split("?");
         return { id, params: Object.fromEntries(new URLSearchParams(q || "")) };
@@ -228,6 +281,17 @@
         panel.appendChild(els.usuarioCabecera);
         (menu.usuario || []).forEach(u => panel.appendChild(itemDesplegable(u)));
         if ((menu.usuario || []).length) panel.appendChild(YS.el("div", { class: "ui-desplegable-sep" }));
+        // Etapa 2: quien tiene más de un módulo (por ejemplo, Profesional y Configurador)
+        // cambia sin volver a iniciar sesión. El servidor vuelve a comprobar el permiso.
+        const otrosModulos = cfg.rol === "paciente" ? [] : YS.sesion.modulos().filter(m => m.clave !== YS.sesion.modulo());
+        if (otrosModulos.length) {
+            panel.appendChild(YS.el("button", {
+                class: "ui-desplegable-item", type: "button", role: "menuitem",
+                html: YS.icono("flechas") + '<span class="ui-desplegable-texto">Cambiar de módulo</span>',
+                on: { click: () => YS.shell.elegirModulo(otrosModulos) }
+            }));
+            panel.appendChild(YS.el("div", { class: "ui-desplegable-sep" }));
+        }
         panel.appendChild(YS.el("button", {
             class: "ui-desplegable-item ui-desplegable-item--peligro", type: "button", role: "menuitem",
             html: YS.icono("salir") + '<span class="ui-desplegable-texto">Cerrar sesión</span>',
@@ -264,8 +328,9 @@
                 const p = await YS.api(`/pacientes/${YS.sesion.idPaciente()}`);
                 nombre = YS.nombreCompleto(p);
             } else {
-                const u = await YS.api(`/usuarios/${YS.sesion.idUsuario()}`);
-                nombre = u?.username; detalle = "Configurador";
+                // Roles y permisos: /sesion/yo sirve para cualquier módulo (CRM no puede leer /usuarios).
+                const u = await YS.api("/sesion/yo");
+                nombre = u?.username; detalle = ROL_TEXTO[cfg.rol];
             }
             if (!nombre) { resolverUsuario({ nombre: null }); return; }
             mostrarUsuario(nombre, detalle);
@@ -501,18 +566,24 @@
         document.body.appendChild(s);
     }
 
-    // Suma el grupo CRM (Chats, Escalamientos) al menú ya dibujado, sin reconstruir la barra:
-    // llega después, cuando /capacidades confirma que la mensajería está disponible.
-    function agregarGrupoCRM() {
-        if (menu.items.includes(GRUPO_CRM)) return;
-        menu.items.unshift(GRUPO_CRM);
-        els.barra.querySelector(".ui-menu > ul")?.prepend(crearGrupo(GRUPO_CRM));
+    // Suma un grupo al menú ya dibujado, sin reconstruir la barra (las conversaciones llegan
+    // después, cuando /capacidades confirma que la mensajería está disponible).
+    function agregarGrupo(grupo, alPrincipio = false) {
+        if (menu.items.includes(grupo)) return;
+        const ul = els.barra.querySelector(".ui-menu > ul");
         const panelCompacto = els.barra.querySelector(".ui-menu-compacto .ui-desplegable");
-        if (panelCompacto) {
-            const frag = document.createDocumentFragment();
-            frag.appendChild(YS.el("div", { class: "ui-desplegable-titulo", text: GRUPO_CRM.texto }));
-            GRUPO_CRM.items.forEach(s => frag.appendChild(itemDesplegable(s)));
-            panelCompacto.prepend(frag);
+        const frag = document.createDocumentFragment();
+        frag.appendChild(YS.el("div", { class: "ui-desplegable-titulo", text: grupo.texto }));
+        grupo.items.forEach(s => frag.appendChild(itemDesplegable(s)));
+        if (alPrincipio) {
+            // después de "Inicio", que queda siempre primero
+            menu.items.splice(1, 0, grupo);
+            ul?.children[1] ? ul.insertBefore(crearGrupo(grupo), ul.children[1]) : ul?.appendChild(crearGrupo(grupo));
+            panelCompacto?.children[1] ? panelCompacto.insertBefore(frag, panelCompacto.children[1]) : panelCompacto?.appendChild(frag);
+        } else {
+            menu.items.push(grupo);
+            ul?.appendChild(crearGrupo(grupo));
+            panelCompacto?.appendChild(frag);
         }
     }
 
@@ -525,6 +596,9 @@
          */
         iniciar(opciones) {
             cfg = { inicial: "inicio", ...opciones };
+            // En qué pantalla estamos (roles y permisos): el panel profesional o el de gestión, que
+            // comparten el módulo Profesional (Admisión y Auditoría viven en el de gestión).
+            cfg.pagina = cfg.pagina || (cfg.rol === "profesional" ? "profesional" : "gestion");
             // Páginas que se abren desde un link (consentimiento): sin sesión muestran solo la marca
             // y la página explica que hay que ingresar, en vez de mandar directo al login.
             if (cfg.opcional && !localStorage.getItem({ paciente: "idPaciente", profesional: "idProfesional" }[cfg.rol] || "idUsuario")) {
@@ -538,7 +612,11 @@
                 return false;
             }
             if (!YS.sesion.requerir(cfg.rol)) return false;
-            menu = MENUS[cfg.rol];
+            menu = menuPara(cfg.rol);
+            // Si "inicio" no está en esta pantalla (Admisión/Auditoría del profesional), se
+            // arranca en la primera sección local.
+            if (cfg.navegar && !(buscar(cfg.inicial) && esLocal(buscar(cfg.inicial))))
+                cfg.inicial = plano().find(i => esLocal(i) && !i.deUsuario)?.id || cfg.inicial;
             // Si la URL ya pedía una sección que un menú async todavía no agregó (ver más abajo,
             // "Chats: solo para..."), ir() de más abajo no la va a encontrar y cae a cfg.inicial,
             // lo que además reescribe el hash de la URL (marcar() → history.replaceState) ANTES de
@@ -551,20 +629,20 @@
             document.body.prepend(els.barra, els.encabezado);
             if (AVISOS[cfg.rol]) campana.iniciar(AVISOS[cfg.rol]);
 
-            // Chats: SOLO para el configurador (sección CRM propia, con el grupo CRM completo), que hace de recepción. Los profesionales no ven ningún chat ni
-            // reciben sus avisos (decisión D2 del chat para el personal): no tienen botón Chats ni cajón, y el servidor les contesta 403 en todo /mensajeria.
-            // Solo si la mensajería está disponible para este pedido: /capacidades usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se
-            // agrega nada al menú ni se carga la bandeja.
-            if (cfg.rol === "configurador") {
+            // Chats: SOLO para el módulo CRM (sección propia, con Chats, Escalamientos y Etiquetas). Los profesionales no ven ningún chat ni reciben sus avisos
+            // (decisión D2 del chat para el personal): no tienen botón Chats ni cajón, y el servidor les contesta 403 en todo /mensajeria. El Configurador sin el
+            // módulo CRM tampoco (403); quien tiene los dos módulos ve Chats al trabajar en CRM. Solo si la mensajería está disponible para este pedido:
+            // /capacidades usa el mismo control que el 404 de /mensajeria; con el módulo apagado no se agrega nada al menú ni se carga la bandeja.
+            if (cfg.rol === "crm") {
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
                 capacidades.then(c => {
                     if (!c?.mensajeria) return;
-                    agregarGrupoCRM();
-                    // Si la URL ya pedía una sección del grupo CRM antes de que esto
+                    agregarGrupo(GRUPO_CHATS, true);
+                    // Si la URL ya pedía una sección de este grupo antes de que esto
                     // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
                     // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
                     // reintentar con el id que se pidió en realidad, no con el hash actual.
-                    if (cfg.navegar && GRUPO_CRM.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
+                    if (cfg.navegar && GRUPO_CHATS.items.some(it => it.id === hashInicial.id) && actual !== hashInicial.id)
                         cfg.navegar(hashInicial.id, hashInicial.params);
                     cargarBandeja(c);
                 });
@@ -576,7 +654,7 @@
                 const ir = () => {
                     if (location.hash === hashMostrado) return;
                     const { id, params } = leerHash();
-                    const destino = buscar(id) && !buscar(id).href ? id : cfg.inicial;
+                    const destino = buscar(id) && esLocal(buscar(id)) ? id : cfg.inicial;
                     hashMostrado = location.hash;
                     cfg.navegar(destino, params);
                 };
@@ -604,6 +682,26 @@
         campana: { refrescar: () => campana.refrescar(), abrir: () => campana.ctrl?.abrir(), cerrar: () => campana.ctrl?.cerrar() },
         /** Para módulos que traen sus propios avisos (la bandeja de chats en el configurador). */
         instalarCampana(def) { if (!campana.def) campana.iniciar(def); },
-        generarSala
+        generarSala,
+        /** Etapa 2: diálogo para pasar a otro módulo (lo usa el menú del usuario y en_construccion.html). */
+        elegirModulo: elegirModuloDialogo
     };
+
+    function elegirModuloDialogo(opciones) {
+        const lista = YS.el("div", { class: "ys-modulos" });
+        const ctrl = YS.modal({ titulo: "Cambiar de módulo", cuerpo: lista, tamano: "chico" });
+        opciones.forEach(m => lista.appendChild(YS.el("button", {
+            class: "ys-modulo-opcion", type: "button",
+            html: `<span class="texto-fuerte">${YS.esc(m.nombre)}</span><span class="texto-chico ui-muted">${YS.esc(m.descripcion || "")}</span>`,
+            on: {
+                click: async (e) => {
+                    const b = e.currentTarget;
+                    b.classList.add("cargando");
+                    try { await YS.sesion.elegirModulo(m.clave); }
+                    catch (err) { b.classList.remove("cargando"); YS.toast(err.message, "error"); }
+                }
+            }
+        })));
+        return ctrl;
+    }
 })();

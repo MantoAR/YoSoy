@@ -11,6 +11,9 @@ public class AccesoSalaServiceTests
     private static readonly Identidad Profesional = new(21, Roles.Profesional, null, 201);
     private static readonly Identidad OtroProfesional = new(22, Roles.Profesional, null, 202);
     private static readonly Identidad Configurador = new(11, Roles.Configurador, null, null);
+    private static readonly Identidad Crm = new(12, Roles.Crm, null, null);
+    // Etapa 2 de roles: la entrevista de admisión la hace un profesional con el privilegio Admisión (antes, el Configurador).
+    private static readonly Identidad Admision = new(23, Roles.Profesional, null, 203) { Privilegios = new[] { Privilegios.Admision } };
 
     private sealed class Entorno
     {
@@ -59,15 +62,18 @@ public class AccesoSalaServiceTests
         Assert.Equal(Roles.Profesional, r.Rol);
     }
 
-    // Misma regla que PUT /turnos/{id}/generar-sala: el Configurador puede con cualquier turno. En el signaling
-    // hay dos asientos, profesional y paciente, y entra en el del profesional.
+    // Etapa 2 de roles: a una sala de turno entran el paciente y el profesional del turno. El Configurador (administrador) y CRM (aunque tenga
+    // Gestión de agendas y genere la sala) no se sientan en una sesión clínica.
     [Fact]
-    public void El_configurador_entra_a_cualquier_turno_en_el_asiento_del_profesional()
+    public void Ni_el_configurador_ni_el_crm_entran_a_un_turno()
     {
-        var r = new Entorno().Turno(Configurador);
-        Assert.True(r.Ok);
-        Assert.Equal(Roles.Profesional, r.Rol);
+        Assert.Equal(EstadoAcceso.SinAcceso, new Entorno().Turno(Configurador).Estado);
+        Assert.Equal(EstadoAcceso.SinAcceso, new Entorno().Turno(Crm).Estado);
     }
+
+    [Fact]
+    public void Un_profesional_con_Admision_no_entra_por_eso_a_un_turno_ajeno() =>
+        Assert.Equal(EstadoAcceso.SinAcceso, new Entorno().Turno(Admision).Estado);
 
     [Fact]
     public void Otro_paciente_no_entra() => Assert.Equal(EstadoAcceso.SinAcceso, new Entorno().Turno(OtroPaciente).Estado);
@@ -165,7 +171,6 @@ public class AccesoSalaServiceTests
         e.CambiarTurno(t => t with { Estado = estado });
         Assert.Equal(EstadoAcceso.EstadoInvalido, e.Turno(Paciente).Estado);
         Assert.Equal(EstadoAcceso.EstadoInvalido, e.Turno(Profesional).Estado);
-        Assert.Equal(EstadoAcceso.EstadoInvalido, e.Turno(Configurador).Estado);
     }
 
     [Theory]
@@ -221,7 +226,7 @@ public class AccesoSalaServiceTests
         var e = new Entorno();
         e.A(segundosDesdeElInicio);
 
-        foreach (var quien in new[] { Paciente, Profesional, Configurador })
+        foreach (var quien in new[] { Paciente, Profesional })
             Assert.Equal(esperado, e.Turno(quien).Estado);
     }
 
@@ -552,7 +557,7 @@ public class AccesoSalaServiceTests
     // ---------- Admisión ----------
 
     [Fact]
-    public void En_la_admision_entran_el_paciente_del_informe_y_el_configurador()
+    public void En_la_admision_entran_el_paciente_del_informe_y_quien_tiene_el_privilegio_Admision()
     {
         var e = new Entorno();
 
@@ -561,16 +566,18 @@ public class AccesoSalaServiceTests
         Assert.Equal(Roles.Paciente, paciente.Rol);
         Assert.Equal("sala-adm-5", paciente.Sala);
 
-        var configurador = e.Admision(Configurador);
-        Assert.True(configurador.Ok);
-        Assert.Equal(Roles.Profesional, configurador.Rol);
+        var admision = e.Admision(Admision);
+        Assert.True(admision.Ok);
+        Assert.Equal(Roles.Profesional, admision.Rol);
     }
 
-    // La entrevista la hace el Configurador y después deriva: un profesional no entra a una admisión.
+    // La entrevista la hace un profesional con el privilegio Admisión y después deriva: un profesional sin ese privilegio, el CRM y el Configurador no entran.
     [Fact]
-    public void En_la_admision_no_entran_ni_un_profesional_ni_otro_paciente()
+    public void En_la_admision_no_entran_ni_un_profesional_sin_Admision_ni_el_configurador_ni_el_crm_ni_otro_paciente()
     {
         var e = new Entorno();
+        Assert.Equal(EstadoAcceso.SinAcceso, e.Admision(Configurador).Estado);
+        Assert.Equal(EstadoAcceso.SinAcceso, e.Admision(Crm).Estado);
         Assert.Equal(EstadoAcceso.SinAcceso, e.Admision(Profesional).Estado);
         Assert.Equal(EstadoAcceso.SinAcceso, e.Admision(OtroProfesional).Estado);
         Assert.Equal(EstadoAcceso.SinAcceso, e.Admision(OtroPaciente).Estado);
@@ -586,7 +593,7 @@ public class AccesoSalaServiceTests
         var e = new Entorno();
         e.CambiarAdmision(a => a with { Estado = estado });
         Assert.Equal(EstadoAcceso.EstadoInvalido, e.Admision(Paciente).Estado);
-        Assert.Equal(EstadoAcceso.EstadoInvalido, e.Admision(Configurador).Estado);
+        Assert.Equal(EstadoAcceso.EstadoInvalido, e.Admision(Admision).Estado);
     }
 
     [Theory]
@@ -622,7 +629,7 @@ public class AccesoSalaServiceTests
         e.A(segundosDesdeElInicio);
 
         Assert.Equal(esperado, e.Admision(Paciente).Estado);
-        Assert.Equal(esperado, e.Admision(Configurador).Estado);
+        Assert.Equal(esperado, e.Admision(Admision).Estado);
     }
 
     [Fact]

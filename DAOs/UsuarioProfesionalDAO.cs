@@ -113,6 +113,28 @@ public class UsuarioProfesionalDAO : IUsuarioProfesionalAdminRepositorio
                 cmd.ExecuteNonQuery();
             }
 
+            // Etapa 2 de roles: el ingreso del equipo sale de los permisos, así que quien recibe su usuario como profesional recibe también el
+            // permiso "profesional" (si no, entraría con 403 SIN_PERMISOS). Solo si la ficha tiene matrícula (RN-17: el trigger de la base lo exige);
+            // con una ficha sin matrícula el usuario se crea igual y el Configurador la completa y le asigna el permiso desde Permisos.
+            // Antes de la migración 20 las tablas no existen: ahí el rol sigue saliendo de la ficha, como siempre.
+            using (var cmd = new SqlCommand(@"
+                IF OBJECT_ID('dbo.UsuarioPermiso', 'U') IS NOT NULL
+                BEGIN
+                    DECLARE @IdRol INT = (SELECT IdRol FROM Rol WHERE Clave = 'profesional');
+                    DECLARE @IdPermiso INT = (SELECT IdPermiso FROM Permiso WHERE Clave = 'profesional');
+                    IF @IdRol IS NOT NULL AND @IdPermiso IS NOT NULL
+                       AND EXISTS (SELECT 1 FROM Profesional WHERE IdProfesional = @IdProf AND LTRIM(RTRIM(ISNULL(Matricula, ''))) <> '' AND IdEspecialidad IS NOT NULL)
+                    BEGIN
+                        INSERT INTO UsuarioRol (IdUsuario, IdRol) VALUES (@IdUsuario, @IdRol);
+                        INSERT INTO UsuarioPermiso (IdUsuario, IdRol, IdPermiso) VALUES (@IdUsuario, @IdRol, @IdPermiso);
+                    END
+                END", con, tx))
+            {
+                cmd.Parameters.AddWithValue("@IdUsuario", idUsuario);
+                cmd.Parameters.AddWithValue("@IdProf",    idProfesional);
+                cmd.ExecuteNonQuery();
+            }
+
             tx.Commit();
             return (ResultadoCreacionUsuario.Creado, idUsuario);
         }

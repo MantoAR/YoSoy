@@ -416,7 +416,7 @@ public class EmocionesBaseRealTests
     }
 
     [FactConBaseDeConsentimiento]
-    public async Task Las_emociones_se_guardan_cifradas_el_profesional_las_lee_y_el_configurador_no()
+    public async Task Las_emociones_se_guardan_cifradas_el_profesional_las_lee_y_el_auditor_y_el_configurador_no()
     {
         using var d = new DatosEmociones(salida: _salida);
         using var app = App();
@@ -456,9 +456,14 @@ public class EmocionesBaseRealTests
         var (_, porProfesional) = await Get(profesional, $"/profesionales/{d.IdProfesional}/sesiones-clinicas");
         Assert.NotEqual(JsonValueKind.Null, porProfesional.EnumerateArray().Single().GetProperty("historialEmociones").ValueKind);
 
-        // El Configurador recibe la sesión SIN las emociones, ni nada que las delate (ni lo cifrado).
+        // El auditor recibe la sesión SIN las emociones, ni nada que las delate (ni lo cifrado). El Configurador ni siquiera entra (403).
+        // El auditor (un profesional que no atiende a este paciente, con el permiso auditor) lee las notas, pero no las emociones.
+        var auditor = app.ConToken(app.Factory.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(d.IdUsuarioConfigurador,
+            new SesionModulo(Modulos.Profesional, new[] { Roles.Auditor, Roles.Profesional }, Array.Empty<string>(), 987654)));
         var configurador = app.Cliente(d.IdUsuarioConfigurador, Roles.Configurador);
-        var rCfg = await configurador.GetAsync($"/pacientes/{d.IdPaciente}/sesiones-clinicas");
+        Assert.Equal(HttpStatusCode.Forbidden, (await configurador.GetAsync($"/pacientes/{d.IdPaciente}/sesiones-clinicas")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await configurador.GetAsync($"/profesionales/{d.IdProfesional}/sesiones-clinicas")).StatusCode);
+        var rCfg = await auditor.GetAsync($"/pacientes/{d.IdPaciente}/sesiones-clinicas");
         var cuerpoCfg = await rCfg.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, rCfg.StatusCode);
         using var docCfg = JsonDocument.Parse(cuerpoCfg);
@@ -468,7 +473,7 @@ public class EmocionesBaseRealTests
         Assert.Equal("nota [TEST-PR6]", sesionCfg.GetProperty("notasEvolucion").GetString());   // lo demás, igual que siempre
         foreach (var rastro in new[] { "ys1.", "Neutral", "Felicidad", "Tristeza", "promedios" }) Assert.DoesNotContain(rastro, cuerpoCfg);
 
-        var cuerpoCfg2 = await (await configurador.GetAsync($"/profesionales/{d.IdProfesional}/sesiones-clinicas")).Content.ReadAsStringAsync();
+        var cuerpoCfg2 = await (await auditor.GetAsync($"/profesionales/{d.IdProfesional}/sesiones-clinicas")).Content.ReadAsStringAsync();
         foreach (var rastro in new[] { "ys1.", "Neutral", "Felicidad", "Tristeza", "promedios" }) Assert.DoesNotContain(rastro, cuerpoCfg2);
     }
 
@@ -590,16 +595,18 @@ public class EmocionesBaseRealTests
     }
 
     [FactConBaseDeConsentimiento]
-    public async Task Lo_guardado_en_claro_antes_del_PR_6_se_sigue_leyendo_y_el_configurador_tampoco_lo_ve()
+    public async Task Lo_guardado_en_claro_antes_del_PR_6_se_sigue_leyendo_y_el_auditor_tampoco_lo_ve()
     {
         using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         d.InsertarSesion(DateTime.Now.AddDays(-400), "{\"Neutral\":70,\"Tristeza\":30}");
         var profesional = app.Cliente(d.IdUsuarioProfesional, Roles.Profesional, idProfesional: d.IdProfesional);
-        var configurador = app.Cliente(d.IdUsuarioConfigurador, Roles.Configurador);
+        // El auditor (un profesional que no atiende a este paciente, con el permiso auditor) lee las notas, pero no las emociones.
+        var auditor = app.ConToken(app.Factory.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(d.IdUsuarioConfigurador,
+            new SesionModulo(Modulos.Profesional, new[] { Roles.Auditor, Roles.Profesional }, Array.Empty<string>(), 987654)));
 
         var (_, lista) = await Get(profesional, $"/pacientes/{d.IdPaciente}/sesiones-clinicas");
-        var cuerpoCfg = await (await configurador.GetAsync($"/pacientes/{d.IdPaciente}/sesiones-clinicas")).Content.ReadAsStringAsync();
+        var cuerpoCfg = await (await auditor.GetAsync($"/pacientes/{d.IdPaciente}/sesiones-clinicas")).Content.ReadAsStringAsync();
 
         var sesion = lista.EnumerateArray().Single();
         Assert.Equal("{\"Neutral\":70,\"Tristeza\":30}", sesion.GetProperty("historialEmociones").GetString());   // tal cual, como siempre
@@ -664,13 +671,15 @@ public class EmocionesBaseRealTests
     }
 
     [FactConBaseDeConsentimiento]
-    public async Task La_entrevista_de_admision_decide_y_guarda_igual_con_el_configurador_en_el_asiento_del_profesional()
+    public async Task La_entrevista_de_admision_decide_y_guarda_igual_con_quien_tiene_el_privilegio_Admision_en_el_asiento_del_profesional()
     {
         using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         var idInforme = d.IdInforme;
         await Aceptar(app, d, "admision", idInforme);
-        var configurador = app.Cliente(d.IdUsuarioConfigurador, Roles.Configurador);
+        // Etapa 2 de roles: la entrevista la hace un profesional con el privilegio Admisión (antes, el Configurador).
+        var configurador = app.ConToken(app.Factory.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(d.IdUsuarioConfigurador,
+            new SesionModulo(Modulos.Profesional, new[] { Roles.Profesional }, new[] { Privilegios.Admision }, d.IdProfesional)));
 
         var (_, permiso) = await Get(configurador, $"/video/emociones/permiso?origen=admision&id={idInforme}");
         Assert.True(permiso.GetProperty("permitido").GetBoolean());

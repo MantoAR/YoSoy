@@ -22,7 +22,8 @@ public class RegistroPacienteConAccesoTests
             using (var del = new SqlCommand(
                 "DELETE FROM UsuarioPaciente WHERE IdPaciente IN (SELECT IdPaciente FROM Paciente WHERE Dni = @m) OR IdUsuario IN (SELECT IdUsuario FROM Usuario WHERE Username = @m)", con))
             { del.Parameters.AddWithValue("@m", m); await del.ExecuteNonQueryAsync(); }
-            using (var del = new SqlCommand("DELETE FROM Usuario WHERE Username = @m", con))
+            // El ingreso que prueba este caso queda en la auditoría (solo agregar): ese usuario no se puede borrar y queda con su marca.
+            using (var del = new SqlCommand("DELETE FROM Usuario WHERE Username = @m AND NOT EXISTS (SELECT 1 FROM LogAuditoria l WHERE l.IdUsuario = Usuario.IdUsuario)", con))
             { del.Parameters.AddWithValue("@m", m); await del.ExecuteNonQueryAsync(); }
             using (var del = new SqlCommand("DELETE FROM Paciente WHERE Dni = @m", con))
             { del.Parameters.AddWithValue("@m", m); await del.ExecuteNonQueryAsync(); }

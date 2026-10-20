@@ -170,17 +170,18 @@ public class VideoAccesoEndpointsTests
         Assert.Equal("21", claims.GetProperty("sub").GetString());
     }
 
-    // Igual que PUT /turnos/{id}/generar-sala: el Configurador entra a cualquier turno, en el asiento del profesional.
+    // Etapa 2 de roles: el Configurador es administrador y no entra a una sesión clínica; tampoco un profesional que no es el del turno,
+    // aunque tenga el privilegio Admisión. Reciben lo mismo que con un turno que no existe.
     [Fact]
-    public async Task El_configurador_entra_a_cualquier_turno_con_rol_profesional()
+    public async Task El_configurador_no_entra_a_un_turno_ajeno()
     {
         using var app = new VideoApp();
 
-        var (r, j) = await Pedir(app.Configurador());
+        var (r, _) = await Pedir(app.Configurador());
+        var (rAdmision, _) = await Pedir(app.Admision());
 
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("profesional", ClaimsDe(j).GetProperty("rol").GetString());
-        Assert.Equal("11", ClaimsDe(j).GetProperty("sub").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, rAdmision.StatusCode);
     }
 
     [Fact]
@@ -250,7 +251,7 @@ public class VideoAccesoEndpointsTests
     public async Task Una_admision_que_no_existe_da_404()
     {
         using var app = new VideoApp();
-        var (r, j) = await Pedir(app.Configurador(), "admision", 999);
+        var (r, j) = await Pedir(app.Admision(), "admision", 999);
         Assert.Equal(HttpStatusCode.NotFound, r.StatusCode);
         Assert.Equal("no-existe", Cadena(j, "codigo"));
     }
@@ -635,12 +636,12 @@ public class VideoAccesoEndpointsTests
     // ---------- Admisión ----------
 
     [Fact]
-    public async Task En_la_admision_entran_el_paciente_del_informe_y_el_configurador()
+    public async Task En_la_admision_entran_el_paciente_del_informe_y_quien_tiene_el_privilegio_Admision()
     {
         using var app = new VideoApp();
 
         var (rPaciente, jPaciente) = await Pedir(app.Paciente(), "admision", VideoApp.IdInforme);
-        var (rConfigurador, jConfigurador) = await Pedir(app.Configurador(), "admision", VideoApp.IdInforme);
+        var (rConfigurador, jConfigurador) = await Pedir(app.Admision(), "admision", VideoApp.IdInforme);
 
         Assert.Equal(HttpStatusCode.OK, rPaciente.StatusCode);
         Assert.Equal("paciente", ClaimsDe(jPaciente).GetProperty("rol").GetString());
@@ -650,19 +651,20 @@ public class VideoAccesoEndpointsTests
         Assert.Equal(VideoApp.SalaDeLaAdmision, ClaimsDe(jConfigurador).GetProperty("sala").GetString());
     }
 
-    // La entrevista la hace el Configurador: un profesional no entra a una admisión, ni el paciente de otro informe.
+    // La entrevista la hace quien tiene el privilegio Admisión: un profesional sin él, el Configurador, el CRM ni el paciente de otro informe entran a una admisión.
     // Los tres reciben exactamente lo mismo que con un id que no existe.
     [Fact]
     public async Task En_la_admision_un_ajeno_recibe_exactamente_la_misma_respuesta_que_un_id_que_no_existe()
     {
         using var app = new VideoApp();
-        var noExiste = await Huella(app.Configurador(), "admision", 999);
+        var noExiste = await Huella(app.Admision(), "admision", 999);
         Assert.StartsWith("404\n", noExiste);
 
         var ajenos = new (string Quien, HttpClient Cliente)[]
         {
             ("profesional", app.Profesional()),
             ("otro profesional", app.OtroProfesional()),
+            ("configurador", app.Configurador()),
             ("otro paciente", app.OtroPaciente())
         };
         foreach (var (quien, cliente) in ajenos)
@@ -698,7 +700,7 @@ public class VideoAccesoEndpointsTests
         using var app = new VideoApp();
         app.Reloj.Ahora = VideoApp.Inicio.AddSeconds(segundos);
 
-        var (r, j) = await Pedir(app.Configurador(), "admision", VideoApp.IdInforme);
+        var (r, j) = await Pedir(app.Admision(), "admision", VideoApp.IdInforme);
 
         Assert.Equal(status, (int)r.StatusCode);
         if (status == 409) Assert.Equal(codigo, Cadena(j, "codigo"));
@@ -735,7 +737,7 @@ public class VideoAccesoEndpointsTests
         app.Reloj.Ahora = VideoApp.Inicio.AddHours(2);
         await Pedir(app.Paciente());                                                // ya terminó
         app.Reloj.Ahora = VideoApp.Inicio;
-        await Pedir(app.Configurador(), "admision", VideoApp.IdInforme);            // concedido en admisión
+        await Pedir(app.Admision(), "admision", VideoApp.IdInforme);                // concedido en admisión
 
         Assert.Collection(app.Auditoria.Registros,
             r => Assert.Equal((31, "turno", 1, "paciente", "ok"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)),
@@ -744,19 +746,19 @@ public class VideoAccesoEndpointsTests
             r => Assert.Equal((21, "turno", 1, "profesional", "sala-no-generada"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)),
             r => Assert.Equal((31, "turno", 1, "paciente", "aun-no-abre"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)),
             r => Assert.Equal((31, "turno", 1, "paciente", "ya-termino"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)),
-            r => Assert.Equal((11, "admision", 5, "profesional", "ok"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)));
+            r => Assert.Equal((23, "admision", 5, "profesional", "ok"), (r.IdUsuario, r.Origen, r.IdOrigen, r.Rol, r.Resultado.Codigo)));
     }
 
     // Lo concedido se audita con el rol con el que entró; lo rechazado, con el rol que el usuario tiene en el sistema.
     [Fact]
-    public async Task El_configurador_que_entra_a_un_turno_queda_auditado_como_profesional_del_turno()
+    public async Task Quien_hace_la_admision_queda_auditado_como_profesional_del_asiento()
     {
         using var app = new VideoApp();
 
-        await Pedir(app.Configurador());
+        await Pedir(app.Admision(), "admision", VideoApp.IdInforme);
 
         var registro = Assert.Single(app.Auditoria.Registros);
-        Assert.Equal(11, registro.IdUsuario);
+        Assert.Equal(23, registro.IdUsuario);
         Assert.Equal("profesional", registro.Rol);
     }
 
@@ -888,7 +890,7 @@ public class VideoAccesoEndpointsTests
         using var app = new VideoApp();
         var secretos = new List<string> { VideoApp.SecretoSenal, VideoApp.SecretoTurn };
 
-        foreach (var cliente in new[] { app.Paciente(), app.Profesional(), app.Configurador() })
+        foreach (var cliente in new[] { app.Paciente(), app.Profesional() })
         {
             var (r, j) = await Pedir(cliente);
             Assert.Equal(HttpStatusCode.OK, r.StatusCode);

@@ -44,14 +44,14 @@ internal sealed class AppDeEntrantes : IDisposable
     public readonly LogsCapturados Logs = new();
     public readonly Sonda? SondaFija;
     public readonly WebApplicationFactory<Program> Fabrica;
-    public readonly HttpClient Webhook, Configurador;
+    public readonly HttpClient Webhook, CRM;
     private readonly DatosDePrueba _datos;
 
     public AppDeEntrantes(DatosDePrueba datos, string modo, bool? columnasExisten = null)
     {
         _datos = datos;
         if (columnasExisten is bool existen) SondaFija = new Sonda(existen);
-        var idUsuarioConfigurador = datos.Usuario();
+        var idUsuarioCrm = datos.Usuario();
         Fabrica = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             b.UseSetting("Jwt:Key", ClaveJwt);
@@ -70,8 +70,8 @@ internal sealed class AppDeEntrantes : IDisposable
             });
         });
         var emisor = Fabrica.Services.GetRequiredService<JwtEmisorService>();
-        Configurador = Fabrica.CreateClient();
-        Configurador.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", emisor.Emitir(idUsuarioConfigurador, Roles.Configurador));
+        CRM = Fabrica.CreateClient();
+        CRM.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", emisor.Emitir(idUsuarioCrm, Roles.Crm));
         Webhook = Fabrica.CreateClient();
         Webhook.DefaultRequestHeaders.Add("X-Shared-Secret", Secreto);
     }
@@ -96,7 +96,7 @@ internal sealed class AppDeEntrantes : IDisposable
 
     public async Task<JsonElement> Get(string ruta)
     {
-        var r = await Configurador.GetAsync(ruta);
+        var r = await CRM.GetAsync(ruta);
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         return JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement.Clone();
     }
@@ -153,7 +153,7 @@ public class EntrantesCompletosEndpointsTests : IDisposable
         Assert.Equal(0, _app.Envios.Cantidad);                                              // nada sale por el canal
         Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM NotificacionInterna WHERE IdConversacion = @c AND Tipo = 'ChatNuevo'", ("@c", idConversacion)));
 
-        // El Configurador ve el aviso del tipo y el texto, y NO el id interno.
+        // El CRM ve el aviso del tipo y el texto, y NO el id interno.
         var mensajes = await _app.Get($"/mensajeria/conversaciones/{idConversacion}/mensajes");
         var m = Assert.Single(mensajes.EnumerateArray());
         Assert.Equal("imagen", m.GetProperty("tipo").GetString());
@@ -451,7 +451,7 @@ public class EntrantesSinLasColumnasTests : IDisposable
         var panel = await app.Get($"/mensajeria/conversaciones/{idConversacion}/paciente");
         await app.Get("/capacidades");
         var telefonoSimulado = app.TelefonoNuevo(out _);
-        var simulado = await app.Configurador.PostAsJsonAsync("/mensajeria/simulado/entrante", new { telefono = telefonoSimulado, texto = "hola" });
+        var simulado = await app.CRM.PostAsJsonAsync("/mensajeria/simulado/entrante", new { telefono = telefonoSimulado, texto = "hola" });
         Assert.Equal(HttpStatusCode.OK, simulado.StatusCode);
 
         Assert.Equal(0, app.SondaFija!.Consultas);

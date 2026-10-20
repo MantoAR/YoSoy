@@ -16,14 +16,14 @@ public static class MensajeriaEndpoints
         // Fase JWT: todo lo de este grupo es la bandeja del lado administrador. Las mitigaciones
         // que ya tenía (flag ChatSimuladoHabilitado, SoloLocal, 404 con X-Forwarded-For, en
         // RequiereMensajeriaHabilitada) siguen intactas, esto es una capa más encima.
-        // D2 (chat para el personal): los chats son SOLO del Configurador, que hace de recepción.
-        // Los profesionales atienden, no contestan mensajes: no ven ningún chat ni reciben sus
-        // notificaciones, y un Profesional (o un paciente) recibe 403 en cada ruta de este grupo
-        // (ChatsSoloConfiguradorTests lo prueba ruta por ruta y vigila que una ruta nueva no quede
+        // D2 (chat para el personal): los chats son SOLO del módulo CRM (atención al cliente; el Configurador que tenga
+        // además ese módulo entra con el token de CRM). Los profesionales atienden, no contestan mensajes: no ven ningún
+        // chat ni reciben sus notificaciones, y un Profesional, un Configurador sin CRM o un paciente reciben 403 en cada
+        // ruta de este grupo (ChatsSoloCrmTests lo prueba ruta por ruta y vigila que una ruta nueva no quede
         // abierta). Las excepciones, más abajo, son las que no tienen sesión del otro lado: el
         // simulador y el webhook de whatsapp-service.
         var g = app.MapGroup("/mensajeria").RequiereMensajeriaHabilitada()
-            .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+            .Solo(Quien.Crm);
 
         // Qué partes opcionales de la interfaz mostrar (el botón Chats de la barra superior).
         // Fuera del grupo para no responder 404, pero con el mismo criterio que su filtro:
@@ -297,7 +297,7 @@ public static class MensajeriaEndpoints
         g.MapPut("/conversaciones/{id}/asignar", (int id, AsignarConversacionRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador puede asignar una conversación." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede asignar una conversación." }, statusCode: 403);
             if (!MotivoReasignacion.Categorias.Contains(req.MotivoCategoria))
                 return Results.Json(new { mensaje = $"Motivo no reconocido: \"{req.MotivoCategoria}\". Tiene que ser uno de: {string.Join(", ", MotivoReasignacion.Categorias)}." }, statusCode: 400);
             var c = conversaciones.ObtenerPorId(id);
@@ -316,7 +316,7 @@ public static class MensajeriaEndpoints
         g.MapPut("/conversaciones/{id}/tomar", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
         {
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
-            if (esAdmin) return Results.Json(new { mensaje = "El administrador asigna desde /asignar; tomar es para un profesional." }, statusCode: 400);
+            if (esAdmin) return Results.Json(new { mensaje = "CRM asigna desde /asignar; tomar es para un profesional." }, statusCode: 400);
             if (idPropio is null) return Results.Json(new { mensaje = "No se pudo identificar al profesional." }, statusCode: 403);
             var c = conversaciones.ObtenerPorId(id);
             // A propósito NO pasa por VisibilidadConversacion.Puede acá: esa función respondería
@@ -401,7 +401,7 @@ public static class MensajeriaEndpoints
         g.MapPost("/etiquetas", (EtiquetaConversacion e, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
             var error = ValidarEtiqueta(e);
             if (error != null) return Results.BadRequest(new { mensaje = error });
             try { e.IdEtiqueta = new EtiquetaConversacionDAO().Insertar(e); return Results.Created($"/mensajeria/etiquetas/{e.IdEtiqueta}", e); }
@@ -411,7 +411,7 @@ public static class MensajeriaEndpoints
         g.MapPut("/etiquetas/{id}", (int id, EtiquetaConversacion e, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
             var error = ValidarEtiqueta(e);
             if (error != null) return Results.BadRequest(new { mensaje = error });
             var dao = new EtiquetaConversacionDAO();
@@ -425,7 +425,7 @@ public static class MensajeriaEndpoints
         g.MapDelete("/etiquetas/{id}", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo el administrador administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
             var dao = new EtiquetaConversacionDAO();
             if (dao.ObtenerPorId(id) is null) return Results.NotFound();
             dao.Desactivar(id);
@@ -466,7 +466,7 @@ public static class MensajeriaEndpoints
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin && idPropio is null)
                 return Results.Json(new { mensaje = "No se pudo identificar al profesional." }, statusCode: 403);
-            p.IdProfesional = esAdmin ? null : idPropio;   // Configurador: siempre global; Profesional: siempre propia
+            p.IdProfesional = esAdmin ? null : idPropio;   // CRM: siempre global; Profesional: siempre propia
             p.IdRespuestaRapida = new RespuestaRapidaDAO().Insertar(p);
             return Results.Created($"/mensajeria/respuestas-rapidas/{p.IdRespuestaRapida}", p);
         });

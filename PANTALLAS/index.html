@@ -9,6 +9,11 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="shared/tema.css">
     <link rel="stylesheet" href="shared/acceso.css">
+    <style>
+        /* Pestañas de rol: 2 x 2 (Paciente, Profesional / CRM, Configurador). */
+        .acceso-roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; width: 100%; }
+        .acceso-roles button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 8px; white-space: nowrap; }
+    </style>
 </head>
 <body class="acceso">
 
@@ -30,8 +35,14 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v6a6 6 0 0 0 12 0V3M12 15v2a4 4 0 0 0 8 0v-3"/><circle cx="20" cy="12" r="2"/></svg>
                 Profesional
             </button>
+            <button type="button" class="rol-btn" id="tab-crm" aria-pressed="false" onclick="seleccionarRol('crm')" title="CRM y atención al cliente">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20l1.1-4.6A8 8 0 1 1 21 12z"/></svg>
+                CRM
+            </button>
+            <!-- Facturación (Administración de facturación y pagos): el rol ya existe en la base,
+                 la pestaña vuelve cuando se programe el módulo (etapa de cobros). -->
             <button type="button" class="rol-btn" id="tab-configurador" aria-pressed="false" onclick="seleccionarRol('configurador')">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
                 Configurador
             </button>
         </div>
@@ -113,7 +124,8 @@
             document.getElementById("linkRegistro").classList.toggle("oculto", rol !== "paciente");
             document.getElementById("linkRegistroProfesional").classList.toggle("oculto", rol !== "profesional");
 
-            const esUserFinal = rol === "paciente" || rol === "profesional";
+            // La recuperación de contraseña la aprueba el Configurador: él no la pide acá.
+            const esUserFinal = rol !== "configurador";
             document.getElementById("seccionRecuperacion").classList.toggle("oculto", !esUserFinal);
             if (!esUserFinal) {
                 document.getElementById("formRecuperacion").classList.add("oculto");
@@ -152,10 +164,21 @@
 
             try {
                 // sinRedireccion: en el ingreso un 401 es "usuario o contraseña incorrectos", no "sesión vencida"
-                const res = await YS.fetch("/login", { method: "POST", json: { username: usuario, password: contrasena }, sinRedireccion: true });
+                const res = await YS.fetch("/login", { method: "POST", json: { username: usuario, password: contrasena, modulo: rolActual }, sinRedireccion: true });
 
                 if (res.status === 423) {
                     mostrarError(await YS.leerMensaje(res, "Cuenta bloqueada temporalmente. Intentá en 15 minutos."));
+                    return;
+                }
+                // 5xx: problema del servidor o base desactualizada (503 con la migración que
+                // falta). Se muestra el mensaje real con su código, no "contraseña incorrecta".
+                if (res.status >= 500) {
+                    mostrarError(await YS.leerMensaje(res));
+                    return;
+                }
+                // 403: sin permisos asignados (etapa 2) u otro rechazo con su propio mensaje.
+                if (res.status === 403) {
+                    mostrarError(await YS.leerMensaje(res, "Tu usuario no tiene permisos para ingresar."));
                     return;
                 }
                 if (!res.ok) {
@@ -164,29 +187,31 @@
                 }
 
                 const data = await res.json();
-                if (data.rol !== rolActual) {
-                    mostrarError("Rol incorrecto para este usuario.");
+                // La pestaña elegida viaja al servidor, que responde con el token de ese rol
+                // o con un 403 si el usuario no lo tiene (mensaje arriba).
+                if (data.requiereModulo) {
+                    await YS.sesion.elegirModulo(rolActual, data.tokenSeleccion);
                     return;
                 }
-
-                localStorage.setItem("idUsuario", data.idUsuario);
-                localStorage.setItem("rol", data.rol);
-                if (data.token) localStorage.setItem("token", data.token);
-
-                if (data.rol === "paciente") {
-                    localStorage.setItem("idPaciente", data.idPaciente);
-                    window.location.href = retornoPendiente || "Pantalla_Paciente/dashboard.html";
-                } else if (data.rol === "profesional") {
-                    localStorage.setItem("idProfesional", data.idProfesional);
-                    window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
-                } else {
-                    window.location.href = "Pantalla_Configurador/dashboard.html";
-                }
-            } catch {
-                mostrarError("No se pudo conectar con el servidor.");
+                completarIngreso(data);
+            } catch (err) {
+                // Sin conexión con la API, o un error de la propia pantalla (por ejemplo, el
+                // navegador quedó con una versión vieja de ui.js en caché: Ctrl+F5).
+                console.error(err);
+                mostrarError(err?.sinConexion
+                    ? "No se pudo conectar con el servidor. Revisá que la API esté corriendo."
+                    : "Ocurrió un error en la pantalla de ingreso. Actualizá con Ctrl+F5 y volvé a intentar. Detalle: " + (err?.message || err));
             } finally {
                 btn.classList.remove("cargando");
             }
+        }
+
+        function completarIngreso(data) {
+            YS.sesion.guardar(data);
+            if (data.rol === "paciente") window.location.href = retornoPendiente || "Pantalla_Paciente/dashboard.html";
+            else if (data.modulo === "profesional") window.location.href = "Pantalla_Profesional/nuevo_dashboard.html";
+            else if (data.modulo === "configurador") window.location.href = "Pantalla_Configurador/dashboard.html";
+            else window.location.href = YS.rutaModulo(data.modulo || data.rol);
         }
 
         function alternarDesplegable(mostrar, msg) {

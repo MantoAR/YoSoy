@@ -322,7 +322,7 @@ public class ConsentimientoVideoServiceTests
         e.Acepta("turno", EscenarioEmociones.IdTurno);
 
         var admision = e.Consentimiento.Obtener(e.Paciente, "admision", EscenarioEmociones.IdInforme).Estado!;
-        var permisoAdmision = e.Consentimiento.Permiso(e.Configurador, "admision", EscenarioEmociones.IdInforme).Permiso!;
+        var permisoAdmision = e.Consentimiento.Permiso(e.Admision, "admision", EscenarioEmociones.IdInforme).Permiso!;
 
         Assert.Equal(ConsentimientoVideoService.SinDecision, admision.Estado);
         Assert.False(permisoAdmision.Permitido);
@@ -340,8 +340,8 @@ public class ConsentimientoVideoServiceTests
         Assert.Equal(EscenarioEmociones.IdInforme, fila.IdOrigen);
         var auditoria = Assert.Single(e.Auditoria.Registros);
         Assert.Equal(("admision", EscenarioEmociones.IdInforme), (auditoria.Origen, auditoria.IdOrigen));
-        // Quien hace la entrevista es el Configurador, en el asiento del profesional.
-        Assert.True(e.Consentimiento.Permiso(e.Configurador, "admision", EscenarioEmociones.IdInforme).Permiso!.Permitido);
+        // Quien hace la entrevista es un profesional con el privilegio Admisión, en el asiento del profesional.
+        Assert.True(e.Consentimiento.Permiso(e.Admision, "admision", EscenarioEmociones.IdInforme).Permiso!.Permitido);
     }
 
     [Fact]
@@ -504,15 +504,14 @@ public class ConsentimientoVideoServiceTests
     }
 
     [Fact]
-    public void El_permiso_lo_consultan_el_profesional_de_la_sesion_y_el_configurador_y_nadie_mas()
+    public void El_permiso_lo_consultan_el_profesional_de_la_sesion_y_quien_hace_la_admision_y_nadie_mas()
     {
         var e = new EscenarioEmociones();
         e.Acepta();
         e.Acepta("admision", EscenarioEmociones.IdInforme);
 
         Assert.True(e.Consentimiento.Permiso(e.Profesional, "turno", EscenarioEmociones.IdTurno).Ok);
-        Assert.True(e.Consentimiento.Permiso(e.Configurador, "turno", EscenarioEmociones.IdTurno).Ok);
-        Assert.True(e.Consentimiento.Permiso(e.Configurador, "admision", EscenarioEmociones.IdInforme).Ok);
+        Assert.True(e.Consentimiento.Permiso(e.Admision, "admision", EscenarioEmociones.IdInforme).Ok);
 
         var inexistente = e.Consentimiento.Permiso(e.Profesional, "turno", 999);
         foreach (var r in new[]
@@ -520,7 +519,10 @@ public class ConsentimientoVideoServiceTests
             e.Consentimiento.Permiso(e.OtroProfesional, "turno", EscenarioEmociones.IdTurno),
             e.Consentimiento.Permiso(e.Paciente, "turno", EscenarioEmociones.IdTurno),
             e.Consentimiento.Permiso(e.OtroPaciente, "turno", EscenarioEmociones.IdTurno),
-            e.Consentimiento.Permiso(e.Profesional, "admision", EscenarioEmociones.IdInforme)   // el profesional no atiende admisiones
+            e.Consentimiento.Permiso(e.Profesional, "admision", EscenarioEmociones.IdInforme),   // el profesional sin Admisión no atiende admisiones
+            e.Consentimiento.Permiso(e.Configurador, "turno", EscenarioEmociones.IdTurno),       // el Configurador es administrador: no entra a sesiones clínicas
+            e.Consentimiento.Permiso(e.Configurador, "admision", EscenarioEmociones.IdInforme),
+            e.Consentimiento.Permiso(e.Admision, "turno", EscenarioEmociones.IdTurno)            // y Admisión no es el profesional de un turno ajeno
         })
         {
             Assert.Equal(TipoResultado.NoEncontrada, r.Tipo);

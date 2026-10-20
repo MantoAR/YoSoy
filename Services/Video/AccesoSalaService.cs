@@ -67,9 +67,8 @@ public class AccesoSalaService
         string? rol = null;
         if (yo.EsPaciente && yo.IdPaciente == t.IdPaciente) rol = Roles.Paciente;
         else if (yo.EsProfesional && yo.IdProfesional == t.IdProfesional) rol = Roles.Profesional;
-        // Regla de generar-sala: el Configurador puede con cualquier turno. En el signaling solo hay dos
-        // asientos (profesional y paciente), así que entra en el del profesional.
-        else if (yo.EsConfigurador) rol = Roles.Profesional;
+        // Etapa 2 de roles: el Configurador es administrador y no entra a sesiones clínicas; a una sala de turno entra el
+        // paciente y el profesional del turno (CRM con Gestión de agendas genera la sala, pero no se sienta en ella).
         if (rol is null) return ResultadoAcceso.De(EstadoAcceso.SinAcceso, MensajeNoEncontrada, ahora);
 
         if (TextoNormalizado.Normalizar(t.Estado) != EstadoTurnoConfirmado)
@@ -86,11 +85,11 @@ public class AccesoSalaService
         var a = _repo.ObtenerAdmision(id);
         if (a is null) return ResultadoAcceso.De(EstadoAcceso.NoExiste, MensajeNoEncontrada, ahora);
 
-        // Solo el paciente del informe y el Configurador (quien hace la entrevista, en el asiento del
-        // profesional). Un Profesional no entra a una admisión: la deriva el Configurador.
+        // Solo el paciente del informe y quien hace la admisión (un Profesional con el privilegio Admisión, en el asiento del
+        // profesional). Un Profesional sin ese privilegio, el CRM y el Configurador no entran a una admisión.
         string? rol = null;
         if (yo.EsPaciente && yo.IdPaciente == a.IdPaciente) rol = Roles.Paciente;
-        else if (yo.EsConfigurador) rol = Roles.Profesional;
+        else if (yo.HaceAdmision) rol = Roles.Profesional;
         if (rol is null) return ResultadoAcceso.De(EstadoAcceso.SinAcceso, MensajeNoEncontrada, ahora);
 
         if (TextoNormalizado.Normalizar(a.Estado) != EstadoAdmisionEnEntrevista)

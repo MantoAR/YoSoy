@@ -273,9 +273,9 @@ public static class SesionDeVideoReglas
 
     public static bool EsElPaciente(Identidad yo, SesionDeVideo s) => yo.EsPaciente && yo.IdPaciente == s.IdPaciente;
 
-    // Quién hace de profesional en la sala: el del turno y el Configurador (cualquier turno y las admisiones). Mismo
-    // criterio que AccesoSalaService.
+    // Quién hace de profesional en la sala: el del turno y, en las admisiones, quien tiene el privilegio Admisión. Mismo
+    // criterio que AccesoSalaService (etapa 2 de roles: el Configurador ya no entra a sesiones clínicas).
     public static bool AtiendeLaSesion(Identidad yo, SesionDeVideo s) =>
-        yo.EsConfigurador
+        (s.Origen == OrigenSala.Admision && yo.HaceAdmision)
         || (s.Origen == OrigenSala.Turno && yo.EsProfesional && yo.IdProfesional is int ip && ip == s.IdProfesional);
 }

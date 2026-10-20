@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 19;   // la última migración que el código necesita
+    public const int VersionRequerida = 23;   // la última migración que el código necesita
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -95,6 +95,14 @@ public class VerificadorEsquema
             "OBJECT_ID('dbo.VersionEsquema', 'U') IS NOT NULL AND OBJECT_ID('dbo.LogError', 'U') IS NOT NULL"),
         new(19, "add_auditoria_inalterable.sql",
             "COL_LENGTH('dbo.LogAuditoria', 'Categoria') IS NOT NULL AND OBJECT_ID('dbo.TR_LogAuditoria_SoloAgregar', 'TR') IS NOT NULL AND OBJECT_ID('dbo.TR_LogAuditoria_Encadenar', 'TR') IS NOT NULL"),
+        new(20, "add_permisos_roles_privilegios.sql",
+            "OBJECT_ID('dbo.UsuarioPrivilegio', 'U') IS NOT NULL AND COL_LENGTH('dbo.Rol', 'Clave') IS NOT NULL AND OBJECT_ID('dbo.vw_UsuarioAccesos', 'V') IS NOT NULL"),
+        new(21, "add_privilegio_agendas_auditoria_permisos.sql",
+            "EXISTS (SELECT 1 FROM Privilegio WHERE Clave = 'gestion_agendas') AND OBJECT_ID('dbo.TR_UsuarioPermiso_Auditar', 'TR') IS NOT NULL"),
+        new(22, "add_alta_equipo_invitaciones.sql",
+            "OBJECT_ID('dbo.InvitacionCuenta', 'U') IS NOT NULL AND COL_LENGTH('dbo.Usuario', 'Telefono') IS NOT NULL"),
+        new(23, "mapear_usuarios_existentes_a_permisos.sql",
+            "EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 23)"),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

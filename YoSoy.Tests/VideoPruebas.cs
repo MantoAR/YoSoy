@@ -97,6 +97,8 @@ public sealed class VideoApp : IDisposable
     public const int UsuarioProfesional = 21, IdProfesional = 201;            // profesional del turno 1
     public const int UsuarioOtroProfesional = 22, IdOtroProfesional = 202;
     public const int UsuarioConfigurador = 11;
+    // Etapa 2 de roles: quien hace la entrevista de admisión es un profesional con el privilegio Admisión (antes, el Configurador).
+    public const int UsuarioAdmision = 23, IdAdmision = 203;
 
     // Martes 4/3/2031 10:00 (UTC, la zona del reloj de prueba): el turno de referencia empieza justo "ahora".
     // La fecha es lejana a propósito: nada de la base real puede coincidir.
@@ -173,6 +175,8 @@ public sealed class VideoApp : IDisposable
     public HttpClient Profesional() => Cliente(UsuarioProfesional, Roles.Profesional, idProfesional: IdProfesional);
     public HttpClient OtroProfesional() => Cliente(UsuarioOtroProfesional, Roles.Profesional, idProfesional: IdOtroProfesional);
     public HttpClient Configurador() => Cliente(UsuarioConfigurador, Roles.Configurador);
+    public HttpClient Admision() => ConToken(Factory.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(UsuarioAdmision,
+        new SesionModulo(Modulos.Profesional, new[] { Roles.Profesional }, new[] { Privilegios.Admision }, IdAdmision)));
 
     public static Task<HttpResponseMessage> Acceder(HttpClient cliente, string origen, int id) =>
         cliente.PostAsJsonAsync("/video/acceso", new { origen, id });
