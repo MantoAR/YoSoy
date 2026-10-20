@@ -179,10 +179,10 @@ test("DEPLOY.md describe el despliegue con el mismo nombre de unit, la misma car
     assert.ok(topeInicial < 100, `el tope inicial (${topeInicial}) tiene que ser menor que el de por defecto`);
 });
 
-test("SERVIDOR.md cuenta la misma unit y la misma carpeta, y aclara que lo que corre hoy en el VPS sigue siendo el servicio viejo", { skip: SIN_DOCS }, () => {
+test("SERVIDOR.md cuenta la misma unit y la misma carpeta, y dice que lo que corre en el VPS desde el 19/10/2026 es el servicio nuevo", { skip: SIN_DOCS }, () => {
     const servidor = leer("SERVIDOR.md");
     for (const frase of ["WhatsApp (whatsapp-service con Baileys)", "whatsapp-service/deploy/whatsapp-service.service", SESION, "/salud",
-        "Lo que corre hoy en el VPS todavía es el servicio viejo"]) {
+        "Desde el 19/10/2026 lo que corre en el VPS es el servicio nuevo"]) {
         assert.ok(servidor.includes(frase), `SERVIDOR.md no menciona: ${frase}`);
     }
     assert.ok(!servidor.includes("whatsapp-service-baileys.service"), "la unit ya no se llama así");
