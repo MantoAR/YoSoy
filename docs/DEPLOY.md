@@ -477,10 +477,11 @@ Chromium se sacaron del código. Es manual, como el de la API. Qué hace el serv
 [`whatsapp-service/README.md`](../whatsapp-service/README.md). Cómo está armado el servidor: [`SERVIDOR.md`](SERVIDOR.md). Qué se decidió y qué te toca
 a vos: [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md) y [`PROGRESO_BAILEYS.md`](PROGRESO_BAILEYS.md).
 
-> **Estado: todavía no se desplegó.** Según [`SERVIDOR.md`](SERVIDOR.md), el servicio que corre hoy en el VPS es el **viejo** (whatsapp-web.js + Chromium,
-> `MemoryMax=2G`): este flujo lo reemplaza y, al final ("10. Limpieza de lo viejo"), se saca lo que ya no hace falta. Todo se probó con un socket simulado y
-> la red bloqueada; **nada corrió contra WhatsApp**. El primer despliegue es también la primera vez que habla con WhatsApp de verdad: hacelo con tiempo y
-> con el teléfono del número dedicado a mano.
+> **Estado: desplegado el 19/10/2026, sin vincular.** El servicio nuevo (Baileys) reemplazó en el VPS al viejo (whatsapp-web.js + Chromium, `MemoryMax=2G`) con este
+> flujo ([`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md)) y hoy está activo, pero **sin ningún número vinculado** (el estado actual:
+> [`SERVIDOR.md`](SERVIDOR.md)). Pendiente: escanear el QR (paso 7 de ese runbook) y, al final ("10. Limpieza de lo viejo"), sacar lo que ya no hace falta. Todo se
+> probó con un socket simulado y la red bloqueada; **nada corrió contra WhatsApp**. El primer vínculo es también la primera vez que habla con WhatsApp de verdad:
+> hacelo con tiempo y con el teléfono del número dedicado a mano.
 
 - **Número dedicado de la clínica, nunca un teléfono personal.** Baileys no es la API oficial y **WhatsApp puede bloquear el
   número** (riesgo asumido). Por eso el servicio solo le escribe a quien le escribió primero o aceptó, con pausas y topes.
