@@ -1,3 +1,5 @@
+using Microsoft.Data.SqlClient;
+
 // Modo mantenimiento (no levanta el servidor): cifra las emociones que se guardaron en claro antes del PR 6. Por defecto
 // es una simulación; con --aplicar escribe. Se corre a mano, con el entorno del servicio: ver
 // docs/DESPLIEGUE_VIDEO.md ("Recifrar las emociones ya guardadas") y Services/Video/RecifrarEmociones.cs.
@@ -17,6 +19,8 @@ builder.Services.AddCors(opt =>
 builder.Services.AddSingleton<IInspectorEsquema, InspectorEsquemaSql>();
 builder.Services.AddSingleton<VerificadorEsquema>();
 builder.Services.AddRegistroErrores(builder.Environment.ContentRootPath, builder.Configuration["RegistroErrores:Carpeta"]);
+// Etapa 2: roles, permisos y privilegios por módulo (Services/Accesos.cs).
+builder.Services.AddSingleton<IAccesosRepositorio, AccesosDAO>();
 builder.Services.AddSingleton<EmailService>();
 // El reloj de TODA la aplicación, con la zona horaria de la clínica explícita (Turnos:ZonaHoraria, por defecto
 // America/Argentina/Buenos_Aires): ya no depende de la zona del sistema operativo del servidor. Tiene que ir antes de
@@ -26,6 +30,7 @@ builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
+// Circuito de atención: salas, interruptores de IA/transcripción y evolución por enfoque.
 
 // JWT (rama Cambios-Agus-jwt): reemplaza la identidad autodeclarada por X-Usuario-Id.
 // La clave de firma no vive en ningún archivo versionado — JwtConfig.ClaveOFallar lee
@@ -57,6 +62,19 @@ builder.Services.AddAuthentication(EsquemaJwtOLegacy)
             ValidateAudience = false,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1)
+        };
+        // Etapa 2: el token de selección de módulo (sin roles, 5 minutos) solo sirve para
+        // elegir módulo. En cualquier otra ruta se rechaza como si no hubiera token, así no
+        // alcanza a los endpoints que solo piden "autenticado".
+        opt.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+        {
+            OnTokenValidated = ctx =>
+            {
+                var esSeleccion = ctx.Principal?.FindFirst(JwtEmisorService.ClaimUso)?.Value == JwtEmisorService.UsoSeleccion;
+                if (esSeleccion && !ctx.HttpContext.Request.Path.Equals("/sesion/modulo", StringComparison.OrdinalIgnoreCase))
+                    ctx.Fail("El token de selección solo sirve para elegir módulo.");
+                return Task.CompletedTask;
+            }
         };
     })
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, LegacyHeaderAuthHandler>(EsquemaLegacy, _ => { });
@@ -184,7 +202,16 @@ app.UseStaticFiles(new StaticFileOptions
         Path.Combine(builder.Environment.ContentRootPath, "PANTALLAS")),
     RequestPath = "/pantallas",
     ServeUnknownFileTypes = true,
-    DefaultContentType = "application/octet-stream"
+    DefaultContentType = "application/octet-stream",
+    // Roles y permisos: sin esto el navegador seguía usando los .js y .css viejos después de
+    // actualizar las pantallas (cache heurística por Last-Modified). "no-cache" no impide
+    // guardarlos: obliga a preguntarle al servidor si cambiaron (304 si no, casi sin costo).
+    OnPrepareResponse = ctx =>
+    {
+        var ext = Path.GetExtension(ctx.File.Name).ToLowerInvariant();
+        if (ext is ".html" or ".js" or ".css")
+            ctx.Context.Response.Headers.CacheControl = "no-cache";
+    }
 });
 
 app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
@@ -192,17 +219,26 @@ app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
 // Login. Un solo login para los tres roles, así que el bloqueo por intentos fallidos es el mismo para todos
 // (PoliticaBloqueoLogin: 3 intentos, 15 minutos; BloqueadoHasta en UTC; vencido el bloqueo el conteo arranca de
 // nuevo; un login exitoso lo pone en cero).
-app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, TimeProvider reloj) =>
+app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, IAccesosRepositorio accesosRepo, TimeProvider reloj) =>
 {
     var ahoraUtc = reloj.GetUtcNow().UtcDateTime;
     var dao = new UsuarioDAO();
     var usuario = dao.ObtenerPorUsername(req.Username);
 
+    // Etapa 2: cada ingreso (exitoso o no) y cada bloqueo quedan en la auditoría
+    // administrativa. Nunca se guarda la contraseña.
     if (usuario == null || usuario.Estado != "Activo")
+    {
+        AuditoriaIngreso.Registrar(usuario?.IdUsuario, "Ingreso fallido",
+            usuario == null ? $"Usuario inexistente: {Recortar(req.Username, 60)}" : "Cuenta no activa");
         return Results.Unauthorized();
+    }
 
     if (PoliticaBloqueoLogin.EstaBloqueado(usuario.BloqueadoHasta, ahoraUtc))
+    {
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso rechazado", "Cuenta bloqueada temporalmente");
         return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(usuario.BloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
+    }
 
     var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.Password))).ToUpper();
 
@@ -210,7 +246,11 @@ app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, TimeProvide
     {
         var (_, bloqueadoHasta) = dao.RegistrarIntentoFallido(usuario.IdUsuario, ahoraUtc);
         if (PoliticaBloqueoLogin.EstaBloqueado(bloqueadoHasta, ahoraUtc))
+        {
+            AuditoriaIngreso.Registrar(usuario.IdUsuario, "Cuenta bloqueada", "Bloqueo por intentos fallidos");
             return Results.Json(new { mensaje = PoliticaBloqueoLogin.MensajeBloqueo(bloqueadoHasta!.Value, ahoraUtc) }, statusCode: 423);
+        }
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso fallido", "Contraseña incorrecta");
         return Results.Unauthorized();
     }
 
@@ -221,18 +261,126 @@ app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, TimeProvide
     // El token lleva el mismo idUsuario/idPaciente/idProfesional que ya devolvía esta
     // respuesta (contrato existente, solo se agrega el campo "token" — nada se quita).
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
+    var pestania = string.IsNullOrWhiteSpace(req.Modulo) ? null : req.Modulo.Trim().ToLowerInvariant();
     if (up != null)
+    {
+        if (pestania is not null && pestania != Roles.Paciente)
+        {
+            AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso rechazado", $"Cuenta de paciente en la pestaña {Recortar(pestania, 30)}");
+            return Results.Json(new { codigo = "ROL_INCORRECTO", mensaje = "Esta es una cuenta de paciente: ingresá desde la pestaña Paciente." }, statusCode: 403);
+        }
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso", null, Roles.Paciente);
         return Results.Ok(new { rol = "paciente", idUsuario = usuario.IdUsuario, idPaciente = up.IdPaciente,
             token = jwtEmisor.Emitir(usuario.IdUsuario, "paciente", idPaciente: up.IdPaciente) });
+    }
 
-    var upro = new UsuarioProfesionalDAO().ObtenerPorUsuario(usuario.IdUsuario);
-    if (upro != null)
-        return Results.Ok(new { rol = "profesional", idUsuario = usuario.IdUsuario, idProfesional = upro.IdProfesional,
-            token = jwtEmisor.Emitir(usuario.IdUsuario, "profesional", idProfesional: upro.IdProfesional) });
+    // Equipo (etapa 2): el acceso sale de los roles, permisos y privilegios que asignó el
+    // Configurador (migraciones 20 a 23), ya no de "no es paciente ni profesional → configurador".
+    var accesos = accesosRepo.Obtener(usuario.IdUsuario);
+    var modulos = accesos.Modulos;
+    if (modulos.Count == 0)
+    {
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso sin permisos", "El usuario no tiene rol ni permiso asignados");
+        return Results.Json(new { codigo = "SIN_PERMISOS", mensaje = ResolverSesion.MensajeSinPermisos }, statusCode: 403);
+    }
 
-    return Results.Ok(new { rol = "configurador", idUsuario = usuario.IdUsuario,
-        token = jwtEmisor.Emitir(usuario.IdUsuario, "configurador") });
+    var idProfesional = new UsuarioProfesionalDAO().ObtenerPorUsuario(usuario.IdUsuario)?.IdProfesional;
+
+    // Pestaña elegida en el ingreso (Profesional, CRM, Facturación, Configurador): entra
+    // directo a ese módulo si el usuario lo tiene asignado.
+    if (pestania is not null)
+    {
+        if (pestania == Roles.Paciente)
+        {
+            AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso rechazado", "Cuenta del equipo en la pestaña paciente");
+            return Results.Json(new { codigo = "ROL_INCORRECTO", mensaje = "Esta cuenta no es de paciente: elegí la pestaña de tu rol." }, statusCode: 403);
+        }
+        var (resPestania, sesionPestania) = ResolverSesion.Para(accesos, pestania, idProfesional);
+        if (sesionPestania is null)
+        {
+            AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso rechazado", $"Sin el rol de la pestaña {Recortar(pestania, 30)}");
+            return RespuestaSesionRechazada(resPestania, pestania);
+        }
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso", null, sesionPestania.Modulo);
+        return Results.Ok(RespuestaSesion(usuario.IdUsuario, sesionPestania, modulos, jwtEmisor));
+    }
+
+    if (modulos.Count == 1)
+    {
+        var (resultado, sesion) = ResolverSesion.Para(accesos, modulos[0], idProfesional);
+        if (sesion is null) return RespuestaSesionRechazada(resultado);
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso", null, sesion.Modulo);
+        return Results.Ok(RespuestaSesion(usuario.IdUsuario, sesion, modulos, jwtEmisor));
+    }
+
+    // Más de un módulo: elige en la pantalla de ingreso con un token que solo sirve para eso.
+    AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso", "Eligiendo módulo");
+    return Results.Ok(new
+    {
+        requiereModulo = true,
+        idUsuario = usuario.IdUsuario,
+        modulos = DescribirModulos(modulos),
+        tokenSeleccion = jwtEmisor.EmitirSeleccion(usuario.IdUsuario)
+    });
 });
+
+// Elegir o cambiar de módulo. Acepta el token de selección (recién ingresado) o el token de
+// trabajo de otro módulo. Vuelve a leer los permisos en la base: si el Configurador quitó
+// uno, deja de valer acá.
+app.MapPost("/sesion/modulo", (SeleccionModuloRequest req, HttpContext ctx, IdentidadActualService identidad,
+    JwtEmisorService jwtEmisor, IAccesosRepositorio accesosRepo) =>
+{
+    var yo = identidad.Resolver(ctx);
+    if (yo is null || yo.EsPaciente)
+        return Results.Json(new { mensaje = "Solo el equipo de la organización elige módulo." }, statusCode: 403);
+    var usuario = new UsuarioDAO().ObtenerPorId(yo.IdUsuario);
+    if (usuario is null || usuario.Estado != "Activo")
+        return Results.Json(new { mensaje = "Tu cuenta no está activa." }, statusCode: 403);
+
+    var accesos = accesosRepo.Obtener(yo.IdUsuario);
+    var idProfesional = new UsuarioProfesionalDAO().ObtenerPorUsuario(yo.IdUsuario)?.IdProfesional;
+    var (resultado, sesion) = ResolverSesion.Para(accesos, req.Modulo ?? "", idProfesional);
+    if (sesion is null) return RespuestaSesionRechazada(resultado);
+
+    AuditoriaIngreso.Registrar(yo.IdUsuario, yo.EsSeleccion ? "Ingreso a módulo" : "Cambio de módulo",
+        yo.EsSeleccion ? null : $"Desde {yo.Modulo ?? yo.Rol}", sesion.Modulo);
+    return Results.Ok(RespuestaSesion(yo.IdUsuario, sesion, accesos.Modulos, jwtEmisor));
+}).RequireAuthorization();
+
+static string Recortar(string? texto, int largo) =>
+    string.IsNullOrEmpty(texto) ? "" : (texto.Length <= largo ? texto : texto[..largo]);
+
+static object DescribirModulos(IEnumerable<string> modulos) =>
+    modulos.Select(m => new { clave = m, nombre = Modulos.Nombre(m), descripcion = Modulos.Descripcion(m) }).ToList();
+
+// Misma forma que la respuesta de siempre ("rol", "idUsuario", "idProfesional", "token"),
+// más lo de la etapa 2: módulo activo, módulos disponibles, permisos y privilegios.
+static object RespuestaSesion(int idUsuario, SesionModulo sesion, IEnumerable<string> modulos, JwtEmisorService jwtEmisor) => new
+{
+    rol = sesion.RolLegado,
+    idUsuario,
+    idProfesional = sesion.IdProfesional,
+    modulo = sesion.Modulo,
+    modulos = DescribirModulos(modulos),
+    permisos = sesion.Permisos,
+    privilegios = sesion.Privilegios,
+    token = jwtEmisor.EmitirModulo(idUsuario, sesion)
+};
+
+static IResult RespuestaSesionRechazada(ResolverSesion.Resultado resultado, string? modulo = null) => resultado switch
+{
+    ResolverSesion.Resultado.SinPermisos =>
+        Results.Json(new { codigo = "SIN_PERMISOS", mensaje = ResolverSesion.MensajeSinPermisos }, statusCode: 403),
+    ResolverSesion.Resultado.FaltaFichaProfesional =>
+        Results.Json(new { codigo = "SIN_FICHA_PROFESIONAL", mensaje = "Tu usuario no tiene una ficha de profesional activa. Comunicate con el administrador de tu organización." }, statusCode: 403),
+    _ => Results.Json(new
+    {
+        codigo = "MODULO_NO_HABILITADO",
+        mensaje = modulo is null || Modulos.Nombre(modulo) == modulo
+            ? "No tenés habilitado ese rol."
+            : $"Tu usuario no tiene el rol {Modulos.Nombre(modulo)}. Elegí la pestaña de tu rol."
+    }, statusCode: 403)
+};
 
 // Especialidad
 app.MapGet("/especialidades", () =>
@@ -268,6 +416,16 @@ app.MapDelete("/especialidades/{id}", (int id) =>
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 // Rol
+// Roles y permisos: nombre de quien está en sesión, para la barra superior. Antes la barra del
+// Configurador pedía /usuarios/{id}, que es de administración; CRM no tiene ese permiso.
+app.MapGet("/sesion/yo", (HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    var u = new UsuarioDAO().ObtenerPorId(yo.IdUsuario);
+    if (u is null) return Results.NotFound();
+    return Results.Ok(new { idUsuario = u.IdUsuario, username = u.Username, modulo = yo.Modulo ?? yo.Rol });
+}).RequireAuthorization();
+
 app.MapGet("/roles", () =>
     new RolDAO().ObtenerTodos())
     .RequireAuthorization();
@@ -391,26 +549,26 @@ app.MapPut("/obrassociales/{id}", (int id, ObraSocial o) =>
 // ninguna pantalla real de PANTALLAS/ (solo por mockup.html, anterior a esta rama).
 app.MapGet("/tutores", () =>
     new TutorDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+    .Solo(Quien.Profesional);
 
 app.MapGet("/tutores/{id}", (int id) =>
 {
     var t = new TutorDAO().ObtenerPorId(id);
     return t is null ? Results.NotFound() : Results.Ok(t);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 app.MapPost("/tutores", (Tutor t) =>
 {
     t.IdTutor = new TutorDAO().Insertar(t);
     return Results.Created("/tutores", t);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 app.MapPut("/tutores/{id}", (int id, Tutor t) =>
 {
     t.IdTutor = id;
     new TutorDAO().Modificar(t);
     return Results.Ok(t);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 // Usuario
 // Administración de usuarios (Fase JWT): solo Configurador, de punta a punta.
@@ -464,9 +622,11 @@ app.MapDelete("/usuarios/{id}", (int id, HttpContext ctx) =>
 // Cierre de seguridad, Paso 4: antes nada de esto tenía chequeo — el volcado completo
 // (todos los pacientes), la ficha de cualquiera por id, y hasta PUT/DELETE/alta de
 // cualquier paciente estaban abiertos sin sesión. POST sigue público (registro).
+// Roles y permisos: el listado lo necesitan el Configurador (cuentas), Admisión, el auditor y quien
+// gestiona agendas. CRM sin ese privilegio no lo recibe.
 app.MapGet("/pacientes", () =>
     new PacienteDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Configurador | Quien.Admision | Quien.Auditor | Quien.Agendas);
 
 app.MapGet("/pacientes/{id}", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -577,9 +737,10 @@ app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
 // Configurador-only. La ficha por id y "Mi perfil" (PUT) exigen sesión; PUT, además, solo
 // a su propio dueño o al Configurador (antes, sin chequeo, cualquiera podía reescribir el
 // perfil de cualquier profesional). POST sigue público (registro).
+// Roles y permisos: también Admisión y el auditor, y CRM (asigna casos y conversaciones a profesionales).
 app.MapGet("/profesionales", () =>
     new ProfesionalDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Configurador | Quien.Admision | Quien.Auditor | Quien.Crm);
 
 app.MapGet("/profesionales/{id}", (int id) =>
 {
@@ -692,8 +853,10 @@ app.MapGet("/profesionales/sin-usuario", () => new UsuarioProfesionalDAO().IdsPr
 // (X-Usuario-Id sin firmar — TODO(JWT)). Auditado solo con ids, sin texto libre.
 app.MapPut("/profesionales/{id}/link-publico", (int id, ActivarLinkPublicoRequest req, HttpContext ctx) =>
 {
-    var (esAdministrador, idProfesionalDeSesion) = AutorizacionCasos.Resolver(ctx);
-    if (!esAdministrador && idProfesionalDeSesion != id)
+    // Roles y permisos: el administrador de las cuentas es el Configurador (antes AutorizacionCasos,
+    // que ahora resuelve CRM).
+    var yoLink = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+    if (yoLink is null || (!yoLink.EsConfigurador && yoLink.IdProfesional != id))
         return Results.Json(new { mensaje = "No podés activar el link público de otro profesional." }, statusCode: 403);
 
     var dao = new ProfesionalDAO();
@@ -770,21 +933,21 @@ app.MapGet("/profesionales/{id}/agenda", (int id) =>
 app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx);
-    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tu propia vista previa." }, statusCode: 403);
+    if (!yo!.GestionaAgendas && !yo.HaceAdmision && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tu propia vista previa." }, statusCode: 403);
     var rango = Math.Clamp(dias ?? 14, 1, 90);
     return Results.Ok(reglas.HorariosLibresDelProfesional(id, rango, 500));
 }).RequireAuthorization();
 
-// Cierre de seguridad, Paso 3: el profesional solo administra sus propias franjas; el
-// Configurador, las de cualquiera. Se aplica igual a /agendas y a su alias /agenda (abajo),
+// Cierre de seguridad, Paso 3: el profesional solo administra sus propias franjas; quien
+// gestiona agendas (roles y permisos: CRM con ese privilegio, antes el Configurador), las de cualquiera. Se aplica igual a /agendas y a su alias /agenda (abajo),
 // que comparten el mismo AgendaDAO.
 app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
+    if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agendas", a);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -792,14 +955,14 @@ app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualS
     var existente = dao.ObtenerPorId(id);
     if (existente is null) return Results.NotFound();
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador && yo.IdProfesional != existente.IdProfesional)
+    if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
 
     a.IdAgenda = id;
-    if (!yo.EsConfigurador) a.IdProfesional = existente.IdProfesional;
+    if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
     dao.Modificar(a);
     return Results.Ok(a);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 app.MapDelete("/agendas/{id}", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -807,11 +970,11 @@ app.MapDelete("/agendas/{id}", (int id, HttpContext ctx, IdentidadActualService 
     var existente = dao.ObtenerPorId(id);
     if (existente is null) return Results.NotFound();
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador && yo.IdProfesional != existente.IdProfesional)
+    if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
     dao.Eliminar(id);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 // Alias sin 's' para compatibilidad con el dashboard
 app.MapGet("/agenda/{id}", (int id) =>
@@ -823,10 +986,10 @@ app.MapGet("/agenda/{id}", (int id) =>
 app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador) a.IdProfesional = yo.IdProfesional!.Value;
+    if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agenda", a);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -834,14 +997,14 @@ app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualSe
     var existente = dao.ObtenerPorId(id);
     if (existente is null) return Results.NotFound();
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador && yo.IdProfesional != existente.IdProfesional)
+    if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
 
     a.IdAgenda = id;
-    if (!yo.EsConfigurador) a.IdProfesional = existente.IdProfesional;
+    if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
     dao.Modificar(a);
     return Results.Ok(a);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 app.MapDelete("/agenda/{id}", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -849,17 +1012,18 @@ app.MapDelete("/agenda/{id}", (int id, HttpContext ctx, IdentidadActualService i
     var existente = dao.ObtenerPorId(id);
     if (existente is null) return Results.NotFound();
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador && yo.IdProfesional != existente.IdProfesional)
+    if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
     dao.Eliminar(id);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 // Turno
-// Fase JWT: el dump completo de /turnos (sin filtrar por nadie) queda para Configurador.
+// Fase JWT: el dump completo de /turnos (sin filtrar por nadie) era del Configurador.
+// Roles y permisos: pasa a CRM con Gestión de agendas.
 app.MapGet("/turnos", () =>
     new TurnoDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Agendas);
 
 app.MapGet("/turnos/{id}", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -909,26 +1073,28 @@ app.MapGet("/pacientes/{id}/mis-profesionales", (int id, HttpContext ctx, Identi
 app.MapGet("/profesionales/{id}/pacientes", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx);
-    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
+    if (!yo!.HaceAdmision && !yo.EsAuditor && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
     var ids = new PacienteProfesionalDAO().ObtenerIdPacientesDeProfesional(id);
     var dao = new PacienteDAO();
     return Results.Ok(ids.Select(idPac => dao.ObtenerPorId(idPac)).Where(p => p != null).ToList());
 }).RequireAuthorization();
 
-// Cierre de seguridad, Paso 4: asignar/desasignar el equipo tratante de un paciente es
-// administrativo — mismo criterio que /derivaciones/* y /casos/{id}/reasignar, que ya son
-// Configurador-only (antes, esto no tenía ningún chequeo).
-app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp) =>
+// Cierre de seguridad, Paso 4: asignar/desasignar el equipo tratante de un paciente.
+// Roles y permisos: es tarea de Admisión (antes del Configurador). Decide quién accede a la historia
+// clínica, así que queda en la auditoría clínica.
+app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp, HttpContext ctx) =>
 {
     new PacienteProfesionalDAO().Asignar(id, pp.IdProfesional);
+    AuditoriaIds.Registrar(ctx, "Asignación de profesional", "PacienteProfesional", pp.IdProfesional, id);
     return Results.Ok();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
-app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idProf) =>
+app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idProf, HttpContext ctx) =>
 {
     new PacienteProfesionalDAO().Desasignar(idPac, idProf);
+    AuditoriaIds.Registrar(ctx, "Desasignación de profesional", "PacienteProfesional", idProf, idPac);
     return Results.Ok();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 // Lo llaman tanto el paciente (Pantalla_Paciente) como el profesional/configurador
 // (Pantalla_Profesional) por esta misma ruta. Solo el paciente manda idPaciente (agregado
@@ -961,7 +1127,7 @@ app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos
 app.MapGet("/profesionales/{id}/turnos", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx);
-    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+    if (!yo!.GestionaAgendas && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
     return Results.Ok(new TurnoDAO().ObtenerPorProfesional(id));
 }).RequireAuthorization();
 
@@ -1007,29 +1173,29 @@ app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador, Tur
     new TurnoDAO().Modificar(t);
     notificador.CambioDeEstado(id, anterior.IdEstadoTurno);
     return Results.Ok(t);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 // Cierre de seguridad, Paso 4: sin uso por ningún frontend (el cancelar real es
-// /turnos/{id}/cancelar); Configurador-only por el mismo criterio que el resto de las bajas.
+// /turnos/{id}/cancelar). Roles y permisos: de quien gestiona agendas (antes el Configurador).
 app.MapDelete("/turnos/{id}", (int id) =>
 {
     new TurnoDAO().Baja(id);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Agendas);
 
 // Consentimiento (genérico — distinto del RN-02 de telemedicina en ConsentimientoEndpoints.cs)
-// Cierre de seguridad, Paso 4: antes sin ningún chequeo. El volcado completo y las
-// escrituras quedan en Configurador (igual que historia clínica: nada que ninguna pantalla
-// real de PANTALLAS/ use hoy); la lectura por paciente, para su propio dueño o el equipo.
+// Cierre de seguridad, Paso 4: antes sin ningún chequeo. Ninguna pantalla real de
+// PANTALLAS/ usa el volcado completo ni las escrituras. Roles y permisos: salen del Configurador
+// (documentos de pacientes): lectura para el auditor y Admisión, escritura para Admisión.
 app.MapGet("/consentimientos", () =>
     new ConsentimientoDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Auditor | Quien.Admision);
 
 app.MapGet("/consentimientos/{id}", (int id) =>
 {
     var c = new ConsentimientoDAO().ObtenerPorId(id);
     return c is null ? Results.NotFound() : Results.Ok(c);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Auditor | Quien.Admision);
 
 app.MapGet("/pacientes/{id}/consentimientos", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
@@ -1044,20 +1210,20 @@ app.MapPost("/consentimientos", (Consentimiento c) =>
     c.Estado = "Activo";
     c.IdConsentimiento = new ConsentimientoDAO().Insertar(c);
     return Results.Created("/consentimientos", c);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapPut("/consentimientos/{id}", (int id, Consentimiento c) =>
 {
     c.IdConsentimiento = id;
     new ConsentimientoDAO().Modificar(c);
     return Results.Ok(c);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapDelete("/consentimientos/{id}", (int id) =>
 {
     new ConsentimientoDAO().Baja(id);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 // HistoriaClinica
 // Fase JWT: historia clínica/evoluciones/eventos de crisis/sesiones clínicas — lo más
@@ -1076,25 +1242,34 @@ app.MapDelete("/consentimientos/{id}", (int id) =>
 // Los volcados sin filtro (ObtenerTodos, sin paciente) solo los usa la tabla genérica
 // del Configurador (confirmado revisando PANTALLAS/): quedan Configurador-only en vez
 // de inventar un "todos los historiales de mis pacientes" que ninguna pantalla pide hoy.
-var soloClinico = (RouteHandlerBuilder b) => b.RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
-var soloConfigurador = (RouteHandlerBuilder b) => b.RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+// Roles y permisos: el Configurador deja de ver datos clínicos. Los volcados
+// completos pasan al Profesional auditor, y la lectura por paciente es del tratante, del
+// auditor o de Admisión mientras el paciente está en admisión (AutorizacionClinica). El
+// auditor lee, no escribe en historias de pacientes que no atiende.
+var soloClinico = (RouteHandlerBuilder b) => b.Solo(Quien.Profesional);
+var soloAuditor = (RouteHandlerBuilder b) => b.Solo(Quien.Auditor);
 
-soloConfigurador(app.MapGet("/historiasclinicas", () =>
-    new HistoriaClinicaDAO().ObtenerTodos()));
+soloAuditor(app.MapGet("/historiasclinicas", (HttpContext ctx) =>
+{
+    // Etapa 2: los listados completos también quedan en la auditoría clínica.
+    AuditoriaIds.Registrar(ctx, "Consulta del listado completo de historias clínicas", "HistoriaClinica", 0);
+    return new HistoriaClinicaDAO().ObtenerTodos();
+}));
 
 soloClinico(app.MapGet("/historiasclinicas/{id}", (int id, HttpContext ctx) =>
 {
     var h = new HistoriaClinicaDAO().ObtenerPorId(id);
-    if (h is null || !AutorizacionClinica.PuedePaciente(ctx, h.IdPaciente)) return Results.NotFound();
+    if (h is null || !AutorizacionClinica.PuedeVerPaciente(ctx, h.IdPaciente)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de historia clínica", "HistoriaClinica", id, h.IdPaciente);
     return Results.Ok(h);
 }));
 
 soloClinico(app.MapGet("/pacientes/{id}/historiaclinica", (int id, HttpContext ctx) =>
 {
-    if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
+    if (!AutorizacionClinica.PuedeVerPaciente(ctx, id)) return Results.NotFound();
     // Auditoría de acceso a datos clínicos (Paso 6): una vez por apertura de la ficha
     // (esta ruta no la llama ningún polling, solo el "abrir la ficha clínica" real).
-    AuditoriaIds.Registrar(ctx, "Apertura de historia clínica", "HistoriaClinica", id);
+    AuditoriaIds.Registrar(ctx, "Apertura de historia clínica", "HistoriaClinica", id, id);
     var h = new HistoriaClinicaDAO().ObtenerPorPaciente(id);
     return h is null ? Results.NotFound() : Results.Ok(h);
 }));
@@ -1109,22 +1284,26 @@ soloClinico(app.MapPost("/historiasclinicas", (HistoriaClinica h, HttpContext ct
 
 // Evolucion (la pertenencia se resuelve por el paciente de la Historia, Evolucion no tiene
 // IdPaciente directo)
-soloConfigurador(app.MapGet("/evoluciones", () =>
-    new EvolucionDAO().ObtenerTodos()));
+soloAuditor(app.MapGet("/evoluciones", (HttpContext ctx) =>
+{
+    AuditoriaIds.Registrar(ctx, "Consulta del listado completo de evoluciones", "Evolucion", 0);
+    return new EvolucionDAO().ObtenerTodos();
+}));
 
 soloClinico(app.MapGet("/evoluciones/{id}", (int id, HttpContext ctx) =>
 {
     var e = new EvolucionDAO().ObtenerPorId(id);
     var idPaciente = e is null ? null : new HistoriaClinicaDAO().ObtenerPorId(e.IdHistoria)?.IdPaciente;
-    if (idPaciente is null || !AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value)) return Results.NotFound();
+    if (idPaciente is null || !AutorizacionClinica.PuedeVerPaciente(ctx, idPaciente.Value)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de evolución", "Evolucion", id, idPaciente);
     return Results.Ok(e);
 }));
 
 soloClinico(app.MapGet("/historiasclinicas/{id}/evoluciones", (int id, HttpContext ctx) =>
 {
     var idPaciente = new HistoriaClinicaDAO().ObtenerPorId(id)?.IdPaciente;
-    if (idPaciente is null || !AutorizacionClinica.PuedePaciente(ctx, idPaciente.Value)) return Results.NotFound();
-    AuditoriaIds.Registrar(ctx, "Apertura de evoluciones clínicas", "Evolucion", idPaciente.Value);
+    if (idPaciente is null || !AutorizacionClinica.PuedeVerPaciente(ctx, idPaciente.Value)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de evoluciones clínicas", "Evolucion", idPaciente.Value, idPaciente.Value);
     return Results.Ok(new EvolucionDAO().ObtenerPorHistoria(id));
 }));
 
@@ -1152,27 +1331,29 @@ soloClinico(app.MapPut("/evoluciones/{id}", (int id, Evolucion e, HttpContext ct
 // "Solicitudes de cambio" (Derivacion, el mecanismo viejo — no CasoDerivacion de la Fase
 // 2): lo aceptan/rechazan desde la pantalla de administrador (abrirModalDeriv en
 // Pantalla_Configurador), nunca el profesional directo. Fase JWT: todo Configurador.
+// Roles y permisos: pasa al privilegio Admisión (cambiar el profesional decide quién ve la historia
+// clínica). Los registros de estas acciones son de la auditoría clínica.
 app.MapGet("/derivaciones", () =>
     new DerivacionDAO().ObtenerTodos())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Admision);
 
 app.MapGet("/derivaciones/pendientes", () =>
     new DerivacionDetalleDAO().ObtenerPendientes())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Admision);
 
 app.MapGet("/derivaciones/detalle", () =>
     new DerivacionDetalleDAO().ObtenerTodosConDetalle())
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Admision);
 
 app.MapGet("/derivaciones/{id}", (int id) =>
 {
     var d = new DerivacionDAO().ObtenerPorId(id);
     return d is null ? Results.NotFound() : Results.Ok(d);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapGet("/pacientes/{id}/derivaciones", (int id) =>
     new DerivacionDAO().ObtenerPorPaciente(id))
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Admision);
 
 app.MapPost("/derivaciones", (Derivacion d) =>
 {
@@ -1180,14 +1361,14 @@ app.MapPost("/derivaciones", (Derivacion d) =>
     d.Estado = "Pendiente";
     d.IdDerivacion = new DerivacionDAO().Insertar(d);
     return Results.Created("/derivaciones", d);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
 {
     d.IdDerivacion = id;
     new DerivacionDAO().Modificar(d);
     return Results.Ok(d);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, HttpContext ctx) =>
 {
@@ -1202,10 +1383,10 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
     dao.Desasignar(d.IdPaciente, d.IdProfesionalOrigen);
     dao.Asignar(d.IdPaciente, req.IdProfesionalDestino);
 
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aceptación Derivación", Entidad = "Derivacion", IdEntidad = id });
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Aceptación Derivación", Entidad = "Derivacion", IdEntidad = id , Categoria = CategoriaAuditoria.Clinica, Espacio = "profesional" });
     SincronizarCasoPorCambioDeProfesional(d.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
 {
@@ -1214,11 +1395,11 @@ app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
     if (d is null) return Results.NotFound();
     d.Estado = "Rechazada";
     new DerivacionDAO().Modificar(d);
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Derivación", Entidad = "Derivacion", IdEntidad = id });
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Derivación", Entidad = "Derivacion", IdEntidad = id , Categoria = CategoriaAuditoria.Clinica, Espacio = "profesional" });
     return Results.Ok(d);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
-// Cambio directo de profesional (configurador): registra derivación aceptada + reasigna turnos futuros
+// Cambio directo de profesional (Admisión): registra derivación aceptada + reasigna turnos futuros
 app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpContext ctx) =>
 {
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
@@ -1239,10 +1420,10 @@ app.MapPost("/derivaciones/cambio-directo", (CambioProfesionalRequest req, HttpC
     dao.Desasignar(req.IdPaciente, req.IdProfesionalOrigen);
     dao.Asignar(req.IdPaciente, req.IdProfesionalDestino);
 
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Cambio Directo Profesional", Entidad = "Derivacion", Detalle = req.Motivo });
+    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Cambio Directo Profesional", Entidad = "Derivacion", Detalle = req.Motivo , Categoria = CategoriaAuditoria.Clinica, Espacio = "profesional" });
     SincronizarCasoPorCambioDeProfesional(req.IdPaciente, req.IdProfesionalDestino, auditor);
     return Results.Ok();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 // Fase 2, aditivo: si el paciente tiene un Caso abierto, la solicitud de cambio de
 // profesional (Derivacion/"Solicitudes de cambio", sin relación con CasoDerivacion) lo
@@ -1267,20 +1448,24 @@ app.MapGet("/profesionales/activos/especialidad/{idEsp}", (int idEsp) =>
     .RequireAuthorization();
 
 // EventoCrisis
-soloConfigurador(app.MapGet("/eventoscrisis", () =>
-    new EventoCrisisDAO().ObtenerTodos()));
+soloAuditor(app.MapGet("/eventoscrisis", (HttpContext ctx) =>
+{
+    AuditoriaIds.Registrar(ctx, "Consulta del listado completo de eventos de crisis", "EventoCrisis", 0);
+    return new EventoCrisisDAO().ObtenerTodos();
+}));
 
 soloClinico(app.MapGet("/eventoscrisis/{id}", (int id, HttpContext ctx) =>
 {
     var e = new EventoCrisisDAO().ObtenerPorId(id);
-    if (e is null || !AutorizacionClinica.PuedePaciente(ctx, e.IdPaciente)) return Results.NotFound();
+    if (e is null || !AutorizacionClinica.PuedeVerPaciente(ctx, e.IdPaciente)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de evento de crisis", "EventoCrisis", id, e.IdPaciente);
     return Results.Ok(e);
 }));
 
 soloClinico(app.MapGet("/pacientes/{id}/eventoscrisis", (int id, HttpContext ctx) =>
 {
-    if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
-    AuditoriaIds.Registrar(ctx, "Apertura de eventos de crisis", "EventoCrisis", id);
+    if (!AutorizacionClinica.PuedeVerPaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de eventos de crisis", "EventoCrisis", id, id);
     return Results.Ok(new EventoCrisisDAO().ObtenerPorPaciente(id));
 }));
 
@@ -1306,19 +1491,25 @@ soloClinico(app.MapPut("/eventoscrisis/{id}", (int id, EventoCrisis e, HttpConte
 // seguridad, Paso 2: pasa a soloClinico + AutorizacionClinica (antes, sin ningún chequeo,
 // ni rol ni pertenencia); sin uso hoy por ninguna pantalla real de PANTALLAS/ (solo por
 // mockup.html, anterior a esta rama), así que no hay riesgo de romper nada.
-soloConfigurador(app.MapGet("/interaccionesia", () =>
-    new InteraccionIADAO().ObtenerTodos()));
+// Roles y permisos: el listado completo pasa del Configurador al Profesional auditor.
+soloAuditor(app.MapGet("/interaccionesia", (HttpContext ctx) =>
+{
+    AuditoriaIds.Registrar(ctx, "Consulta del listado completo de interacciones IA", "InteraccionIA", 0);
+    return new InteraccionIADAO().ObtenerTodos();
+}));
 
 soloClinico(app.MapGet("/interaccionesia/{id}", (int id, HttpContext ctx) =>
 {
     var i = new InteraccionIADAO().ObtenerPorId(id);
-    if (i is null || !AutorizacionClinica.PuedePaciente(ctx, i.IdPaciente)) return Results.NotFound();
+    if (i is null || !AutorizacionClinica.PuedeVerPaciente(ctx, i.IdPaciente)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de interacción IA", "InteraccionIA", id, i.IdPaciente);
     return Results.Ok(i);
 }));
 
 soloClinico(app.MapGet("/pacientes/{id}/interaccionesia", (int id, HttpContext ctx) =>
 {
-    if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
+    if (!AutorizacionClinica.PuedeVerPaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de interacciones IA", "InteraccionIA", id, id);
     return Results.Ok(new InteraccionIADAO().ObtenerPorPaciente(id));
 }));
 
@@ -1367,19 +1558,19 @@ app.MapDelete("/coberturas/{id}", (int id) =>
 // PacienteTutor (mismo criterio que Tutor arriba: sin uso hoy fuera de mockup.html)
 app.MapGet("/pacientes/{id}/tutores", (int id) =>
     new PacienteTutorDAO().ObtenerPorPaciente(id))
-    .RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+    .Solo(Quien.Profesional);
 
 app.MapPost("/pacientetutores", (PacienteTutor pt) =>
 {
     new PacienteTutorDAO().Insertar(pt);
     return Results.Created("/pacientetutores", pt);
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 app.MapDelete("/pacientetutores/{idPaciente}/{idTutor}", (int idPaciente, int idTutor) =>
 {
     new PacienteTutorDAO().Eliminar(idPaciente, idTutor);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 // UsuarioRol
 // De aquí hasta /auditoria: tablas de asociación Usuario<->Rol/Paciente/Profesional y el
@@ -1439,9 +1630,261 @@ app.MapDelete("/usuarioprofesionales/{idUsuario}", (int idUsuario) =>
     return Results.NoContent();
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
-app.MapGet("/auditoria", (int pagina = 1, int cantidad = 50) =>
-    new LogAuditoriaDAO().ObtenerPaginado(pagina, cantidad))
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+// ── Permisos por usuario (roles y permisos) ──────────────────────────
+// El Configurador asigna módulos, permisos y privilegios a cada usuario del equipo. Reglas
+// y validaciones: Services/AccesosEdicion.cs. Cada cambio queda en la auditoría
+// administrativa (lo registra la base, migración 21).
+app.MapGet("/usuarios/accesos", () =>
+{
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    using var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+        SELECT IdUsuario, Username, Estado, NombreCompleto, Roles, Permisos, Privilegios, Matricula, Especialidad, SinPermisos
+        FROM vw_UsuarioAccesos
+        WHERE TipoCuenta = 'Equipo'
+        ORDER BY Username", con);
+    using var rd = cmd.ExecuteReader();
+    var lista = new List<object>();
+    string? Texto(int i) => rd.IsDBNull(i) ? null : rd.GetValue(i).ToString();
+    while (rd.Read())
+        lista.Add(new
+        {
+            idUsuario = rd.GetInt32(0), username = Texto(1), estado = Texto(2), nombreCompleto = Texto(3),
+            roles = Texto(4), permisos = Texto(5), privilegios = Texto(6), matricula = Texto(7), especialidad = Texto(8),
+            sinPermisos = Convert.ToInt32(rd.GetValue(9)) == 1
+        });
+    return Results.Ok(lista);
+}).Solo(Quien.Configurador);
+
+app.MapGet("/usuarios/{id}/accesos", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var dao = new AccesosEdicionDAO();
+    var situacion = dao.LeerSituacion(id, identidad.Resolver(ctx)!.IdUsuario);
+    if (situacion is null) return Results.NotFound();
+    var (permisos, privilegios) = dao.Asignados(id);
+    var catalogo = dao.Catalogo().Where(p => AccesosEdicion.ModulosEditables.Contains(p.Modulo));
+    return Results.Ok(new
+    {
+        idUsuario = id,
+        esPaciente = situacion.EsPaciente,
+        tieneFichaProfesional = situacion.TieneFichaProfesional,
+        esUnoMismo = situacion.EsUnoMismo,
+        modulos = catalogo.GroupBy(p => p.Modulo).Select(g => new
+        {
+            clave = g.Key, nombre = Modulos.Nombre(g.Key), descripcion = Modulos.Descripcion(g.Key),
+            permisos = g.Select(p => new
+            {
+                clave = p.Clave, nombre = p.Nombre,
+                privilegios = p.Privilegios.Select(v => new { clave = v.Clave, nombre = v.Nombre, descripcion = v.Descripcion })
+            })
+        }),
+        permisos,
+        privilegios = privilegios.Select(p => new { permiso = p.Permiso, privilegio = p.Privilegio })
+    });
+}).Solo(Quien.Configurador);
+
+app.MapPut("/usuarios/{id}/accesos", (int id, AccesosEdicionRequest pedido, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    var dao = new AccesosEdicionDAO();
+    var situacion = dao.LeerSituacion(id, yo.IdUsuario);
+    if (situacion is null) return Results.NotFound();
+    var motivo = AccesosEdicion.Validar(dao.Catalogo(), pedido, situacion);
+    if (motivo is not null) return Results.Json(new { mensaje = motivo }, statusCode: 400);
+    dao.Guardar(id, pedido, yo.IdUsuario);
+    return Results.NoContent();
+}).Solo(Quien.Configurador);
+
+// ── Alta de usuarios del equipo e invitación por mail (18/10) ───────────────
+// El Configurador registra a la persona (Services/AltaEquipo.cs); le llega un mail para
+// confirmar la cuenta y elegir su contraseña. Si el mail no sale (por ejemplo, sin la
+// contraseña del correo en desarrollo), en Development la respuesta trae el link para poder
+// probar; en producción nunca: el link es la llave de la cuenta.
+app.MapGet("/usuarios/equipo/opciones", () =>
+    Results.Ok(new { especialidades = new AltaEquipoDAO().Especialidades() }))
+    .Solo(Quien.Configurador);
+
+app.MapPost("/usuarios/equipo", (AltaEquipoRequest pedido, HttpContext ctx, IdentidadActualService identidad,
+    EmailService email, IWebHostEnvironment entorno, ILogger<Program> log) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    var r = AltaEquipo.Normalizar(pedido);
+    var motivo = AltaEquipo.Validar(r, new AccesosEdicionDAO().Catalogo());
+    if (motivo is not null) return Results.Json(new { mensaje = motivo }, statusCode: 400);
+    var dao = new AltaEquipoDAO();
+    var conflicto = dao.Conflicto(r);
+    if (conflicto is not null) return Results.Json(new { mensaje = conflicto }, statusCode: 409);
+
+    var creada = dao.Crear(r, yo.IdUsuario);
+    var envio = EnviarInvitacion(email, entorno, log, r.Mail!, r.Nombre, r.Username!, creada.Token, creada.Vence);
+    return Results.Created($"/usuarios/{creada.IdUsuario}", new
+    {
+        idUsuario = creada.IdUsuario, username = r.Username, mail = r.Mail, vence = creada.Vence,
+        mailEnviado = envio.Enviado, motivoMail = envio.Motivo, linkActivacion = envio.LinkVisible
+    });
+}).Solo(Quien.Configurador);
+
+app.MapPost("/usuarios/{id}/invitacion", (int id, HttpContext ctx, IdentidadActualService identidad,
+    EmailService email, IWebHostEnvironment entorno, ILogger<Program> log) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    var dao = new AltaEquipoDAO();
+    var datos = dao.DatosParaMail(id);
+    if (datos is null) return Results.NotFound();
+    if (string.IsNullOrEmpty(datos.Value.Mail)) return Results.Json(new { mensaje = "La cuenta no tiene email." }, statusCode: 400);
+    var nueva = dao.NuevaInvitacion(id, yo.IdUsuario);
+    if (nueva is null) return Results.Json(new { mensaje = "La cuenta ya está confirmada: no necesita invitación." }, statusCode: 409);
+    var envio = EnviarInvitacion(email, entorno, log, datos.Value.Mail!, datos.Value.Nombre, datos.Value.Username, nueva.Value.Token, nueva.Value.Vence);
+    return Results.Ok(new { vence = nueva.Value.Vence, mailEnviado = envio.Enviado, motivoMail = envio.Motivo, linkActivacion = envio.LinkVisible });
+}).Solo(Quien.Configurador);
+
+// Públicos (sin sesión: la persona todavía no tiene contraseña), con el mismo límite por IP
+// que la reserva pública. El token se busca por su hash; nunca se guarda ni se registra.
+app.MapGet("/cuentas/invitacion", (string? token) =>
+{
+    if (string.IsNullOrWhiteSpace(token)) return Results.NotFound();
+    var inv = new AltaEquipoDAO().Buscar(token);
+    if (inv is null) return Results.Json(new { mensaje = "El link no es válido. Pedile al administrador que te reenvíe la invitación." }, statusCode: 404);
+    var motivo = MotivoInvitacionNoUsable(inv);
+    if (motivo is not null) return Results.Json(new { mensaje = motivo }, statusCode: 410);
+    return Results.Ok(new { nombre = inv.Nombre, username = inv.Username, vence = inv.Vence });
+}).RequireRateLimiting("publico");
+
+app.MapPost("/cuentas/activar", (ActivarCuentaRequest req) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Token)) return Results.Json(new { mensaje = "El link no es válido." }, statusCode: 404);
+    var errorClave = AltaEquipo.ValidarContrasena(req.Password);
+    if (errorClave is not null) return Results.Json(new { mensaje = errorClave }, statusCode: 400);
+    var dao = new AltaEquipoDAO();
+    var inv = dao.Buscar(req.Token);
+    if (inv is null) return Results.Json(new { mensaje = "El link no es válido. Pedile al administrador que te reenvíe la invitación." }, statusCode: 404);
+    var motivo = MotivoInvitacionNoUsable(inv);
+    if (motivo is not null || !dao.Activar(inv, AltaEquipo.HashContrasena(req.Password!)))
+        return Results.Json(new { mensaje = motivo ?? "El link ya no sirve. Pedile al administrador que te reenvíe la invitación." }, statusCode: 410);
+    return Results.Ok(new { username = inv.Username, mensaje = "Listo, tu cuenta quedó confirmada. Ya podés ingresar." });
+}).RequireRateLimiting("publico");
+
+static string? MotivoInvitacionNoUsable(InvitacionInfo inv) =>
+    inv.Usada is not null || inv.EstadoCuenta != "Pendiente" ? "Esta cuenta ya está confirmada. Ingresá con tu usuario y contraseña."
+    : inv.Anulada is not null ? "Este link fue reemplazado por uno más nuevo. Usá el último mail que recibiste."
+    : inv.Vence <= DateTime.Now ? "El link venció. Pedile al administrador que te reenvíe la invitación."
+    : null;
+
+static (bool Enviado, string? Motivo, string? LinkVisible) EnviarInvitacion(EmailService email, IWebHostEnvironment entorno, ILogger log,
+    string mail, string? nombre, string username, string token, DateTime vence)
+{
+    var link = $"{email.AppUrl}/pantallas/activar-cuenta.html?token={Uri.EscapeDataString(token)}";
+    try
+    {
+        // false = correo sin configurar (EmailService lo deja en el log, sin abrir ninguna conexión): la cuenta quedó creada y la invitación se puede reenviar.
+        if (!email.EnviarInvitacionEquipo(mail, nombre, username, link, vence))
+            return (false, "No se pudo enviar el mail (el correo no está configurado en el servidor).", entorno.IsDevelopment() ? link : null);
+        return (true, null, null);
+    }
+    catch (Exception ex)
+    {
+        // Sin el token en el registro: solo el motivo.
+        log.LogWarning("No se pudo enviar la invitación a {Usuario}: {Motivo}", username, ex.Message);
+        return (false, "No se pudo enviar el mail (revisá la configuración del correo).", entorno.IsDevelopment() ? link : null);
+    }
+}
+
+// ── Privilegios (18/10): a quién se le agrega cada uno ─────────
+// Admisión se agrega a quien tiene Profesional o Profesional auditor; Gestión de agendas, a
+// quien tiene CRM. Mismas reglas y la misma auditoría que el editor de permisos.
+app.MapGet("/privilegios", () =>
+{
+    var catalogo = new AccesosEdicionDAO().Catalogo().Where(p => AccesosEdicion.ModulosEditables.Contains(p.Modulo)).ToList();
+    var personas = new List<(int Id, string Username, string? Nombre, string Estado, string Permiso)>();
+    var tienen = new HashSet<(int, string)>();
+    using (var con = Conexion.ObtenerConexion())
+    {
+        con.Open();
+        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+            SELECT u.IdUsuario, u.Username, LTRIM(RTRIM(COALESCE(u.Apellido + N', ', N'') + COALESCE(u.Nombre, N''))), ISNULL(u.Estado, ''), p.Clave
+            FROM UsuarioPermiso up
+            JOIN Permiso p ON p.IdPermiso = up.IdPermiso AND p.Estado = 'Activo'
+            JOIN Usuario u ON u.IdUsuario = up.IdUsuario
+            ORDER BY u.Username", con))
+        using (var rd = cmd.ExecuteReader())
+            while (rd.Read()) personas.Add((rd.GetInt32(0), rd.GetString(1), rd.IsDBNull(2) ? null : rd.GetString(2), rd.GetString(3), rd.GetString(4)));
+        using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+            SELECT up.IdUsuario, pv.Clave FROM UsuarioPrivilegio up JOIN Privilegio pv ON pv.IdPrivilegio = up.IdPrivilegio", con))
+        using (var rd = cmd.ExecuteReader())
+            while (rd.Read()) tienen.Add((rd.GetInt32(0), rd.GetString(1)));
+    }
+    var privilegios = catalogo.SelectMany(p => p.Privilegios).GroupBy(v => v.Clave).Select(g => g.First());
+    return Results.Ok(privilegios.Select(v =>
+    {
+        var admiten = catalogo.Where(p => p.Privilegios.Any(x => x.Clave == v.Clave)).ToList();
+        var elegibles = personas.Where(x => admiten.Any(p => p.Clave == x.Permiso))
+            .GroupBy(x => x.Id).Select(g => new
+            {
+                idUsuario = g.Key, username = g.First().Username, nombreCompleto = g.First().Nombre, estado = g.First().Estado,
+                permiso = admiten.First(p => g.Any(x => x.Permiso == p.Clave)).Nombre
+            }).ToList();
+        return new
+        {
+            clave = v.Clave, nombre = v.Nombre, descripcion = v.Descripcion,
+            permisos = admiten.Select(p => new { clave = p.Clave, nombre = p.Nombre }),
+            loTienen = elegibles.Where(e => tienen.Contains((e.idUsuario, v.Clave))),
+            candidatos = elegibles.Where(e => !tienen.Contains((e.idUsuario, v.Clave)))
+        };
+    }));
+}).Solo(Quien.Configurador);
+
+app.MapPost("/usuarios/{id}/privilegios", (int id, AgregarPrivilegioRequest req, HttpContext ctx, IdentidadActualService identidad) =>
+    CambiarPrivilegio(id, req.Privilegio, agregar: true, identidad.Resolver(ctx)!.IdUsuario))
+    .Solo(Quien.Configurador);
+
+app.MapDelete("/usuarios/{id}/privilegios/{clave}", (int id, string clave, HttpContext ctx, IdentidadActualService identidad) =>
+    CambiarPrivilegio(id, clave, agregar: false, identidad.Resolver(ctx)!.IdUsuario))
+    .Solo(Quien.Configurador);
+
+static IResult CambiarPrivilegio(int idUsuario, string? clave, bool agregar, int idAutor)
+{
+    var dao = new AccesosEdicionDAO();
+    var situacion = dao.LeerSituacion(idUsuario, idAutor);
+    if (situacion is null) return Results.NotFound();
+    var catalogo = dao.Catalogo();
+    var editables = catalogo.Where(p => AccesosEdicion.ModulosEditables.Contains(p.Modulo)).Select(p => p.Clave).ToHashSet();
+    var (permisos, privilegios) = dao.Asignados(idUsuario);
+    permisos = permisos.Where(editables.Contains).ToList();
+    privilegios = privilegios.Where(p => editables.Contains(p.Permiso)).ToList();
+    var nombre = catalogo.SelectMany(p => p.Privilegios).FirstOrDefault(v => v.Clave == clave)?.Nombre;
+    if (nombre is null) return Results.Json(new { mensaje = "Ese privilegio no existe." }, statusCode: 404);
+
+    if (agregar)
+    {
+        if (privilegios.Any(p => p.Privilegio == clave)) return Results.Json(new { mensaje = $"Ya tiene el privilegio {nombre}." }, statusCode: 409);
+        var sobre = catalogo.FirstOrDefault(p => permisos.Contains(p.Clave) && p.Privilegios.Any(v => v.Clave == clave));
+        if (sobre is null) return Results.Json(new { mensaje = $"Este usuario no tiene un rol que admita {nombre}." }, statusCode: 400);
+        privilegios.Add(new PrivilegioPedido(sobre.Clave, clave!));
+    }
+    else
+    {
+        if (!privilegios.Any(p => p.Privilegio == clave)) return Results.NoContent();
+        privilegios = privilegios.Where(p => p.Privilegio != clave).ToList();
+    }
+
+    var pedido = new AccesosEdicionRequest(permisos, privilegios);
+    var motivo = AccesosEdicion.Validar(catalogo, pedido, situacion);
+    if (motivo is not null) return Results.Json(new { mensaje = motivo }, statusCode: 400);
+    dao.Guardar(idUsuario, pedido, idAutor);
+    return Results.NoContent();
+}
+
+// Roles y permisos: la auditoría se ve en dos partes y nadie la puede modificar (no hay PUT ni
+// DELETE, y la base lo impide con TR_LogAuditoria_SoloAgregar). El Configurador ve la
+// administrativa (cuentas, ingresos, cambios de permisos y configuración); el Profesional
+// auditor, la clínica (accesos a historias, asignaciones, derivaciones, reportes). La
+// categoría la decide el servidor según el token, nunca un parámetro.
+app.MapGet("/auditoria", (HttpContext ctx, IdentidadActualService identidad, int pagina = 1, int cantidad = 50) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    var categoria = yo.EsConfigurador ? CategoriaAuditoria.Administrativa : CategoriaAuditoria.Clinica;
+    return new LogAuditoriaDAO().ObtenerPaginado(Math.Max(pagina, 1), Math.Clamp(cantidad, 1, 200), categoria);
+}).Solo(Quien.Configurador | Quien.Auditor);
 
 // Recuperación de contraseña, autoservicio: un link de un solo uso por mail, vence a los
 // 30 minutos. Sin aprobación de nadie en el medio. Respuesta siempre igual exista o no el
@@ -1555,17 +1998,19 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
 // mostró; el profesional las recibe descifradas (VistaSesionesClinicas). Ver docs/VIDEOLLAMADAS.md.
 soloClinico(app.MapGet("/pacientes/{id}/sesiones-clinicas", (int id, HttpContext ctx, VistaSesionesClinicas vista) =>
 {
-    if (!AutorizacionClinica.PuedePaciente(ctx, id)) return Results.NotFound();
-    AuditoriaIds.Registrar(ctx, "Apertura de sesiones clínicas", "SesionClinica", id);
-    var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorPaciente(id), puedeVerEmociones: !esAdmin));
+    if (!AutorizacionClinica.PuedeVerPaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Apertura de sesiones clínicas", "SesionClinica", id, id);
+    // Las emociones (cifradas, PR 6) solo las ve quien atiende al paciente: el auditor lee las notas, no las emociones.
+    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorPaciente(id), puedeVerEmociones: AutorizacionClinica.PuedePaciente(ctx, id)));
 }));
 
 soloClinico(app.MapGet("/profesionales/{id}/sesiones-clinicas", (int id, HttpContext ctx, VistaSesionesClinicas vista) =>
 {
-    var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
-    if (!esAdmin && idPropio != id) return Results.Json(new { mensaje = "Solo podés ver tus propias sesiones." }, statusCode: 403);
-    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorProfesional(id), puedeVerEmociones: !esAdmin));
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)!;
+    if (!yo.EsAuditor && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propias sesiones." }, statusCode: 403);
+    if (yo.IdProfesional != id) AuditoriaIds.Registrar(ctx, "Consulta de sesiones de un profesional", "SesionClinica", id);
+    // Las emociones solo las ve el propio profesional; el auditor que consulta a otro no las recibe.
+    return Results.Ok(vista.Armar(new SesionClinicaDAO().ObtenerPorProfesional(id), puedeVerEmociones: yo.IdProfesional == id));
 }));
 
 
@@ -1645,7 +2090,8 @@ app.MapGet("/reportes/atenciones/html", (int? idProfesional, HttpContext ctx) =>
 app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
-    if (!yo.EsConfigurador) i.IdPaciente = yo.IdPaciente!.Value;
+    // Roles y permisos: la admisión asistida la hace Admisión (antes el Configurador).
+    if (!yo.HaceAdmision) i.IdPaciente = yo.IdPaciente!.Value;
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
@@ -1660,27 +2106,36 @@ app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignaci
         asignacion.SugerirDerivacion(idCaso, idGrupo.Value, "Regla", idCreadoPor: null);
 
     return Results.Created($"/informes-admision/{id}", i);
-}).RequireAuthorization(p => p.RequireRole(Roles.Paciente, Roles.Configurador));
+}).Solo(Quien.Paciente | Quien.Admision);
 
 // Sin uso directo por ninguna pantalla (confirmado en PANTALLAS/): queda para el
 // Configurador, igual que /pacientes o /profesionales en bloque.
 app.MapGet("/informes-admision", (string? estado) =>
     new InformeAdmisionDAO().ObtenerTodos(estado))
-    .RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    .Solo(Quien.Admision | Quien.Auditor);
 
-app.MapGet("/informes-admision/{id}", (int id) =>
+app.MapGet("/informes-admision/{id}", (int id, HttpContext ctx) =>
 {
     var i = new InformeAdmisionDAO().ObtenerPorId(id);
-    return i is null ? Results.NotFound() : Results.Ok(i);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+    if (i is null) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de informe de admisión", "InformeAdmision", id, i.IdPaciente);
+    return Results.Ok(i);
+}).Solo(Quien.Admision | Quien.Auditor);
 
 app.MapGet("/pacientes/{id}/informe-admision", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (yo is { EsPaciente: true } && yo.IdPaciente != id)
         return Results.Json(new { mensaje = "Solo podés ver tu propio informe de admisión." }, statusCode: 403);
+    // Roles y permisos: del equipo, solo Admisión, el auditor o quien atiende al paciente. Al resto
+    // (Configurador, CRM, otro profesional), lo mismo que si no existiera.
+    if (!yo.EsPaciente && !yo.HaceAdmision && !AutorizacionClinica.PuedeVerPaciente(ctx, id))
+        return Results.NotFound();
     var i = new InformeAdmisionDAO().ObtenerPorPaciente(id);
-    return i is null ? Results.NotFound() : Results.Ok(i);
+    if (i is null) return Results.NotFound();
+    // Etapa 2: lectura del informe por alguien del equipo → auditoría clínica.
+    if (!yo.EsPaciente) AuditoriaIds.Registrar(ctx, "Consulta de informe de admisión", "InformeAdmision", i.IdInforme, id);
+    return Results.Ok(i);
 }).RequireAuthorization();
 
 // Sin uso directo por ninguna pantalla: Configurador, mismo criterio que el resto de este
@@ -1689,13 +2144,13 @@ app.MapPut("/informes-admision/{id}/estado", (int id, string estado) =>
 {
     new InformeAdmisionDAO().CambiarEstado(id, estado);
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 
-// ── Admision: endpoints para el configurador ────────────────
+// ── Admision: endpoints de Admisión (roles y permisos; antes del configurador) ──
 app.MapGet("/informes-admision-detalle", () =>
 {
-    // (Configurador-only: ver .RequireAuthorization() al final de este endpoint.)
+    // (Admisión y auditor: ver .Solo() al final de este endpoint.)
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -1742,10 +2197,11 @@ app.MapGet("/informes-admision-detalle", () =>
         });
     }
     return Results.Ok(lista);
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision | Quien.Auditor);
 
-app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req) =>
+app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx)!;
     using var con = Conexion.ObtenerConexion();
     con.Open();
 
@@ -1777,7 +2233,7 @@ app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req)
     }
 
     return Results.Ok(new { codigoSala });
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 // ── Notificaciones ──────────────────────────────────────────
 // Cierre de seguridad, Paso 4: antes sin auth ni chequeo de dueño — cualquiera podía leer
@@ -1914,13 +2370,13 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     }
 
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
+}).Solo(Quien.Admision);
 
 // ── Mis Pacientes con estado de asignacion ──────────────────
 app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx);
-    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
+    if (!yo!.HaceAdmision && !yo.EsAuditor && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios pacientes." }, statusCode: 403);
 
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -1968,7 +2424,7 @@ app.MapPut("/asignaciones/estado", (AsignacionEstadoRequest req, HttpContext ctx
     cmd.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmd.ExecuteNonQuery();
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 // ── Rechazo por el profesional: vuelve a la bandeja del admisionista ─
 app.MapPut("/informes-admision/rechazar", (RechazoRequest req, HttpContext ctx, IdentidadActualService identidad) =>
@@ -1991,7 +2447,7 @@ app.MapPut("/informes-admision/rechazar", (RechazoRequest req, HttpContext ctx, 
     cmd.Parameters.AddWithValue("@Motivo", (object)req.Motivo ?? DBNull.Value);
     cmd.ExecuteNonQuery();
     return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional);
 
 
 // Turno propuesto por el profesional (queda pendiente de confirmacion del paciente)
@@ -2004,7 +2460,7 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INoti
     // nunca al de otro id enviado en el cuerpo; el Configurador sí puede elegir cualquiera
     // (agenda en nombre de un profesional, como ya hacía).
     var yo = identidad.Resolver(ctx)!;
-    var idProfesional = yo.EsConfigurador ? req.IdProfesional : yo.IdProfesional!.Value;
+    var idProfesional = yo.GestionaAgendas ? req.IdProfesional : yo.IdProfesional!.Value;   // roles y permisos: antes el Configurador
 
     // Cita urgente = "ahora mismo": la hora la pone el reloj de la clínica, no la PC del profesional (con la PC mal de
     // hora o en otra zona, el turno quedaba a una hora que no era y la sala no abría). Un turno futuro trae su fecha y
@@ -2019,7 +2475,7 @@ app.MapPost("/turnos/profesional-solicitar", (TurnoProfesionalRequest req, INoti
     if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
     notificador.TurnoAgendadoPorProfesional(req.IdPaciente, idProfesional, momento.Date, momento.TimeOfDay);
     return Results.Created("/turnos", new { idTurno = resultado.IdTurno });
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 
 // ── Paciente confirma el turno propuesto ────────────────────
@@ -2056,7 +2512,7 @@ app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notifi
 app.MapGet("/profesionales/{id}/turnos-confirmados", (int id, HttpContext ctx, IdentidadActualService identidad) =>
 {
     var yo = identidad.Resolver(ctx);
-    if (!yo!.EsConfigurador && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
+    if (!yo!.GestionaAgendas && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tus propios turnos." }, statusCode: 403);
 
     using var con = Conexion.ObtenerConexion();
     con.Open();
@@ -2122,7 +2578,7 @@ app.MapPut("/turnos/{id}/generar-sala", (int id, HttpContext ctx, IdentidadActua
         cmdNotif.ExecuteNonQuery();
     }
     return Results.Ok(new { codigoSala });
-}).RequireAuthorization(p => p.RequireRole(Roles.Profesional, Roles.Configurador));
+}).Solo(Quien.Profesional | Quien.Agendas);
 
 // Turnos ocupados por profesional en una fecha
 app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
@@ -2138,6 +2594,199 @@ app.MapCasos();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapConsentimientoWhatsApp();
+
+// ═══════════════════════════════════════════════════════
+// REPORTES DEL PROFESIONAL
+// ═══════════════════════════════════════════════════════
+// Roles y permisos: estos seis endpoints no exigían sesión — cualquiera, sin ingresar, podía pedir
+// las emociones registradas en las sesiones de cualquier paciente. Ahora: el propio
+// profesional, o el Profesional auditor (que queda en la auditoría clínica). Ninguna pantalla
+// los usa todavía, así que no se rompe nada.
+static IResult? ReporteAjeno(HttpContext ctx, int idProfesional)
+{
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+    if (yo is null) return Results.Unauthorized();
+    if (yo.IdProfesional == idProfesional) return null;
+    if (!yo.EsAuditor) return Results.Json(new { mensaje = "Solo podés ver tus propios reportes." }, statusCode: 403);
+    AuditoriaIds.Registrar(ctx, "Consulta de reporte de un profesional", "Reporte", idProfesional);
+    return null;
+}
+
+// KPIs generales del profesional
+app.MapGet("/reportes/profesional/{id}/kpis", (int id, HttpContext ctx) =>
+{
+    if (ReporteAjeno(ctx, id) is { } rechazo) return rechazo;
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+
+    var kpis = new Dictionary<string, object>();
+
+    // Sesiones este mes
+    var cmd1 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica 
+        WHERE IdProfesional = @Id 
+        AND MONTH(FechaHora) = MONTH(GETDATE()) 
+        AND YEAR(FechaHora) = YEAR(GETDATE())", con);
+    cmd1.Parameters.AddWithValue("@Id", id);
+    kpis["sesionesMes"] = Convert.ToInt32(cmd1.ExecuteScalar());
+
+    // Pacientes activos
+    var cmd2 = new SqlCommand(@"
+        SELECT COUNT(*) FROM PacienteProfesional 
+        WHERE IdProfesional = @Id AND EstadoAsignacion = 'Confirmada'", con);
+    cmd2.Parameters.AddWithValue("@Id", id);
+    kpis["pacientesActivos"] = Convert.ToInt32(cmd2.ExecuteScalar());
+
+    // Tasa de asistencia (realizados / confirmados)
+    var cmd3 = new SqlCommand(@"
+        SELECT 
+            SUM(CASE WHEN IdEstadoTurno = 4 THEN 1 ELSE 0 END) AS Realizados,
+            SUM(CASE WHEN IdEstadoTurno IN (2,4) THEN 1 ELSE 0 END) AS Confirmados
+        FROM Turno WHERE IdProfesional = @Id", con);
+    cmd3.Parameters.AddWithValue("@Id", id);
+    using (var r = cmd3.ExecuteReader())
+    {
+        if (r.Read())
+        {
+            int realizados  = r["Realizados"]  == DBNull.Value ? 0 : Convert.ToInt32(r["Realizados"]);
+            int confirmados = r["Confirmados"] == DBNull.Value ? 0 : Convert.ToInt32(r["Confirmados"]);
+            kpis["tasaAsistencia"] = confirmados > 0 ? Math.Round((double)realizados / confirmados * 100, 1) : 0;
+        }
+    }
+
+    // Sesiones con alta
+    var cmd4 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica 
+        WHERE IdProfesional = @Id AND TipoCierre = 'Alta'", con);
+    cmd4.Parameters.AddWithValue("@Id", id);
+    kpis["sesionesAlta"] = Convert.ToInt32(cmd4.ExecuteScalar());
+
+    // Total sesiones históricas
+    var cmd5 = new SqlCommand(@"
+        SELECT COUNT(*) FROM SesionClinica WHERE IdProfesional = @Id", con);
+    cmd5.Parameters.AddWithValue("@Id", id);
+    kpis["totalSesiones"] = Convert.ToInt32(cmd5.ExecuteScalar());
+
+    return Results.Ok(kpis);
+}).Solo(Quien.Profesional);
+
+// Sesiones por mes (últimos 6 meses)
+app.MapGet("/reportes/profesional/{id}/sesiones-por-mes", (int id, HttpContext ctx) =>
+{
+    if (ReporteAjeno(ctx, id) is { } rechazo) return rechazo;
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT YEAR(FechaHora) AS Anio, MONTH(FechaHora) AS Mes, COUNT(*) AS Total
+        FROM SesionClinica
+        WHERE IdProfesional = @Id AND FechaHora >= DATEADD(MONTH, -6, GETDATE())
+        GROUP BY YEAR(FechaHora), MONTH(FechaHora)
+        ORDER BY Anio, Mes", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { anio = (int)r["Anio"], mes = (int)r["Mes"], total = (int)r["Total"] });
+    return Results.Ok(lista);
+}).Solo(Quien.Profesional);
+
+// Pacientes por tipo de cierre
+app.MapGet("/reportes/profesional/{id}/pacientes-por-cierre", (int id, HttpContext ctx) =>
+{
+    if (ReporteAjeno(ctx, id) is { } rechazo) return rechazo;
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT ISNULL(TipoCierre, 'En seguimiento') AS Cierre, COUNT(*) AS Total
+        FROM SesionClinica WHERE IdProfesional = @Id
+        GROUP BY TipoCierre", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { cierre = (string)r["Cierre"], total = (int)r["Total"] });
+    return Results.Ok(lista);
+}).Solo(Quien.Profesional);
+
+// Emociones globales del profesional (promedio de todas sus sesiones)
+app.MapGet("/reportes/profesional/{id}/emociones-globales", (int id, HttpContext ctx) =>
+{
+    if (ReporteAjeno(ctx, id) is { } rechazo) return rechazo;
+    var sesiones = new SesionClinicaDAO().ObtenerPorProfesional(id);
+    var acumulado = new Dictionary<string, double>();
+    int cuenta = 0;
+
+    foreach (var s in sesiones)
+    {
+        if (string.IsNullOrEmpty(s.HistorialEmociones)) continue;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(s.HistorialEmociones);
+            foreach (var emo in doc.RootElement.EnumerateObject())
+            {
+                var val = emo.Value.GetDouble();
+                acumulado[emo.Name] = acumulado.GetValueOrDefault(emo.Name, 0) + val;
+            }
+            cuenta++;
+        }
+        catch { }
+    }
+
+    var promedio = new Dictionary<string, double>();
+    if (cuenta > 0)
+        foreach (var kv in acumulado)
+            promedio[kv.Key] = Math.Round(kv.Value / cuenta, 1);
+
+    return Results.Ok(promedio);
+}).Solo(Quien.Profesional);
+
+// Evolución emocional de un paciente (sesión a sesión)
+app.MapGet("/reportes/paciente/{id}/evolucion-emocional", (int id, HttpContext ctx) =>
+{
+    if (!AutorizacionClinica.PuedeVerPaciente(ctx, id)) return Results.NotFound();
+    AuditoriaIds.Registrar(ctx, "Consulta de evolución emocional", "SesionClinica", id, id);
+    var sesiones = new SesionClinicaDAO().ObtenerPorPaciente(id);
+    var lista = new List<object>();
+
+    foreach (var s in sesiones.OrderBy(x => x.FechaHora))
+    {
+        if (string.IsNullOrEmpty(s.HistorialEmociones)) continue;
+        try
+        {
+            var doc = System.Text.Json.JsonDocument.Parse(s.HistorialEmociones);
+            var emociones = new Dictionary<string, double>();
+            foreach (var emo in doc.RootElement.EnumerateObject())
+                emociones[emo.Name] = emo.Value.GetDouble();
+            lista.Add(new {
+                fecha = s.FechaHora.ToString("dd/MM/yyyy"),
+                emociones
+            });
+        }
+        catch { }
+
+    }
+    return Results.Ok(lista);
+}).Solo(Quien.Profesional);
+
+// Lista de pacientes del profesional (para el selector)
+app.MapGet("/reportes/profesional/{id}/lista-pacientes", (int id, HttpContext ctx) =>
+{
+    if (ReporteAjeno(ctx, id) is { } rechazo) return rechazo;
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    var cmd = new SqlCommand(@"
+        SELECT p.IdPaciente, p.Nombre
+        FROM Paciente p
+        INNER JOIN PacienteProfesional pp ON p.IdPaciente = pp.IdPaciente
+        WHERE pp.IdProfesional = @Id AND pp.EstadoAsignacion = 'Confirmada'", con);
+    cmd.Parameters.AddWithValue("@Id", id);
+    var lista = new List<object>();
+    using var r = cmd.ExecuteReader();
+    while (r.Read())
+        lista.Add(new { idPaciente = (int)r["IdPaciente"], nombre = (string)r["Nombre"] });
+    return Results.Ok(lista);
+}).Solo(Quien.Profesional);
+
 
 app.Run();
 
