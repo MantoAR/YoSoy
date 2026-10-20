@@ -1,6 +1,6 @@
 # Chat de WhatsApp para el personal: diagnóstico, diseño y estado de lo construido
 
-**Estado actual (2026-10-20):** Desplegado en producción el 19/10/2026; WhatsApp pendiente de vincular (paso 7). Cómo salió el despliegue: [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md) ("Registro de la ejecución del 19/10/2026"); el estado del servidor: [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026". Lo que sigue (ramas "sin mergear", "nada se desplegó") es el registro del 2026-10-19, anterior al merge y al despliegue.
+**Estado actual (2026-10-20):** Desplegado en producción el 19/10/2026; WhatsApp vinculado el 20/10/2026 (paso 7), con la prueba de humo hecha. Cómo salió el despliegue: [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md) ("Registro de la ejecución del 19/10/2026"); el estado del servidor: [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026". Lo que sigue (ramas "sin mergear", "nada se desplegó", nada probado con WhatsApp real) es el registro del 2026-10-19, anterior al merge, al despliegue y a la vinculación.
 
 **Estado (2026-10-19):** la fase 1 (diagnóstico, solo lectura) terminó y **Agustín aprobó el diseño el 2026-10-19** con las ocho decisiones de la sección 7
 (la D2 corregida: **los profesionales no ven ningún chat**; solo el Configurador ve y responde). El **hito 1** (ramas 1 y 2 de la sección 5.10) está **construido, probado y

@@ -49,9 +49,10 @@ final, cuenta cómo salió). Solo hay nombres y valores que no son secretos.
   día y 10 por hora. El servicio anterior quedó en `/opt/yosoy/whatsapp/app-anterior-20261019`.
 - **Lo viejo sigue en el disco:** la sesión de whatsapp-web.js, `/opt/yosoy/whatsapp/sesion`, no se tocó. Su baja está
   pendiente: [`DEPLOY.md`](DEPLOY.md), paso 10, "Limpieza de lo viejo".
-- **WhatsApp: instalado, activo y SIN vincular.** El servicio corre pero no tiene ningún número: `GET /salud` contesta 503
-  mientras no se escanee el QR. El QR se va a escanear después, con el teléfono dedicado de la clínica
-  ([`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md), paso 7). **Cuando se vincule, hay que
+- **WhatsApp: vinculado el 20/10/2026.** El 19/10 el servicio quedó instalado y sin ningún número, a propósito; el 20/10 se
+  escaneó el QR desde Configurador → WhatsApp con el teléfono dedicado de la clínica y la pantalla quedó en "Conectado". Es la
+  primera conexión real del servicio a WhatsApp, y la prueba de humo con un celular personal salió bien (ver "Actualización del
+  20/10/2026", abajo). El número de la clínica no está en este archivo. **Si se desvincula o se cambia de número, hay que
   actualizar esta línea**, con la fecha.
 - **Pruebas del servicio:** la que falló al correr `npm test` en el VPS (`sesion.test.js`, línea 205) estaba desactualizada
   —esperaba la carpeta de la sesión sin `datos/`, que el servicio crea a propósito—, no era un defecto del servicio. Se
@@ -59,6 +60,22 @@ final, cuenta cómo salió). Solo hay nombres y valores que no son secretos.
   fallan (en Windows se saltan las 6 de permisos POSIX).
 - **Chequeos del 19 y el 20/10/2026:** el login, el pedido y la reprogramación de turnos y el registro de un paciente con
   mail (sin la casilla ni la tarjeta de WhatsApp) anduvieron bien.
+
+### Actualización del 20/10/2026
+
+Lo verificó quien opera el VPS, en el servidor. Es la primera conexión real del servicio a WhatsApp.
+
+- **Vinculación:** se escaneó el QR desde Configurador → WhatsApp con el teléfono dedicado de la clínica; la pantalla quedó en
+  "Conectado".
+- **Prueba de humo con un celular personal:** el mensaje entró a CRM → Chats (conversación `Contacto: <nombre de perfil>`,
+  "Para atender", 1 sin leer y aviso en la campanita); no hubo respuesta automática; la respuesta del Configurador llegó al
+  teléfono, con "Enviar por: WhatsApp".
+- **Prueba de apagado** (5.9 de [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md)):
+  `systemctl stop whatsapp-service` tardó **0,43 s** (el tope es `TimeoutStopSec=20`). Con el servicio recién arrancado,
+  `Memory: 56.3M (peak 63.5M)` contra `MemoryMax=512M`.
+- **Uso:** por ahora quien atiende los Chats es solo el Configurador (recepción); todavía no hay uso real de la app.
+- **Sigue pendiente:** la limpieza de lo viejo ([`DEPLOY.md`](DEPLOY.md), paso 10). Siguen sin verificarse los umbrales de
+  bloqueo de WhatsApp, un QR vencido real y la reconexión tras una caída.
 
 ## Cómo entra el tráfico
 
@@ -140,7 +157,7 @@ las marcas de tiempo de auditoría y el bloqueo del login se corren (los horario
 | `caddy` | Reverse proxy. HTTPS real, certificado de Let's Encrypt con renovación automática. **Caddy 2.7 o más nuevo** (la 2.6 no valida `video.caddy`). | 80, 443 | `caddy` | `/etc/caddy/Caddyfile` y `/etc/caddy/video.caddy` |
 | `signaling-server` | Socket.IO de las videollamadas (Node 22), en `/opt/yosoy/signaling/app`. `MemoryMax=256M`. | `127.0.0.1:3001` | `yosoy` | `/opt/yosoy/config/signaling.env`; unit en `deploy/signaling-server.service` |
 | `coturn` | STUN/TURN del video. Paquete de Ubuntu. | 3478 (UDP/TCP), 49160–49200 (UDP) | `turnserver` | `/etc/turnserver.conf` (640 `root:turnserver`); modelo en `deploy/coturn/turnserver.conf` |
-| `whatsapp-service` | Puente HTTP interno hacia WhatsApp con **Baileys** (WhatsApp Web sin navegador): es el único motor del código. **Desde el 19/10/2026 corre el nuevo**, que reemplazó al viejo (whatsapp-web.js + Chromium, `MemoryMax=2G`): sin navegador, con `MemoryMax=512M`, instalado y **sin vincular** (ver "Estado de producción al 19/10/2026", arriba, y "WhatsApp (whatsapp-service con Baileys)", abajo). En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; unit en `whatsapp-service/deploy/whatsapp-service.service` |
+| `whatsapp-service` | Puente HTTP interno hacia WhatsApp con **Baileys** (WhatsApp Web sin navegador): es el único motor del código. **Desde el 19/10/2026 corre el nuevo**, que reemplazó al viejo (whatsapp-web.js + Chromium, `MemoryMax=2G`): sin navegador, con `MemoryMax=512M`, instalado ese día y **vinculado el 20/10/2026** (ver "Estado de producción al 19/10/2026", arriba, y "WhatsApp (whatsapp-service con Baileys)", abajo). En `/opt/yosoy/whatsapp/app`. | `127.0.0.1:3002` | `yosoy` | `/opt/yosoy/config/whatsapp.env`; unit en `whatsapp-service/deploy/whatsapp-service.service` |
 | `mssql-server` | SQL Server 2025, edición Express. | 1433 | `mssql` | — |
 | `fail2ban` | Ver arriba. | — | `root` | — |
 
@@ -176,7 +193,7 @@ Antes de recargar: `sudo caddy validate --config /etc/caddy/Caddyfile --adapter 
 ### WhatsApp (whatsapp-service con Baileys)
 
 `whatsapp-service` usa **Baileys** (WhatsApp Web sin navegador, no oficial) como único motor: `whatsapp-web.js`, Puppeteer y Chromium se sacaron del código
-([`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)). **Desde el 19/10/2026 lo que corre en el VPS es el servicio nuevo**, instalado y **sin vincular** (ver "Estado de
+([`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md)). **Desde el 19/10/2026 lo que corre en el VPS es el servicio nuevo**, instalado ese día y **vinculado el 20/10/2026** (ver "Estado de
 producción al 19/10/2026", arriba); la limpieza de lo viejo (la sesión de whatsapp-web.js y, si quedó, Chromium) está
 pendiente. El paso a paso para reemplazar el servicio viejo, con backup, limpieza de lo viejo y rollback, es [`DEPLOY.md`](DEPLOY.md), "Despliegue de whatsapp-service (Baileys)".
 
@@ -184,7 +201,7 @@ pendiente. El paso a paso para reemplazar el servicio viejo, con backup, limpiez
 |---|---|---|
 | Librería | whatsapp-web.js + Chromium | `@whiskeysockets/baileys` 6.7.24 (versión exacta), sin navegador |
 | Unit | la que estaba instalada (hay copia en `/opt/yosoy/backups/chat-20261019/`) | `whatsapp-service/deploy/whatsapp-service.service` (se instala con el mismo nombre) |
-| Memoria | `MemoryMax=2G` | `MemoryMax=512M` (a confirmar con la primera conexión real) |
+| Memoria | `MemoryMax=2G` | `MemoryMax=512M` (el 20/10/2026, con el servicio recién arrancado: `Memory: 56.3M`, pico 63.5M) |
 | Sesión | `/opt/yosoy/whatsapp/sesion` | `/opt/yosoy/whatsapp/sesion-baileys` (700; adentro, `datos/` con los consentimientos y los contadores de envío) |
 | Escribe en disco | `sesion/` y `cache/` | solo `sesion-baileys/` |
 | Canal en la API | `Mensajeria__CanalActivo=WhatsAppWebJs` (valor que **ya no existe** en la API) | `Mensajeria__CanalActivo=Baileys` |
@@ -350,9 +367,9 @@ sudo journalctl -u whatsapp-service -o cat --since '1 hour ago' | grep -E '[0-9]
   un backup de `yosoy` y del código desplegado que no dependa de que el servidor siga existiendo. Además, la
   **clave de cifrado de las emociones** no se puede regenerar: tiene que estar respaldada fuera. (La sesión de WhatsApp sí se puede rehacer escaneando un QR: la de Baileys,
   `sesion-baileys/`, respaldarla o no es una decisión pendiente, ver `PROGRESO_BAILEYS.md`; si se respalda, cifrada. La vieja, `sesion/`, se borra con la limpieza de lo viejo.)
-- **WhatsApp con Baileys (único motor):** desplegado el 19/10/2026 con topes iniciales bajos (30 por día y 10 por hora) y **sin vincular**. Falta escanear el QR con el
-  teléfono dedicado de la clínica y la prueba de humo (paso 7 de [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md)), probar el apagado y la
-  memoria reales y, cuando esté estable, **limpiar lo viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché: [`DEPLOY.md`](DEPLOY.md), paso 10).
+- **WhatsApp con Baileys (único motor):** desplegado el 19/10/2026 con topes iniciales bajos (30 por día y 10 por hora) y **vinculado el 20/10/2026**, con la prueba de humo, el apagado
+  y la memoria ya hechos (ver "Actualización del 20/10/2026"). Cuando esté estable, **limpiar lo viejo** del VPS (Chromium, la sesión de whatsapp-web.js y la caché: [`DEPLOY.md`](DEPLOY.md), paso 10).
+  Siguen sin verificarse los umbrales de bloqueo de WhatsApp, un QR vencido real y la reconexión tras una caída.
   Todo en [`DEPLOY.md`](DEPLOY.md) y [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md). El consentimiento ya está resuelto en el
   código (las opciones A y B de esa decisión: ver el punto siguiente); falta aplicarlo.
 - **Consentimiento de WhatsApp (dormido por defecto):** con `Mensajeria__AvisosPorWhatsApp` apagada (lo de siempre) **no hace falta aplicar la migración 16** para publicar la API. Si se decide prenderla:

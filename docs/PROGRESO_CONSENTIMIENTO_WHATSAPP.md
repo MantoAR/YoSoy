@@ -9,6 +9,9 @@ está hecho, qué decidí y por qué, qué falta y qué pasos manuales le tocan 
 >
 > **Nota (2026-10-19):** el consentimiento quedó **dormido por defecto**: la llave `Mensajeria__AvisosPorWhatsApp` viene apagada, con ella apagada no se ofrece en ninguna pantalla y la API **no toca la tabla `ConsentimientoWhatsApp`**
 > (la migración 16 solo hace falta si se prende la llave). Nada de lo de este archivo se borró. Detalle: la "Segunda tanda" de [`PROGRESO_WHATSAPP_SOLO_BAILEYS.md`](PROGRESO_WHATSAPP_SOLO_BAILEYS.md) y `docs/DEPLOY.md`.
+>
+> **Nota (2026-10-20):** el servicio nuevo de WhatsApp (Baileys) se desplegó en el VPS el 19/10/2026 y se vinculó el 20/10/2026; el consentimiento sigue **dormido** en producción (`Mensajeria__AvisosPorWhatsApp` apagada y migración 16 sin aplicar).
+> Donde este archivo dice que nada corrió contra WhatsApp real, era cierto cuando se escribió: para el estado actual, ver [`SERVIDOR.md`](SERVIDOR.md), "Estado de producción al 19/10/2026".
 
 - **Rama:** `feat/consentimiento-whatsapp`, creada desde `origin/main` (316f530, PR #42: el canal Baileys, apagado por defecto).
   Sin merge a `main`.
