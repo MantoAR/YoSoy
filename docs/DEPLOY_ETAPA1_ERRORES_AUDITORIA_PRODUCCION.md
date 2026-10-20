@@ -4,7 +4,7 @@ Runbook para llevar a producción la **etapa 1** de la integración de la rama `
 ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de siempre de [`DEPLOY.md`](DEPLOY.md) y el mismo formato que [`DEPLOY_CHAT_PERSONAL_PRODUCCION.md`](DEPLOY_CHAT_PERSONAL_PRODUCCION.md). Escrito el
 2026-10-20 contra la rama `integracion/nuevo-circuito1-etapa1` (sale de `main` en `4742d20`); **antes de armar el paquete tiene que estar mergeada en `main`** (paso 0).
 
-- **Se escribió sin acceso al VPS y todavía no se ejecutó.** Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 20/10/2026** (base con 46 tablas, migraciones 18 y 19, verificador de esquema apagado, rollback en `/opt/yosoy/app-anterior-e1-20261020`; el estado, en [`SERVIDOR.md`](SERVIDOR.md)). Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`; si alguno lo hiciera, pará.
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 
