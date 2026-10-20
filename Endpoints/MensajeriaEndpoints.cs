@@ -176,17 +176,25 @@ public static class MensajeriaEndpoints
             if (falta > 0)
                 return Results.Json(new { exito = false, codigo = "enfriamiento", reintentarEnSegundos = falta,
                     mensaje = $"Esperá {falta} segundos antes de pedir otro código." }, statusCode: 429);
-            enfriamiento.Registrar();
 
             if (esperandoEscaneo)
             {
-                // Sin número vinculado "desvincular" no cierra ninguna sesión en WhatsApp: solo descarta la ventana actual y abre una nueva.
+                // Sin número vinculado "desvincular" no cierra ninguna sesión en WhatsApp: solo descarta la ventana actual y abre una nueva. Pero el estado
+                // de arriba puede tener unos segundos (alguien pudo escanear el código entre medio): se lee de nuevo justo antes y, si ya quedó conectado,
+                // NO se desvincula (eso sí cerraría la sesión recién vinculada).
+                var ahora = await admin.ObtenerEstadoAsync(conDesde: false);
+                if (!ahora.ServicioDisponible)
+                    return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
+                if (ahora.Conectado)
+                    return Results.Json(new { exito = false, codigo = "ya_vinculado", mensaje = "Ya hay un número vinculado. Para cambiarlo, primero hay que desvincularlo." }, statusCode: 409);
+                enfriamiento.Registrar();
                 if (!await admin.DesvincularAsync())
                     return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);
                 AuditarWhatsApp(ctx, "Código QR nuevo de WhatsApp", "Reemplazó el código que estaba esperando escaneo.");
                 return Results.Ok(new { exito = true, yaAbierta = false, estado = "iniciando", motivo = (string?)null });
             }
 
+            enfriamiento.Registrar();
             var resultado = await admin.VincularAsync();
             if (resultado is null)
                 return Results.Json(new { exito = false, codigo = "servicio_no_disponible", mensaje = "No se pudo contactar al servicio de WhatsApp." }, statusCode: 503);

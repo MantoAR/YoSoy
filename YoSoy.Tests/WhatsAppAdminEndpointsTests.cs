@@ -482,6 +482,39 @@ public class WhatsAppAdminEndpointsTests
         Assert.Equal(1, pedidos.Count(p => p == "POST /desvincular"));
     }
 
+    [Fact]
+    public async Task Vincular_con_nuevo_no_desvincula_si_entre_medio_se_escaneo_el_codigo_y_ya_esta_conectado()
+    {
+        // La primera lectura del estado dice "esperando escaneo"; para la segunda (justo antes de desvincular) ya escanearon y está conectado.
+        var pedidos = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var lecturas = 0;
+        using var servidor = new ServidorFalso { Responder = req =>
+        {
+            var ruta = req.Url!.AbsolutePath;
+            pedidos.Enqueue($"{req.HttpMethod} {ruta}");
+            if (ruta == "/estado")
+                return (200, Interlocked.Increment(ref lecturas) == 1 ? EstadoEsperandoEscaneo
+                    : """{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null,"estado":"conectado","motivo":null}""");
+            return (200, """{"exito":true}""");
+        } };
+        using var factory = Factory(servidor.BaseUrl);
+        var emisor = factory.Services.GetRequiredService<JwtEmisorService>();
+        using var datos = new DatosDePrueba();
+        var idAdmin = datos.Usuario();
+        var cliente = ClienteCon(factory, emisor.Emitir(idAdmin, Roles.Configurador));
+
+        var r = await cliente.PostAsJsonAsync("/mensajeria/whatsapp/vincular", new { nuevo = true });
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        var j = System.Text.Json.JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement;
+        Assert.Equal("ya_vinculado", j.GetProperty("codigo").GetString());
+        Assert.Equal(2, lecturas);                               // se leyó de nuevo
+        Assert.DoesNotContain("POST /desvincular", pedidos);     // y no se cerró la sesión recién vinculada
+        Assert.Equal(0, (await AuditoriaDe(idAdmin, "Código QR nuevo de WhatsApp")).Cantidad);
+        // y no gastó el enfriamiento: un pedido que no abrió nada no frena al siguiente
+        Assert.Equal(0, factory.Services.GetRequiredService<EnfriamientoQr>().SegundosRestantes());
+    }
+
     [Theory]
     [InlineData("""{"conectado":true,"numero":"5491112345678","qrPendiente":false,"qr":null,"estado":"conectado","motivo":null}""", "ya_vinculado")]
     [InlineData("""{"conectado":false,"numero":null,"qrPendiente":false,"qr":null,"estado":"requiere_atencion","motivo":"cuenta_restringida"}""", "requiere_atencion")]

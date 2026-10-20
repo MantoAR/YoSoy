@@ -27,8 +27,12 @@ public class WhatsAppEstadoJsTests
         return JsonSerializer.Deserialize<JsonElement[]>(salida.Trim())!;
     }
 
-    private static object E(string? estado, string? motivo = null, bool conectado = false, bool disponible = true, string? qr = null, int? intentos = null) =>
-        new { servicioDisponible = disponible, conectado, numero = conectado ? "5491100000000" : null, qrPendiente = qr != null, qr, estado, motivo, intentosDeReconexion = intentos };
+    private static readonly DateTimeOffset Ahora = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
+
+    // desdeHaceMin: hace cuántos minutos está en ese estado (el `desde` del servicio); `ahora` va fijo para que la prueba no dependa del reloj.
+    private static object E(string? estado, string? motivo = null, bool conectado = false, bool disponible = true, string? qr = null, int? intentos = null, double? desdeHaceMin = null) =>
+        new { servicioDisponible = disponible, conectado, numero = conectado ? "5491100000000" : null, qrPendiente = qr != null, qr, estado, motivo, intentosDeReconexion = intentos,
+              desde = desdeHaceMin is null ? null : Ahora.AddMinutes(-desdeHaceMin.Value).ToString("o"), ahora = Ahora.ToUnixTimeMilliseconds() };
 
     private static string Clave(JsonElement v) => v.GetProperty("clave").GetString()!;
     private static bool Marca(JsonElement v, string nombre) => v.GetProperty(nombre).GetBoolean();
@@ -120,11 +124,55 @@ public class WhatsAppEstadoJsTests
     [FactConNodeDelServicioDeWhatsApp]
     public void Una_API_que_todavia_no_manda_estado_se_interpreta_con_conectado_y_qr()
     {
-        var v = Evaluar("vista", E(null), E(null, qr: "data:image/png;base64,xx"), E("estado_que_no_conozco"));
+        var v = Evaluar("vista", E(null), E(null, qr: "data:image/png;base64,xx"));
 
         Assert.Equal("conectando", Clave(v[0]));
         Assert.Equal("escanear", Clave(v[1]));
-        Assert.Equal("conectando", Clave(v[2]));   // un estado desconocido no se muestra como error ni se inventa un botón
+    }
+
+    [FactConNodeDelServicioDeWhatsApp]
+    public void Un_estado_desconocido_se_muestra_como_tal_con_el_motivo_y_sin_botones()
+    {
+        var v = Evaluar("vista", E("estado_que_no_conozco"), E("estado_que_no_conozco", "motivo_raro"), E("", "x"));
+
+        Assert.Equal("desconocido", Clave(v[0]));
+        Assert.Equal("Estado no reconocido (estado_que_no_conozco)", v[0].GetProperty("titulo").GetString());
+        Assert.Equal("", v[0].GetProperty("detalle").GetString());
+        Assert.Contains("motivo_raro", v[1].GetProperty("detalle").GetString());
+        Assert.NotEqual("conectando", Clave(v[1]));
+        Assert.All(v.Take(2), x =>
+        {
+            Assert.False(Marca(x, "conectando"));
+            Assert.False(Marca(x, "puedePedirQr"));
+            Assert.False(Marca(x, "puedeGenerarNuevo"));
+            Assert.False(Marca(x, "puedeDesvincular"));
+            Assert.False(Marca(x, "mostrarQr"));
+        });
+        Assert.Equal("conectando", Clave(v[2]));   // un estado vacío es "no manda estado" (API vieja), no uno desconocido
+    }
+
+    [FactConNodeDelServicioDeWhatsApp]
+    public void Pasados_5_minutos_conectando_dice_cuanto_lleva_con_el_intento_y_el_motivo_sin_pedir_nada()
+    {
+        var v = Evaluar("vista",
+            E("reconectando", intentos: 7, desdeHaceMin: 12.5),
+            E("iniciando", "arrancando", desdeHaceMin: 6),
+            E("reconectando", intentos: 7, desdeHaceMin: 4.9),
+            E("reconectando", intentos: 2, desdeHaceMin: 5),
+            E("detenido", desdeHaceMin: 90));
+
+        Assert.Equal("Lleva más de 12 minutos sin conectar. Intento 7.", v[0].GetProperty("detalle").GetString());
+        Assert.Equal("Lleva más de 6 minutos sin conectar. Motivo: arrancando.", v[1].GetProperty("detalle").GetString());
+        Assert.StartsWith("Sigue intentando", v[2].GetProperty("detalle").GetString());   // menos de 5 minutos: el texto de siempre
+        Assert.StartsWith("Un momento", v[3].GetProperty("detalle").GetString());         // justo 5 minutos todavía no pasa del tope
+        Assert.StartsWith("Un momento", v[4].GetProperty("detalle").GetString());         // detenido no es "sin conectar", es parado a propósito
+        Assert.All(v.Take(2), x =>
+        {
+            Assert.Equal("conectando", Clave(x));
+            Assert.False(Marca(x, "puedePedirQr"));
+            Assert.DoesNotContain("administra", x.GetProperty("detalle").GetString(), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("avis", x.GetProperty("detalle").GetString(), StringComparison.OrdinalIgnoreCase);
+        });
     }
 
     [FactConNodeDelServicioDeWhatsApp]
