@@ -82,18 +82,18 @@ public class ConfiguradorMenuTests
     }
 
     [FactConNodeDelServicioDeWhatsApp]
-    public void El_grupo_CRM_del_Configurador_solo_aparece_si_la_sesion_trae_el_permiso_crm()
+    public void El_Configurador_solo_nunca_tiene_chats_ni_grupo_CRM_ni_con_el_permiso_crm_en_la_sesion()
     {
-        var sinCrm = Menus(new[] { "configurador" });
-        var conCrm = Menus(new[] { "configurador", "crm" });
-
-        // Hoy el Configurador no trae crm: no hay grupo, ni con los chats disponibles.
-        Assert.DoesNotContain("CRM", sinCrm["configurador+chats"].Select(e => e.Grupo));
+        // Quien tiene Configurador y CRM entra a Administración (otro menú); el menú del Configurador no cambia con lo que traiga la sesión.
+        var sinCrm = Menus(new[] { "configurador" }, roles: new[] { "configurador" });
+        var conCrm = Menus(new[] { "configurador", "crm" }, roles: new[] { "configurador" });
+        foreach (var clave in new[] { "configurador", "configurador+chats" })
+        {
+            Assert.DoesNotContain("CRM", sinCrm[clave].Select(e => e.Grupo));
+            Assert.DoesNotContain("chats", sinCrm[clave].SelectMany(e => e.Ids));
+            Assert.Equal(Resumen(sinCrm[clave]), Resumen(conCrm[clave]));
+        }
         Assert.Equal(Resumen(sinCrm["configurador"]), Resumen(sinCrm["configurador+chats"]));
-        // Con el permiso crm el grupo se agrega primero (el menú no tiene Inicio), solo cuando la mensajería está disponible.
-        Assert.Equal(Resumen(sinCrm["configurador"]), Resumen(conCrm["configurador"]));
-        Assert.Equal(new[] { "CRM[chats]" }, Resumen(conCrm["configurador+chats"]).Take(1));
-        Assert.Equal(Resumen(sinCrm["configurador"]), Resumen(conCrm["configurador+chats"]).Skip(1));
     }
 
     // ───────────── Lo que no cambió ─────────────
@@ -245,6 +245,19 @@ public class ConfiguradorMenuTests
     }
 
     [FactConNodeDelServicioDeWhatsApp]
+    public void Las_secciones_de_Administracion_coinciden_con_su_menu_y_no_incluyen_las_ocultas()
+    {
+        foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" } })
+        {
+            var menu = Menus(SesionAdministracion, privilegios, new[] { "administracion" })["administracion+chats"].SelectMany(e => e.Ids).OrderBy(x => x).ToArray();
+            var secciones = SeccionesDe("administracion", SesionAdministracion, privilegios).OrderBy(x => x).ToArray();
+            Assert.Equal(menu, secciones);   // lo que se ve en el menú es exactamente lo que la pantalla acepta
+            Assert.All(Ocultas, oculta => Assert.DoesNotContain(oculta, secciones));
+            Assert.Contains("leads", secciones);
+        }
+    }
+
+    [FactConNodeDelServicioDeWhatsApp]
     public void Las_secciones_del_CRM_coinciden_con_su_menu()
     {
         foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" } })
@@ -260,7 +273,9 @@ public class ConfiguradorMenuTests
         var dashboard = Leer("PANTALLAS", "Pantalla_Configurador", "js", "dashboard.js");
 
         // Al ingresar y ante un #grupos, #recuperacion, #inicio…: el shell lo manda a `inicial` si no está en el menú; mostrarTab, a ATERRIZAJE si no está en SECCIONES.
-        Assert.Contains("const ATERRIZAJE = MODULO === \"configurador\" ? \"usuarios\" : \"inicio\";", dashboard);
+        Assert.Contains("const ATERRIZAJE = MODULO === \"configurador\" || MODULO === \"administracion\" ? \"usuarios\" : \"inicio\";", dashboard);
+        // Administración aterriza en Chats si hay mensajería disponible (lo resuelve el shell) y, si no, en Usuarios.
+        Assert.Contains("inicialConChats: MODULO === \"administracion\" ? \"chats\" : undefined", dashboard);
         Assert.Contains("inicial: ATERRIZAJE", dashboard);
         Assert.Contains("if (!SECCIONES.includes(tab)) tab = SECCIONES.includes(ATERRIZAJE) ? ATERRIZAJE", dashboard);
         Assert.Matches(@"usuarios:\s+""Usuarios""", dashboard);   // la pantalla "Cuentas" se llama Usuarios

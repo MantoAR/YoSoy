@@ -74,7 +74,7 @@
         // Sin "Inicio" ni resumen: se aterriza en Usuarios (ver `inicial` en dashboard.js). Quedan
         // fuera del menú (su código, sus endpoints y sus datos siguen): Grupos, Reglas de derivación,
         // Coberturas, Privilegios (se asignan desde Permisos), Roles y Recuperación de contraseña.
-        // El grupo CRM se suma solo si la sesión trae el permiso crm (ver grupoDeChats).
+        // Los chats del CRM no son de este módulo: quien tiene Configurador y CRM entra a Administración (ver más abajo).
         configurador: {
             etiqueta: "Panel configurador",
             items: [GRUPO_CONFIGURACION, GRUPO_USUARIOS, ITEM_AUDITORIA],
@@ -135,12 +135,6 @@
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
         ]
     };
-    // El Configurador que además tiene el módulo CRM (permiso crm en la sesión): Chats en su propio grupo.
-    const GRUPO_CRM_CONFIGURADOR = {
-        texto: "CRM", items: [
-            { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" }
-        ]
-    };
     const GRUPO_AGENDAS = {
         texto: "Agendas", items: [
             { id: "turnos", texto: "Turnos", icono: "reloj", desc: "Turnos de todos los profesionales" },
@@ -187,13 +181,12 @@
         }
         return { ...base, items };
     }
-    // El grupo de conversaciones que corresponde a este módulo, o null si no tiene chats: solo el módulo CRM, o el
-    // Configurador que trae el permiso crm. Ni el profesional ni el Configurador sin CRM (el servidor responde 403).
+    // El grupo de conversaciones que corresponde a este módulo, o null si no tiene chats: solo el módulo CRM y Administración (Configurador +
+    // CRM). Ni el profesional ni el Configurador solo (el servidor responde 403).
     function grupoDeChats(rol) {
         if (rol === "crm") return GRUPO_CHATS;
         // Administración: los chats entran DENTRO del grupo CRM (enGrupo), primero Chats y Leads.
         if (rol === "administracion") return ITEMS_CHATS_ADMINISTRACION;
-        if (rol === "configurador" && YS.sesion.tienePermiso("crm")) return GRUPO_CRM_CONFIGURADOR;
         return null;
     }
     // Dónde entra un grupo agregado "al principio": después de Inicio si el menú lo tiene, o primero si no.
