@@ -8,13 +8,18 @@ const API = YS.API;   // mismo origen que la página (shared/ui.js)
 //     de agendas, también turnos y horarios de todos.
 //   - Profesional: con Admisión, admisiones, solicitudes de cambio y asignaciones; si es
 //     auditor, reportes de la organización, lecturas clínicas y auditoría clínica.
-const MODULO = ["configurador", "crm", "profesional"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
+const MODULO = ["configurador", "crm", "profesional", "administracion"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
 const SECCIONES_POR_MODULO = {
     // Configurador: sin Inicio. Fuera del menu (su codigo y sus endpoints siguen): grupos, reglasderivacion, coberturas, privilegios, roles, recuperacion.
-    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "especialidades", "auditoria",
-          ...(YS.sesion.tienePermiso("crm") ? ["chats"] : [])],
+    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "especialidades", "auditoria"],
     crm: ["inicio", "chats", "escalamientos", "etiquetas", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
+    // Administracion (vista unica = Configurador + CRM): CRM, Configuracion, Usuarios y Auditoria, sin Inicio. Chats, Leads, Etiquetas y Escalamientos
+    // solo se ven con la mensajeria disponible (lo decide el menu); Turnos y Agendas, con Gestion de agendas. Siguen fuera del menu: grupos, reglasderivacion,
+    // coberturas, privilegios, roles, recuperacion e inicio.
+    administracion: ["chats", "leads", "etiquetas", "escalamientos", "casos", "casosderivaciones",
+          ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : []),
+          "whatsapp", "especialidades", "altausuario", "permisos", "usuarios", "solicitudes", "auditoria"],
     profesional: [
         ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones", "derivaciones", "asignaciones"] : []),
         ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
@@ -22,9 +27,9 @@ const SECCIONES_POR_MODULO = {
 };
 
 // Donde se aterriza al ingresar o ante un enlace a una seccion que no esta en el menu: la primera con permiso (Configurador: Usuarios).
-const ATERRIZAJE = MODULO === "configurador" ? "usuarios" : "inicio";
-// Chats: el modulo CRM, o el Configurador que trae el permiso crm.
-const CON_CHATS = MODULO === "crm" || (MODULO === "configurador" && YS.sesion.tienePermiso("crm"));
+const ATERRIZAJE = MODULO === "configurador" || MODULO === "administracion" ? "usuarios" : "inicio";
+// Chats: el modulo CRM y Administracion (la union Configurador + CRM). El Configurador solo no los tiene: el servidor le contesta 403.
+const CON_CHATS = MODULO === "crm" || MODULO === "administracion";
 
 // Avisos y confirmaciones del sistema de diseño (shared/ui.js). Los botones de la
 // confirmación conservan los ids confirmSi / confirmNo.
@@ -198,6 +203,7 @@ async function mostrarTab(tab, params = {}) {
 
     try {
         if (tab === "usuarios")      return await renderListaUsuarios(contenido, params);
+        if (tab === "leads")        return await renderLeads(contenido);
         if (tab === "asignaciones") return await renderUsuarios(contenido, params, tab);
         if (tab === "permisos")     return await renderPermisos(contenido);
         if (tab === "altausuario")  return await renderAltaUsuario(contenido);
@@ -2548,6 +2554,8 @@ async function abrirEditorPermisos(idUsuario) {
 
 YS.shell.iniciar({
     rol: MODULO, pagina: "gestion", navegar: (id, params) => mostrarTab(id, params), inicial: ATERRIZAJE,
+    // Administracion aterriza en Chats si la mensajeria esta disponible (si no, en ATERRIZAJE).
+    inicialConChats: MODULO === "administracion" ? "chats" : undefined,
     // Chats como seccion propia en CRM y en el Configurador que trae el permiso crm; el profesional usa el cajon de siempre.
     chats: CON_CHATS
         ? { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }

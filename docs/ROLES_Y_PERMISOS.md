@@ -11,6 +11,7 @@ Cada **rol** es un **módulo** del sistema. Al ingresar se trabaja con **uno**; 
 | **Profesional** (`profesional`) | Sus pacientes, su agenda, sus casos, la sala de video, las historias clínicas de quien atiende | Nunca ve `/mensajeria` (403) |
 | **CRM y atención al cliente** (`crm`) | Chats (`/mensajeria`), casos, derivaciones de casos, etiquetas y respuestas rápidas | Nunca ve historias clínicas |
 | **Configurador** (`configurador`) | Usuarios (registrar usuario, permisos con sus privilegios, la **lista única de usuarios** con restablecer contraseña y asignación de profesionales a un paciente, solicitudes de registro), configuración (WhatsApp con el código QR de conexión y especialidades), auditoría administrativa. Sin pantalla de inicio. Grupos, reglas de derivación, coberturas, roles, privilegios y la recuperación de contraseña **no están en el menú** (el código, los endpoints y los datos siguen) | Nada clínico ni operativo; no ve los chats si no tiene también el módulo CRM |
+| **Administración** (`administracion`) | **La unión de Configurador y CRM** para quien tiene **los dos permisos**: una sola vista con **CRM ▾** (Chats, Leads, Etiquetas, Escalamientos, Casos, Derivaciones, y Turnos y Agendas con el privilegio Gestión de agendas), **Configuración ▾** (WhatsApp con el código QR y Especialidades), **Usuarios ▾** (Registrar usuario, Permisos, Usuarios, Solicitudes de registro) y **Auditoría**. Sin selector de módulo | No es un módulo de la base ni se asigna: se arma sola, siempre en el servidor, con los permisos reales. Nada de Profesional, Admisión ni auditor |
 | **Facturación** (`facturacion`) | Todavía una página "en construcción" | — |
 
 ## Permisos y privilegios
@@ -30,6 +31,18 @@ Dentro de un módulo hay **permisos**; un **privilegio** es una capacidad puntua
 - Todo cambio queda en la auditoría administrativa (lo registra la base, aunque se haga con SQL).
 - Soporte: `SELECT * FROM vw_UsuarioAccesos WHERE Username = '...'` dice qué tiene una persona y si está sin permisos.
 
+## Administración: la vista única
+
+Quien tiene los permisos **Configurador y CRM** (hoy, el administrador) entra a **una sola sesión**, "Administración", sin elegir módulo y sin "Cambiar de módulo" (si tiene además otro módulo, como Profesional, el selector ofrece Administración como **una** opción y el otro módulo como otra). Quien tiene **solo CRM** (la recepcionista) **no cambia en nada**: mismo ingreso, mismo menú, solo chats. Quien tiene **solo Configurador** tampoco cambia.
+
+- **Cómo se arma.** Al ingresar (con la pestaña CRM o Configurador) o con `POST /sesion/modulo` (pidiendo `crm`, `configurador` o `administracion`), el servidor lee los permisos en la base: si tiene **los dos**, le da la sesión de Administración; pedir `administracion` sin tener ambos da 403 `MODULO_NO_HABILITADO`. El cliente nunca aporta roles.
+- **Qué lleva el token.** `modulo = administracion`, un rol `configurador` y uno `crm`, y los privilegios de esos dos permisos (por ejemplo, Gestión de agendas). Ni Profesional, ni auditor, ni Admisión, ni Facturación. Es la **suma** de lo que ya podía hacer con los dos módulos, y nada más: los endpoints deciden por rol, así que no hizo falta tocar ninguna política.
+- **QR de WhatsApp.** Vincular y desvincular siguen siendo solo del rol Configurador (el CRM puro recibe 403). La conexión de WhatsApp (`GET /mensajeria/conexion-whatsapp`) sigue siendo solo del rol CRM. La sesión de Administración tiene los dos.
+- **Leads.** Una tabla de solo lectura sobre las conversaciones (`GET /mensajeria/leads`), con "Paciente" / "Sin identificar", buscador, filtros y paginación; al hacer clic abre esa conversación en Chats. El ítem de menú existe solo en Administración.
+- **Aterrizaje.** Chats si la mensajería está disponible; si no, Usuarios.
+- **Sesiones abiertas.** Los tokens anteriores (de Configurador solo o de CRM solo) siguen valiendo con exactamente lo que tenían (8 horas) y nada más. El panel actualiza solo la sesión guardada de un administrador con **un** pedido por carga; si falla, borra la sesión entera y vuelve al ingreso con un aviso.
+- **Sigue oculto, sin borrar nada:** Grupos, Reglas de derivación, Coberturas, Privilegios, Roles, Recuperación de contraseña e Inicio.
+
 ## Usuarios: la lista única, restablecer la contraseña y asignar profesionales
 
 **Configurador › Usuarios** es una sola lista con todas las cuentas (pacientes, profesionales y equipo, cada una con su tipo), con buscador (usuario, nombre, DNI, matrícula o mail), filtros por tipo y por estado (activos, dados de baja, sin confirmar, bloqueados) y paginación, todo en el servidor. Los pacientes y profesionales que todavía no tienen usuario están en el filtro **Sin cuenta**. Cada fila tiene un menú de acciones. La lista no trae nada clínico ni el hash de la contraseña.
@@ -41,4 +54,4 @@ Dentro de un módulo hay **permisos**; un **privilegio** es una capacidad puntua
 
 ## El ingreso
 
-`POST /login` verifica usuario y contraseña (el bloqueo es el de siempre: 3 intentos, 15 minutos, UTC) y después mira los permisos: sin ninguno, 403 `SIN_PERMISOS`; con un módulo, entra directo; con más de uno, responde `requiereModulo` y un token de **selección** (5 minutos, solo sirve para `POST /sesion/modulo`). Si la cuenta tiene una **clave temporal** (la restableció el Configurador), después de verificar la contraseña no entrega sesión: responde `requiereCambioPassword` y un token de cambio de clave (ver arriba). Cada token de trabajo es de **un** módulo y lleva sus permisos y privilegios. Cada ingreso, rechazo, bloqueo y cambio de módulo queda en la auditoría, sin la contraseña.
+`POST /login` verifica usuario y contraseña (el bloqueo es el de siempre: 3 intentos, 15 minutos, UTC) y después mira los permisos: sin ninguno, 403 `SIN_PERMISOS`; con un módulo, entra directo; con más de uno, responde `requiereModulo` y un token de **selección** (5 minutos, solo sirve para `POST /sesion/modulo`). Quien tiene Configurador **y** CRM recibe la sesión de **Administración** (ver arriba) y no ve selector. Si la cuenta tiene una **clave temporal** (la restableció el Configurador), después de verificar la contraseña no entrega sesión: responde `requiereCambioPassword` y un token de cambio de clave (ver arriba). Cada token de trabajo es de **un** módulo y lleva sus permisos y privilegios. Cada ingreso, rechazo, bloqueo y cambio de módulo queda en la auditoría, sin la contraseña.

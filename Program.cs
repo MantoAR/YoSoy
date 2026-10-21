@@ -298,7 +298,7 @@ static IResult EntregarSesion(Usuario usuario, string? modulo, JwtEmisorService 
     // Equipo (etapa 2): el acceso sale de los roles, permisos y privilegios que asignó el
     // Configurador (migraciones 20 a 23), ya no de "no es paciente ni profesional → configurador".
     var accesos = accesosRepo.Obtener(usuario.IdUsuario);
-    var modulos = accesos.Modulos;
+    var modulos = accesos.ModulosVisibles;   // la unión Configurador + CRM es UNA opción: Administración
     if (modulos.Count == 0)
     {
         AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso sin permisos", "El usuario no tiene rol ni permiso asignados");
@@ -365,7 +365,7 @@ app.MapPost("/sesion/modulo", (SeleccionModuloRequest req, HttpContext ctx, Iden
 
     AuditoriaIngreso.Registrar(yo.IdUsuario, yo.EsSeleccion ? "Ingreso a módulo" : "Cambio de módulo",
         yo.EsSeleccion ? null : $"Desde {yo.Modulo ?? yo.Rol}", sesion.Modulo);
-    return Results.Ok(RespuestaSesion(yo.IdUsuario, sesion, accesos.Modulos, jwtEmisor));
+    return Results.Ok(RespuestaSesion(yo.IdUsuario, sesion, accesos.ModulosVisibles, jwtEmisor));
 }).RequireAuthorization();
 
 // Cambio obligatorio de contraseña (migración 24): lo único que sirve el token de cambio de clave (5 minutos) que devuelve POST /login cuando el

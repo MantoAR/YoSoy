@@ -145,6 +145,8 @@
 /* ── Configurador › Usuarios: la lista única y sus ventanas (Fase 2, PR 2) ─────── */
 .usr-cargando tbody { opacity: .55; transition: opacity .15s; }
 .usr-fila-inactiva .principal { color: var(--text-3); }
+.usr-fila-clic { cursor: pointer; }
+.usr-fila-clic:hover, .usr-fila-clic:focus-visible { background: var(--surface-2); outline: none; }
 .usr-menu { z-index: calc(var(--z-desplegable) + 1); min-width: 250px; }
 .usr-lista-aviso { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
 .usr-clave { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; margin-top: 6px;

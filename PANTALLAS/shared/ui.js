@@ -38,6 +38,8 @@
     YS.rutaModulo = modulo =>
         modulo === "profesional" ? YS.rutas.profesional :
         modulo === "configurador" ? YS.rutas.configurador :
+        // Vista única: Administración (Configurador + CRM) vive en el mismo panel de gestión.
+        modulo === "administracion" ? YS.rutas.gestion :
         modulo === "crm" ? YS.rutas.gestion :
         modulo === "paciente" ? YS.rutas.paciente :
         YS.rutas.enConstruccion + "#" + encodeURIComponent(modulo || "");
@@ -311,11 +313,43 @@
         idProfesional: () => parseInt(localStorage.getItem("idProfesional")) || null,
         /** Corta la carga de la pantalla si no hay sesión del rol indicado y vuelve al login. */
         requerir(rol) {
-            const ids = { paciente: "idPaciente", profesional: "idProfesional", configurador: "idUsuario", crm: "idUsuario" };
+            const ids = { paciente: "idPaciente", profesional: "idProfesional", configurador: "idUsuario", crm: "idUsuario", administracion: "idUsuario" };
             const okRol = YS.sesion.rol() === rol || (!YS.sesion.rol() && localStorage.getItem(ids[rol]));
             if (okRol && localStorage.getItem(ids[rol])) return true;
             location.replace(YS.rutas.login);
             return false;
+        },
+        /**
+         * Vista única: una sesión guardada ANTES de que existiera Administración trae Configurador y CRM como dos módulos aparte.
+         * Hay que pedirle al servidor la sesión nueva (él vuelve a mirar los permisos en la base; el cliente no aporta nada).
+         */
+        sesionAntigua() {
+            const claves = YS.sesion.modulos().map(m => m.clave);
+            return claves.includes("configurador") && claves.includes("crm") && !claves.includes("administracion");
+        },
+        /**
+         * UN solo intento por carga de página (nada de reintentos ni bucles): pide la sesión actualizada con POST /sesion/modulo.
+         * Si sale bien, guarda la respuesta completa y devuelve true (la pantalla se recarga). Si sale mal por cualquier motivo, borra la
+         * sesión ENTERA (nunca una sesión a medias) y vuelve al ingreso con un mensaje claro; devuelve false.
+         */
+        async actualizarSesion() {
+            const actual = YS.sesion.modulo();
+            const destino = actual === "configurador" || actual === "crm" ? "administracion" : actual;
+            try {
+                const res = await YS.fetch("/sesion/modulo", { method: "POST", json: { modulo: destino }, sinRedireccion: true });
+                if (!res.ok) throw new Error("estado " + res.status);
+                const data = await res.json();
+                if (!data.token || !data.modulos) throw new Error("respuesta incompleta");
+                YS.sesion.guardar(data);
+                sessionStorage.clear();
+                if (YS.sesion.sesionAntigua()) throw new Error("la sesión sigue siendo la anterior");
+                return true;
+            } catch {
+                YS.sesion.limpiar();
+                sessionStorage.clear();
+                location.replace(YS.rutas.login + "?motivo=sesion");
+                return false;
+            }
         },
         async cerrar({ preguntar = true } = {}) {
             if (preguntar && !await YS.confirmar({

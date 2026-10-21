@@ -8,6 +8,30 @@ mano — así esta tabla no se puede desactualizar en silencio sin que algo la c
 columna "Pertenencia" sí es juicio: la reflexión solo puede ver "autenticado" y "con qué
 rol", nunca "solo el dueño del recurso" — esa parte la decide el código de cada endpoint.
 
+## Vista única: Administración (Configurador + CRM) y Leads (octubre 2026)
+
+**Esta sección manda sobre las de abajo** donde no coincidan. Quien tiene los permisos Configurador **y** CRM recibe una sola sesión, `administracion`. Código: `Services/Accesos.cs` (la unión, siempre armada en el servidor desde la base), `Program.cs` (`/login`, `/sesion/modulo`), `Services/Leads.cs` y `Endpoints/MensajeriaEndpoints.cs`. **Sin migración.** Despliegue: [`DEPLOY_VISTA_UNICA_PRODUCCION.md`](DEPLOY_VISTA_UNICA_PRODUCCION.md).
+
+| Método | Ruta | Quién | Qué cambia |
+|---|---|---|---|
+| POST | `/login` | Público (como siempre) | Con **los dos** permisos (Configurador y CRM) devuelve directo la sesión de Administración: `modulo = rol = "administracion"`, `modulos = [Administración]` (una opción, sin `requiereModulo`), `permisos = [configurador, crm]`. La pestaña CRM o Configurador del administrador entra ahí. Con solo CRM o solo Configurador, **idéntico a antes** |
+| POST | `/sesion/modulo` | Cualquier usuario del equipo con sesión | Pedir `crm`, `configurador` o `administracion` siendo la unión da la sesión de Administración; pedir `administracion` sin tener **ambos** permisos da **403 `MODULO_NO_HABILITADO`**. Siempre relee la base |
+| GET | `/mensajeria/leads?q=&tipo=&estado=&idEtiqueta=&pagina=&cantidad=` | Rol CRM (el CRM y Administración) | Un lead es cualquier conversación. Búsqueda (nombre, nombre del perfil de WhatsApp, teléfono), `tipo` = `todos`/`paciente`/`sin-identificar`, `estado`, `idEtiqueta`; 25 por página, hasta 100. Misma pertenencia que `/conversaciones`. **Respuesta reducida**: id, nombre, nombre de contacto, teléfono (completo), tipo, canal, estado, etiquetas, no leídos y última actividad; **sin texto de mensajes, sin paso del bot y sin ids de paciente ni de profesional**. Sin auditoría de lectura (igual que `/conversaciones`) |
+
+**Qué lleva el token de Administración:** `modulo = administracion`, un rol `configurador` y uno `crm`, y los privilegios de esos dos permisos (Gestión de agendas). **No** lleva `profesional`, `auditor`, `admision` ni `facturacion`, ni la ficha de profesional. Los endpoints deciden por rol, así que cada política `Solo(Quien.*)` lo acepta o lo rechaza por sus roles (no se tocó `Quien`): pasa donde se pide Configurador, CRM o Gestión de agendas, y no donde se pide Profesional, Admisión, auditor o Paciente.
+
+| Ruta | Administración | CRM puro | Configurador solo | Profesional | Paciente | Facturación | Sin sesión |
+|---|---|---|---|---|---|---|---|
+| `GET /mensajeria/conversaciones`, `/conexion-whatsapp`, `/etiquetas`, `/leads` | 200 | 200 | 403 | 403 | 403 | 403 | 401 |
+| `GET /usuarios/lista`, `/usuarios/accesos`, `/auditoria` | 200 | 403 | 200 | 403 | 403 | 403 | 401 |
+| `GET /turnos` (CRM con Gestión de agendas) | 200 con el privilegio | 403 sin él | 403 | 403 | 403 | 403 | 401 |
+| `GET /mensajeria/whatsapp/estado`, `POST .../vincular`, `POST .../desvincular` (QR) | pasa | **403** | pasa | 403 | 403 | 403 | 401 |
+| `GET /tutores` (Profesional) | 403 | 403 | 403 | pasa | 403 | 403 | 401 |
+
+Los tokens anteriores (`modulo = configurador` o `crm`) siguen valiendo con lo que tenían y nada más.
+
+Probado: `YoSoy.Tests/IngresoPorModuloBaseRealTests.cs` (la matriz con tokens reales, el CRM puro idéntico, unión + Profesional y + Facturación, token viejo, permiso quitado), `AccesoPorModuloTests`, `LeadsTests`, `ConfiguradorMenuTests` (el menú de Administración y el del CRM puro idéntico), `VistaUnicaSesionAntiguaTests` (la auto-subida de sesión) y `ChatsSoloCrmTests`.
+
 ## Fase 2, PR 2: pantalla Usuarios del Configurador y cambio obligatorio de contraseña (octubre 2026)
 
 Todo lo nuevo es **solo del Configurador** (CRM, Profesional, Profesional auditor, Paciente y Facturación reciben 403; sin sesión, 401; el token de
