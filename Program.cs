@@ -28,6 +28,7 @@ builder.Services.AddSingleton<EmailService>();
 builder.Services.AddRelojDeLaClinica(builder.Configuration);
 builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddVideo(builder.Configuration);
+builder.Services.AddUsuariosAdmin(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
 // Circuito de atención: salas, interruptores de IA/transcripción y evolución por enfoque.
@@ -73,6 +74,10 @@ builder.Services.AddAuthentication(EsquemaJwtOLegacy)
                 var esSeleccion = ctx.Principal?.FindFirst(JwtEmisorService.ClaimUso)?.Value == JwtEmisorService.UsoSeleccion;
                 if (esSeleccion && !ctx.HttpContext.Request.Path.Equals("/sesion/modulo", StringComparison.OrdinalIgnoreCase))
                     ctx.Fail("El token de selección solo sirve para elegir módulo.");
+                // Cambio obligatorio de contraseña (migración 24): mismo patrón, con su propia ruta.
+                var esCambioClave = ctx.Principal?.FindFirst(JwtEmisorService.ClaimUso)?.Value == JwtEmisorService.UsoCambioClave;
+                if (esCambioClave && !ctx.HttpContext.Request.Path.Equals("/sesion/cambiar-password", StringComparison.OrdinalIgnoreCase))
+                    ctx.Fail("El token de cambio de clave solo sirve para elegir la clave nueva.");
                 return Task.CompletedTask;
             }
         };
@@ -258,10 +263,26 @@ app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, IAccesosRep
     if (usuario.IntentosFallidos > 0 || usuario.BloqueadoHasta.HasValue)
         dao.ResetearIntentos(usuario.IdUsuario);
 
+    // Cambio obligatorio de contraseña (migración 24): el Configurador restableció la clave y esta es la temporal. La contraseña ya
+    // está verificada (y el bloqueo mirado, arriba); no se entrega sesión: solo un token corto que sirve para elegir la clave nueva.
+    if (usuario.DebeCambiarPassword)
+    {
+        AuditoriaIngreso.Registrar(usuario.IdUsuario, "Ingreso", "Tiene que cambiar la contraseña");
+        return Results.Ok(new { requiereCambioPassword = true, idUsuario = usuario.IdUsuario,
+            tokenCambioClave = jwtEmisor.EmitirCambioClave(usuario.IdUsuario) });
+    }
+
+    return EntregarSesion(usuario, req.Modulo, jwtEmisor, accesosRepo);
+});
+
+// Lo que sigue a una contraseña correcta: el rol, los módulos y el token de trabajo. Lo usan POST /login y, después de elegir la
+// clave nueva, POST /sesion/cambiar-password: la sesión sale por el mismo camino, con los mismos controles de módulo y permisos.
+static IResult EntregarSesion(Usuario usuario, string? modulo, JwtEmisorService jwtEmisor, IAccesosRepositorio accesosRepo)
+{
     // El token lleva el mismo idUsuario/idPaciente/idProfesional que ya devolvía esta
     // respuesta (contrato existente, solo se agrega el campo "token" — nada se quita).
     var up = new UsuarioPacienteDAO().ObtenerPorUsuario(usuario.IdUsuario);
-    var pestania = string.IsNullOrWhiteSpace(req.Modulo) ? null : req.Modulo.Trim().ToLowerInvariant();
+    var pestania = string.IsNullOrWhiteSpace(modulo) ? null : modulo.Trim().ToLowerInvariant();
     if (up != null)
     {
         if (pestania is not null && pestania != Roles.Paciente)
@@ -322,7 +343,7 @@ app.MapPost("/login", (LoginRequest req, JwtEmisorService jwtEmisor, IAccesosRep
         modulos = DescribirModulos(modulos),
         tokenSeleccion = jwtEmisor.EmitirSeleccion(usuario.IdUsuario)
     });
-});
+}
 
 // Elegir o cambiar de módulo. Acepta el token de selección (recién ingresado) o el token de
 // trabajo de otro módulo. Vuelve a leer los permisos en la base: si el Configurador quitó
@@ -346,6 +367,22 @@ app.MapPost("/sesion/modulo", (SeleccionModuloRequest req, HttpContext ctx, Iden
         yo.EsSeleccion ? null : $"Desde {yo.Modulo ?? yo.Rol}", sesion.Modulo);
     return Results.Ok(RespuestaSesion(yo.IdUsuario, sesion, accesos.Modulos, jwtEmisor));
 }).RequireAuthorization();
+
+// Cambio obligatorio de contraseña (migración 24): lo único que sirve el token de cambio de clave (5 minutos) que devuelve POST /login cuando el
+// Configurador restableció la contraseña. Valida la política, exige una clave distinta de la temporal, la guarda, baja la marca y entrega la sesión por el
+// mismo camino que el ingreso (módulos, permisos y pestaña elegida). Con cualquier otro token, 403.
+app.MapPost("/sesion/cambiar-password", (CambiarPasswordRequest req, HttpContext ctx, IdentidadActualService identidad,
+    JwtEmisorService jwtEmisor, IAccesosRepositorio accesosRepo) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    var yo = identidad.Resolver(ctx);
+    if (yo is null || !yo.EsCambioClave)
+        return Results.Json(new { codigo = "CAMBIO_NO_REQUERIDO", mensaje = "Esta ruta es solo para elegir la clave nueva después de un restablecimiento." }, statusCode: 403);
+    var r = CambioPasswordObligatorio.Aplicar(yo.IdUsuario, req.PasswordNueva);
+    if (r.Usuario is null) return Results.Json(new { codigo = r.Codigo, mensaje = r.Mensaje }, statusCode: r.Estado);
+    AuditoriaIngreso.Registrar(yo.IdUsuario, "Ingreso", "Con la clave nueva, después del cambio obligatorio");
+    return EntregarSesion(r.Usuario, req.Modulo, jwtEmisor, accesosRepo);
+}).RequireAuthorization().RequireRateLimiting(UsuariosAdminServiceCollectionExtensions.PoliticaCambiarClave);
 
 static string Recortar(string? texto, int largo) =>
     string.IsNullOrEmpty(texto) ? "" : (texto.Length <= largo ? texto : texto[..largo]);
@@ -2594,6 +2631,7 @@ app.MapCasos();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapConsentimientoWhatsApp();
+app.MapUsuariosAdmin();
 
 // ═══════════════════════════════════════════════════════
 // REPORTES DEL PROFESIONAL

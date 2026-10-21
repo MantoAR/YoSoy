@@ -19,6 +19,8 @@ public record Identidad(int IdUsuario, string Rol, int? IdPaciente, int? IdProfe
     public string? Modulo { get; init; }
     // Token de selección de módulo (5 minutos): solo sirve para POST /sesion/modulo.
     public bool EsSeleccion { get; init; }
+    // Token de cambio obligatorio de contraseña (5 minutos): solo sirve para POST /sesion/cambiar-password.
+    public bool EsCambioClave { get; init; }
 
     private bool Tiene(string rol) => Rol == rol || Permisos.Contains(rol);
     public bool EsConfigurador => Tiene(Roles.Configurador);
@@ -69,7 +71,8 @@ public class IdentidadActualService
             Permisos = permisos,
             Privilegios = ctx.User.FindAll(JwtEmisorService.ClaimPrivilegio).Select(c => c.Value).Distinct().ToList(),
             Modulo = modulo,
-            EsSeleccion = ctx.User.FindFirstValue(JwtEmisorService.ClaimUso) == JwtEmisorService.UsoSeleccion
+            EsSeleccion = ctx.User.FindFirstValue(JwtEmisorService.ClaimUso) == JwtEmisorService.UsoSeleccion,
+            EsCambioClave = ctx.User.FindFirstValue(JwtEmisorService.ClaimUso) == JwtEmisorService.UsoCambioClave
         };
     }
 }
