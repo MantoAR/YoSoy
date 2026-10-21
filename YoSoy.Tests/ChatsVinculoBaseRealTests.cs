@@ -491,6 +491,27 @@ public class ChatsVinculoBaseRealTests : IDisposable
     }
 
     [Fact]
+    public async Task Poner_el_interruptor_global_como_ya_esta_no_escribe_ni_audita_un_cambio_que_no_cambio_nada()
+    {
+        var configurador = Cliente(ConfiguradorPuro);
+        try
+        {
+            await configurador.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = true }));
+            await configurador.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = false }));
+            var filas = DatosDePrueba.Contar("SELECT COUNT(*) FROM LogAuditoria WHERE Entidad = 'ConfiguracionOrganizacion'");
+
+            Assert.Equal(HttpStatusCode.OK, (await configurador.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = false }))).StatusCode);   // ya estaba apagado
+
+            Assert.Equal(filas, DatosDePrueba.Contar("SELECT COUNT(*) FROM LogAuditoria WHERE Entidad = 'ConfiguracionOrganizacion'"));
+            Assert.False((await Json(await configurador.GetAsync("/configuracion/chats-ia"))).GetProperty("activa").GetBoolean());
+        }
+        finally
+        {
+            await configurador.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = false }));
+        }
+    }
+
+    [Fact]
     public async Task Tomar_control_en_modo_Asistente_apaga_la_IA_y_saca_al_asistente_si_estaba_activo()
     {
         var activa = Conversacion(estado: "Activa");
@@ -532,6 +553,100 @@ public class ChatsVinculoBaseRealTests : IDisposable
 
         Assert.Equal("Activa", j.GetProperty("estado").GetString());
         Assert.Equal("Persona", j.GetProperty("quienResponde").GetString());
+    }
+
+    // ── La auditoría administrativa los MUESTRA: GET /auditoria con la sesión del Configurador ───────────────────────────
+    // No alcanza con que la columna Categoria diga 'Administrativa': GET /auditoria (Program.cs) elige la categoría según el token (Configurador -> administrativa, auditor -> clínica) y
+    // LogAuditoriaDAO.ObtenerPaginado clasifica también por ENTIDAD (EntidadesClinicas). Acá se pide el listado de verdad y se buscan las filas por entidad, id y usuario.
+    private static async Task<JsonElement?> EnAuditoria(HttpClient cliente, Func<JsonElement, bool> filtro, int paginas = 12)
+    {
+        for (var pagina = 1; pagina <= paginas; pagina++)
+        {
+            var r = await cliente.GetAsync($"/auditoria?pagina={pagina}&cantidad=200");
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            var filas = (await Json(r)).EnumerateArray().ToList();
+            foreach (var f in filas) if (filtro(f)) return f;
+            if (filas.Count < 200) break;
+        }
+        return null;
+    }
+
+    private static Func<JsonElement, bool> Fila(string entidad, int? idEntidad, int idUsuario, string accion) => f =>
+        f.GetProperty("entidad").GetString() == entidad && f.GetProperty("idUsuario").GetInt32() == idUsuario && f.GetProperty("accion").GetString() == accion
+        && (idEntidad is null ? f.GetProperty("idEntidad").ValueKind == JsonValueKind.Null : f.GetProperty("idEntidad").ValueKind == JsonValueKind.Number && f.GetProperty("idEntidad").GetInt32() == idEntidad);
+
+    [Fact]
+    public async Task GET_auditoria_con_la_sesion_del_Configurador_encuentra_vincular_desvincular_y_el_interruptor_global()
+    {
+        var usuario = _d.Usuario();
+        var emisor = _fabrica.Services.GetRequiredService<JwtEmisorService>();
+        var administracion = Cliente(emisor.EmitirModulo(usuario, new SesionModulo("administracion", new[] { "configurador", "crm" }, Array.Empty<string>(), null)));
+        var configurador = Cliente(emisor.EmitirModulo(usuario, new SesionModulo("configurador", new[] { "configurador" }, Array.Empty<string>(), null)));
+        var p = Paciente("Auditoria Visible");
+        var c = Conversacion();
+        try
+        {
+            Assert.Equal(HttpStatusCode.OK, (await administracion.SendAsync(Pedido("PUT", $"/mensajeria/conversaciones/{c}/vinculo", new { idPaciente = p }))).StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, (await administracion.SendAsync(Pedido("DELETE", $"/mensajeria/conversaciones/{c}/vinculo"))).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await administracion.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = true }))).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await administracion.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = false }))).StatusCode);
+
+            // Las dos sesiones del Configurador (la de Administración y la del Configurador solo) ven las cuatro filas, en la auditoría ADMINISTRATIVA.
+            foreach (var (nombre, cliente) in new[] { ("administración", administracion), ("configurador solo", configurador) })
+            {
+                var vincular = await EnAuditoria(cliente, Fila("ConversacionVinculo", c, usuario, "Vinculación de conversación de chat con paciente"));
+                var desvincular = await EnAuditoria(cliente, Fila("ConversacionVinculo", c, usuario, "Desvinculación de conversación de chat y paciente"));
+                var prende = await EnAuditoria(cliente, Fila("ConfiguracionOrganizacion", null, usuario, "IA global de chats prendida"));
+                var apaga = await EnAuditoria(cliente, Fila("ConfiguracionOrganizacion", null, usuario, "IA global de chats apagada"));
+                Assert.True(vincular is not null, $"{nombre}: GET /auditoria no trae la fila de vincular (ConversacionVinculo #{c})");
+                Assert.True(desvincular is not null, $"{nombre}: GET /auditoria no trae la fila de desvincular");
+                Assert.True(prende is not null && apaga is not null, $"{nombre}: GET /auditoria no trae las filas del interruptor global (ConfiguracionOrganizacion)");
+                foreach (var fila in new[] { vincular!.Value, desvincular!.Value, prende!.Value, apaga!.Value })
+                    Assert.Equal("Administrativa", fila.GetProperty("categoria").GetString());
+                var detalle = vincular.Value.GetProperty("detalle").GetString()!;
+                Assert.Equal($"Conversación #{c}, paciente #{p}, origen busqueda", detalle);          // lo que ve el Configurador: ids, nada de números ni nombres
+                Assert.Equal("Chats.IaActiva: apagada a prendida", prende.Value.GetProperty("detalle").GetString());
+            }
+
+            // Quién NO las ve. El CRM puro: /auditoria exige Configurador o auditor (Solo(Quien.Configurador | Quien.Auditor)), así que recibe 403. Profesional, Paciente y Facturación, también.
+            foreach (var (nombre, token) in new[]
+            {
+                ("crm", emisor.EmitirModulo(usuario, new SesionModulo("crm", new[] { "crm" }, Array.Empty<string>(), null))),
+                ("profesional", emisor.Emitir(usuario, Roles.Profesional, idProfesional: _d.Profesional())),
+                ("paciente", emisor.Emitir(usuario, Roles.Paciente, idPaciente: p)),
+                ("facturación", emisor.Emitir(usuario, Roles.Facturacion)),
+            })
+                Assert.Equal(HttpStatusCode.Forbidden, (await Cliente(token).GetAsync("/auditoria")).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized, (await Cliente(null).GetAsync("/auditoria")).StatusCode);
+
+            // Y el auditor clínico (que ve la OTRA categoría) no las ve: no cayeron en la auditoría clínica.
+            var auditor = Cliente(emisor.Emitir(usuario, Roles.Auditor, idProfesional: _d.Profesional()));
+            Assert.Null(await EnAuditoria(auditor, f => f.GetProperty("entidad").GetString() is "ConversacionVinculo" or "ConversacionIa" or "ConfiguracionOrganizacion", paginas: 4));
+        }
+        finally
+        {
+            await administracion.SendAsync(Pedido("PUT", "/configuracion/chats-ia", new { activa = false }));
+        }
+    }
+
+    [Fact]
+    [Trait("Migracion", "25")]
+    public async Task GET_auditoria_con_la_sesion_del_Configurador_encuentra_los_cambios_de_IA_de_la_conversacion()
+    {
+        var usuario = _d.Usuario();
+        var emisor = _fabrica.Services.GetRequiredService<JwtEmisorService>();
+        var administracion = Cliente(emisor.EmitirModulo(usuario, new SesionModulo("administracion", new[] { "configurador", "crm" }, Array.Empty<string>(), null)));
+        var c = Conversacion();
+        Assert.Equal(HttpStatusCode.OK, (await administracion.SendAsync(Pedido("PUT", $"/mensajeria/conversaciones/{c}/ia", new { activa = true }))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await administracion.SendAsync(Pedido("POST", $"/mensajeria/conversaciones/{c}/tomar-control", new { }))).StatusCode);
+
+        var prende = await EnAuditoria(administracion, Fila("ConversacionIa", c, usuario, "IA de conversación de chat prendida"));
+        var toma = await EnAuditoria(administracion, Fila("ConversacionIa", c, usuario, "Toma de control de conversación de chat"));
+        Assert.True(prende is not null, "GET /auditoria no trae la fila de prender la IA (ConversacionIa)");
+        Assert.True(toma is not null, "GET /auditoria no trae la fila de tomar control (ConversacionIa)");
+        Assert.Equal("Administrativa", prende!.Value.GetProperty("categoria").GetString());
+        Assert.Equal("Administrativa", toma!.Value.GetProperty("categoria").GetString());
+        Assert.StartsWith($"Conversación #{c}", toma.Value.GetProperty("detalle").GetString());
     }
 
     private sealed class IaSinColumna : IIaConversacionDAO

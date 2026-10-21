@@ -46,6 +46,7 @@ public class ConfiguracionOrganizacionDAO : IConfiguracionIaChats
                 cmd.Parameters.Add("@K", SqlDbType.NVarChar, 100).Value = ClaveIaChats;
                 antes = cmd.ExecuteScalar() is string v && v == "1";
             }
+            if (antes == activa) { tx.Rollback(); return true; }   // ya estaba así: no se escribe ni se audita un "cambio" que no cambió nada
             using (var cmd = new SqlCommand(@"
                 MERGE ConfiguracionOrganizacion WITH (HOLDLOCK) AS t
                 USING (SELECT @K AS Clave) AS s ON t.Clave = s.Clave

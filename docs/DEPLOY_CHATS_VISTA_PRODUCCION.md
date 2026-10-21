@@ -14,7 +14,7 @@ Runbook para llevar a producción la **Fase 1 de Chats v2**: poder **vincular un
 | **Vincular y desvincular** | `PUT` / `DELETE /mensajeria/conversaciones/{id}/vinculo` (rol CRM, que incluye Administración). Vincular es **siempre una acción explícita** de una persona, con una confirmación que muestra **nombre completo, últimos 3 dígitos del DNI y año de nacimiento**. Falla bien: paciente inexistente 404, paciente **inactivo** 409 (`PACIENTE_INACTIVO`), conversación **ya vinculada a otro** 409 (`YA_VINCULADA`; hay que desvincular primero). Es **atómico** (el `UPDATE` solo pega si la conversación sigue sin paciente) y deja **una fila de auditoría administrativa** en la misma transacción. Al vincular o desvincular se **reinicia el flujo del asistente** (paso y datos de contexto) |
 | **Buscador de pacientes** | `GET /mensajeria/pacientes/buscar?q=` (rol CRM): por **DNI completo** (7 u 8 números) o por **nombre** (al menos 3 letras, sin mayúsculas ni tildes). Solo **activos**, hasta 10, y por cada uno **solo** nombre, `•••` + últimos 3 dígitos del DNI, año de nacimiento y **cuántas otras conversaciones** tiene (solo el número). **Sin** domicilio, mail, teléfono, fecha de nacimiento completa ni nada clínico. **Límite de 30 pedidos por minuto por IP.** **No se audita la búsqueda** (lo escrito es un dato personal) |
 | **Sugerencia por teléfono** | En el panel de una conversación **sin paciente**: los pacientes activos cuyo teléfono cargado coincide con el de la conversación, comparando con `TelefonoArgentino` (guiones, espacios, paréntesis, `+54`, el `9`, el `0` y el `15`: `351-206-6471`, `(351) 15 206-6471`, `+54 9 351 206 6471`, `0351 15 2066471`). **Solo sugiere**: leerla no cambia nada y la pantalla dice que es una coincidencia sugerida. Si hay dos pacientes con el mismo teléfono (una familia), salen los dos |
-| **Auditoría** | **Administrativa** (la ve el Configurador), entidad `ConversacionVinculo` (no `Conversacion`: esa entidad cae en la auditoría **clínica**), **solo ids**: `Conversación #12, paciente #45, origen busqueda` (o `sugerencia`). **Nunca** el número, el nombre ni el DNI. Idem para el interruptor de IA (`ConversacionIa`) y el global (`ConfiguracionOrganizacion`) |
+| **Auditoría** | **Administrativa** (la ve el Configurador), entidad `ConversacionVinculo` (no `Conversacion`: esa entidad cae en la auditoría **clínica**), **solo ids**: `Conversación #12, paciente #45, origen busqueda` (o `sugerencia`). **Nunca** el número, el nombre ni el DNI. Idem para el interruptor de IA (`ConversacionIa`) y el global (`ConfiguracionOrganizacion`). **Se ven en Auditoría** (`GET /auditoria`) con la sesión del **Configurador o de Administración** (una prueba pide el listado de verdad y encuentra las filas por entidad, id y usuario); el **CRM puro recibe 403** (esa pantalla exige Configurador o auditor), y el **auditor clínico no las ve** (no caen en la clínica) |
 | **Teléfono en formato WhatsApp** | La lista, el encabezado, el panel y Leads muestran `+54 9 351 206-6471`. **Es solo formato**: lo guardado no cambia (ver "Descartado por ahora" más abajo). Un número cuyo código de área no figura en la lista oficial de ENACOM **no** se muestra como argentino (se ve en dígitos, sin `+54 9`) |
 | **Interruptor de IA** | **Global**: Configuración › **Asistente de chats** (`GET` / `PUT /configuracion/chats-ia`, **solo Configurador**, que incluye la sesión Administración; el CRM puro recibe 403). Es una fila de `ConfiguracionOrganizacion` (`Chats.IaActiva`), con quién y cuándo lo cambió. **Por conversación**: en el panel del chat (CRM y Administración), columna `Conversacion.IaActiva` (migración 25). **Los dos arrancan apagados.** Regla: con el global apagado, ninguna conversación responde con IA, aunque la tenga prendida. **Desvincular apaga la IA de esa conversación** |
 | **Quién responde / Tomar control** | El panel dice **Bot**, **IA** o **Persona** (lo calcula el servidor; "IA" no aparece hasta que exista). **Tomar control** apaga la IA de esa conversación y, en modo **Asistente**, pasa una conversación `Activa` a "Escalada a persona" (el mecanismo que ya frena al asistente); en modo **Personal** solo apaga la IA. **El asistente de reglas no depende del interruptor de IA y no cambia** |
@@ -38,6 +38,7 @@ Consultas **de solo lectura** (las de los pasos 2.1 a 2.3, corridas por Agustín
 | Tabla `ConfiguracionOrganizacion` | **existe** | El interruptor global es una fila ahí. Sin la tabla, `PUT /configuracion/chats-ia` respondería 503 |
 | Versión de esquema | **24** | La 25 se aplica encima, sin saltos |
 | Conversaciones | **3** (2 WhatsApp, 1 Simulado), **todas de 10 dígitos numéricos con prefijo 351**, ninguna extranjera | Todas se muestran como `+54 9 351 …`; justifica descartar la migración 26 |
+| Columnas de `ConfiguracionOrganizacion` | **todavía sin verificar: paso 2.4** | La tabla la creó la migración 20 y **ningún código la usó hasta ahora**: el interruptor global inserta y actualiza `Clave`, `Valor`, `FechaModificacion` e `IdUsuarioModifico`. Si en producción difiere, el interruptor falla |
 | Pacientes activos | **3**, **2 con teléfono**, **los 2 con símbolos** en el número | La sugerencia por teléfono tiene que entender esos formatos (guiones, espacios, paréntesis, `+54`, `9`, `15`): hay pruebas con los cuatro formatos reales de carga |
 
 ## Lo que cambia para el equipo (avisalo antes)
@@ -143,6 +144,26 @@ sqlcmd -S localhost -d yosoy -U sa -C -I -W -Q "SELECT (SELECT COUNT(*) FROM sys
 
 **Esperado:** `0  0  0`.
 
+### 2.4 Las columnas de `ConfiguracionOrganizacion` (solo lectura)
+
+La tabla se creó con la migración 20 y **nunca la usó ningún código**: el interruptor global (`PUT /configuracion/chats-ia`) **inserta y actualiza** estas cuatro columnas con un `MERGE`. Antes de desplegar hay que ver que en producción son las que se esperan:
+
+```bash
+sqlcmd -S localhost -d yosoy -U sa -C -I -W -Q "SELECT c.column_id AS orden, c.name AS columna, t.name AS tipo, c.max_length AS longitud_bytes, c.precision, c.scale, c.is_nullable AS acepta_nulos FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id WHERE c.object_id = OBJECT_ID('dbo.ConfiguracionOrganizacion') ORDER BY c.column_id"
+sqlcmd -S localhost -d yosoy -U sa -C -I -W -Q "SELECT (SELECT COUNT(*) FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID('dbo.ConfiguracionOrganizacion') AND type = 'PK') AS clave_primaria, (SELECT COUNT(*) FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID('dbo.ConfiguracionOrganizacion') AND referenced_object_id = OBJECT_ID('dbo.Usuario')) AS fk_a_usuario, (SELECT COUNT(*) FROM sys.triggers WHERE parent_id = OBJECT_ID('dbo.ConfiguracionOrganizacion')) AS triggers, (SELECT COUNT(*) FROM ConfiguracionOrganizacion) AS filas"
+```
+
+**Esperado** (es la definición de la migración 20; `longitud_bytes` de un `NVARCHAR(n)` es `2 × n`, y `-1` es `MAX`):
+
+| orden | columna | tipo | longitud_bytes | precision | scale | acepta_nulos |
+|---|---|---|---|---|---|---|
+| 1 | `Clave` | `nvarchar` | `200` (`NVARCHAR(100)`) | 0 | 0 | `0` |
+| 2 | `Valor` | `nvarchar` | `-1` (`NVARCHAR(MAX)`) | 0 | 0 | `1` |
+| 3 | `FechaModificacion` | `datetime2` | `6` | 19 | 0 | `0` (`DATETIME2(0)`, por defecto `SYSDATETIME()`) |
+| 4 | `IdUsuarioModifico` | `int` | `4` | 10 | 0 | `1` |
+
+Y la segunda consulta: `clave_primaria = 1`, `fk_a_usuario = 1`, `triggers = 0`. `filas` es la cantidad de claves que ya haya (cualquier valor: este cambio solo usa la clave `Chats.IaActiva`, y hoy se espera `0`). **Si una columna falta, tiene otro tipo o hay un trigger, no frenes el despliegue** (la API anda igual y el resto de Chats no depende de esto) **pero no pruebes el interruptor global** (paso 5.7): avisá y se revisa antes. La prueba automática `El_interruptor_global_arranca_apagado_se_guarda_y_deja_registro_administrativo` ejercita exactamente esas cuatro columnas sobre el esquema de la migración 20.
+
 ## Paso 3. Migración 25 (opcional)
 
 Es **opcional**: la API nueva anda sin ella. La recomendación es aplicarla **antes** de publicar, así el interruptor de IA por conversación anda desde el primer momento. Si preferís publicar primero, el interruptor por conversación responde "falta aplicar la migración 25" hasta que se aplique (sin errores en el resto).
@@ -226,7 +247,7 @@ Ingresá por la pestaña **Configurador** (o **CRM**). **Probá sobre la convers
 3. **Vincular con un paciente:** escribí 2 letras (pide al menos 3), después un apellido: salen los activos (sin DNI completo). Elegí uno: la confirmación muestra **nombre, `•••` + 3 dígitos del DNI y año de nacimiento**, la advertencia **"Confirmá la identidad con la persona que escribe"** y, en modo **Asistente**, la advertencia roja de que el asistente va a tratar a quien escribe como ese paciente. Si abrís una sugerencia, dice **"coincidencia sugerida"**. **Cancelá** (o, sobre el paciente de prueba, confirmá).
 4. Con el vínculo hecho (solo sobre el paciente de prueba): el panel muestra el nombre, DNI, el teléfono del paciente **tal como lo cargaron**, el WhatsApp de la conversación, el profesional, el próximo turno y **Ver ficha** (lleva a Usuarios con ese paciente). **Desvincular** pide confirmación y deja la conversación sin identificar; **desvinculá siempre al terminar la prueba.**
 5. **Quién responde:** dice **Bot** (modo Asistente) o **Persona** (modo Personal, o una conversación escalada). **Tomar control** pide confirmación; el interruptor **IA en esta conversación** arranca apagado y avisa "La IA global está apagada".
-6. **Configuración ▾ › Asistente de chats:** dice **Apagada**. **No lo prendas** salvo que quieras probar el guardado: si lo hacés, apagalo de nuevo (cada cambio queda en la auditoría).
+6. **Configuración ▾ › Asistente de chats:** dice **Apagada**. La prueba de prender y apagar es el paso 5.7 (hacela ahí, con las consultas, y no antes).
 
 ### 5.4 [Navegador] La recepcionista (solo CRM)
 
@@ -252,6 +273,24 @@ sqlcmd -S localhost -d yosoy -U sa -C -I -W -Q "SELECT TOP 8 IdLog, Categoria, A
 ```
 
 **Esperado:** si hiciste el ensayo del paso 5.3, una fila `Administrativa` por cada vincular y desvincular (`Conversación #N, paciente #M, origen busqueda`), **sin número de teléfono, sin nombre y sin DNI**, y `Íntegra`. Si no hiciste cambios, ninguna fila y `Íntegra`.
+
+### 5.7 [Navegador y VPS] Probar el interruptor global en producción (prender, ver la fila y la auditoría, apagar)
+
+**Es la primera vez que algo escribe en `ConfiguracionOrganizacion`.** Como la IA todavía no existe, prender el interruptor **no cambia nada de lo que ve ni recibe nadie**: es seguro. **Condición:** el paso 2.4 dio lo esperado. Con la sesión de **Administración** (o Configurador):
+
+1. **[Navegador]** Configuración ▾ › **Asistente de chats** dice **Apagada**. Tildá **"Permitir que la IA responda en los chats"** y confirmá **Prender**: sale "IA de los chats prendida." y la tarjeta dice **Prendida**. Si sale un error, **pará**: pegame el mensaje y la línea del log (`journalctl -u yosoy-api --since '2 minutes ago' | grep -iE 'error|exception'`).
+2. **[VPS]** La fila y la auditoría:
+
+```bash
+sqlcmd -S localhost -d yosoy -U sa -C -I -W -Q "SELECT Clave, Valor, FechaModificacion, IdUsuarioModifico FROM ConfiguracionOrganizacion WHERE Clave = 'Chats.IaActiva'; SELECT TOP 3 IdLog, Categoria, Accion, Entidad, IdEntidad, Detalle FROM LogAuditoria WHERE Entidad = 'ConfiguracionOrganizacion' ORDER BY IdLog DESC; EXEC sp_VerificarCadenaAuditoria"
+```
+
+**Esperado:** una fila `Chats.IaActiva  1  <la fecha y hora de recién>  <el IdUsuario del administrador>`; una fila de auditoría `Administrativa`, `IA global de chats prendida`, `ConfiguracionOrganizacion`, `NULL`, `Chats.IaActiva: apagada a prendida`; y `Íntegra`.
+3. **[Navegador]** **Auditoría** (con la misma sesión) muestra esa fila arriba de todo.
+4. **[Navegador]** Destildá el interruptor: sale "IA de los chats apagada." (sin confirmación) y la tarjeta dice **Apagada**. **Dejalo apagado.**
+5. **[VPS]** La misma consulta del punto 2.
+
+**Esperado:** `Chats.IaActiva  0  <fecha más nueva>  <el mismo IdUsuario>`; arriba de la lista, `IA global de chats apagada` con `Chats.IaActiva: prendida a apagada`, y debajo la de `prendida`; y **`sp_VerificarCadenaAuditoria` sigue en `Íntegra`**. Si dice otra cosa, **no sigas usando el interruptor** y avisá: la cadena de auditoría es inalterable y hay que entender por qué antes de escribir más.
 
 ## Paso 6. Sesiones abiertas
 
@@ -303,7 +342,8 @@ sqlcmd -S localhost -d yosoy -U sa -C -I -b -f 65001 -i ~/deshacer-migracion-25.
 - **Desvincular no puede deshacer lo que ya se escribió con el nombre del paciente**: las notificaciones internas (la campanita) ya generadas conservan su texto. Las **notas y etiquetas** de la conversación se **conservan** a propósito (no se borran datos). Lo que sí se revierte: `IdPaciente`, el flujo del asistente (paso y datos de contexto), la IA de la conversación y los datos del panel.
 - **El teléfono del paciente (texto libre) se muestra tal cual** y puede ser un fijo; el `+54 9` es solo de la conversación de WhatsApp.
 - **La búsqueda de pacientes no se audita** (el texto buscado es un dato personal); lo que se limita es la cantidad de pedidos (30 por minuto por IP). Vincular y desvincular **sí** se auditan.
-- **Una escritura vieja de otra parte (el asistente) todavía puede reponer el paso o el contexto del flujo** de una conversación recién desvinculada; no pisa el vínculo ni la IA. Es inofensivo: el asistente vuelve a pedir identificarse.
+- **`ConversacionDAO.Guardar` con una copia vieja todavía puede reescribir `PasoActual` y `DatosContexto`** después de vincular o desvincular: **solo `IdPaciente` quedó protegido** (no pisa el vínculo ni la IA). **El asistente de reglas no corre en producción** (modo Personal: `AtencionPersonalService` nunca usa esos dos campos y los guarda como siempre, en `Inicio` y vacíos), así que **hoy no afecta**. Si algún día se vuelve al modo Asistente, lo peor que pasa es que el asistente retome un flujo viejo o vuelva a pedir identificarse.
+- **"Tomar control" y el chip de estado.** Tomar control no inventa un estado nuevo (`CK_Conversacion_Estado` solo admite `Activa`, `DerivadaHumano`, `Urgente` y `Cerrada`): en modo **Asistente** deja la conversación en `DerivadaHumano`, que la bandeja rotula **"Escalada a persona"** (lo comprobamos en el navegador; con el botón "Cerrar escalamiento", que devuelve la conversación al asistente: es coherente), pero su descripción dice "Pidió hablar con una persona del equipo", que no es exacto si la tomó el equipo. En modo **Personal** no cambia el estado (ya llegan como `DerivadaHumano`): sigue **"Para atender"** aunque el panel diga **Persona**, y **seguirá así hasta que alguien la cierre** (contestar tampoco cambia el estado: es lo que ya hacía la bandeja). **No se cambió.** Cambio mínimo propuesto, solo de texto y sin migración: la descripción de `ESTADO.DerivadaHumano` pasaría a "Una persona del equipo la atiende (la pidió el paciente o la tomó el equipo)" y la de `ESTADO_PERSONAL.DerivadaHumano` a "Escribió por WhatsApp y espera la respuesta del equipo; sigue así hasta que alguien la cierre". Un estado "En atención" de verdad exigiría una migración (la restricción del estado) y se vería en otro cambio.
 - **Ver ficha** existe solo en la sesión Administración (lleva a Usuarios, del Configurador). El CRM puro no lo tiene: no hay adónde llevarlo, y el panel ya muestra lo que su rol puede ver.
 - **Se sacó también el botón "+" de Participantes** (estaba deshabilitado, con "Próximamente"): en Chats no queda ningún botón muerto ni texto "Próximamente".
 
