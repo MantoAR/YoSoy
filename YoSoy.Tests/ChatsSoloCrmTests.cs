@@ -242,11 +242,11 @@ public class ChatsSoloCrmTests
     }
 
     [Theory]
-    [InlineData("/tomar")]
+    [InlineData("/tomar(?!-control)")]      // "/tomar-control" (Chats v2: una persona se queda con la conversación) es otra ruta, del CRM
     [InlineData("/devolver")]
     [InlineData("/asignar")]
     public void La_bandeja_ya_no_llama_a_tomar_devolver_ni_asignar(string ruta) =>
-        Assert.DoesNotContain(ruta, Pantalla("Pantalla_ChatSimulado", "js", "bandeja.js"));
+        Assert.DoesNotMatch(ruta, Pantalla("Pantalla_ChatSimulado", "js", "bandeja.js"));
 
     [Fact]
     public void La_bandeja_ya_no_tiene_el_filtro_Mias_ni_el_rol_profesional()

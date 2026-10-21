@@ -145,7 +145,7 @@ function leadsPintar(d) {
                     <span><span class="principal">${YS.esc(nombre)}</span>${f.noLeidos ? ` <span class="ui-contador">${f.noLeidos}</span>` : ""}
                     ${f.nombre && f.nombreContacto && f.nombreContacto !== f.nombre ? `<span class="secundario">${YS.esc(f.nombreContacto)}</span>` : ""}</span></span></td>
                 <td>${f.tipo === "paciente" ? '<span class="ui-chip ui-chip--sin-punto ui-chip--info">Paciente</span>' : '<span class="ui-chip ui-chip--sin-punto ui-chip--neutral">Sin identificar</span>'}</td>
-                <td class="ui-num">${YS.esc(f.telefono)}</td>
+                <td class="ui-num">${YS.esc(f.telefonoMostrar || f.telefono)}</td>
                 <td>${leadsEstado(f.estado)}</td>
                 <td>${etiquetas}</td>
                 <td>${YS.esc(YS.fecha.hace(f.fechaUltimaActividad))}</td>

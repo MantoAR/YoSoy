@@ -11,7 +11,7 @@ const API = YS.API;   // mismo origen que la página (shared/ui.js)
 const MODULO = ["configurador", "crm", "profesional", "administracion"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
 const SECCIONES_POR_MODULO = {
     // Configurador: sin Inicio. Fuera del menu (su codigo y sus endpoints siguen): grupos, reglasderivacion, coberturas, privilegios, roles, recuperacion.
-    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "especialidades", "auditoria"],
+    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "chatsia", "especialidades", "auditoria"],
     crm: ["inicio", "chats", "escalamientos", "etiquetas", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
     // Administracion (vista unica = Configurador + CRM): CRM, Configuracion, Usuarios y Auditoria, sin Inicio. Chats, Leads, Etiquetas y Escalamientos
@@ -19,7 +19,7 @@ const SECCIONES_POR_MODULO = {
     // coberturas, privilegios, roles, recuperacion e inicio.
     administracion: ["chats", "leads", "etiquetas", "escalamientos", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : []),
-          "whatsapp", "especialidades", "altausuario", "permisos", "usuarios", "solicitudes", "auditoria"],
+          "whatsapp", "chatsia", "especialidades", "altausuario", "permisos", "usuarios", "solicitudes", "auditoria"],
     profesional: [
         ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones", "derivaciones", "asignaciones"] : []),
         ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
@@ -145,6 +145,7 @@ const titulos = {
     interaccionesia: "Interacciones IA",
     auditoria:       "Log de Auditoría",
     whatsapp:        "WhatsApp",
+    chatsia:         "Asistente de chats",
 };
 
 let tabActual = null;
@@ -218,6 +219,7 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "reglasderivacion")   return await renderReglasDerivacion(contenido);
         if (tab === "etiquetas")          return await renderEtiquetas(contenido);
         if (tab === "whatsapp")           return await renderWhatsapp(contenido);
+        if (tab === "chatsia")            return await renderChatsIa(contenido);
 
         if (tab === "turnos") return await renderTurnos(contenido, params);
         const datos = await YS.fetch(`/${tab}`).then(r => r.json());

@@ -87,11 +87,11 @@
 .chats-conv-canal svg { width: 9px; height: 9px; }
 .chats-conv-cuerpo { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .chats-conv-fila { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.chats-conv-fila--chip { margin-top: 3px; }
+.chats-conv-fila--chip { margin-top: 3px; flex-wrap: wrap; row-gap: 2px; }
 .chats-conv-nombre { flex: 1; min-width: 0; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chats-conv-hora { flex-shrink: 0; font-size: var(--fs-xs); color: var(--text-4); }
 .chats-conv-previa { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.chats-conv-tel { font-size: var(--fs-xs); color: var(--text-4); }
+.chats-conv-tel { font-size: var(--fs-xs); color: var(--text-4); white-space: nowrap; }   /* "+54 9 351 206-6471" no se parte: pasa entero a la línea de abajo */
 .chats-conv.no-leida .chats-conv-nombre { font-weight: 600; }
 .chats-conv.no-leida .chats-conv-hora { color: var(--accent-strong); font-weight: 600; }
 .chats-conv.no-leida .chats-conv-previa { color: var(--text-2); }
@@ -227,9 +227,8 @@
     display: flex; align-items: center; gap: 10px; flex-shrink: 0;
     height: 56px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--border); font-weight: 600;
 }
-/* "Configurar vista" queda para una fase posterior: se ve pero no hace nada. */
-.chats-contexto-configurar { margin-left: auto; font-size: var(--fs-sm); font-weight: 500; color: var(--text-4); cursor: default; user-select: none; }
 .chats-contexto-cuerpo { display: flex; flex-direction: column; gap: 18px; padding: 14px 16px 20px; overflow-y: auto; }
+.chats-contexto-cuerpo > * { flex-shrink: 0; }   /* con mucho contenido el panel se desplaza: nada se achata (el botón de vincular, por ejemplo) */
 .chats-contexto-persona { display: flex; align-items: center; gap: 12px; }
 .chats-contexto-nombre { margin-bottom: 4px; font-size: var(--fs-lg); font-weight: 600; }
 .chats-contexto-bloque { display: flex; flex-direction: column; gap: 10px; }
@@ -242,18 +241,12 @@
 .chats-atajos td:first-child { white-space: nowrap; }
 .chats-dato-vacio { color: var(--text-4); }
 
-/* PARTICIPANTES: paciente y profesional(es), con iniciales. El "+" para sumar a alguien más
-   queda deshabilitado (fase posterior). */
+/* PARTICIPANTES: paciente y profesional(es), con iniciales. */
 .chats-participantes { display: flex; flex-direction: column; gap: 8px; }
 .chats-participante { display: flex; align-items: center; gap: 10px; }
 .chats-participante-datos { display: flex; flex-direction: column; min-width: 0; }
 .chats-participante-datos span { font-size: var(--fs-md); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chats-participante-datos small { font-size: var(--fs-sm); color: var(--text-3); }
-.chats-participante-agregar {
-    align-self: flex-start; width: 28px; height: 28px; border-radius: 50%;
-    border: 1px dashed var(--border-strong); background: none; color: var(--text-4);
-    font-size: 16px; line-height: 1; cursor: not-allowed;
-}
 
 /* Etiquetas de la conversación (panel de contexto) */
 .chats-contexto-etiquetas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }
@@ -288,6 +281,26 @@
 .chats-admin-plantilla-datos .chats-plantilla-texto { white-space: normal; }
 .chats-admin-plantilla-acciones { display: flex; gap: 4px; flex-shrink: 0; }
 .chats-admin-plantilla-nueva { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* Chats v2: coincidencias sugeridas por teléfono, vincular con un paciente, quién responde */
+.chats-sugerencia { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); }
+.chats-sugerencia-datos { display: flex; flex-direction: column; min-width: 0; }
+.chats-sugerencia-datos span { font-size: var(--fs-md); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chats-sugerencia-datos small { font-size: var(--fs-sm); color: var(--text-3); }
+.chats-vincular-resultados { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; }
+.chats-vincular-resultado {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); font: inherit; text-align: left; cursor: pointer;
+}
+.chats-vincular-resultado:hover, .chats-vincular-resultado:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+.chats-vincular-nombre { font-size: var(--fs-md); font-weight: 500; color: var(--text); }
+.chats-vincular-resultado small { font-size: var(--fs-sm); color: var(--text-3); }
+.chats-vincular-paciente { margin: 4px 0 12px; }
+.chats-vincular-aviso { margin-bottom: 10px; }
+.chats-vincular-botones { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.chats-quien .ui-flex { align-items: center; gap: 8px; flex-wrap: wrap; }
+.chats-quien .chats-contexto-nota { margin: 0; }
+.chats-ia-interruptor { margin-top: 2px; }
 
 /* Ventana muy angosta: una columna a la vez (lista o conversación) */
 @media (max-width: 760px) {

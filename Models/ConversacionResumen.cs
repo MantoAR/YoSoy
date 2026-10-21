@@ -2,6 +2,8 @@ public class ConversacionResumen
 {
     public int IdConversacion { get; set; }
     public string Telefono { get; set; } = "";
+    // El mismo teléfono para mostrar: "+54 9 351 206-6471" (TelefonoWhatsApp). Solo formato; el guardado no cambia.
+    public string TelefonoMostrar { get; set; } = "";
     public int? IdPaciente { get; set; }
     public string? NombrePaciente { get; set; }
     // Migración 17, solo con ModoAtencion = "Personal": el nombre del perfil de WhatsApp. En el modo Asistente no sale en la respuesta.

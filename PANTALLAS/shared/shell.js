@@ -22,6 +22,8 @@
             // Ítem de WhatsApp: vincular el número es una configuración independiente del chat
             // simulado (los avisos y las respuestas por WhatsApp pueden usarse con el simulado apagado).
             { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono", desc: "Estado de la conexión y código QR" },
+            // Chats v2: el interruptor GLOBAL de IA de los chats (arranca apagado). Solo el Configurador; el CRM puro no tiene Configuración.
+            { id: "chatsia", texto: "Asistente de chats", titulo: "Asistente de chats", icono: "ia", desc: "Interruptor global de IA de los chats" },
             { id: "especialidades", texto: "Especialidades", icono: "etiqueta" }
         ]
     };

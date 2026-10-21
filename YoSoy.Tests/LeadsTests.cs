@@ -71,6 +71,27 @@ public class LeadsUnidadTests
         Assert.Equal(3, Ids("").Length);
     }
 
+    [Theory]
+    [InlineData("+54 9 351 206-6471")]            // como lo muestra la pantalla (WhatsApp)
+    [InlineData("+54 9 351 206 6471")]
+    [InlineData("+54 9 351 20")]                  // y a medio escribir
+    [InlineData("351 206-6471")]
+    [InlineData("(351) 206 6471")]
+    [InlineData("3512066471")]
+    public void Se_encuentra_el_telefono_escrito_como_lo_muestra_WhatsApp(string consulta)
+    {
+        var lista = new[] { C(1, "3512066471", 5, "María Pérez"), C(2, "1155556666", null, null, "juan wa") };
+        Assert.Equal(new[] { 1 }, Leads.Filtrar(lista, F(consulta)).Filas.Select(x => x.IdConversacion).ToArray());
+    }
+
+    [Fact]
+    public void Una_consulta_de_telefono_de_otro_numero_no_trae_nada_y_la_fila_trae_el_telefono_para_mostrar()
+    {
+        var lista = new[] { C(1, "3512066471", 5, "María Pérez") };
+        Assert.Empty(Leads.Filtrar(lista, F("+54 9 351 206-6472")).Filas);
+        Assert.Equal("+54 9 351 206-6471", Leads.Filtrar(lista.Select(c => { c.TelefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono); return c; }), F()).Filas.Single().TelefonoMostrar);
+    }
+
     [Fact]
     public void Filtra_por_etiqueta_y_pagina_en_orden()
     {
@@ -88,7 +109,7 @@ public class LeadsUnidadTests
         var json = JsonSerializer.Serialize(fila);
         Assert.DoesNotContain("SECRETO", json);
         Assert.DoesNotContain("MenuPrincipal", json);
-        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "tipo" },
+        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "telefonoMostrar", "tipo" },
             JsonDocument.Parse(JsonSerializer.Serialize(fila, new JsonSerializerOptions(JsonSerializerDefaults.Web))).RootElement.EnumerateObject().Select(p => p.Name).OrderBy(x => x, StringComparer.Ordinal));
     }
 }
@@ -154,7 +175,7 @@ public class LeadsBaseRealTests : IDisposable
         Assert.Equal(tel, fila.GetProperty("telefono").GetString());                                   // el teléfono completo
         Assert.Equal(1, fila.GetProperty("noLeidos").GetInt32());
         Assert.DoesNotContain("TEXTO-QUE-NO-DEBE-SALIR", texto);                                       // nunca el texto de los mensajes
-        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "tipo" },
+        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "telefonoMostrar", "tipo" },
             fila.EnumerateObject().Select(p => p.Name).OrderBy(x => x, StringComparer.Ordinal));      // ni paso del bot, ni ids de paciente ni de profesional
 
         var (_, jSin, _) = await Leads_("?q=" + telSin);

@@ -64,9 +64,9 @@ public class ConfiguradorMenuTests
     {
         var m = Menus(new[] { "configurador" });
 
-        Assert.Equal(new[] { "Configuración[whatsapp,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" }, Resumen(m["configurador"]));
+        Assert.Equal(new[] { "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" }, Resumen(m["configurador"]));
         Assert.Equal(new[] { "Configuración", "Usuarios", "Auditoría" }, m["configurador"].Select(e => e.Grupo ?? e.Texto));
-        Assert.Equal(new[] { "WhatsApp", "Especialidades" }, m["configurador"][0].Items!.Select(i => i.Texto));
+        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades" }, m["configurador"][0].Items!.Select(i => i.Texto));
         Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Solicitudes de registro" }, m["configurador"][1].Items!.Select(i => i.Texto));
     }
 
@@ -149,15 +149,15 @@ public class ConfiguradorMenuTests
         var m = Menus(SesionAdministracion, roles: new[] { "administracion" });
 
         // Sin chats (mensajería no disponible): el grupo CRM solo trae Casos y Derivaciones.
-        Assert.Equal(new[] { "CRM[casos,casosderivaciones]", "Configuración[whatsapp,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        Assert.Equal(new[] { "CRM[casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
             Resumen(m["administracion"]));
         // Con chats: Chats y Leads van PRIMERO dentro de CRM ▾; después Etiquetas, Escalamientos, Casos y Derivaciones.
         var conChats = m["administracion+chats"];
-        Assert.Equal(new[] { "CRM[chats,leads,etiquetas,escalamientos,casos,casosderivaciones]", "Configuración[whatsapp,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        Assert.Equal(new[] { "CRM[chats,leads,etiquetas,escalamientos,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
             Resumen(conChats));
         Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Casos", "Derivaciones" }, Textos(conChats[0]));
         Assert.Equal(new[] { "CRM", "Configuración", "Usuarios", "Auditoría" }, conChats.Select(e => e.Grupo ?? e.Texto));
-        Assert.Equal(new[] { "WhatsApp", "Especialidades" }, Textos(conChats[1]));
+        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades" }, Textos(conChats[1]));
         Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Solicitudes de registro" }, Textos(conChats[2]));
     }
 
