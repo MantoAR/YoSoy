@@ -90,6 +90,35 @@ public class MensajeChatDAO : IMensajeChatDAO
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>Último entrante que no sea un comando de baja, sin columnas de migraciones nuevas.</summary>
+    public DateTime? UltimoEntrante(int idConversacion)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        // Se recorren páginas pequeñas; las bajas usan el mismo reconocedor que los servicios.
+        using var cmd = new SqlCommand(@"
+            SELECT Texto, FechaHora
+            FROM MensajeChat WITH (INDEX(IX_MensajeChat_Conversacion))
+            WHERE IdConversacion = @IdConv AND Direccion = 'Entrante'
+            ORDER BY FechaHora DESC, IdMensaje DESC
+            OFFSET @Desde ROWS FETCH NEXT 20 ROWS ONLY", con);
+        cmd.Parameters.AddWithValue("@IdConv", idConversacion);
+        var desde = cmd.Parameters.Add("@Desde", System.Data.SqlDbType.Int);
+        for (var offset = 0; ; offset += 20)
+        {
+            desde.Value = offset;
+            using var r = cmd.ExecuteReader();
+            var cantidad = 0;
+            while (r.Read())
+            {
+                cantidad++;
+                if (ComandoWhatsApp.EsBaja(r.IsDBNull(0) ? null : r.GetString(0))) continue;
+                return r.GetDateTime(1);
+            }
+            if (cantidad < 20) return null;
+        }
+    }
+
     public bool TieneMensajeEntrante(int idConversacion)
     {
         using var con = Conexion.ObtenerConexion();
