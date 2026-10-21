@@ -18,6 +18,9 @@ public static class Modulos
     public const string Crm = "crm";
     public const string Facturacion = "facturacion";
     public const string Configurador = "configurador";
+    // Vista única (PR 3 del rediseño): NO es un módulo de la base (no existe en Rol.Clave ni se asigna desde Permisos). Es la unión de
+    // Configurador y CRM para quien tiene AMBOS permisos: una sola sesión con una sola vista. Se arma siempre en el servidor, desde la base.
+    public const string Administracion = "administracion";
 
     // Orden en que se muestran en el selector.
     public static readonly IReadOnlyList<string> Todos = new[] { Profesional, Crm, Facturacion, Configurador };
@@ -28,6 +31,7 @@ public static class Modulos
         Crm => "CRM y atención al cliente",
         Facturacion => "Administración de facturación y pagos",
         Configurador => "Configurador",
+        Administracion => "Administración",
         _ => modulo
     };
 
@@ -37,6 +41,7 @@ public static class Modulos
         Crm => "Conversaciones y atención al cliente",
         Facturacion => "Facturación, pagos y liquidaciones",
         Configurador => "Usuarios, permisos y configuración de la organización",
+        Administracion => "Chats y casos, usuarios, permisos, configuración y auditoría",
         _ => ""
     };
 }
@@ -58,11 +63,37 @@ public record AccesosUsuario(int IdUsuario, IReadOnlyList<PermisoAsignado> Permi
     public IReadOnlyList<string> Modulos =>
         global::Modulos.Todos.Where(m => Permisos.Any(p => p.Modulo == m)).ToList();
 
-    public bool TieneModulo(string modulo) => Permisos.Any(p => p.Modulo == modulo);
+    // Tiene la unión (Administración) quien tiene Configurador Y CRM, los dos de verdad en la base: con uno solo no hay vista única.
+    public bool TieneAdministracion => TieneModulo(global::Modulos.Configurador) && TieneModulo(global::Modulos.Crm);
 
-    // Los permisos del usuario dentro de un módulo; van al token como claims de rol.
+    // Los módulos tal como se ofrecen y se emiten: la unión Configurador + CRM se muestra como UNA opción ("Administración") en el lugar del CRM;
+    // los demás (Profesional, Facturación) siguen aparte. Quien tiene solo CRM o solo Configurador los ve como siempre. Si queda un solo
+    // módulo, no hay selector.
+    public IReadOnlyList<string> ModulosVisibles
+    {
+        get
+        {
+            if (!TieneAdministracion) return Modulos;
+            var visibles = new List<string>();
+            foreach (var m in Modulos)
+            {
+                if (m == global::Modulos.Configurador) continue;
+                visibles.Add(m == global::Modulos.Crm ? global::Modulos.Administracion : m);
+            }
+            return visibles;
+        }
+    }
+
+    public bool TieneModulo(string modulo) =>
+        modulo == global::Modulos.Administracion ? TieneAdministracion : Permisos.Any(p => p.Modulo == modulo);
+
+    // Los permisos del usuario dentro de un módulo; van al token como claims de rol. Los de Administración son los de Configurador más los de
+    // CRM y nada más: ningún permiso de Profesional, de auditor ni de Facturación.
     public IReadOnlyList<string> PermisosDe(string modulo) =>
-        Permisos.Where(p => p.Modulo == modulo).Select(p => p.Permiso).Distinct().OrderBy(p => p, StringComparer.Ordinal).ToList();
+        Permisos.Where(p => modulo == global::Modulos.Administracion
+                ? p.Modulo is global::Modulos.Configurador or global::Modulos.Crm
+                : p.Modulo == modulo)
+            .Select(p => p.Permiso).Distinct().OrderBy(p => p, StringComparer.Ordinal).ToList();
 
     // Los privilegios que el usuario tiene sobre alguno de sus permisos de ese módulo.
     public IReadOnlyList<string> PrivilegiosDe(string modulo)
@@ -132,6 +163,9 @@ public static class ResolverSesion
     public static (Resultado resultado, SesionModulo? sesion) Para(AccesosUsuario accesos, string modulo, int? idProfesional)
     {
         if (accesos.Modulos.Count == 0) return (Resultado.SinPermisos, null);
+        // Quien tiene la unión no obtiene un token de Configurador solo ni de CRM solo: pedir cualquiera de los dos (la pestaña del ingreso o
+        // POST /sesion/modulo) da la sesión de Administración. Es la única forma de entrar con esos dos permisos.
+        if (accesos.TieneAdministracion && modulo is global::Modulos.Configurador or global::Modulos.Crm) modulo = global::Modulos.Administracion;
         if (!accesos.TieneModulo(modulo)) return (Resultado.ModuloNoHabilitado, null);
         // El trigger RN-17 ya lo impide en la base; se vuelve a mirar por si la ficha se dio
         // de baja después de asignar el permiso.

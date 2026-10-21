@@ -628,10 +628,29 @@ public class UsuariosAdminBaseRealTests : IDisposable
     }
 
     [Fact]
-    public async Task Quien_tiene_dos_modulos_elige_despues_del_cambio_igual_que_en_el_ingreso()
+    public async Task Quien_tiene_la_union_Configurador_y_CRM_recibe_despues_del_cambio_la_sesion_de_Administracion()
     {
         var id = UsuarioConPermisos("configurador", "crm");
         var tokenCambio = (await Ingresar(id, await Restablecer(id))).J.GetProperty("tokenCambioClave").GetString()!;
+
+        var (r, j) = await CambiarClave(tokenCambio, "UnionAdmin-" + Guid.NewGuid().ToString("N")[..6]);
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.False(j.TryGetProperty("requiereModulo", out _));         // la unión es una sola opción: no hay selector
+        Assert.Equal("administracion", j.GetProperty("modulo").GetString());
+        Assert.False(string.IsNullOrEmpty(j.GetProperty("token").GetString()));
+    }
+
+    [Fact]
+    public async Task Quien_tiene_dos_modulos_distintos_elige_despues_del_cambio_igual_que_en_el_ingreso()
+    {
+        var uFicha = _d.UsuarioDeProfesional(_d.Profesional());
+        foreach (var permiso in new[] { "crm", "profesional" })
+            DatosDePrueba.Ejecutar(@"
+                IF NOT EXISTS (SELECT 1 FROM UsuarioRol ur JOIN Permiso p ON p.IdRol = ur.IdRol WHERE ur.IdUsuario = @u AND p.Clave = @p)
+                    INSERT INTO UsuarioRol (IdUsuario, IdRol) SELECT @u, IdRol FROM Permiso WHERE Clave = @p;
+                INSERT INTO UsuarioPermiso (IdUsuario, IdRol, IdPermiso) SELECT @u, IdRol, IdPermiso FROM Permiso WHERE Clave = @p;", ("@u", uFicha), ("@p", permiso));
+        var tokenCambio = (await Ingresar(uFicha, await Restablecer(uFicha))).J.GetProperty("tokenCambioClave").GetString()!;
 
         var (r, j) = await CambiarClave(tokenCambio, "DosModulos-" + Guid.NewGuid().ToString("N")[..6]);
 
@@ -648,7 +667,7 @@ public class UsuariosAdminBaseRealTests : IDisposable
         var tokenCambio = (await Ingresar(id, await Restablecer(id), "crm")).J.GetProperty("tokenCambioClave").GetString()!;
         var (r, j) = await CambiarClave(tokenCambio, "ConPestania-" + Guid.NewGuid().ToString("N")[..6], "crm");
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("crm", j.GetProperty("modulo").GetString());
+        Assert.Equal("administracion", j.GetProperty("modulo").GetString());   // la pestaña CRM del administrador entra a Administración
 
         var sinPermiso = UsuarioConPermisos("configurador");
         var token2 = (await Ingresar(sinPermiso, await Restablecer(sinPermiso))).J.GetProperty("tokenCambioClave").GetString()!;
