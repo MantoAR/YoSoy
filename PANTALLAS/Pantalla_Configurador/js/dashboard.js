@@ -197,7 +197,8 @@ async function mostrarTab(tab, params = {}) {
     contenido.innerHTML = YS.cargando();
 
     try {
-        if (tab === "usuarios" || tab === "asignaciones") return await renderUsuarios(contenido, params, tab);
+        if (tab === "usuarios")      return await renderListaUsuarios(contenido, params);
+        if (tab === "asignaciones") return await renderUsuarios(contenido, params, tab);
         if (tab === "permisos")     return await renderPermisos(contenido);
         if (tab === "altausuario")  return await renderAltaUsuario(contenido);
         if (tab === "privilegios")  return await renderPrivilegios(contenido);
@@ -467,7 +468,7 @@ function abrirModalCrearUsuario(idProf, datos) {
         <p>Se crea el usuario con el que <strong>${YS.esc(nombre)}</strong> ingresa a YoSoy y queda vinculado a su ficha.</p>
         <div class="ui-form-grid">
             <div class="ui-campo ui-campo--ancho"><label for="campoUsuarioNombre">Nombre de usuario</label>
-                <input type="text" id="campoUsuarioNombre" class="ui-input" maxlength="50" autocomplete="off" value="${YS.esc(sugerirUsuario(prof))}">
+                <input type="text" id="campoUsuarioNombre" class="ui-input" maxlength="50" autocomplete="off" value="${YS.esc(sugerirUsuario(prof?.nombre, prof?.apellido))}">
                 <div class="ui-campo-ayuda">De 3 a 50 caracteres: letras, números, punto, guion o guion bajo.</div></div>
             <div class="ui-campo ui-campo--ancho"><label for="campoUsuarioMail">Mail</label>
                 <input type="email" id="campoUsuarioMail" class="ui-input" maxlength="100" autocomplete="off" value="${YS.esc(prof?.mail || "")}">
@@ -2538,7 +2539,7 @@ async function abrirEditorPermisos(idUsuario) {
                     if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudieron guardar los permisos."), "error"); return; }
                     ctrl.cerrar(true);
                     toast("Permisos guardados. Rigen desde el próximo ingreso de esta persona.");
-                    mostrarTab("permisos");
+                    mostrarTab(tabActual === "usuarios" ? "usuarios" : "permisos");
                 } catch (e) { toast(e.message, "error"); }
             } }
         ]

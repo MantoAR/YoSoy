@@ -142,6 +142,25 @@
 .privilegio-agregar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .privilegio-agregar .ui-campo { min-width: 320px; margin: 0; }
 
+/* ── Configurador › Usuarios: la lista única y sus ventanas (Fase 2, PR 2) ─────── */
+.usr-cargando tbody { opacity: .55; transition: opacity .15s; }
+.usr-fila-inactiva .principal { color: var(--text-3); }
+.usr-menu { z-index: calc(var(--z-desplegable) + 1); min-width: 250px; }
+.usr-lista-aviso { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-2); }
+.usr-clave { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; margin-top: 6px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); }
+.usr-clave code { font-family: var(--mono, ui-monospace, monospace); font-size: 1.25em; letter-spacing: .06em; user-select: all; overflow-wrap: anywhere; }
+.usr-asignar { display: grid; gap: 18px; }
+.usr-subtitulo { margin: 0 0 8px; font-size: var(--fs-lg); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.usr-prof-lista { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.usr-prof-lista--elegir { max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.usr-prof { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); }
+.usr-prof--elegir { cursor: pointer; }
+.usr-prof--elegir:has(input:checked) { border-color: var(--accent); background: var(--surface-2); }
+.usr-prof-texto { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.usr-prof-texto .secundario { font-size: var(--fs-sm); color: var(--text-3, var(--text-2)); }
+.usr-asignar-pie { display: flex; justify-content: flex-end; margin-top: 10px; }
+
 /* ── Ventana angosta (la app es para PC; esto evita que se rompa) ── */
 @media (max-width: 900px) {
     .split-view { flex-direction: column; height: auto; }

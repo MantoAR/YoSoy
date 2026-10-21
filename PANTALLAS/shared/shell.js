@@ -71,7 +71,7 @@
                     texto: "Usuarios", items: [
                         { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
                         { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
-                        { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Altas y bajas de pacientes y profesionales" },
+                        { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Todos los usuarios: contraseña, permisos, asignaciones y bajas" },
                         { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" }
                     ]
                 },
