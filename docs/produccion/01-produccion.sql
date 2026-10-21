@@ -2,7 +2,7 @@
    01-produccion.sql — Esquema completo de YoSoy para un servidor nuevo.
 
    Qué es: la base [yosoy] tal como la necesita el código hoy — el script base
-   de la rama `DataBase` más las 23 migraciones de migrations/, consolidados
+   de la rama `DataBase` más las 24 migraciones de migrations/, consolidados
    en un solo archivo con la forma FINAL de cada tabla (no un replay histórico
    de cada ALTER). Pensado para correr UNA vez contra un servidor recién
    instalado, sin nada previo.
@@ -1404,6 +1404,15 @@ GO
 INSERT INTO [dbo].[VersionEsquema] ([Numero], [Archivo], [Origen])
 SELECT 23, N'mapear_usuarios_existentes_a_permisos.sql', 'Script'
 WHERE NOT EXISTS (SELECT 1 FROM [dbo].[VersionEsquema] WHERE [Numero] = 23);
+GO
+
+-- ── Migración 24: cambio obligatorio de contraseña (migrations/add_debe_cambiar_password.sql) ──
+IF COL_LENGTH('dbo.Usuario', 'DebeCambiarPassword') IS NULL
+    ALTER TABLE Usuario ADD DebeCambiarPassword BIT NOT NULL
+        CONSTRAINT DF_Usuario_DebeCambiarPassword DEFAULT (0);
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 24)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (24, N'add_debe_cambiar_password.sql', 'Script');
 GO
 
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────

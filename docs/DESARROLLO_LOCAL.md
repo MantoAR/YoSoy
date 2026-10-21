@@ -93,7 +93,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 ### Qué necesitan
 
 - Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 55 tablas, con
-  el resultado de las 23 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
+  el resultado de las 24 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
   el tipo de consentimiento y el contenido de arranque del chat.
 - **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
   falta `migrations/seed_catalogos.sql`: ese es para servidores reales (ver [`DEPLOY.md`](DEPLOY.md)).
