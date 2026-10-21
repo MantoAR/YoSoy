@@ -134,6 +134,11 @@
             a.href = a.href + "?return=" + encodeURIComponent(retornoPendiente);
         }
 
+        // Si la sesión guardada era de antes de la vista única y no se pudo actualizar, el panel nos trae acá con un motivo: se dice claro.
+        if (new URLSearchParams(location.search).get("motivo") === "sesion") {
+            window.addEventListener("DOMContentLoaded", () => mostrarError("No pudimos actualizar tu sesión. Ingresá de nuevo con tu usuario y contraseña."));
+        }
+
         function seleccionarRol(rol) {
             rolActual = rol;
             document.querySelectorAll(".rol-btn").forEach(b => {

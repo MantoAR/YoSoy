@@ -16,6 +16,25 @@
     if (!YS) { console.error("shell.js necesita shared/ui.js"); return; }
 
     // ── Menús por rol: lo que cada rol ya puede hacer hoy ───────
+    // Grupos de Configuración y Usuarios y la Auditoría: los comparten el menú del Configurador y el de Administración (una sola definición).
+    const GRUPO_CONFIGURACION = {
+        texto: "Configuración", items: [
+            // Ítem de WhatsApp: vincular el número es una configuración independiente del chat
+            // simulado (los avisos y las respuestas por WhatsApp pueden usarse con el simulado apagado).
+            { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono", desc: "Estado de la conexión y código QR" },
+            { id: "especialidades", texto: "Especialidades", icono: "etiqueta" }
+        ]
+    };
+    const GRUPO_USUARIOS = {
+        texto: "Usuarios", items: [
+            { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
+            { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
+            { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Todos los usuarios: contraseña, permisos, asignaciones y bajas" },
+            { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" }
+        ]
+    };
+    const ITEM_AUDITORIA = { id: "auditoria", texto: "Auditoría", titulo: "Auditoría administrativa" };
+
     const MENUS = {
         profesional: {
             etiqueta: "Panel profesional",
@@ -58,30 +77,30 @@
         // El grupo CRM se suma solo si la sesión trae el permiso crm (ver grupoDeChats).
         configurador: {
             etiqueta: "Panel configurador",
-            items: [
-                {
-                    texto: "Configuración", items: [
-                        // Ítem de WhatsApp: vincular el número es una configuración independiente del chat
-                        // simulado (los avisos y las respuestas por WhatsApp pueden usarse con el simulado apagado).
-                        { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono", desc: "Estado de la conexión y código QR" },
-                        { id: "especialidades", texto: "Especialidades", icono: "etiqueta" }
-                    ]
-                },
-                {
-                    texto: "Usuarios", items: [
-                        { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
-                        { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
-                        { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Todos los usuarios: contraseña, permisos, asignaciones y bajas" },
-                        { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" }
-                    ]
-                },
-                { id: "auditoria", texto: "Auditoría", titulo: "Auditoría administrativa" }
-            ],
+            items: [GRUPO_CONFIGURACION, GRUPO_USUARIOS, ITEM_AUDITORIA],
             usuario: []
         },
         // Roles y permisos: el grupo CRM que tenía el Configurador pasa a su propio módulo. Las
         // conversaciones (Chats, Escalamientos, Etiquetas) se suman cuando la mensajería está
         // disponible (GRUPO_CHATS); Agendas, solo con el privilegio Gestión de agendas.
+        // Vista única (Administración = Configurador + CRM): CRM ▾, Configuración ▾, Usuarios ▾ y Auditoría, sin Inicio. Los ítems de chats (Chats, Leads,
+        // Etiquetas, Escalamientos) se suman al principio del grupo CRM cuando la mensajería está disponible (ver grupoDeChats); Turnos y Agendas, con el
+        // privilegio Gestión de agendas (ver menuPara). Grupos, Reglas de derivación, Coberturas, Privilegios, Roles, Recuperación e Inicio siguen fuera del menú.
+        administracion: {
+            etiqueta: "Administración",
+            items: [
+                {
+                    texto: "CRM", items: [
+                        { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
+                        { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" }
+                    ]
+                },
+                GRUPO_CONFIGURACION,
+                GRUPO_USUARIOS,
+                ITEM_AUDITORIA
+            ],
+            usuario: []
+        },
         crm: {
             etiqueta: "CRM y atención al cliente",
             items: [
@@ -105,6 +124,15 @@
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" },
             { id: "etiquetas", texto: "Etiquetas de chats", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" }
+        ]
+    };
+    // Administración: los ítems de conversaciones que se suman AL PRINCIPIO del grupo CRM (Chats y Leads primero).
+    const ITEMS_CHATS_ADMINISTRACION = {
+        texto: "CRM", enGrupo: true, items: [
+            { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
+            { id: "leads", texto: "Leads", icono: "pacientes", desc: "Todas las conversaciones: pacientes y personas sin identificar" },
+            { id: "etiquetas", texto: "Etiquetas", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" },
+            { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
         ]
     };
     // El Configurador que además tiene el módulo CRM (permiso crm en la sesión): Chats en su propio grupo.
@@ -152,18 +180,25 @@
             return { ...base, items: propios };
         }
         if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
+        if (rol === "administracion" && YS.sesion.tienePrivilegio("gestion_agendas")) {
+            // Turnos y Agendas van dentro del grupo CRM, después de Derivaciones.
+            const crm = items.find(it => it.texto === "CRM");
+            crm.items.push({ ...GRUPO_AGENDAS.items[0] }, { ...GRUPO_AGENDAS.items[1], texto: "Agendas" });
+        }
         return { ...base, items };
     }
     // El grupo de conversaciones que corresponde a este módulo, o null si no tiene chats: solo el módulo CRM, o el
     // Configurador que trae el permiso crm. Ni el profesional ni el Configurador sin CRM (el servidor responde 403).
     function grupoDeChats(rol) {
         if (rol === "crm") return GRUPO_CHATS;
+        // Administración: los chats entran DENTRO del grupo CRM (enGrupo), primero Chats y Leads.
+        if (rol === "administracion") return ITEMS_CHATS_ADMINISTRACION;
         if (rol === "configurador" && YS.sesion.tienePermiso("crm")) return GRUPO_CRM_CONFIGURADOR;
         return null;
     }
     // Dónde entra un grupo agregado "al principio": después de Inicio si el menú lo tiene, o primero si no.
     const posicionInicial = items => items.some(it => it.id === "inicio") ? 1 : 0;
-    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente" };
+    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente", administracion: "Administración" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
     let cfg = null, menu = null, actual = null, primeraMarca = true;
@@ -578,6 +613,18 @@
         if (YS.whatsappEstado) conBandeja(); else cargar("/pantallas/shared/whatsapp-estado.js", conBandeja);
     }
 
+    // Suma ítems AL PRINCIPIO de un grupo que ya está dibujado (Administración: Chats y Leads dentro de CRM ▾), en la barra y en el menú compacto.
+    function agregarItemsAlGrupo(grupoItems) {
+        const grupo = menu.items.find(it => it.items && it.texto === grupoItems.texto);
+        if (!grupo || grupoItems.items.every(s => grupo.items.some(x => x.id === s.id))) return;
+        grupo.items.unshift(...grupoItems.items);
+        const panel = grupo._btn?.nextElementSibling;
+        [...grupoItems.items].reverse().forEach(s => panel?.insertBefore(itemDesplegable(s), panel.firstChild));
+        const compacto = els.barra.querySelector(".ui-menu-compacto .ui-desplegable");
+        const titulo = compacto && [...compacto.children].find(n => n.classList.contains("ui-desplegable-titulo") && n.textContent === grupo.texto);
+        [...grupoItems.items].reverse().forEach(s => titulo?.after(itemDesplegable(s)));
+    }
+
     // Suma un grupo al menú ya dibujado, sin reconstruir la barra (las conversaciones llegan
     // después, cuando /capacidades confirma que la mensajería está disponible).
     function agregarGrupo(grupo, alPrincipio = false) {
@@ -624,6 +671,11 @@
                 resolverUsuario({ nombre: null });
                 return false;
             }
+            // Vista única: una sesión guardada antes de que existiera Administración se actualiza UNA vez por carga (ver YS.sesion.actualizarSesion).
+            if (cfg.rol !== "paciente" && YS.sesion.sesionAntigua()) {
+                YS.sesion.actualizarSesion().then(ok => { if (ok) location.reload(); });
+                return false;
+            }
             if (!YS.sesion.requerir(cfg.rol)) return false;
             menu = menuPara(cfg.rol);
             // Si "inicio" no está en esta pantalla (Admisión/Auditoría del profesional), se
@@ -651,7 +703,7 @@
                 capacidades = YS.api("/capacidades").catch(() => ({ mensajeria: false }));
                 capacidades.then(c => {
                     if (!c?.mensajeria) return;
-                    agregarGrupo(grupoChats, true);
+                    if (grupoChats.enGrupo) agregarItemsAlGrupo(grupoChats); else agregarGrupo(grupoChats, true);
                     // Si la URL ya pedía una sección de este grupo antes de que esto
                     // resolviera, el menú todavía no la tenía y ir() cayó a cfg.inicial
                     // (y de paso pisó la URL con "#inicio", ver hashInicial más arriba):
@@ -673,7 +725,11 @@
                     cfg.navegar(destino, params);
                 };
                 window.addEventListener("hashchange", ir);
-                ir();
+                // Aterrizaje de Administración: Chats si la mensajería está disponible, si no la sección de siempre (Usuarios). Sin #hash pedido, se espera
+                // a saberlo (un instante) para no dibujar Usuarios y saltar a Chats.
+                if (grupoChats && cfg.inicialConChats && !hashInicial.id)
+                    capacidades.then(c => { if (c?.mensajeria) cfg.inicial = cfg.inicialConChats; }).finally(ir);
+                else ir();
             } else if (cfg.activo) {
                 marcar(cfg.activo, { titulo: cfg.titulo, subtitulo: cfg.subtitulo });
             }
@@ -702,6 +758,10 @@
             const m = menuPara(rol);
             if (!m) return null;
             const g = conChats ? grupoDeChats(rol) : null;
+            if (g?.enGrupo) {
+                const items = m.items.map(it => it.texto === g.texto && it.items ? { ...it, items: [...g.items, ...it.items] } : it);
+                return { ...m, items };
+            }
             return g ? { ...m, items: [...m.items.slice(0, posicionInicial(m.items)), g, ...m.items.slice(posicionInicial(m.items))] } : m;
         },
         /** Etapa 2: diálogo para pasar a otro módulo (lo usa el menú del usuario y en_construccion.html). */
