@@ -203,6 +203,7 @@ async function mostrarTab(tab, params = {}) {
 
     try {
         if (tab === "usuarios")      return await renderListaUsuarios(contenido, params);
+        if (tab === "leads")        return await renderLeads(contenido);
         if (tab === "asignaciones") return await renderUsuarios(contenido, params, tab);
         if (tab === "permisos")     return await renderPermisos(contenido);
         if (tab === "altausuario")  return await renderAltaUsuario(contenido);

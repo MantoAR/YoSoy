@@ -234,6 +234,33 @@ public static class MensajeriaEndpoints
             return lista;
         });
 
+        // Leads (vista única de Administración): las mismas conversaciones que /conversaciones, como tabla de solo lectura con búsqueda, filtros por tipo
+        // ("paciente" / "sin-identificar"), estado y etiqueta, y paginación en el servidor. Misma pertenencia que /conversaciones; respuesta reducida (sin
+        // el texto de los mensajes ni el paso del bot) y, como /conversaciones, sin auditoría de lectura (la apertura de una conversación sí se audita, en Chats).
+        // Va en este grupo (Solo CRM): lo ve quien tiene el rol CRM, es decir el CRM y Administración; el menú de Leads existe solo en Administración.
+        g.MapGet("/leads", (string? q, string? tipo, string? estado, int? idEtiqueta, int? pagina, int? cantidad, HttpContext ctx, IConversacionDAO conversaciones) =>
+        {
+            var (filtro, error) = Leads.Normalizar(q, tipo, estado, idEtiqueta, pagina, cantidad);
+            if (filtro is null) return Results.Json(new { mensaje = error }, statusCode: 400);
+            var lista = VisibilidadConversacion.Filtrar(ctx, conversaciones.ListarResumen(filtro.Estado));
+            var etiquetas = new EtiquetaConversacionDAO().ObtenerTodasLasAsignaciones();
+            foreach (var c in lista)
+                if (etiquetas.TryGetValue(c.IdConversacion, out var ids)) c.IdsEtiquetas = ids;
+            var (total, filas) = Leads.Filtrar(lista, filtro);
+            // Una página que ya no existe (por ejemplo, se cerraron conversaciones) vuelve a la primera.
+            if (filas.Count == 0 && filtro.Pagina > 1)
+            {
+                filtro = filtro with { Pagina = 1 };
+                (total, filas) = Leads.Filtrar(lista, filtro);
+            }
+            return Results.Ok(new
+            {
+                total, pagina = filtro.Pagina, cantidad = filtro.Cantidad,
+                paginas = (int)Math.Ceiling(total / (double)filtro.Cantidad),
+                filas
+            });
+        });
+
         // 404 (no 403) cuando no hay pertenencia: no confirma que la conversación existe.
         g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
         {
