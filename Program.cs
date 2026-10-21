@@ -751,20 +751,20 @@ app.MapPut("/pacientes/{id}", (int id, Paciente p, HttpContext ctx, IdentidadAct
 
 app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
 {
-    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
-    new PacienteDAO().Baja(id);
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Paciente", Entidad = "Paciente", IdEntidad = id });
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+    // La baja de la ficha baja también a su usuario (misma transacción y auditoría): ver Services/BajaFichas.cs.
+    new BajaFichasDAO().Baja(TipoFicha.Paciente, id, yo?.IdUsuario, yo?.Modulo ?? yo?.Rol);
     return Results.NoContent();
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
 app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
     var p = new PacienteDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
+    // El alta de la ficha reactiva también a su usuario (simétrica a la baja, misma transacción).
+    if (!new BajaFichasDAO().Alta(TipoFicha.Paciente, id, yo?.IdUsuario, yo?.Modulo ?? yo?.Rol).Existe) return Results.NotFound();
     p.Estado = "Activo";
-    new PacienteDAO().Modificar(p);
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Paciente", Entidad = "Paciente", IdEntidad = id });
     return Results.Ok(p);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -811,9 +811,9 @@ app.MapPut("/profesionales/{id}", (int id, Profesional p, HttpContext ctx, Ident
 
 app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 {
-    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
-    new ProfesionalDAO().Baja(id);
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Baja Profesional", Entidad = "Profesional", IdEntidad = id });
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
+    // La baja de la ficha baja también a su usuario (misma transacción y auditoría): ver Services/BajaFichas.cs.
+    new BajaFichasDAO().Baja(TipoFicha.Profesional, id, yo?.IdUsuario, yo?.Modulo ?? yo?.Rol);
     return Results.NoContent();
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
@@ -822,12 +822,12 @@ app.MapDelete("/profesionales/{id}", (int id, HttpContext ctx) =>
 // desde "Mi perfil" — no está en el alcance de este grupo.
 app.MapPut("/profesionales/{id}/alta", (int id, HttpContext ctx) =>
 {
-    int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+    var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
     var p = new ProfesionalDAO().ObtenerPorId(id);
     if (p is null) return Results.NotFound();
+    // El alta de la ficha reactiva también a su usuario (simétrica a la baja, misma transacción).
+    if (!new BajaFichasDAO().Alta(TipoFicha.Profesional, id, yo?.IdUsuario, yo?.Modulo ?? yo?.Rol).Existe) return Results.NotFound();
     p.Estado = "Activo";
-    new ProfesionalDAO().Modificar(p);
-    new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Alta Profesional", Entidad = "Profesional", IdEntidad = id });
     return Results.Ok(p);
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 

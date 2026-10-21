@@ -748,8 +748,11 @@ public class UsuariosAdminBaseRealTests : IDisposable
         Assert.Equal(2, Asignaciones(pac));
     }
 
+    private static string? EstadoDeAsignacion(int idPaciente, int idProfesional) =>
+        DatosDePrueba.Escalar("SELECT EstadoAsignacion FROM PacienteProfesional WHERE IdPaciente = @p AND IdProfesional = @r", ("@p", idPaciente), ("@r", idProfesional)) as string;
+
     [Fact]
-    public async Task La_asignacion_deja_EstadoAsignacion_como_la_de_Admision()
+    public async Task La_asignacion_del_Configurador_queda_Confirmada_y_la_de_Admision_sigue_vacia()
     {
         var (pac, p1, _) = PacienteYDosProfesionales();
         var pacAdmision = _d.Paciente();
@@ -757,10 +760,56 @@ public class UsuariosAdminBaseRealTests : IDisposable
         _d.AlLimpiar("PacienteProfesional", "IdPaciente", pacAdmision);
 
         await Asignar(pac, p1);
-        new PacienteProfesionalDAO().Asignar(pacAdmision, p1);          // lo que ejecuta POST /pacientes/{id}/profesionales (Admisión)
+        new PacienteProfesionalDAO().Asignar(pacAdmision, p1);          // lo que ejecuta POST /pacientes/{id}/profesionales (Admisión): no cambia
 
-        string? Estado(int p) => DatosDePrueba.Escalar("SELECT EstadoAsignacion FROM PacienteProfesional WHERE IdPaciente = @p", ("@p", p)) as string;
-        Assert.Equal(Estado(pacAdmision), Estado(pac));
+        Assert.Equal("Confirmada", EstadoDeAsignacion(pac, p1));
+        Assert.Null(EstadoDeAsignacion(pacAdmision, p1));
+    }
+
+    [Fact]
+    public async Task Si_ya_habia_una_fila_con_otro_estado_la_asignacion_del_Configurador_la_confirma()
+    {
+        var pac = _d.Paciente();
+        var esp = _d.Especialidad();
+        var (pVacio, pNueva, pRechazada, pConfirmada) = (_d.Profesional(esp), _d.Profesional(esp), _d.Profesional(esp), _d.Profesional(esp));
+        _d.AlLimpiar("PacienteProfesional", "IdPaciente", pac);
+        DatosDePrueba.Ejecutar(@"INSERT INTO PacienteProfesional (IdPaciente, IdProfesional, EstadoAsignacion) VALUES
+            (@p, @a, NULL), (@p, @b, 'Nueva'), (@p, @c, 'Rechazada'), (@p, @d, 'Confirmada')",
+            ("@p", pac), ("@a", pVacio), ("@b", pNueva), ("@c", pRechazada), ("@d", pConfirmada));
+
+        var j = await Json(await Asignar(pac, pVacio, pNueva, pRechazada, pConfirmada));
+
+        Assert.Equal(3, j.GetProperty("asignados").GetInt32());          // las tres que no estaban confirmadas
+        Assert.Equal(1, j.GetProperty("sinCambio").GetInt32());          // la que ya lo estaba
+        foreach (var p in new[] { pVacio, pNueva, pRechazada, pConfirmada }) Assert.Equal("Confirmada", EstadoDeAsignacion(pac, p));
+        Assert.Equal(4, Asignaciones(pac));                                // ninguna fila duplicada
+        Assert.Equal(3, Auditoria("Asignación de profesional", pac, "Paciente").Count);
+    }
+
+    [Fact]
+    public async Task El_KPI_de_pacientes_activos_y_la_lista_de_reportes_cuentan_al_paciente_asignado_por_el_Configurador()
+    {
+        var pac = _d.Paciente();
+        var pacAdmision = _d.Paciente();
+        var idProf = _d.Profesional();
+        var uProf = _d.UsuarioDeProfesional(idProf);
+        _d.AlLimpiar("PacienteProfesional", "IdPaciente", pac);
+        _d.AlLimpiar("PacienteProfesional", "IdPaciente", pacAdmision);
+        var clienteProf = DatosDePrueba.Cliente(_fabrica, uProf, Roles.Profesional, idProfesional: idProf);
+
+        async Task<int> PacientesActivos() =>
+            (await Json(await clienteProf.GetAsync($"/reportes/profesional/{idProf}/kpis"))).GetProperty("pacientesActivos").GetInt32();
+        async Task<int[]> ListaDeReportes() => (await Json(await clienteProf.GetAsync($"/reportes/profesional/{idProf}/lista-pacientes")))
+            .EnumerateArray().Select(x => x.GetProperty("idPaciente").GetInt32()).ToArray();
+
+        Assert.Equal(0, await PacientesActivos());
+        await Asignar(pac, idProf);
+        Assert.Equal(1, await PacientesActivos());
+        Assert.Contains(pac, await ListaDeReportes());
+        // Contraste: la asignación de Admisión (estado vacío) no cuenta en ese reporte; no es parte de este cambio.
+        new PacienteProfesionalDAO().Asignar(pacAdmision, idProf);
+        Assert.Equal(1, await PacientesActivos());
+        Assert.DoesNotContain(pacAdmision, await ListaDeReportes());
     }
 
     [Fact]
@@ -882,6 +931,140 @@ public class UsuariosAdminBaseRealTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await _admin.DeleteAsync($"/pacientes/{pac}/profesionales/{p1}")).StatusCode);
         Assert.Equal(0, Asignaciones(pac));
+    }
+
+    // ═════════════ Dar de baja la ficha baja también al usuario ═════════════
+
+    private static string EstadoUsuario(int idUsuario) => (string)DatosDePrueba.Escalar("SELECT Estado FROM Usuario WHERE IdUsuario = @i", ("@i", idUsuario))!;
+    private static string EstadoFicha(string tabla, string columna, int id) => (string)DatosDePrueba.Escalar($"SELECT Estado FROM {tabla} WHERE {columna} = @i", ("@i", id))!;
+
+    private void DarPermiso(int idUsuario, string permiso) => DatosDePrueba.Ejecutar(@"
+        INSERT INTO UsuarioRol (IdUsuario, IdRol) SELECT @u, IdRol FROM Permiso WHERE Clave = @p;
+        INSERT INTO UsuarioPermiso (IdUsuario, IdRol, IdPermiso) SELECT @u, IdRol, IdPermiso FROM Permiso WHERE Clave = @p;", ("@u", idUsuario), ("@p", permiso));
+
+    [Fact]
+    public async Task Dar_de_baja_a_un_paciente_baja_tambien_a_su_usuario_y_el_ingreso_responde_como_a_un_inactivo()
+    {
+        var idPac = _d.Paciente();
+        var uPac = _d.UsuarioDePaciente(idPac);
+        Assert.Equal(HttpStatusCode.OK, (await Ingresar(uPac, modulo: "paciente")).R.StatusCode);   // antes de la baja entra
+
+        var r = await _admin.DeleteAsync($"/pacientes/{idPac}");
+
+        Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+        Assert.Equal("Inactivo", EstadoFicha("Paciente", "IdPaciente", idPac));
+        Assert.Equal("Inactivo", EstadoUsuario(uPac));
+        var (ingreso, _) = await Ingresar(uPac, modulo: "paciente");
+        Assert.Equal(HttpStatusCode.Unauthorized, ingreso.StatusCode);                              // igual que un usuario inactivo
+        // Auditoría administrativa: la baja de la ficha y la del usuario, con quién lo hizo.
+        var ficha = Assert.Single(Auditoria("Baja Paciente", idPac, "Paciente"));
+        Assert.Equal((_idAdmin, "Administrativa"), (ficha.IdUsuario, ficha.Categoria));
+        var usuario = Assert.Single(Auditoria("Baja Usuario", uPac));
+        Assert.Equal((_idAdmin, "Administrativa"), (usuario.IdUsuario, usuario.Categoria));
+        Assert.Contains($"paciente #{idPac}", usuario.Detalle!);
+        var (_, lista) = await Lista($"q={_d.Username(uPac)}");
+        Assert.Equal("Inactivo", Fila(lista, uPac).GetProperty("estado").GetString());
+    }
+
+    [Fact]
+    public async Task La_baja_de_un_profesional_baja_su_usuario_y_conserva_sus_asignaciones_como_hoy()
+    {
+        var idProf = _d.Profesional();
+        var uProf = _d.UsuarioDeProfesional(idProf);
+        DarPermiso(uProf, "profesional");
+        var pac1 = _d.Paciente();
+        var pac2 = _d.Paciente();
+        _d.PacienteProfesional(pac1, idProf);
+        _d.PacienteProfesional(pac2, idProf);
+        Assert.Equal(HttpStatusCode.OK, (await Ingresar(uProf, modulo: "profesional")).R.StatusCode);
+
+        var r = await _admin.DeleteAsync($"/profesionales/{idProf}");
+
+        Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+        Assert.Equal("Inactivo", EstadoFicha("Profesional", "IdProfesional", idProf));
+        Assert.Equal("Inactivo", EstadoUsuario(uProf));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Ingresar(uProf, modulo: "profesional")).R.StatusCode);
+        // Lo demás sigue como hoy: las asignaciones no se tocan y el permiso del usuario tampoco.
+        Assert.Equal(1, Asignaciones(pac1));
+        Assert.Equal(1, Asignaciones(pac2));
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM UsuarioPermiso WHERE IdUsuario = @u", ("@u", uProf)));
+        Assert.Single(Auditoria("Baja Profesional", idProf, "Profesional"));
+        Assert.Single(Auditoria("Baja Usuario", uProf));
+    }
+
+    [Fact]
+    public async Task La_baja_no_toca_usuarios_pendientes_ni_registra_de_nuevo_a_uno_que_ya_estaba_inactivo_ni_falla_si_no_hay_usuario()
+    {
+        var pacSinUsuario = _d.Paciente();
+        Assert.Equal(HttpStatusCode.NoContent, (await _admin.DeleteAsync($"/pacientes/{pacSinUsuario}")).StatusCode);
+        Assert.Equal("Inactivo", EstadoFicha("Paciente", "IdPaciente", pacSinUsuario));
+        Assert.Single(Auditoria("Baja Paciente", pacSinUsuario, "Paciente"));
+
+        var idProf = _d.Profesional();
+        var uPendiente = _d.UsuarioDeProfesional(idProf);
+        DatosDePrueba.Ejecutar("UPDATE Usuario SET Estado = 'Pendiente' WHERE IdUsuario = @i", ("@i", uPendiente));
+        await _admin.DeleteAsync($"/profesionales/{idProf}");
+        Assert.Equal("Pendiente", EstadoUsuario(uPendiente));
+        Assert.Empty(Auditoria("Baja Usuario", uPendiente));
+
+        var idPac = _d.Paciente();
+        var uYaInactivo = _d.UsuarioDePaciente(idPac);
+        DatosDePrueba.Ejecutar("UPDATE Usuario SET Estado = 'Inactivo' WHERE IdUsuario = @i", ("@i", uYaInactivo));
+        await _admin.DeleteAsync($"/pacientes/{idPac}");
+        Assert.Empty(Auditoria("Baja Usuario", uYaInactivo));
+
+        // Un id que no existe sigue respondiendo 204, como antes.
+        Assert.Equal(HttpStatusCode.NoContent, (await _admin.DeleteAsync("/pacientes/2000000000")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Dar_de_alta_la_ficha_reactiva_el_usuario_de_forma_simetrica()
+    {
+        var idPac = _d.Paciente();
+        var uPac = _d.UsuarioDePaciente(idPac);
+        var idProf = _d.Profesional();
+        var uProf = _d.UsuarioDeProfesional(idProf);
+        DarPermiso(uProf, "profesional");
+        await _admin.DeleteAsync($"/pacientes/{idPac}");
+        await _admin.DeleteAsync($"/profesionales/{idProf}");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Ingresar(uPac, modulo: "paciente")).R.StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await _admin.PutAsync($"/pacientes/{idPac}/alta", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await _admin.PutAsync($"/profesionales/{idProf}/alta", null)).StatusCode);
+
+        Assert.Equal(("Activo", "Activo"), (EstadoFicha("Paciente", "IdPaciente", idPac), EstadoUsuario(uPac)));
+        Assert.Equal(("Activo", "Activo"), (EstadoFicha("Profesional", "IdProfesional", idProf), EstadoUsuario(uProf)));
+        Assert.Equal(HttpStatusCode.OK, (await Ingresar(uPac, modulo: "paciente")).R.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Ingresar(uProf, modulo: "profesional")).R.StatusCode);
+        var react = Assert.Single(Auditoria("Reactivación Usuario", uPac));
+        Assert.Equal((_idAdmin, "Administrativa"), (react.IdUsuario, react.Categoria));
+        Assert.Single(Auditoria("Alta Paciente", idPac, "Paciente"));
+        Assert.Single(Auditoria("Alta Profesional", idProf, "Profesional"));
+        // Un id que no existe sigue dando 404 y no deja registros.
+        Assert.Equal(HttpStatusCode.NotFound, (await _admin.PutAsync("/pacientes/2000000000/alta", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _admin.PutAsync("/profesionales/2000000000/alta", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Un_usuario_pendiente_no_se_reactiva_con_el_alta_de_la_ficha()
+    {
+        var idPac = _d.Paciente(estado: "Inactivo");
+        var u = _d.UsuarioDePaciente(idPac);
+        DatosDePrueba.Ejecutar("UPDATE Usuario SET Estado = 'Pendiente' WHERE IdUsuario = @i", ("@i", u));
+        await _admin.PutAsync($"/pacientes/{idPac}/alta", null);
+        Assert.Equal("Activo", EstadoFicha("Paciente", "IdPaciente", idPac));
+        Assert.Equal("Pendiente", EstadoUsuario(u));
+    }
+
+    [Fact]
+    public async Task Solo_el_Configurador_da_de_baja_o_de_alta_y_el_resto_no_cambia_nada()
+    {
+        var idPac = _d.Paciente();
+        var uPac = _d.UsuarioDePaciente(idPac);
+        var crm = DatosDePrueba.Cliente(_fabrica, _d.Usuario(), Roles.Crm);
+        Assert.Equal(HttpStatusCode.Forbidden, (await crm.DeleteAsync($"/pacientes/{idPac}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _fabrica.CreateClient().DeleteAsync($"/pacientes/{idPac}")).StatusCode);
+        Assert.Equal(("Activo", "Activo"), (EstadoFicha("Paciente", "IdPaciente", idPac), EstadoUsuario(uPac)));
     }
 
     // ═════════════ Autorización de todo lo nuevo ═════════════

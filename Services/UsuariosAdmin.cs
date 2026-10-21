@@ -224,7 +224,7 @@ public class UsuariosAdminDAO
 public static class AuditoriaAdmin
 {
     public static void Insertar(SqlConnection con, SqlTransaction tx, int? idAutor, string accion, string entidad, int idEntidad,
-        string detalle, string? espacio)
+        string? detalle, string? espacio)
     {
         using var cmd = new SqlCommand(@"
             INSERT INTO LogAuditoria (IdUsuario, Accion, Entidad, IdEntidad, Detalle, Categoria, Espacio)
@@ -233,7 +233,7 @@ public static class AuditoriaAdmin
         cmd.Parameters.AddWithValue("@Accion", accion);
         cmd.Parameters.AddWithValue("@Entidad", entidad);
         cmd.Parameters.AddWithValue("@IdEntidad", idEntidad);
-        cmd.Parameters.AddWithValue("@Detalle", detalle.Length <= 500 ? detalle : detalle[..500]);
+        cmd.Parameters.AddWithValue("@Detalle", detalle is null ? DBNull.Value : detalle.Length <= 500 ? detalle : detalle[..500]);
         cmd.Parameters.AddWithValue("@Categoria", CategoriaAuditoria.Administrativa);
         cmd.Parameters.AddWithValue("@Espacio", (object?)espacio ?? DBNull.Value);
         cmd.ExecuteNonQuery();
@@ -350,7 +350,8 @@ public class AsignacionAdminDAO
     }
 
     // Asigna todos o ninguno: el paciente y cada profesional tienen que existir y estar activos. Respeta UNIQUE(IdPaciente, IdProfesional):
-    // quien ya estaba asignado no se repite ni es error. Mismo INSERT que el endpoint de Admisión (sin tocar EstadoAsignacion).
+    // quien ya estaba asignado no se repite ni es error. A diferencia de Admisión (que deja EstadoAsignacion vacío), la asignación del Configurador es
+    // vinculante: queda 'Confirmada' (cuenta en los reportes del profesional). Si ya había una fila con otro estado (vacío, 'Nueva' o 'Rechazada'), la confirma.
     public ResultadoAsignacionAdmin Asignar(int idPaciente, IReadOnlyList<int> idProfesionales, int idAutor, string? espacio)
     {
         using var con = Conexion.ObtenerConexion();
@@ -386,9 +387,15 @@ public class AsignacionAdminDAO
             using var cmd = new SqlCommand(@"
                 IF NOT EXISTS (SELECT 1 FROM PacienteProfesional WHERE IdPaciente = @Pac AND IdProfesional = @Prof)
                 BEGIN
-                    INSERT INTO PacienteProfesional (IdPaciente, IdProfesional) VALUES (@Pac, @Prof);
+                    INSERT INTO PacienteProfesional (IdPaciente, IdProfesional, EstadoAsignacion) VALUES (@Pac, @Prof, 'Confirmada');
                     SELECT 1;
-                END ELSE SELECT 0;", con, tx);
+                END
+                ELSE IF EXISTS (SELECT 1 FROM PacienteProfesional WHERE IdPaciente = @Pac AND IdProfesional = @Prof AND ISNULL(EstadoAsignacion, '') <> 'Confirmada')
+                BEGIN
+                    UPDATE PacienteProfesional SET EstadoAsignacion = 'Confirmada', FechaAsignacion = GETDATE() WHERE IdPaciente = @Pac AND IdProfesional = @Prof;
+                    SELECT 1;
+                END
+                ELSE SELECT 0;", con, tx);
             cmd.Parameters.AddWithValue("@Pac", idPaciente);
             cmd.Parameters.AddWithValue("@Prof", id);
             if ((int)cmd.ExecuteScalar()! == 1)
