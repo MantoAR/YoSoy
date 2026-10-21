@@ -21,6 +21,31 @@ public class ChatsVistaPantallaTests
         Assert.Contains("chatsCerrarContexto", Bandeja);
     }
 
+    // ── Botones muertos: fuera ──────────────────────────────────────────────────────────────
+    [Fact]
+    public void El_boton_mas_de_Participantes_ya_no_existe_ni_queda_su_estilo()
+    {
+        var js = Bandeja;
+        Assert.DoesNotContain("chats-participante-agregar", js);
+        Assert.DoesNotContain("Agregar participante", js);
+        Assert.DoesNotContain("chats-participante-agregar", Estilos);
+        Assert.Contains("chats-participantes", js);                              // la lista de participantes (paciente y profesionales) sigue
+        Assert.Contains(".chats-participante-datos", Estilos);
+    }
+
+    [Fact]
+    public void Ningun_texto_Proximamente_queda_en_Chats()
+    {
+        foreach (var (nombre, texto) in new[]
+        {
+            ("bandeja.js", Bandeja), ("bandeja.css", Estilos), ("chat.js", Leer("Pantalla_ChatSimulado", "js", "chat.js")),
+            ("index.html de Chats", Leer("Pantalla_ChatSimulado", "index.html")), ("plantillas.json", Leer("Pantalla_ChatSimulado", "plantillas.json"))
+        })
+            Assert.False(texto.Contains("próximamente", StringComparison.OrdinalIgnoreCase), $"{nombre} todavía dice 'Próximamente'");
+        // Y ningún botón queda deshabilitado de entrada en la bandeja: los que se deshabilitan lo hacen por una razón (conversación cerrada, WhatsApp sin conexión, falta la migración 25...) en el código, no en el HTML fijo.
+        Assert.DoesNotMatch(@"<button[^>]*\sdisabled[\s>]", Bandeja);
+    }
+
     // ── Teléfono en formato WhatsApp ────────────────────────────────────────────────────────
     [Fact]
     public void El_telefono_se_muestra_como_lo_manda_el_servidor_en_la_lista_el_encabezado_el_panel_y_los_avisos()

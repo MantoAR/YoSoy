@@ -241,18 +241,12 @@
 .chats-atajos td:first-child { white-space: nowrap; }
 .chats-dato-vacio { color: var(--text-4); }
 
-/* PARTICIPANTES: paciente y profesional(es), con iniciales. El "+" para sumar a alguien más
-   queda deshabilitado (fase posterior). */
+/* PARTICIPANTES: paciente y profesional(es), con iniciales. */
 .chats-participantes { display: flex; flex-direction: column; gap: 8px; }
 .chats-participante { display: flex; align-items: center; gap: 10px; }
 .chats-participante-datos { display: flex; flex-direction: column; min-width: 0; }
 .chats-participante-datos span { font-size: var(--fs-md); font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chats-participante-datos small { font-size: var(--fs-sm); color: var(--text-3); }
-.chats-participante-agregar {
-    align-self: flex-start; width: 28px; height: 28px; border-radius: 50%;
-    border: 1px dashed var(--border-strong); background: none; color: var(--text-4);
-    font-size: 16px; line-height: 1; cursor: not-allowed;
-}
 
 /* Etiquetas de la conversación (panel de contexto) */
 .chats-contexto-etiquetas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 2px; }

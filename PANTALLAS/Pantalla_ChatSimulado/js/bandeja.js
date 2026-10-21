@@ -982,7 +982,6 @@
                                 ${YS.avatar(pp.nombre, pp.nombre)}
                                 <div class="chats-participante-datos"><span>${YS.esc(pp.nombre)}</span><small>${YS.esc(pp.sub)}</small></div>
                             </div>`).join("")}
-                        <button class="chats-participante-agregar" type="button" disabled title="Próximamente" aria-label="Agregar participante">+</button>
                     </div>
                 </div>
                 <div class="chats-contexto-seccion">

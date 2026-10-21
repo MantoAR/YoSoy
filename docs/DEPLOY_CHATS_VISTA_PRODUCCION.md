@@ -20,7 +20,7 @@ Runbook para llevar a producción la **Fase 1 de Chats v2**: poder **vincular un
 | **Quién responde / Tomar control** | El panel dice **Bot**, **IA** o **Persona** (lo calcula el servidor; "IA" no aparece hasta que exista). **Tomar control** apaga la IA de esa conversación y, en modo **Asistente**, pasa una conversación `Activa` a "Escalada a persona" (el mecanismo que ya frena al asistente); en modo **Personal** solo apaga la IA. **El asistente de reglas no depende del interruptor de IA y no cambia** |
 | **Migración 25 (opcional)** | `Conversacion.IaActiva BIT NOT NULL DEFAULT 0` y la versión 25 en `VersionEsquema`, en **una transacción**, idempotente. **La API anda sin ella** (no la lee ni la escribe; el interruptor por conversación responde 409 "falta la migración 25"): se puede aplicar **antes o después** de publicar. Deshacer: `docs/produccion/deshacer-migracion-25.sql` |
 | **Carrera de `Guardar`** | `ConversacionDAO.Guardar` ya no escribe `IdPaciente` a ciegas: un mensaje que entra (o el asistente) con una copia vieja **no pisa un vínculo hecho a mano ni deshace una desvinculación**. El comportamiento del asistente no cambia |
-| **Pantallas** | Panel del lead con "Vincular con un paciente", sugerencias, "Desvincular", "Quién responde", "Tomar control", interruptor de IA y "Ver ficha" (solo Administración, hacia Usuarios); Configuración › Asistente de chats. **Sale "Configurar vista"** (era un texto deshabilitado: no guardaba nada, no hay tabla ni dato que borrar) |
+| **Pantallas** | Panel del lead con "Vincular con un paciente", sugerencias, "Desvincular", "Quién responde", "Tomar control", interruptor de IA y "Ver ficha" (solo Administración, hacia Usuarios); Configuración › Asistente de chats. **Salen "Configurar vista"** (era un texto deshabilitado: no guardaba nada, no hay tabla ni dato que borrar) **y el botón "+" de Participantes** (deshabilitado, "Próximamente") |
 | **No cambia** | El **CRM puro**: ingreso, menú (sin Leads) y permisos. El **Configurador solo** (sigue en 403 en Chats, como decidió la D2). **Profesional, Paciente y Facturación** (403 en todo `/mensajeria` y en el interruptor global). El QR de WhatsApp. El asistente de reglas. `whatsapp-service`, Caddy, variables de entorno (`.env`): **no se tocan** |
 
 ## Descartado por ahora: la migración 26 (`Conversacion.TelefonoWhatsApp`)
@@ -305,7 +305,7 @@ sqlcmd -S localhost -d yosoy -U sa -C -I -b -f 65001 -i ~/deshacer-migracion-25.
 - **La búsqueda de pacientes no se audita** (el texto buscado es un dato personal); lo que se limita es la cantidad de pedidos (30 por minuto por IP). Vincular y desvincular **sí** se auditan.
 - **Una escritura vieja de otra parte (el asistente) todavía puede reponer el paso o el contexto del flujo** de una conversación recién desvinculada; no pisa el vínculo ni la IA. Es inofensivo: el asistente vuelve a pedir identificarse.
 - **Ver ficha** existe solo en la sesión Administración (lleva a Usuarios, del Configurador). El CRM puro no lo tiene: no hay adónde llevarlo, y el panel ya muestra lo que su rol puede ver.
-- **El botón "+" de Participantes** (deshabilitado, "Próximamente") no se tocó.
+- **Se sacó también el botón "+" de Participantes** (estaba deshabilitado, con "Próximamente"): en Chats no queda ningún botón muerto ni texto "Próximamente".
 
 ---
 
