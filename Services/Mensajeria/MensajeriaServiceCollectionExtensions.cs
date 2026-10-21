@@ -92,6 +92,11 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<IDatosMensajeria, DatosMensajeriaDAO>();
         services.AddSingleton<ITurnoRepositorio, TurnoRepositorioDAO>();
 
+        // Chats v2, Fase 1: vincular una conversación con un paciente a mano y el interruptor de IA (global y por conversación).
+        services.AddSingleton<IVinculoConversacionDAO, VinculoConversacionDAO>();
+        services.AddSingleton<IIaConversacionDAO, IaConversacionDAO>();
+        services.AddSingleton<IConfiguracionIaChats, ConfiguracionOrganizacionDAO>();
+
         // Consentimiento de los avisos por WhatsApp (tabla ConsentimientoWhatsApp): las reglas, el texto versionado y la auditoría. El mismo
         // servicio responde a NotificadorTurnos (¿qué le mando a este paciente?) y a BotReservasService (llegó una BAJA).
         services.AddSingleton<IConsentimientoWhatsAppRepositorio, ConsentimientoWhatsAppDAO>();

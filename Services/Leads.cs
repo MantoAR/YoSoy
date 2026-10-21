@@ -7,7 +7,7 @@ using System.Text;
 // nunca el texto de los mensajes, ni el paso del bot, ni datos clínicos. Como /conversaciones, leer la lista no deja registro de auditoría; abrir una
 // conversación sí (lo hace la bandeja de Chats al abrirla, igual que siempre).
 public record LeadFila(int IdConversacion, string? Nombre, string? NombreContacto, string Telefono, string Tipo, string Canal, string Estado,
-    IReadOnlyList<int> IdsEtiquetas, int NoLeidos, DateTime FechaUltimaActividad);
+    IReadOnlyList<int> IdsEtiquetas, int NoLeidos, DateTime FechaUltimaActividad, string? TelefonoMostrar = null);
 
 public record FiltroLeads(IReadOnlyList<string> Palabras, string Tipo, string? Estado, int? IdEtiqueta, int Pagina, int Cantidad);
 
@@ -74,7 +74,7 @@ public static class Leads
         var todas = conversaciones.Where(Coincide).ToList();
         var pagina = todas.Skip((f.Pagina - 1) * f.Cantidad).Take(f.Cantidad)
             .Select(c => new LeadFila(c.IdConversacion, c.NombrePaciente, c.NombreContacto, c.Telefono, c.IdPaciente is null ? "sin-identificar" : "paciente",
-                c.Canal, c.Estado, c.IdsEtiquetas, c.NoLeidos, c.FechaUltimaActividad))
+                c.Canal, c.Estado, c.IdsEtiquetas, c.NoLeidos, c.FechaUltimaActividad, TelefonoWhatsApp.Formatear(c.Telefono)))
             .ToList();
         return (todas.Count, pagina);
     }

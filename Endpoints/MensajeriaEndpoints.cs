@@ -267,7 +267,7 @@ public static class MensajeriaEndpoints
             var c = conversaciones.ObtenerPorId(id);
             return c is null || !VisibilidadConversacion.Puede(ctx, c)
                 ? Results.NotFound()
-                : Results.Ok(new { c.IdConversacion, c.Telefono, c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
+                : Results.Ok(new { c.IdConversacion, c.Telefono, telefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono), c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
         });
 
         // Panel derecho del modo administrador. Solo los datos que necesita la vista
@@ -289,7 +289,8 @@ public static class MensajeriaEndpoints
             if (p is null)
                 return Results.Ok(new { c.IdConversacion, c.Telefono, c.Estado, c.Canal, c.FechaCreacion, c.NombreContacto, paciente = (object?)null,
                                         profesionales = Array.Empty<object>(), proximoTurno = (object?)null,
-                                        c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado });
+                                        c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado,
+                                        chat = ChatsVinculoEndpoints.DatosDelPanel(c, http) });
 
             var proximo = datos.TurnosProximos(p.IdPaciente, reloj.GetLocalNow().DateTime).FirstOrDefault();
             return Results.Ok(new
@@ -303,7 +304,8 @@ public static class MensajeriaEndpoints
                     proximo.IdTurno, proximo.Momento, proximo.NombreProfesional,
                     Modalidad = proximo.Modalidad ?? "Virtual", proximo.Estado
                 },
-                c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado
+                c.IdProfesionalAsignado, nombreProfesionalAsignado = nombreAsignado,
+                chat = ChatsVinculoEndpoints.DatosDelPanel(c, http)
             });
         });
 
@@ -665,6 +667,10 @@ public static class MensajeriaEndpoints
             dao.Baja(id);
             return Results.NoContent();
         });
+
+        // Chats v2, Fase 1: vincular una conversación con un paciente, interruptor de IA y tomar control (Endpoints/ChatsVinculoEndpoints.cs), y el interruptor global de IA (Configurador).
+        g.MapChatsVinculo();
+        app.MapConfiguracionChats();
 
         return app;
     }

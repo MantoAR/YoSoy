@@ -11,7 +11,7 @@
       - usar la base "yosoy" (la de desarrollo, con datos reales);
       - seguir si la base ya existe (nunca pisa ni completa una base existente).
 
-    El esquema ya trae el resultado de las 17 migraciones de migrations\. La base queda sin datos propios (el esquema
+    El esquema ya trae el resultado de las migraciones 1 a 25 de migrations\. La base queda sin datos propios (el esquema
     solo siembra el tipo de consentimiento y el contenido de arranque del chat) y así tiene que estar: los tests crean y
     borran sus filas, no hace falta migrations\seed_catalogos.sql.
 
@@ -41,6 +41,14 @@
         .\Scripts\correr-tests.ps1 -Base yosoy_test_16 -Filtro 'Migracion!=17'
     Se puede combinar con -SinConsentimientoWhatsApp. Solo toca la base que este mismo comando acaba de crear.
 
+.PARAMETER SinMigracion25
+    Después de armar el esquema deshace la migración 25 (el interruptor de IA por conversación de Chats v2): borra la restricción por defecto y la columna
+    Conversacion.IaActiva y la fila 25 de VersionEsquema. La base queda como producción mientras no se aplique esa migración (con -SinConsentimientoWhatsApp es la
+    FORMA DE PRODUCCIÓN: 54 tablas, versión 24). Sirve para ensayar migrations\add_conversacion_ia.sql y su deshacer, y para comprobar que la API anda sin la columna:
+        .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_prod -SinConsentimientoWhatsApp -SinMigracion25
+        .\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=25&Tabla!=ConsentimientoWhatsApp'
+    Solo toca la base que este mismo comando acaba de crear.
+
 .EXAMPLE
     .\Scripts\crear-base-de-pruebas.ps1
 
@@ -58,7 +66,8 @@ param(
     [string]$Servidor = '.\SQLEXPRESS',
     [string]$Base = 'yosoy_test',
     [switch]$SinConsentimientoWhatsApp,
-    [switch]$SinMigracion17
+    [switch]$SinMigracion17,
+    [switch]$SinMigracion25
 )
 
 Set-StrictMode -Version Latest
@@ -148,6 +157,15 @@ if ($SinMigracion17) {
     if ($LASTEXITCODE -ne 0) { throw "No pude deshacer la migración 17 en '$Base' (código $LASTEXITCODE). La base quedó con las columnas nuevas: borrala antes de repetir." }
 }
 
+# ── 4d) Sin la migración 25 (solo en la base que acabamos de crear) ──────────────────────────────────────────────────
+# El orden es el de docs\produccion\deshacer-migracion-25.sql: la restricción por defecto, la columna y la fila de la versión.
+if ($SinMigracion25) {
+    Write-Host "3d/4 Deshaciendo la migración 25 en '$Base' (la base queda como producción sin ella)..."
+    $deshacer25 = 'ALTER TABLE dbo.Conversacion DROP CONSTRAINT DF_Conversacion_IaActiva; ALTER TABLE dbo.Conversacion DROP COLUMN IaActiva; DELETE FROM dbo.VersionEsquema WHERE Numero = 25;'
+    & sqlcmd -S $Servidor -d $Base -E -C -I -b -Q $deshacer25 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "No pude deshacer la migración 25 en '$Base' (código $LASTEXITCODE). La base quedó con la columna nueva: borrala antes de repetir." }
+}
+
 # ── 5) Verificar: tiene que tener 55 tablas (y las columnas de la migración 17, salvo con -SinMigracion17) ───────────────
 Write-Host '4/4 Verificando el esquema...'
 $cuenta = "$(Invoke-Consulta -EnBase $Base -Consulta 'SET NOCOUNT ON; SELECT COUNT(*) FROM sys.tables')".Trim()
@@ -162,6 +180,13 @@ if ($columnas17 -ne "$columnasEsperadas") {
     throw "La base '$Base' quedó con $columnas17 de las 3 columnas de la migración 17 y se esperaban $columnasEsperadas. La dejo para que la mires; borrala antes de repetir (ver docs\DESARROLLO_LOCAL.md)."
 }
 
+$columna25 = "$(Invoke-Consulta -EnBase $Base -Consulta "SET NOCOUNT ON; SELECT CASE WHEN COL_LENGTH('dbo.Conversacion', 'IaActiva') IS NULL THEN 0 ELSE 1 END")".Trim()
+$columna25Esperada = if ($SinMigracion25) { 0 } else { 1 }
+if ($columna25 -ne "$columna25Esperada") {
+    throw "La base '$Base' tiene Conversacion.IaActiva = $columna25 (1 = existe) y se esperaba $columna25Esperada. La dejo para que la mires; borrala antes de repetir (ver docs\DESARROLLO_LOCAL.md)."
+}
+
 $detalle = if ($SinMigracion17) { ' y sin las columnas de la migración 17' } else { '' }
+if ($SinMigracion25) { $detalle += ' y sin la migración 25' }
 Write-Host "Listo: '$Base' en '$Servidor', con $tablas tablas$detalle y sin datos propios (el esquema solo siembra el tipo de consentimiento y el contenido de arranque del chat)." -ForegroundColor Green
 Write-Host "Correr los tests contra ella:  .\Scripts\correr-tests.ps1 -Servidor '$Servidor' -Base $Base"

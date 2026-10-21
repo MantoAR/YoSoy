@@ -14,4 +14,7 @@ public class Conversacion
     public int? IdProfesionalAsignado { get; set; }
     // El nombre del perfil de WhatsApp de quien escribe (migración 17; solo con ModoAtencion = "Personal"). Se guarda acá y NUNCA va a un log ni a la auditoría.
     public string? NombreContacto { get; set; }
+    // El paciente que tenía la conversación cuando se LEYÓ de la base (no se guarda). ConversacionDAO.Guardar lo usa para escribir IdPaciente solo si quien la leyó lo cambió: así un
+    // vínculo hecho a mano (o deshecho) mientras tanto no se pisa con la copia vieja.
+    public int? IdPacienteAlLeer { get; set; }
 }

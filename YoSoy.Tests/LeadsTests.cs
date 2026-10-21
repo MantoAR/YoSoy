@@ -88,7 +88,7 @@ public class LeadsUnidadTests
         var json = JsonSerializer.Serialize(fila);
         Assert.DoesNotContain("SECRETO", json);
         Assert.DoesNotContain("MenuPrincipal", json);
-        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "tipo" },
+        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "telefonoMostrar", "tipo" },
             JsonDocument.Parse(JsonSerializer.Serialize(fila, new JsonSerializerOptions(JsonSerializerDefaults.Web))).RootElement.EnumerateObject().Select(p => p.Name).OrderBy(x => x, StringComparer.Ordinal));
     }
 }
@@ -154,7 +154,7 @@ public class LeadsBaseRealTests : IDisposable
         Assert.Equal(tel, fila.GetProperty("telefono").GetString());                                   // el teléfono completo
         Assert.Equal(1, fila.GetProperty("noLeidos").GetInt32());
         Assert.DoesNotContain("TEXTO-QUE-NO-DEBE-SALIR", texto);                                       // nunca el texto de los mensajes
-        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "tipo" },
+        Assert.Equal(new[] { "canal", "estado", "fechaUltimaActividad", "idConversacion", "idsEtiquetas", "noLeidos", "nombre", "nombreContacto", "telefono", "telefonoMostrar", "tipo" },
             fila.EnumerateObject().Select(p => p.Name).OrderBy(x => x, StringComparer.Ordinal));      // ni paso del bot, ni ids de paciente ni de profesional
 
         var (_, jSin, _) = await Leads_("?q=" + telSin);

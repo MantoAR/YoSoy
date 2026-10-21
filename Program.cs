@@ -142,6 +142,13 @@ builder.Services.AddRateLimiter(opt =>
         {
             Window = TimeSpan.FromMinutes(5), PermitLimit = 10, QueueLimit = 0
         }));
+    // Buscador de pacientes para vincular una conversación (Chats): ya exige sesión de CRM/Administración; el límite por IP frena que se use para recorrer la lista de pacientes.
+    opt.AddPolicy("chats-buscar-paciente", httpContext => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+        factory: _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+        {
+            Window = TimeSpan.FromMinutes(1), PermitLimit = 30, QueueLimit = 0
+        }));
 });
 
 var app = builder.Build();

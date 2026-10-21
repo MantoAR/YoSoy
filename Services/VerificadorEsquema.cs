@@ -11,7 +11,7 @@ using Microsoft.Data.SqlClient;
 //
 // Una migración nueva se agrega al final de Migraciones con su marcador.
 // Opcional = la API anda sin ella (la 16 es el consentimiento de WhatsApp, que está dormido; la
-// 17 solo la lee el modo Personal y avisa sola si falta): no cuenta como faltante.
+// 17 solo la lee el modo Personal y avisa sola si falta; la 25 es el interruptor de IA por conversación, que sin ella responde 409): no cuenta como faltante.
 public record MigracionConocida(int Numero, string Archivo, string Marcador, bool Opcional = false);
 
 public record EstadoEsquema(bool Verificado, IReadOnlyList<MigracionConocida> Faltantes, string? ErrorConexion)
@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 24;   // la última migración que el código necesita
+    public const int VersionRequerida = 25;   // la última migración que el código conoce (la 25 es opcional: sin ella anda, y el interruptor de IA por conversación lo avisa)
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -105,6 +105,8 @@ public class VerificadorEsquema
             "EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 23)"),
         new(24, "add_debe_cambiar_password.sql",
             "COL_LENGTH('dbo.Usuario', 'DebeCambiarPassword') IS NOT NULL"),
+        new(25, "add_conversacion_ia.sql",
+            "COL_LENGTH('dbo.Conversacion', 'IaActiva') IS NOT NULL", Opcional: true),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

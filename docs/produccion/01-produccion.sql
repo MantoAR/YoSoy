@@ -1415,6 +1415,15 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 24)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (24, N'add_debe_cambiar_password.sql', 'Script');
 GO
 
+-- ── Migración 25: interruptor de IA por conversación (migrations/add_conversacion_ia.sql). Opcional ──
+IF COL_LENGTH('dbo.Conversacion', 'IaActiva') IS NULL
+    ALTER TABLE dbo.Conversacion ADD IaActiva BIT NOT NULL
+        CONSTRAINT DF_Conversacion_IaActiva DEFAULT (0);
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 25)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (25, N'add_conversacion_ia.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

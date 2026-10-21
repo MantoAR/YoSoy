@@ -78,16 +78,21 @@ public class ConversacionDAO : IConversacionDAO
         return ObtenerPorTelefono(telefono, canal)!;
     }
 
+    // Escribe la fila con la copia que tiene quien la leyó (el asistente, el modo Personal, los avisos, cerrar y reabrir), que puede ser vieja: una persona pudo vincular o desvincular
+    // a mano en el medio (VinculoConversacionDAO). Por eso IdPaciente NO se escribe a ciegas: solo si quien guarda lo CAMBIÓ (el asistente que identifica a la persona), y aun así solo
+    // sobre una conversación que sigue sin paciente (ISNULL): nunca pisa un vínculo hecho en el medio, y una copia vieja que no lo tocó no deshace una desvinculación.
     public void Guardar(Conversacion c)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(@"
             UPDATE Conversacion
-            SET IdPaciente = @IdPaciente, PasoActual = @Paso, DatosContexto = @Ctx,
+            SET IdPaciente = CASE WHEN @IdPacienteCambio = 1 THEN ISNULL(IdPaciente, @IdPaciente) ELSE IdPaciente END,
+                PasoActual = @Paso, DatosContexto = @Ctx,
                 Estado = @Estado, FechaUltimaActividad = @FUA
             WHERE IdConversacion = @Id", con);
         cmd.Parameters.AddWithValue("@IdPaciente", (object?)c.IdPaciente    ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@IdPacienteCambio", c.IdPaciente != c.IdPacienteAlLeer);
         cmd.Parameters.AddWithValue("@Paso",       c.PasoActual);
         cmd.Parameters.AddWithValue("@Ctx",        (object?)c.DatosContexto ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Estado",     c.Estado);
@@ -136,6 +141,7 @@ public class ConversacionDAO : IConversacionDAO
             {
                 IdConversacion       = (int)r["IdConversacion"],
                 Telefono             = (string)r["Telefono"],
+                TelefonoMostrar      = TelefonoWhatsApp.Formatear((string)r["Telefono"]),
                 IdPaciente           = r["IdPaciente"]     == DBNull.Value ? null : (int)r["IdPaciente"],
                 NombrePaciente       = r["NombrePaciente"] == DBNull.Value ? null : (string)r["NombrePaciente"],
                 NombreContacto       = conNombre && r["NombreContacto"] != DBNull.Value ? (string)r["NombreContacto"] : null,
@@ -226,6 +232,7 @@ public class ConversacionDAO : IConversacionDAO
         FechaUltimaActividad   = (DateTime)r["FechaUltimaActividad"],
         FechaCreacion          = (DateTime)r["FechaCreacion"],
         IdProfesionalAsignado  = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"],
-        NombreContacto         = conNombre && r["NombreContacto"] != DBNull.Value ? (string)r["NombreContacto"] : null
+        NombreContacto         = conNombre && r["NombreContacto"] != DBNull.Value ? (string)r["NombreContacto"] : null,
+        IdPacienteAlLeer       = r["IdPaciente"]    == DBNull.Value ? null : (int)r["IdPaciente"]
     };
 }
