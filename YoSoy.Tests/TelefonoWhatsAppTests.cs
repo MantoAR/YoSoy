@@ -142,3 +142,51 @@ public class PoliticaRespuestaAutomaticaTests
         Assert.Equal("Bot", PoliticaRespuestaAutomatica.QuienResponde(false, "Activa", iaEfectiva: false, iaImplementada: true));
     }
 }
+
+// La sugerencia por teléfono compara con TelefonoArgentino: los formatos reales con los que se carga un teléfono en Paciente.Telefono (texto libre) tienen que dar el mismo número que el
+// de la conversación (que guarda los últimos 10 dígitos). Datos reales de producción al 21/10/2026: 2 pacientes activos con teléfono, los dos con símbolos.
+public class CoincidenciaDeTelefonoTests
+{
+    private const string Conversacion = "3512066471";
+
+    [Theory]
+    [InlineData("351-206-6471")]
+    [InlineData("(351) 15 206-6471")]
+    [InlineData("+54 9 351 206 6471")]
+    [InlineData("0351 15 2066471")]
+    [InlineData("3512066471")]
+    [InlineData("351 2066471")]
+    [InlineData("(0351) 206-6471")]
+    [InlineData("+543512066471")]
+    [InlineData("54 9 351 15 206-6471")]
+    [InlineData("  351.206.6471  ")]
+    public void Los_formatos_reales_de_carga_coinciden_con_el_numero_de_la_conversacion(string cargado) =>
+        Assert.True(CoincidenciaDeTelefono.Coincide(cargado, Conversacion), $"'{cargado}' debería coincidir");
+
+    [Theory]
+    [InlineData("351-206-6472")]               // un dígito distinto
+    [InlineData("(351) 15 206-6472")]
+    [InlineData("+54 9 351 206 6470")]
+    [InlineData("0351 15 2066472")]
+    [InlineData("11 5555-0001")]               // otro número
+    [InlineData("(011) 15 5555-0001")]
+    [InlineData("206-6471")]                   // sin código de área: no alcanza para afirmar que es el mismo
+    [InlineData("llamar a la madre")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void Lo_que_no_es_el_mismo_numero_no_coincide(string? cargado) =>
+        Assert.False(CoincidenciaDeTelefono.Coincide(cargado, Conversacion), $"'{cargado}' no debería coincidir");
+
+    [Fact]
+    public void Una_conversacion_con_un_numero_muy_corto_no_sugiere_a_nadie() =>
+        Assert.False(CoincidenciaDeTelefono.Coincide("12345", "12345"));
+
+    [Theory]
+    [InlineData("1155550001", "(011) 15 5555-0001")]
+    [InlineData("1155550001", "+54 9 11 5555-0001")]
+    [InlineData("1155550001", "011 5555-0001")]
+    [InlineData("2966123456", "02966 15 123456")]
+    [InlineData("2966123456", "(2966) 12-3456")]
+    public void Tambien_con_otros_codigos_de_area(string conversacion, string cargado) =>
+        Assert.True(CoincidenciaDeTelefono.Coincide(cargado, conversacion), $"'{cargado}' debería coincidir con {conversacion}");
+}

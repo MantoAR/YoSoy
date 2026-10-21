@@ -31,8 +31,9 @@ public interface IVinculoConversacionDAO
     ResultadoVinculo Vincular(int idConversacion, int idPaciente, string origen, QuienAudita quien);
 
     /// <summary>
-    /// Desvincula (atómico, con auditoría en la misma transacción): IdPaciente a NULL, paso del bot a Inicio y datos de contexto vacíos. Devuelve el paciente que tenía, o null si no tenía
-    /// ninguno (no hay nada que desvincular) o la conversación no existe. NO toca la IA de la conversación (pendiente de decisión del dueño), ni notas ni etiquetas.
+    /// Desvincula (atómico, con auditoría en la misma transacción): IdPaciente a NULL, paso del bot a Inicio, datos de contexto vacíos y la IA de la conversación APAGADA (el contexto que
+    /// la IA tenía era el de ese paciente; con la migración 25). Devuelve el paciente que tenía, o null si no tenía ninguno (no hay nada que desvincular) o la conversación no existe.
+    /// No toca notas ni etiquetas.
     /// </summary>
     int? Desvincular(int idConversacion, QuienAudita quien);
 }
@@ -74,13 +75,12 @@ public class VinculoConversacionDAO : IVinculoConversacionDAO
         return Leer(cmd).FirstOrDefault();
     }
 
-    // Paciente.Telefono es texto libre: se compara en memoria (como el bot, DatosMensajeriaDAO.PacientesPorTelefono) pero con las DOS lecturas del número: los últimos 10 dígitos y
-    // el número nacional que entiende el 15 ("011 15 5555-0001"), que la primera no reconoce. Dos pacientes con el mismo teléfono (una familia) salen los dos.
+    // Paciente.Telefono es texto libre: se compara en memoria (como el bot, DatosMensajeriaDAO.PacientesPorTelefono) con CoincidenciaDeTelefono, que entiende el 15, el 9, el +54, el 0,
+    // los guiones, los espacios y los paréntesis. Dos pacientes con el mismo teléfono (una familia) salen los dos.
     public List<PacienteParaVincular> SugerirPorTelefono(string telefonoDeLaConversacion, int idConversacion)
     {
-        var buscado = Telefono.Normalizar(telefonoDeLaConversacion);
         var ids = new List<int>();
-        if (buscado.Length < 6) return new List<PacienteParaVincular>();
+        if (Telefono.Normalizar(telefonoDeLaConversacion).Length < 6) return new List<PacienteParaVincular>();
         using (var con = Conexion.ObtenerConexion())
         {
             con.Open();
@@ -88,8 +88,7 @@ public class VinculoConversacionDAO : IVinculoConversacionDAO
             using var r = cmd.ExecuteReader();
             while (r.Read())
             {
-                var tel = (string)r["Telefono"];
-                if (Telefono.Normalizar(tel) == buscado || TelefonoArgentino.Normalizar(tel) == buscado) ids.Add((int)r["IdPaciente"]);
+                if (CoincidenciaDeTelefono.Coincide((string)r["Telefono"], telefonoDeLaConversacion)) ids.Add((int)r["IdPaciente"]);
             }
         }
         if (ids.Count == 0) return new List<PacienteParaVincular>();
@@ -167,8 +166,19 @@ public class VinculoConversacionDAO : IVinculoConversacionDAO
             if (cmd.ExecuteNonQuery() == 0) { tx.Rollback(); return null; }
         }
 
+        // La IA de la conversación se apaga con el vínculo (la columna es de la migración 25: sin ella no hay nada que apagar).
+        bool hayIa;
+        using (var cmd = new SqlCommand("SELECT CASE WHEN COL_LENGTH('dbo.Conversacion', 'IaActiva') IS NULL THEN 0 ELSE 1 END", con, tx))
+            hayIa = Convert.ToInt32(cmd.ExecuteScalar()) == 1;
+        if (hayIa)
+        {
+            using var cmd = new SqlCommand("UPDATE Conversacion SET IaActiva = 0 WHERE IdConversacion = @C", con, tx);
+            cmd.Parameters.Add("@C", SqlDbType.Int).Value = idConversacion;
+            cmd.ExecuteNonQuery();
+        }
+
         AuditoriaChats.Insertar(con, tx, quien, "Desvinculación de conversación de chat y paciente", EntidadAuditoria, idConversacion,
-            $"Conversación #{idConversacion}, paciente #{anterior}");
+            $"Conversación #{idConversacion}, paciente #{anterior}" + (hayIa ? ", IA apagada" : ""));
         tx.Commit();
         return anterior;
     }

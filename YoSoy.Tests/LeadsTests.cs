@@ -71,6 +71,27 @@ public class LeadsUnidadTests
         Assert.Equal(3, Ids("").Length);
     }
 
+    [Theory]
+    [InlineData("+54 9 351 206-6471")]            // como lo muestra la pantalla (WhatsApp)
+    [InlineData("+54 9 351 206 6471")]
+    [InlineData("+54 9 351 20")]                  // y a medio escribir
+    [InlineData("351 206-6471")]
+    [InlineData("(351) 206 6471")]
+    [InlineData("3512066471")]
+    public void Se_encuentra_el_telefono_escrito_como_lo_muestra_WhatsApp(string consulta)
+    {
+        var lista = new[] { C(1, "3512066471", 5, "María Pérez"), C(2, "1155556666", null, null, "juan wa") };
+        Assert.Equal(new[] { 1 }, Leads.Filtrar(lista, F(consulta)).Filas.Select(x => x.IdConversacion).ToArray());
+    }
+
+    [Fact]
+    public void Una_consulta_de_telefono_de_otro_numero_no_trae_nada_y_la_fila_trae_el_telefono_para_mostrar()
+    {
+        var lista = new[] { C(1, "3512066471", 5, "María Pérez") };
+        Assert.Empty(Leads.Filtrar(lista, F("+54 9 351 206-6472")).Filas);
+        Assert.Equal("+54 9 351 206-6471", Leads.Filtrar(lista.Select(c => { c.TelefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono); return c; }), F()).Filas.Single().TelefonoMostrar);
+    }
+
     [Fact]
     public void Filtra_por_etiqueta_y_pagina_en_orden()
     {

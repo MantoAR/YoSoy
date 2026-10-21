@@ -328,6 +328,24 @@ public class ChatsVinculoBaseRealTests : IDisposable
     }
 
     [Fact]
+    public async Task La_sugerencia_encuentra_al_paciente_con_los_formatos_reales_de_carga_del_telefono()
+    {
+        // Producción tiene los teléfonos de los pacientes con símbolos. Todos son el mismo número que la conversación (351 206-6471).
+        var formatos = new[] { "351-206-6471", "(351) 15 206-6471", "+54 9 351 206 6471", "0351 15 2066471" };
+        var canal = "T" + Guid.NewGuid().ToString("N")[..12];            // (Telefono, Canal) es único: un canal propio evita chocar con otra prueba
+        var c = Conversacion("3512066471", canal: canal);
+        var pacientes = formatos.Select((f, i) => Paciente($"Formato {i} " + _d.Marca, telefono: f)).ToArray();
+        var distinto = Paciente("Otro numero " + _d.Marca, telefono: "351-206-6472");
+
+        var panel = await Json(await Cliente(CrmPuro).GetAsync($"/mensajeria/conversaciones/{c}/paciente"));
+
+        var sugeridos = panel.GetProperty("chat").GetProperty("sugerencias").EnumerateArray().Select(s => s.GetProperty("idPaciente").GetInt32()).ToHashSet();
+        foreach (var (p, formato) in pacientes.Zip(formatos)) Assert.True(sugeridos.Contains(p), $"el teléfono cargado como '{formato}' tendría que sugerirse");
+        Assert.DoesNotContain(distinto, sugeridos);
+        Assert.Null(IdPacienteDe(c));                                      // y ninguno quedó vinculado
+    }
+
+    [Fact]
     public async Task Vincular_con_origen_sugerencia_solo_vale_si_el_paciente_esta_entre_las_coincidencias_y_el_registro_lo_dice()
     {
         var telefono = TelefonoNuevo();
@@ -376,7 +394,7 @@ public class ChatsVinculoBaseRealTests : IDisposable
         Assert.Equal(1, (await Json(await cliente.GetAsync($"/mensajeria/conversaciones/{c}/notas"))).GetArrayLength());                      // las notas se conservan
         var fila = Auditoria("ConversacionVinculo", c);
         Assert.Equal("Administrativa", fila.Categoria);
-        Assert.Equal($"Conversación #{c}, paciente #{p}", fila.Detalle);
+        Assert.Equal($"Conversación #{c}, paciente #{p}" + (HayColumnaIa() ? ", IA apagada" : ""), fila.Detalle);
         Assert.DoesNotContain("Elena", fila.Detalle);
 
         var otraVez = await cliente.SendAsync(Pedido("DELETE", $"/mensajeria/conversaciones/{c}/vinculo"));
@@ -388,16 +406,16 @@ public class ChatsVinculoBaseRealTests : IDisposable
 
     [Fact]
     [Trait("Migracion", "25")]
-    public async Task Desvincular_no_toca_el_interruptor_de_IA_de_la_conversacion_pendiente_de_decision()
+    public async Task Desvincular_apaga_la_IA_de_la_conversacion_porque_su_contexto_era_el_de_ese_paciente()
     {
-        // Decisión abierta del dueño (¿desvincular apaga la IA?): mientras no se decida, no cambia nada de la IA. Si se decide que sí, este test cambia a propósito.
         var p = Paciente("Ia Desvincular");
         var c = Conversacion(idPaciente: p);
         DatosDePrueba.Ejecutar("UPDATE Conversacion SET IaActiva = 1 WHERE IdConversacion = @c", ("@c", c));
 
         Assert.Equal(HttpStatusCode.NoContent, (await Cliente(CrmPuro).SendAsync(Pedido("DELETE", $"/mensajeria/conversaciones/{c}/vinculo"))).StatusCode);
 
-        Assert.Equal(1, DatosDePrueba.Contar("SELECT CAST(IaActiva AS INT) FROM Conversacion WHERE IdConversacion = @c", ("@c", c)));
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT CAST(IaActiva AS INT) FROM Conversacion WHERE IdConversacion = @c", ("@c", c)));
+        Assert.EndsWith(", IA apagada", Auditoria("ConversacionVinculo", c).Detalle);
     }
 
     // ── Interruptor de IA y tomar control ───────────────────────────────────────────────────

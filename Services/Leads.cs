@@ -53,6 +53,22 @@ public static class Leads
 
     private static string Digitos(string? texto) => new((texto ?? "").Where(char.IsDigit).ToArray());
 
+    // La pantalla muestra el teléfono como "+54 9 351 206-6471" y lo guardado son los últimos 10 dígitos: quien busca con lo que ve tiene que encontrarlo. Una consulta de varias palabras que es
+    // solo un teléfono (dígitos, espacios, +, guiones y paréntesis) se lee entera, sin el "+54" / "+54 9" del principio, y no palabra por palabra ("54" no es parte del número guardado).
+    private static bool EsConsultaDeTelefono(IReadOnlyList<string> palabras) =>
+        palabras.Count > 1 && palabras.All(p => p.All(ch => char.IsDigit(ch) || ch is '+' or '-' or '(' or ')' or '.')) && Digitos(string.Join("", palabras)).Length >= 3;
+
+    private static string DigitosDeLaConsulta(IReadOnlyList<string> palabras)
+    {
+        var d = Digitos(string.Join("", palabras));
+        if (palabras[0].StartsWith('+'))
+        {
+            if (d.StartsWith("549", StringComparison.Ordinal)) d = d[3..];
+            else if (d.StartsWith("54", StringComparison.Ordinal)) d = d[2..];
+        }
+        return d.Length > 10 ? d[^10..] : d;
+    }
+
     /// <summary>Filtra (ya con la pertenencia aplicada) y devuelve el total y SOLO la página pedida, en el orden que traen las conversaciones.</summary>
     public static (int Total, List<LeadFila> Filas) Filtrar(IEnumerable<ConversacionResumen> conversaciones, FiltroLeads f)
     {
@@ -63,6 +79,7 @@ public static class Leads
             if (f.IdEtiqueta is int tag && !c.IdsEtiquetas.Contains(tag)) return false;
             var texto = Simplificar(c.NombrePaciente + " " + c.NombreContacto + " " + c.Telefono);
             var digitos = Digitos(c.Telefono);
+            if (EsConsultaDeTelefono(f.Palabras)) return digitos.Contains(DigitosDeLaConsulta(f.Palabras));
             return f.Palabras.All(p =>
             {
                 var s = Simplificar(p);
