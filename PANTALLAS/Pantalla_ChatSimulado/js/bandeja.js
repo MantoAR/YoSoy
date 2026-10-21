@@ -268,7 +268,7 @@
         }
         ul.innerHTML = lista.map(c => {
             const quien = c.nombrePaciente || c.nombreContacto;      // el paciente, o el nombre del perfil de WhatsApp si todavía no hay uno vinculado
-            const nombre = quien || formatearTelefono(c.telefono);
+            const nombre = quien || telefonoVer(c);
             const e = infoEstado(c.estado);
             const previa = (c.ultimoMensaje ? (PREFIJO[c.origenUltimoMensaje] || "") + c.ultimoMensaje : "Sin mensajes");
             const clases = ["chats-conv", c.idConversacion === est.actual ? "activa" : "", c.noLeidos ? "no-leida" : "", c.estado === "Urgente" ? "urgente" : ""].join(" ");
@@ -288,7 +288,7 @@
                         <span class="ui-chip ui-chip--${e.chip}">${YS.esc(e.texto)}</span>
                         ${(c.idsEtiquetas || []).map(ide => est.etiquetasCatalogo?.find(et => et.idEtiqueta === ide))
                             .filter(Boolean).map(et => `<span class="ui-chip ui-chip--${et.tono}">${YS.esc(et.nombre)}</span>`).join("")}
-                        ${quien ? `<span class="chats-conv-tel">${YS.esc(formatearTelefono(c.telefono))}</span>` : ""}
+                        ${quien ? `<span class="chats-conv-tel">${YS.esc(telefonoVer(c))}</span>` : ""}
                     </span>
                 </span>
             </button></li>`;
@@ -438,7 +438,7 @@
             ${YS.avatar(c.nombrePaciente || c.nombreContacto, c.idConversacion)}
             <div class="chats-hilo-titulos">
                 <div class="chats-hilo-nombre">${YS.esc(nombre)}</div>
-                <div class="chats-hilo-sub">Tel. ${YS.esc(formatearTelefono(c.telefono))} · WhatsApp ${YS.esc(c.canal === "Simulado" ? "(simulado)" : "")}</div>
+                <div class="chats-hilo-sub">${YS.esc(telefonoVer(c))} · WhatsApp ${YS.esc(c.canal === "Simulado" ? "(simulado)" : "")}</div>
             </div>
             <span class="ui-chip ui-chip--${e.chip}" title="${YS.esc(e.desc)}">${YS.esc(e.texto)}</span>
             <span class="ui-espacio"></span>
@@ -903,7 +903,6 @@
         $("#chatsContexto").innerHTML = `
             <header class="chats-contexto-cabecera">
                 <span>Información del lead</span>
-                <span class="chats-contexto-configurar" aria-disabled="true" title="Próximamente">Configurar vista</span>
                 <button class="ui-btn-icono" type="button" id="chatsCerrarContexto" aria-label="Ocultar información del lead">${YS.icono("cerrar")}</button>
             </header>
             <div class="chats-contexto-cuerpo" id="chatsContextoCuerpo">${contenido ?? YS.vacio({ icono: "usuario", texto: "Elegí una conversación para ver la información del lead." })}</div>`;
@@ -930,6 +929,9 @@
         try { notas = await YS.api(`${BASE}/conversaciones/${id}/notas`); } catch { }
         if (gen !== est.generacion) return;
         const p = info.paciente;
+        const chat = info.chat || {};
+        const tel = chat.telefonoMostrar || formatearTelefono(info.telefono);
+        est.sugerencias = chat.sugerencias || [];
         const dato = (etiqueta, valor) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor${valor ? "" : " vacio"}">${YS.esc(valor || "Sin cargar")}</span></div>`;
         const datoHtml = (etiqueta, html) => `<div class="ui-dato"><span class="ui-dato-etiqueta">${YS.esc(etiqueta)}</span><span class="ui-dato-valor">${html}</span></div>`;
         const e = infoEstado(info.estado);
@@ -945,16 +947,19 @@
             <div class="chats-contexto-etiquetas">
                 ${chipsEtiquetas.map(et => `<span class="ui-chip ui-chip--${et.tono} chats-etiqueta">${YS.esc(et.nombre)}</span>`).join("")}
                 <button class="chats-etiqueta-agregar" type="button" id="chatsBtnEtiquetas" aria-label="Administrar etiquetas">${YS.icono("etiqueta")} ${chipsEtiquetas.length ? "" : "Etiquetar"}</button>
-            </div>`;
+            </div>
+            ${quienRespondeHtml(chat)}`;
         if (!p) {
             html += `<div class="chats-contexto-bloque">
                 ${info.nombreContacto ? dato("Perfil de WhatsApp", info.nombreContacto) : ""}
-                ${dato("Teléfono", formatearTelefono(info.telefono))}</div>
+                ${dato("Teléfono", tel)}</div>
                 <p class="chats-contexto-nota">${YS.esc(personal()
                     ? (info.nombreContacto
                         ? "Esta conversación todavía no está vinculada a un paciente. El nombre del perfil de WhatsApp es el que la persona se puso: no está confirmado."
                         : "Esta conversación todavía no está vinculada a un paciente.")
-                    : "El asistente todavía no pudo identificar a este paciente: el teléfono no coincide con ningún paciente y no pasó su DNI.")}</p>`;
+                    : "El asistente todavía no pudo identificar a este paciente: el teléfono no coincide con ningún paciente y no pasó su DNI.")}</p>
+                <button class="ui-btn ui-btn--primary ui-btn--bloque" type="button" id="chatsBtnVincular">${YS.icono("pacientes")} Vincular con un paciente</button>
+                ${sugerenciasHtml(est.sugerencias)}`;
         } else {
             const t = info.proximoTurno;
             const participantes = [{ nombre: p.nombre, sub: "Paciente" }, ...info.profesionales.map(pr => ({ nombre: pr.nombre, sub: pr.especialidad || "Profesional" }))];
@@ -985,7 +990,8 @@
                     <div class="ui-datos chats-contexto-datos">
                         ${dato("Nombre", p.nombre)}
                         ${dato("DNI", p.dni)}
-                        ${dato("Teléfono", p.telefono ? formatearTelefono(p.telefono) : formatearTelefono(info.telefono))}
+                        ${dato("Teléfono del paciente", p.telefono)}
+                        ${dato("WhatsApp de esta conversación", tel)}
                         ${dato("Profesional asignado", nombresProfesionales || "Sin asignar")}
                         ${dato("ID de la conversación", String(info.idConversacion))}
                         ${dato("Creado", info.fechaCreacion ? `${YS.fecha.corta(info.fechaCreacion)} ${YS.fecha.hora(info.fechaCreacion)}` : "")}
@@ -999,6 +1005,8 @@
                         <button class="ui-btn ui-btn--sm" type="button" id="chatsLinkFirma">Insertar link para firmar</button>` : ""}
                     <div class="chats-contexto-acciones">
                         ${puedeVerTurnos() ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsVerTurnos">${YS.icono("agenda")}Ver turnos del paciente</button>` : ""}
+                        ${puedeVerFicha() ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnVerFicha">${YS.icono("pacientes")}Ver ficha</button>` : ""}
+                        <button class="ui-btn ui-btn--sm ui-btn--ghost" type="button" id="chatsBtnDesvincular">Desvincular</button>
                     </div>
                 </div>`;
         }
@@ -1037,9 +1045,189 @@
             ajustarAlto(); t.focus();
         });
         $("#chatsVerTurnos")?.addEventListener("click", () => irAlPanel(`turnos?paciente=${p.idPaciente}`));
+        $("#chatsBtnVerFicha")?.addEventListener("click", () => irAlPanel(`usuarios?paciente=${p.idPaciente}`));
+        $("#chatsBtnVincular")?.addEventListener("click", () => abrirVincular(id));
+        raiz.querySelectorAll("[data-sug]").forEach(b => b.addEventListener("click", () => abrirVincular(id, est.sugerencias[parseInt(b.dataset.sug)])));
+        $("#chatsBtnDesvincular")?.addEventListener("click", () => desvincular(id, p));
+        $("#chatsBtnTomarControl")?.addEventListener("click", () => tomarControl(id));
+        $("#chatsIaConv")?.addEventListener("change", e => cambiarIa(id, e.target));
         $("#chatsBtnEtiquetas")?.addEventListener("click", () => abrirEtiquetas(id, idsEtiquetas));
         $("#chatsNotaAgregar")?.addEventListener("click", () => agregarNota(id));
         raiz.querySelectorAll(".chats-nota-borrar").forEach(b => b.addEventListener("click", () => borrarNota(id, parseInt(b.dataset.id))));
+    }
+
+    // ── Quién responde, tomar control e interruptor de IA (Chats v2) ─────────────
+    // El servidor dice quién responde (PoliticaRespuestaAutomatica): Bot (el asistente de reglas), IA o Persona. La IA todavía no responde en ningún chat: el interruptor guarda la
+    // decisión y la pantalla lo dice. El interruptor de cada conversación sólo tiene efecto con el global prendido (Configuración › Asistente de chats).
+    function quienRespondeHtml(chat) {
+        const q = chat.quienResponde || "Persona";
+        const ia = chat.ia || {};
+        const chip = { Bot: "marca", IA: "info", Persona: "ok" }[q] || "neutral";
+        const desc = { Bot: "El asistente automático contesta solo.", IA: "Contesta la IA.", Persona: "Contesta una persona del equipo." }[q] || "";
+        const iaTexto = !ia.disponible ? "Falta aplicar la migración 25 en la base para guardar este interruptor."
+            : !ia.global ? "La IA global está apagada (Configuración › Asistente de chats): aunque la prendas acá, no responde."
+            : "La IA global está prendida.";
+        return `<div class="chats-contexto-seccion chats-quien">
+            <div class="chats-contexto-seccion-titulo">Quién responde</div>
+            <div class="ui-flex"><span class="ui-chip ui-chip--${chip}" id="chatsQuienChip">${YS.esc(q)}</span><span class="chats-contexto-nota">${YS.esc(desc)}</span></div>
+            ${q !== "Persona" || ia.activa ? `<button class="ui-btn ui-btn--sm" type="button" id="chatsBtnTomarControl">Tomar control</button>` : ""}
+            <label class="ui-check chats-ia-interruptor"><input type="checkbox" id="chatsIaConv"${ia.activa ? " checked" : ""}${ia.disponible ? "" : " disabled"}> <span>IA en esta conversación</span></label>
+            <p class="chats-contexto-nota">${YS.esc(iaTexto)}${ia.implementada ? "" : " La IA todavía no responde mensajes: por ahora solo se guarda esta decisión."}</p>
+        </div>`;
+    }
+
+    async function tomarControl(idConversacion) {
+        if (!await YS.confirmar({
+            titulo: "Tomar control de la conversación",
+            mensaje: personal()
+                ? "Se apaga la IA de esta conversación y queda a cargo de una persona del equipo."
+                : "Se apaga la IA y el asistente automático deja de contestar en esta conversación: queda a cargo de una persona del equipo (pasa a «Escalada a persona»).",
+            textoConfirmar: "Tomar control"
+        })) return;
+        try {
+            await YS.api(`${BASE}/conversaciones/${idConversacion}/tomar-control`, { method: "POST", json: {} });
+            YS.toast("Tomaste el control de la conversación.");
+            est.vueltasSinCambios = 0;
+            await pulso(true);   // el estado cambia sin un mensaje nuevo: una vuelta incremental no lo vería
+            if (est.actual === idConversacion) cargarContexto();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    async function cambiarIa(idConversacion, input) {
+        const activa = input.checked;
+        input.disabled = true;
+        try {
+            await YS.api(`${BASE}/conversaciones/${idConversacion}/ia`, { method: "PUT", json: { activa } });
+            if (est.actual === idConversacion) cargarContexto();
+        } catch (e) {
+            input.checked = !activa;
+            input.disabled = false;
+            YS.toast(e.message, "error");
+        }
+    }
+
+    // ── Vincular y desvincular con un paciente (Chats v2) ────────────────────────
+    // Lo hace una persona, siempre confirmando: buscar por nombre o DNI → ver lo justo para estar seguro (nombre completo, últimos 3 dígitos del DNI y año de nacimiento) → confirmar. Una
+    // coincidencia por teléfono es solo una SUGERENCIA: abre la misma confirmación y nunca vincula sola.
+    const datosCortos = s => `DNI ${s.dniParcial}${s.anioNacimiento ? ` · nacido en ${s.anioNacimiento}` : ""}`;
+
+    function sugerenciasHtml(lista) {
+        if (!lista?.length) return "";
+        return `<div class="chats-contexto-seccion chats-sugerencias">
+            <div class="chats-contexto-seccion-titulo">Coincidencias sugeridas por teléfono</div>
+            <p class="chats-contexto-nota">Estos pacientes tienen cargado un teléfono que coincide con el de esta conversación. Es solo una sugerencia: no queda vinculado nadie hasta que lo confirmes.</p>
+            ${lista.map((s, i) => `<div class="chats-sugerencia">
+                <div class="chats-sugerencia-datos"><span>${YS.esc(s.nombre)}</span><small>${YS.esc(datosCortos(s))}</small></div>
+                <button class="ui-btn ui-btn--sm" type="button" data-sug="${i}">Revisar</button>
+            </div>`).join("")}
+        </div>`;
+    }
+
+    function abrirVincular(idConversacion, sugerido) {
+        const c = est.convs.get(idConversacion);
+        const m = YS.modal({
+            titulo: "Vincular con un paciente", tamano: "grande", enfocarCampo: false, cuerpo: "",
+            acciones: [{ texto: "Cancelar", tipo: "ghost", alClick: x => x.cerrar() }]
+        });
+        let pedido = 0;
+        let resultados = [];
+
+        const paso1 = () => {
+            m.cuerpo.innerHTML = `
+                <p class="chats-contexto-nota">Buscá al paciente por nombre (al menos 3 letras) o por DNI completo. Después vas a ver sus datos para confirmar que es la persona que escribe.</p>
+                <div class="ui-campo"><label for="vincBuscar">Nombre o DNI</label>
+                    <input class="ui-input" id="vincBuscar" type="search" autocomplete="off" placeholder="Por ejemplo: María Pérez o 30123456"></div>
+                <div class="chats-vincular-resultados" id="vincResultados" aria-live="polite"><p class="chats-contexto-nota">Escribí para buscar.</p></div>`;
+            const caja = m.cuerpo.querySelector("#vincBuscar");
+            const lista = m.cuerpo.querySelector("#vincResultados");
+            const buscar = YS.debounce(async () => {
+                const q = caja.value.trim();
+                const mio = ++pedido;
+                const esDni = q !== "" && /^[0-9. ]+$/.test(q);
+                if (!(esDni ? q.replace(/[^0-9]/g, "").length >= 7 : q.length >= 3)) {
+                    lista.innerHTML = `<p class="chats-contexto-nota">${esDni ? "Para buscar por DNI escribí los 7 u 8 números." : "Escribí al menos 3 letras del nombre, o el DNI completo."}</p>`;
+                    return;
+                }
+                lista.innerHTML = YS.cargando();
+                try {
+                    const r = await YS.api(`${BASE}/pacientes/buscar?q=${encodeURIComponent(q)}&idConversacion=${idConversacion}`);
+                    if (mio !== pedido) return;
+                    resultados = r;
+                    lista.innerHTML = r.length
+                        ? r.map((s, i) => `<button type="button" class="chats-vincular-resultado" data-i="${i}">
+                              <span class="chats-vincular-nombre">${YS.esc(s.nombre)}</span>
+                              <small>${YS.esc(datosCortos(s))}${s.otrasConversaciones ? " · ya tiene otra conversación" : ""}</small></button>`).join("")
+                        : `<p class="chats-contexto-nota">No hay pacientes activos que coincidan.</p>`;
+                } catch (e) {
+                    if (mio === pedido) lista.innerHTML = `<p class="chats-contexto-nota">${YS.esc(e.message)}</p>`;
+                }
+            }, 300);
+            caja.addEventListener("input", buscar);
+            lista.addEventListener("click", ev => {
+                const b = ev.target.closest("[data-i]");
+                if (b) paso2(resultados[parseInt(b.dataset.i)], "busqueda");
+            });
+            setTimeout(() => caja.focus(), 30);
+        };
+
+        const paso2 = (pac, origen) => {
+            if (!pac) return;
+            const avisos = [];
+            if (origen === "sugerencia")
+                avisos.push(["", "Coincidencia sugerida", "Este paciente figura con un teléfono que coincide con el de esta conversación. Es solo una coincidencia sugerida, no una confirmación: preguntale a la persona que escribe quién es antes de vincular."]);
+            if (pac.otrasConversaciones > 0)
+                avisos.push(["ui-alerta--info", "", `Este paciente ya tiene ${pac.otrasConversaciones === 1 ? "otra conversación vinculada" : pac.otrasConversaciones + " otras conversaciones vinculadas"}. Se puede vincular igual.`]);
+            if (!personal())
+                avisos.push(["ui-alerta--danger", "Atención con el asistente automático", "Va a tratar a quien escribe desde este número como este paciente: va a poder ver y cancelar sus turnos y pedir turnos a su nombre. Vinculá solo si confirmaste su identidad."]);
+            m.cuerpo.innerHTML = `
+                <p>Vas a vincular esta conversación${c ? ` (WhatsApp ${YS.esc(telefonoVer(c))})` : ""} con:</p>
+                <div class="ui-datos chats-vincular-paciente">
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">Nombre</span><span class="ui-dato-valor">${YS.esc(pac.nombre)}</span></div>
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">DNI</span><span class="ui-dato-valor">${YS.esc(pac.dniParcial)}</span></div>
+                    <div class="ui-dato"><span class="ui-dato-etiqueta">Año de nacimiento</span><span class="ui-dato-valor${pac.anioNacimiento ? "" : " vacio"}">${YS.esc(pac.anioNacimiento || "Sin cargar")}</span></div>
+                </div>
+                ${avisos.map(([clase, titulo, texto]) => `<div class="ui-alerta ${clase} ui-alerta--bloque chats-vincular-aviso" role="note">${titulo ? `<strong>${YS.esc(titulo)}.</strong> ` : ""}${YS.esc(texto)}</div>`).join("")}
+                <p class="chats-contexto-nota">Confirmá la identidad con la persona que escribe: si la vinculás mal, se pueden mostrar o confirmar datos de otro paciente.</p>
+                <div class="chats-vincular-botones">
+                    ${origen === "busqueda" ? `<button class="ui-btn ui-btn--ghost" type="button" id="vincVolver">Volver a buscar</button>` : ""}
+                    <button class="ui-btn ui-btn--primary" type="button" id="vincConfirmar">Vincular con este paciente</button>
+                </div>`;
+            m.cuerpo.querySelector("#vincVolver")?.addEventListener("click", paso1);
+            const boton = m.cuerpo.querySelector("#vincConfirmar");
+            boton.addEventListener("click", async () => {
+                boton.disabled = true;
+                try {
+                    await YS.api(`${BASE}/conversaciones/${idConversacion}/vinculo`, { method: "PUT", json: { idPaciente: pac.idPaciente, origen } });
+                    m.cerrar();
+                    YS.toast(`Conversación vinculada con ${pac.nombre}.`);
+                } catch (e) {
+                    boton.disabled = false;
+                    YS.toast(e.message, "error");
+                    if (e.status === 409) m.cerrar();   // ya la vinculó otra persona, o el paciente se dio de baja: se muestra el estado real
+                }
+                est.vueltasSinCambios = 0;
+                await pulso(true);
+                if (est.actual === idConversacion) cargarContexto();
+            });
+            boton.focus();
+        };
+
+        if (sugerido) paso2(sugerido, "sugerencia"); else paso1();
+    }
+
+    async function desvincular(idConversacion, p) {
+        if (!await YS.confirmar({
+            titulo: "Desvincular de este paciente",
+            mensaje: `La conversación deja de estar vinculada con ${p.nombre}: vuelve a quedar sin identificar, el panel deja de mostrar sus datos, se reinicia el flujo del asistente y se apaga la IA de esta conversación. Las notas y las etiquetas se conservan.`,
+            textoConfirmar: "Desvincular", peligro: true
+        })) return;
+        try {
+            await YS.api(`${BASE}/conversaciones/${idConversacion}/vinculo`, { method: "DELETE" });
+            YS.toast("Conversación desvinculada.");
+        } catch (e) { YS.toast(e.message, "error"); }
+        est.vueltasSinCambios = 0;
+        await pulso(true);
+        if (est.actual === idConversacion) cargarContexto();
     }
 
     // ── Notas internas ──────────────────────────────────────────
@@ -1113,6 +1301,8 @@
     // "Ver turnos del paciente" lleva a CRM > Turnos, que existe solo con Gestión de agendas. ("Ver ficha" se sacó: llevaba a Usuarios del
     // Configurador, que ya no opera chats; los datos de contacto del paciente ya están en este panel.)
     function puedeVerTurnos() { return esAdministradorChats() && YS.sesion.tienePrivilegio("gestion_agendas"); }
+    // "Ver ficha" lleva a Usuarios (Configurador), que existe solo en la sesión Administración: el CRM puro no lo tiene y no ve el botón. El servidor decide igual (GET /usuarios/lista es del Configurador).
+    function puedeVerFicha() { return YS.shell?.rol === "administracion"; }
 
     // Accesos al panel de gestión (CRM): si ya estamos ahí, cambia de sección sin recargar.
     function irAlPanel(hash) {
@@ -1129,7 +1319,7 @@
         const urgente = nuevos.find(c => c.estado === "Urgente");
         if (nuevos.length === 1 || urgente) {
             const c = urgente || nuevos[0];
-            const nombre = c.nombrePaciente || formatearTelefono(c.telefono);
+            const nombre = c.nombrePaciente || telefonoVer(c);
             YS.toast(`${urgente ? "URGENTE · " : ""}${nombre}: ${recortar(c.ultimoMensaje || "nuevo mensaje", 70)}`, urgente ? "error" : "info",
                 { duracion: urgente ? 0 : 6000, accion: { texto: "Abrir", alClick: () => abrir(c.idConversacion) } });
         } else {
@@ -1317,6 +1507,9 @@
         const d = String(t ?? "").replace(/\D/g, "");
         return d.length === 10 ? `${d.slice(0, 2)} ${d.slice(2, 6)}-${d.slice(6)}` : (t || "");
     }
+    // El teléfono de una conversación como lo ve WhatsApp ("+54 9 351 206-6471"): lo arma el servidor (TelefonoWhatsApp) y viaja en telefonoMostrar. Si una API más vieja no lo manda,
+    // el formato de siempre.
+    function telefonoVer(c) { return (c && c.telefonoMostrar) || formatearTelefono(c && c.telefono); }
 
     // ── Inicio ──────────────────────────────────────────────────
     /**

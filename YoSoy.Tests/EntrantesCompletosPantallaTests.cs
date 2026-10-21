@@ -45,7 +45,7 @@ public class EntrantesCompletosPantallaTests
         var bandeja = Bandeja;
 
         Assert.Contains("const quien = c.nombrePaciente || c.nombreContacto;", bandeja);
-        Assert.Contains("const nombre = quien || formatearTelefono(c.telefono);", bandeja);
+        Assert.Contains("const nombre = quien || telefonoVer(c);", bandeja);
         Assert.Contains("${quien ? `<span class=\"chats-conv-tel\">", bandeja);
         Assert.Contains("Nombre del perfil de WhatsApp: todavía no está vinculado a un paciente", bandeja);
     }
