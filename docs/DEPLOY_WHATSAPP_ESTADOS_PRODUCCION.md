@@ -2,7 +2,7 @@
 
 Runbook para llevar a producción la mejora de la vinculación de WhatsApp: la pantalla **Configurador › WhatsApp** muestra el estado real del servicio (**Conectando…**, **Esperando que escanees el código**, **Hace falta vincular el número**, **El servicio necesita revisión**, **Conectado desde …**), tiene el botón **Mostrar código QR** para cuando el código venció, y la bandeja de **Chats** del módulo CRM avisa de forma permanente cuando WhatsApp está desconectado. Es **solo la API** (y las pantallas que van dentro del paquete): **sin migraciones, sin cambios en `whatsapp-service`, sin variables nuevas**. Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de siempre de [`DEPLOY.md`](DEPLOY.md) y el mismo formato que [`DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md`](DEPLOY_ETAPA2_ROLES_PERMISOS_PRODUCCION.md). Escrito el 2026-10-20 contra la rama `feat/whatsapp-estados-y-qr` (sale de `main` en `56c17d9`); **antes de armar el paquete tiene que estar mergeada en `main`** (paso 0).
 
-- **Se escribió sin acceso al VPS y todavía no se ejecutó.** Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 20/10/2026** (API desde `main` `5670d15`, sin migraciones, rollback en `/opt/yosoy/app-anterior-cm-20261020`; el estado, en [`SERVIDOR.md`](SERVIDOR.md)). Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`. El número de la clínica no figura en ningún comando.
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 

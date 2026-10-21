@@ -2,7 +2,7 @@
 
 Runbook para llevar a producción el rediseño del menú del panel del **Configurador**: sin "Inicio", con **Configuración** (WhatsApp con el código QR de conexión y Especialidades), **Usuarios** (Registrar usuario, Permisos, Usuarios, Solicitudes de registro) y **Auditoría**. Es **solo la API** (y las pantallas que van dentro del paquete): **sin migraciones, sin cambios de API, sin cambios de seguridad, sin variables nuevas**. Se ejecuta **a mano, en dos máquinas** (la PC con PowerShell y el VPS por SSH), con el flujo de siempre de [`DEPLOY.md`](DEPLOY.md) y el mismo formato que [`DEPLOY_WHATSAPP_ESTADOS_PRODUCCION.md`](DEPLOY_WHATSAPP_ESTADOS_PRODUCCION.md). Escrito el 2026-10-20 contra la rama `feat/configurador-menu` (sale de `main` en `d3b63d4`); **antes de armar el paquete tiene que estar mergeada en `main`** (paso 0).
 
-- **Se escribió sin acceso al VPS y todavía no se ejecutó.** Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
+- **Se escribió sin acceso al VPS y se ejecutó a mano el 20/10/2026** (API desde `main` `5670d15`, sin migraciones, rollback en `/opt/yosoy/app-anterior-cm-20261020`; el estado, en [`SERVIDOR.md`](SERVIDOR.md)). Lo que se probó antes, y cómo, está en "Qué se verificó y qué no", al final; lo que no, también.
 - **Sin secretos en este archivo.** Ningún comando imprime un secreto ni el contenido de un `.env`.
 - Cada paso dice **dónde** se corre, el **comando exacto**, qué **esperar** y cómo **volver atrás**.
 

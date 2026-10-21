@@ -112,6 +112,20 @@ de la etapa 2 y lo verificó; de la etapa 1 constan los datos que figuran abajo.
 - **Queda pendiente, aparte:** endurecer `yosoy_app` con `DENY UPDATE, DELETE` sobre la auditoría
   (Apéndice A del runbook de la etapa 1; no forma parte de estos despliegues) y la etapa 3 de la integración (circuito de atención).
 
+## Estado de producción al 20/10/2026 (WhatsApp con estados claros y menú nuevo del Configurador)
+
+Lo que quedó en el VPS después de desplegar, el 20/10/2026 y a mano, la mejora de WhatsApp
+([`DEPLOY_WHATSAPP_ESTADOS_PRODUCCION.md`](DEPLOY_WHATSAPP_ESTADOS_PRODUCCION.md)) y el menú nuevo del Configurador
+([`DEPLOY_CONFIGURADOR_MENU_PRODUCCION.md`](DEPLOY_CONFIGURADOR_MENU_PRODUCCION.md)). Lo informó quien ejecutó el despliegue, que
+lo dio por verificado. Sin secretos.
+
+- **API publicada desde `main` en el commit `5670d15`**, en `/opt/yosoy/app`. Incluye WhatsApp con estados claros y el botón de
+  código QR (PR #59) y el menú nuevo del Configurador (PR #60). **Reemplaza** la versión de la etapa 2 (`9988d3c`, arriba).
+- **Sin migraciones nuevas:** la base `yosoy` sigue con **54 tablas y versión de esquema 23**. Según los runbooks, estos dos despliegues
+  son solo de la API y de las pantallas que van dentro del paquete (sin cambios en `whatsapp-service`, Caddy ni variables).
+- **Para volver atrás (API):** `/opt/yosoy/app-anterior-cm-20261020`; también quedaron los de `ws` y `e2` (el de `e2` es
+  `/opt/yosoy/app-anterior-e2-20261020`).
+
 ## Cómo entra el tráfico
 
 ```
