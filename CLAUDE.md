@@ -11,7 +11,7 @@
 
 ## Reglas de producto vigentes (no romperlas)
 
-- Los Chats (`/mensajeria`) los ve y responde solo el módulo CRM (y el Configurador que tenga ese módulo). Los profesionales reciben siempre 403.
+- Los Chats (`/mensajeria`) los ve y responde solo el módulo CRM; quien tiene además el permiso Configurador entra a la sesión única "Administración" (Configurador + CRM). El CRM puro (la recepcionista) no cambia: solo chats. El Configurador solo no ve chats. Los profesionales reciben siempre 403.
 - El simulador `/mensajeria/simulado/*` responde solo a la propia máquina.
 - `Mensajeria:ModoAtencion=Personal`; solo texto; no hay recordatorios ni asistente por WhatsApp.
 - El log nunca lleva texto de mensajes ni teléfonos completos.
