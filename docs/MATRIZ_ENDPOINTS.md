@@ -8,6 +8,32 @@ mano — así esta tabla no se puede desactualizar en silencio sin que algo la c
 columna "Pertenencia" sí es juicio: la reflexión solo puede ver "autenticado" y "con qué
 rol", nunca "solo el dueño del recurso" — esa parte la decide el código de cada endpoint.
 
+## Fase 2, PR 2: pantalla Usuarios del Configurador y cambio obligatorio de contraseña (octubre 2026)
+
+Todo lo nuevo es **solo del Configurador** (CRM, Profesional, Profesional auditor, Paciente y Facturación reciben 403; sin sesión, 401; el token de
+selección y el de cambio de clave, 401). Ninguno lleva datos clínicos. Código: `Endpoints/UsuariosAdminEndpoints.cs` y `Services/UsuariosAdmin.cs`
+(más `POST /sesion/cambiar-password` en `Program.cs`, junto al ingreso). Migración 24. Despliegue: [`DEPLOY_USUARIOS_PRODUCCION.md`](DEPLOY_USUARIOS_PRODUCCION.md).
+
+| Método | Ruta | Rol | Qué hace |
+|---|---|---|---|
+| GET | `/usuarios/lista?q=&tipo=&estado=&pagina=&cantidad=` | Configurador | La lista única: pacientes, profesionales y equipo en una sola tabla. Búsqueda y paginación en el servidor (`q` parte en palabras: usuario, nombre, DNI, matrícula o mail; `tipo` = `todos`/`paciente`/`profesional`/`equipo`; `estado` = `todos`/`activo`/`inactivo`/`pendiente`/`bloqueado`/`sin-cuenta`; 25 por página, hasta 100). `sin-cuenta` trae a los pacientes y profesionales que todavía no tienen usuario; las demás, solo cuentas. Cada fila: tipo, usuario, nombre, DNI, matrícula, especialidad, mail, estado, si está bloqueada (y hasta cuándo, en UTC), si tiene que cambiar la clave, ids de la ficha y si el profesional tiene el link público activo. Nunca el hash de la contraseña ni nada clínico |
+| POST | `/usuarios/{id}/restablecer-password` | Configurador | Genera una clave temporal (14 caracteres, cumple `PoliticaContrasena`), la guarda con el mismo hash del sistema, marca `DebeCambiarPassword = 1` y desbloquea la cuenta (intentos a 0). **La clave vuelve una sola vez en esta respuesta**, con `Cache-Control: no-store`. Todo o nada: el cambio y el registro de auditoría van en una transacción. **403** sobre uno mismo (`RESTABLECER_PROPIA`), **404** si no existe, **409** si la cuenta no está activa, **429** pasado el límite (10 cada 10 minutos por IP; `UsuariosAdmin:RestablecerPorDiezMinutos`). Aplica a cualquier tipo de cuenta. **No cierra las sesiones ya abiertas** (no hay revocación de tokens: límite conocido) |
+| GET | `/usuarios/pacientes/{id}/profesionales` | Configurador | `{id}` es el `IdPaciente`. Quién atiende al paciente y a quién se puede asignar: solo nombre, matrícula y especialidad (sin mail, teléfono ni nada clínico) |
+| POST | `/usuarios/pacientes/{id}/profesionales` | Configurador | `{ idProfesionales: [..] }`: asigna uno o varios (hasta 50). Todo o nada: el paciente y cada profesional tienen que existir y estar activos (409 si no). Respeta `UNIQUE(IdPaciente, IdProfesional)`: quien ya estaba asignado no se repite ni es error. Mismo INSERT que Admisión (sin tocar `EstadoAsignacion`). **403** `AUTO_ASIGNACION` si entre ellos está el profesional de la propia cuenta |
+| DELETE | `/usuarios/pacientes/{id}/profesionales` | Configurador | `{ idProfesionales: [..] }`: quita uno o varios; lo que no estaba asignado no es error; el profesional puede estar dado de baja |
+| POST | `/sesion/cambiar-password` | **Solo el token de cambio de clave** (5 minutos, `uso = cambio-clave`) | `{ passwordNueva, modulo? }`: valida `PoliticaContrasena`, exige una clave distinta de la temporal, la guarda, baja la marca, audita ("Cambio de contraseña", sin secretos) y entrega la sesión por el mismo camino que `/login` (módulos, permisos, pestaña elegida). Con otro token, 403; vencido o sin token, 401; una segunda vez con el mismo token, 409 |
+| POST | `/usuarios/pacientes/{id}/profesionales` (estado) | Configurador | La fila queda con `EstadoAsignacion = 'Confirmada'` (también confirma una existente vacía, `Nueva` o `Rechazada`). Admisión y derivaciones no cambian |
+| DELETE / PUT | `/pacientes/{id}`, `/pacientes/{id}/alta`, `/profesionales/{id}`, `/profesionales/{id}/alta` | Configurador (como siempre) | **Cambió lo que hacen:** la baja de la ficha baja también al usuario vinculado (`Inactivo`) y el alta lo reactiva, en la misma transacción y con auditoría administrativa (`Baja Usuario`, `Reactivación Usuario`). No cierra sesiones abiertas |
+| POST | `/login` | Público (como siempre) | Cambió una cosa: con la contraseña **correcta** (el bloqueo y la verificación van primero) y `DebeCambiarPassword = 1`, **no entrega sesión**: responde `{ requiereCambioPassword: true, idUsuario, tokenCambioClave }`. Aplica a todos los tipos de cuenta, pacientes incluidos |
+
+El token de cambio de clave se rechaza (401) en **todas** las demás rutas (`OnTokenValidated` en `Program.cs`, el mismo patrón que el token de selección de módulo).
+Auditoría administrativa (`LogAuditoria`, categoría `Administrativa`): `Restablecimiento de contraseña` (quién lo hizo, a quién; nunca la clave ni su hash),
+`Cambio de contraseña`, `Asignación de profesional` y `Desasignación de profesional` (entidad `Paciente`, para que las vea el Configurador).
+
+Probado: `YoSoy.Tests/UsuariosAdminUnidadTests.cs`, `UsuariosAdminBaseRealTests.cs` (lista, restablecer, cambio obligatorio, asignación y la matriz de autorización con
+tokens reales), `UsuariosPantallaTests.cs`, `MigracionDebeCambiarPasswordTests.cs` (la migración 24 sobre una base descartable con la forma de producción) y
+`GuardiaEndpointsTests` (ninguno de los nuevos es público).
+
 ## Etapa 2 de la integración de roles y permisos: qué cambió (octubre 2026)
 
 **Esta sección manda sobre las de abajo** (ya no hay endpoints del circuito de atención: salas, evolución por enfoque y addenda son de la etapa 3 de la integración) donde no coincidan: las secciones siguientes son de
@@ -128,7 +154,7 @@ sin decidir rompe la batería en vez de quedar abierto en silencio. La lista hoy
 | Método | Ruta | Por qué es público |
 |---|---|---|
 | GET | `/` | Redirige a `/pantallas/index.html`; no expone nada. |
-| POST | `/login` | Los 3 roles entran por la misma ruta; todavía no hay sesión. |
+| POST | `/login` | Los 3 roles entran por la misma ruta; todavía no hay sesión. Con la clave restablecida por el Configurador devuelve `requiereCambioPassword` y un token de cambio de clave, sin sesión (ver arriba, Fase 2 PR 2). |
 | POST | `/pacientes` | Registro público de paciente (con acceso: ver abajo); rate-limited ("registro"). |
 | POST | `/profesionales` | Registro público de profesional. |
 | POST | `/recuperacion-password` | Pedido de recuperación: todavía no hay sesión. |

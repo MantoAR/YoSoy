@@ -68,6 +68,27 @@
             <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg ui-btn--bloque" id="btnIngresar">Ingresar</button>
         </form>
 
+        <!-- Cambio obligatorio de contraseña (migración 24): el Configurador restableció la clave y se ingresó con la temporal. El servidor no
+             entregó sesión, solo un token de 5 minutos que vive en la memoria de esta página (nunca en el almacenamiento del navegador). -->
+        <form class="acceso-form oculto" id="formClaveNueva" onsubmit="guardarClaveNueva(event)" novalidate aria-labelledby="tituloClaveNueva">
+            <div>
+                <h2 id="tituloClaveNueva" style="margin: 0 0 4px; font-size: var(--fs-2xl); font-weight: 600;">Elegí tu clave nueva</h2>
+                <p class="acceso-sub" style="margin: 0;">Entraste con una clave temporal. Elegí una clave que solo vos conozcas: es la que vas a usar de ahora en adelante.</p>
+            </div>
+            <div class="ui-campo">
+                <label for="claveNueva">Clave nueva</label>
+                <input type="password" id="claveNueva" class="ui-input" autocomplete="new-password" maxlength="100">
+                <div class="ui-campo-ayuda">Al menos 6 caracteres, y distinta de la temporal.</div>
+            </div>
+            <div class="ui-campo">
+                <label for="claveNueva2">Repetí la clave nueva</label>
+                <input type="password" id="claveNueva2" class="ui-input" autocomplete="new-password" maxlength="100">
+            </div>
+            <div class="ui-alerta ui-alerta--danger oculto" id="errorClaveNueva" role="alert"></div>
+            <button type="submit" class="ui-btn ui-btn--primary ui-btn--lg ui-btn--bloque" id="btnClaveNueva">Guardar y entrar</button>
+            <button type="button" class="ui-btn ui-btn--ghost ui-btn--bloque" onclick="cancelarClaveNueva()">Cancelar</button>
+        </form>
+
         <p class="acceso-pie" id="linkRegistro">
             ¿No tenés cuenta? <a href="Pantalla_Usuario/Usuario/consentimiento crear_cuenta.html" id="linkRegistroHref">Registrate</a>
         </p>
@@ -129,7 +150,7 @@
             document.getElementById("seccionRecuperacion").classList.toggle("oculto", !esUserFinal);
             if (!esUserFinal) {
                 document.getElementById("formRecuperacion").classList.add("oculto");
-                document.getElementById("formConsultarSolicitud").classList.add("oculto");
+                document.getElementById("formConsultarSolicitud")?.classList.add("oculto");   // ese formulario ya no existe: sin el ?. fallaba al elegir Configurador
             }
         }
 
@@ -187,6 +208,11 @@
                 }
 
                 const data = await res.json();
+                // Clave restablecida por el Configurador: sin sesión todavía, primero elige la suya.
+                if (data.requiereCambioPassword) {
+                    mostrarPasoClaveNueva(data.tokenCambioClave);
+                    return;
+                }
                 // La pestaña elegida viaja al servidor, que responde con el token de ese rol
                 // o con un 403 si el usuario no lo tiene (mensaje arriba).
                 if (data.requiereModulo) {
@@ -201,6 +227,70 @@
                 mostrarError(err?.sinConexion
                     ? "No se pudo conectar con el servidor. Revisá que la API esté corriendo."
                     : "Ocurrió un error en la pantalla de ingreso. Actualizá con Ctrl+F5 y volvé a intentar. Detalle: " + (err?.message || err));
+            } finally {
+                btn.classList.remove("cargando");
+            }
+        }
+
+        // ── Cambio obligatorio de contraseña ─────────────────────────
+        let tokenCambioClave = null;
+        const ELEMENTOS_DEL_INGRESO = [".acceso-roles", "#formIngreso", "#linkRegistro", "#linkRegistroProfesional", "#seccionRecuperacion"];
+
+        function mostrarPasoClaveNueva(token) {
+            tokenCambioClave = token;
+            ELEMENTOS_DEL_INGRESO.forEach(s => document.querySelector(s).classList.add("oculto"));
+            document.getElementById("contrasena").value = "";   // la temporal no queda en la pantalla
+            document.getElementById("formClaveNueva").classList.remove("oculto");
+            document.getElementById("claveNueva").focus();
+        }
+
+        function cancelarClaveNueva() {
+            tokenCambioClave = null;
+            ["claveNueva", "claveNueva2"].forEach(id => { document.getElementById(id).value = ""; YS.form.limpiar(id); });
+            document.getElementById("errorClaveNueva").classList.add("oculto");
+            document.getElementById("formClaveNueva").classList.add("oculto");
+            ELEMENTOS_DEL_INGRESO.forEach(s => document.querySelector(s).classList.remove("oculto"));
+            seleccionarRol(rolActual);   // vuelve a mostrar solo lo que corresponde a la pestaña
+        }
+
+        async function guardarClaveNueva(e) {
+            e.preventDefault();
+            const aviso = document.getElementById("errorClaveNueva");
+            aviso.classList.add("oculto");
+            if (!YS.form.validar([
+                { id: "claveNueva", requerido: "Elegí una clave nueva.", minimo: 6, mensajeMinimo: "Tiene que tener al menos 6 caracteres." },
+                { id: "claveNueva2", requerido: "Repetí la clave nueva.",
+                  validar: v => v !== document.getElementById("claveNueva").value.trim() ? "Las dos claves tienen que ser iguales." : null }
+            ])) return;
+            const btn = document.getElementById("btnClaveNueva");
+            btn.classList.add("cargando");
+            try {
+                const res = await YS.fetch("/sesion/cambiar-password", {
+                    method: "POST", sinRedireccion: true,
+                    headers: { Authorization: "Bearer " + tokenCambioClave },
+                    json: { passwordNueva: document.getElementById("claveNueva").value, modulo: rolActual }
+                });
+                if (!res.ok) {
+                    // 401: pasaron los 5 minutos del token. Las demás respuestas traen su propio mensaje (clave corta, igual a la temporal...).
+                    const texto = res.status === 401
+                        ? "Pasó demasiado tiempo. Volvé a ingresar con la clave temporal para elegir la nueva."
+                        : await YS.leerMensaje(res, "No se pudo guardar la clave nueva.");
+                    // 403 por permisos o por la pestaña: la clave nueva ya quedó guardada, lo que falta es el módulo (no es "cuenta no activa").
+                    const codigo = (await res.clone().json().catch(() => ({}))).codigo;
+                    const guardada = res.status === 403 && ["SIN_PERMISOS", "MODULO_NO_HABILITADO", "SIN_FICHA_PROFESIONAL", "ROL_INCORRECTO"].includes(codigo);
+                    aviso.textContent = guardada ? texto + " Tu clave nueva quedó guardada: volvé a ingresar con ella." : texto;
+                    aviso.classList.remove("oculto");
+                    if (res.status === 401 || res.status === 409 || guardada) setTimeout(cancelarClaveNueva, guardada ? 5000 : 2500);
+                    return;
+                }
+                const data = await res.json();
+                tokenCambioClave = null;
+                if (data.requiereModulo) { await YS.sesion.elegirModulo(rolActual, data.tokenSeleccion); return; }
+                completarIngreso(data);
+            } catch (err) {
+                console.error(err);
+                aviso.textContent = err?.sinConexion ? "No se pudo conectar con el servidor." : "No se pudo guardar la clave nueva. " + (err?.message || "");
+                aviso.classList.remove("oculto");
             } finally {
                 btn.classList.remove("cargando");
             }

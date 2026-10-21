@@ -15,6 +15,9 @@ public class JwtEmisorService
     public const string ClaimUso = "uso";
     public const string UsoSeleccion = "seleccion-modulo";
     public const int MinutosSeleccion = 5;
+    // Cambio obligatorio de contraseña (migración 24): token corto que solo sirve para POST /sesion/cambiar-password.
+    public const string UsoCambioClave = "cambio-clave";
+    public const int MinutosCambioClave = 5;
 
     private readonly SymmetricSecurityKey _clave;
 
@@ -60,6 +63,18 @@ public class JwtEmisorService
             new(ClaimUso, UsoSeleccion)
         };
         return Firmar(claims, DateTime.UtcNow.AddMinutes(MinutosSeleccion));
+    }
+
+    // Token de cambio de clave: mismo patrón que el de selección. Sin roles, 5 minutos, y Program.cs lo rechaza en cualquier ruta
+    // que no sea POST /sesion/cambiar-password (evento OnTokenValidated de AddJwtBearer).
+    public string EmitirCambioClave(int idUsuario)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, idUsuario.ToString()),
+            new(ClaimUso, UsoCambioClave)
+        };
+        return Firmar(claims, DateTime.UtcNow.AddMinutes(MinutosCambioClave));
     }
 
     private string Firmar(IEnumerable<Claim> claims, DateTime vence)

@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 23;   // la última migración que el código necesita
+    public const int VersionRequerida = 24;   // la última migración que el código necesita
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -103,6 +103,8 @@ public class VerificadorEsquema
             "OBJECT_ID('dbo.InvitacionCuenta', 'U') IS NOT NULL AND COL_LENGTH('dbo.Usuario', 'Telefono') IS NOT NULL"),
         new(23, "mapear_usuarios_existentes_a_permisos.sql",
             "EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 23)"),
+        new(24, "add_debe_cambiar_password.sql",
+            "COL_LENGTH('dbo.Usuario', 'DebeCambiarPassword') IS NOT NULL"),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

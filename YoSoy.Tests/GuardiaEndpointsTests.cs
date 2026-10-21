@@ -50,4 +50,29 @@ public class GuardiaEndpointsTests
             "públicos, o protegelos si no):\n" +
             string.Join("\n", sinDecidir.Select(e => $"  {e.Metodo} {e.Ruta}")));
     }
+
+    // Fase 2, PR 2 (pantalla Usuarios del Configurador y cambio obligatorio de contraseña): todo lo nuevo exige sesión y NINGUNO está entre los
+    // públicos. El rol (solo Configurador) lo prueba UsuariosAdminBaseRealTests con tokens reales; acá se fija que no quede ninguno abierto ni sin registrar.
+    [Fact]
+    public void Los_endpoints_nuevos_de_Usuarios_y_el_cambio_de_clave_exigen_sesion_y_no_son_publicos()
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        var endpoints = ReflexionEndpoints.Listar(factory);
+        var nuevos = new (string Metodo, string Ruta)[]
+        {
+            ("GET", "/usuarios/lista"),
+            ("POST", "/usuarios/{id:int}/restablecer-password"),
+            ("GET", "/usuarios/pacientes/{id:int}/profesionales"),
+            ("POST", "/usuarios/pacientes/{id:int}/profesionales"),
+            ("DELETE", "/usuarios/pacientes/{id:int}/profesionales"),
+            ("POST", "/sesion/cambiar-password"),
+        };
+        foreach (var n in nuevos)
+        {
+            var e = endpoints.SingleOrDefault(x => x.Metodo == n.Metodo && x.Ruta == n.Ruta);
+            Assert.True(e is not null, $"no está registrado {n.Metodo} {n.Ruta}");
+            Assert.True(e!.RequiereAuth, $"{n.Metodo} {n.Ruta} no exige sesión");
+            Assert.DoesNotContain(n, Publicos);
+        }
+    }
 }
