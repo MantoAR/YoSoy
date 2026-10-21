@@ -63,6 +63,16 @@ public class UsuariosPantallaTests
     }
 
     [Fact]
+    public void Dar_de_baja_avisa_que_la_persona_deja_de_poder_ingresar_y_que_las_sesiones_abiertas_no_se_cierran()
+    {
+        var js = Usuarios;
+        Assert.Matches(@"USR_AVISO_BAJA = ""Deja de poder ingresar", js);
+        Assert.Contains("esa sesión no se cierra", js);
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(js, @"¿Dar de baja a \$\{nombre\}\? \$\{USR_AVISO_BAJA\}").Count);   // paciente y profesional
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(js, @"¿Dar de alta a \$\{nombre\}\? \$\{USR_AVISO_ALTA\}").Count);
+    }
+
+    [Fact]
     public void El_ingreso_maneja_el_cambio_obligatorio_con_el_token_en_memoria()
     {
         var html = Ingreso;

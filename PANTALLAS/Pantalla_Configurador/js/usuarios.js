@@ -23,6 +23,9 @@ const USR_ESTADOS = [
     { id: "bloqueado", texto: "Bloqueados" },
     { id: "sin-cuenta", texto: "Sin cuenta (todavía no tienen usuario)" }
 ];
+// La baja de la ficha baja también al usuario: la persona deja de poder ingresar (las sesiones que ya tenga abiertas no se cierran).
+const USR_AVISO_BAJA = "Deja de poder ingresar a YoSoy (también se da de baja su usuario). Si ya tenía una sesión abierta, esa sesión no se cierra.";
+const USR_AVISO_ALTA = "Si tiene usuario dado de baja, también se reactiva y vuelve a poder ingresar.";
 const USR_TONO_TIPO = { paciente: "info", profesional: "marca", equipo: "neutral" };
 const USR_NOMBRE_TIPO = { paciente: "Paciente", profesional: "Profesional", equipo: "Equipo" };
 
@@ -208,13 +211,13 @@ function usrAcciones(f) {
     if (f.tipo === "paciente" && f.idPaciente) {
         items.push("sep");
         items.push(f.estado === "Inactivo"
-            ? { icono: "check", texto: "Dar de alta", alClick: () => usrCambiarEstado(f, "PUT", `/pacientes/${f.idPaciente}/alta`, `¿Dar de alta a ${nombre}?`, "Dar de alta", "Paciente dado de alta.", "No se pudo dar de alta al paciente.") }
-            : { icono: "papelera", texto: "Dar de baja", peligro: true, alClick: () => usrCambiarEstado(f, "DELETE", `/pacientes/${f.idPaciente}`, `¿Dar de baja a ${nombre}?`, "Dar de baja", "Paciente dado de baja.", "No se pudo dar de baja al paciente.", true) });
+            ? { icono: "check", texto: "Dar de alta", alClick: () => usrCambiarEstado(f, "PUT", `/pacientes/${f.idPaciente}/alta`, `¿Dar de alta a ${nombre}? ${USR_AVISO_ALTA}`, "Dar de alta", "Paciente dado de alta.", "No se pudo dar de alta al paciente.") }
+            : { icono: "papelera", texto: "Dar de baja", peligro: true, alClick: () => usrCambiarEstado(f, "DELETE", `/pacientes/${f.idPaciente}`, `¿Dar de baja a ${nombre}? ${USR_AVISO_BAJA}`, "Dar de baja", "Paciente dado de baja.", "No se pudo dar de baja al paciente.", true) });
     } else if (f.tipo === "profesional" && f.idProfesional) {
         items.push("sep");
         items.push(f.estado === "Inactivo"
-            ? { icono: "check", texto: "Dar de alta", alClick: () => usrCambiarEstado(f, "PUT", `/profesionales/${f.idProfesional}/alta`, `¿Dar de alta a ${nombre}?`, "Dar de alta", "Profesional dado de alta.", "No se pudo dar de alta al profesional.") }
-            : { icono: "papelera", texto: "Dar de baja", peligro: true, alClick: () => usrCambiarEstado(f, "DELETE", `/profesionales/${f.idProfesional}`, `¿Dar de baja a ${nombre}?`, "Dar de baja", "Profesional dado de baja.", "No se pudo dar de baja al profesional.", true) });
+            ? { icono: "check", texto: "Dar de alta", alClick: () => usrCambiarEstado(f, "PUT", `/profesionales/${f.idProfesional}/alta`, `¿Dar de alta a ${nombre}? ${USR_AVISO_ALTA}`, "Dar de alta", "Profesional dado de alta.", "No se pudo dar de alta al profesional.") }
+            : { icono: "papelera", texto: "Dar de baja", peligro: true, alClick: () => usrCambiarEstado(f, "DELETE", `/profesionales/${f.idProfesional}`, `¿Dar de baja a ${nombre}? ${USR_AVISO_BAJA}`, "Dar de baja", "Profesional dado de baja.", "No se pudo dar de baja al profesional.", true) });
     }
     while (items.length && items[0] === "sep") items.shift();
     if (items.length && items[items.length - 1] === "sep") items.pop();
