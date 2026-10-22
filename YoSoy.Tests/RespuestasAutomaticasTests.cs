@@ -383,9 +383,9 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
 
         var r = await _crm.PostAsJsonAsync($"/mensajeria/conversaciones/{idConversacion}/responder", new { texto = "Hola, te escribimos del consultorio." });
 
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
         Assert.Empty(_canal.A(telefono));
-        Assert.Equal("Error", (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("estadoEnvio").GetString());
+        Assert.Equal("ventana_24h_cerrada", (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("codigo").GetString());
         Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM MensajeChat WHERE IdConversacion = @c AND Origen = 'Humano'", ("@c", idConversacion)));
     }
 }

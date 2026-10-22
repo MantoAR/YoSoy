@@ -332,14 +332,18 @@ public static class MensajeriaEndpoints
         });
 
         g.MapPost("/conversaciones/{id}/responder", async (int id, RespuestaHumanaRequest req, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IMensajeChatDAO historial, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var texto = (req.Texto ?? "").Trim();
             if (texto.Length == 0) return Results.BadRequest(new { mensaje = "El mensaje está vacío." });
             var c = conversaciones.ObtenerPorId(id);
             if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
 
+            var ventana = new VentanaDeConversacion(reloj).Evaluar(historial.UltimoEntrante(id));
+            if (!ventana.Abierta) return RechazoVentana(ventana);
             var m = await mensajes.EnviarAsync(c, texto, "Humano");
+            // La ventana pudo vencer entre la consulta anterior y el control del servicio.
+            if (m.VentanaRechazada is { } rechazada) return RechazoVentana(rechazada);
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
             Auditar(http, "Respuesta manual en chat", id, c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac)?.Nombre : null);
@@ -698,6 +702,19 @@ public static class MensajeriaEndpoints
 
     // Candado de una ruta suelta: solo responde a pedidos de la propia máquina, sin importar SoloLocal (EsLocal: ni uno que pasó por un proxy). A cualquier otro, 404, el mismo que
     // el del grupo y el del webhook: no confirma que la ruta existe. Corre después del filtro del grupo, que sigue valiendo.
+    private static IResult RechazoVentana(EstadoVentanaDeConversacion ventana)
+    {
+        var cuerpo = new Dictionary<string, object?>
+        {
+            ["codigo"] = ServicioMensajes.CodigoVentanaCerrada,
+            ["motivo"] = ventana.Motivo,
+            ["mensaje"] = ventana.Mensaje
+        };
+        if (ventana.UltimoEntranteHaceSegundos is long segundos)
+            cuerpo["ultimoEntranteHaceSegundos"] = segundos;
+        return Results.Json(cuerpo, statusCode: 409);
+    }
+
     private static TBuilder SoloDesdeLaPropiaMaquina<TBuilder>(this TBuilder ruta) where TBuilder : IEndpointConventionBuilder =>
         ruta.AddEndpointFilter(async (ctx, next) => EsLocal(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
 
