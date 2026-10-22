@@ -109,5 +109,19 @@ public class PoliticaBloqueoLoginTests
         Assert.Equal("Cuenta bloqueada temporalmente. Intentá en 1 minuto.", PoliticaBloqueoLogin.MensajeBloqueo(Ahora.AddSeconds(20), Ahora));
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public void El_redondeo_de_DATETIME_no_muestra_16_minutos(int milisegundos)
+    {
+        // DATETIME puede redondear la expiración unos milisegundos hacia arriba.
+        var hasta = Ahora.AddMinutes(PoliticaBloqueoLogin.MinutosBloqueo).AddMilliseconds(milisegundos);
+        Assert.Equal(15, PoliticaBloqueoLogin.MinutosRestantes(hasta, Ahora));
+        Assert.Equal("Cuenta bloqueada temporalmente. Intentá en 15 minutos.",
+            PoliticaBloqueoLogin.MensajeBloqueo(hasta, Ahora));
+        Assert.True(PoliticaBloqueoLogin.EstaBloqueado(hasta, Ahora));
+    }
+
     private static DateTime? Desde(int? minutos) => minutos is null ? null : Ahora.AddMinutes(minutos.Value);
 }

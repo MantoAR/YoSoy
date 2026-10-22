@@ -26,9 +26,9 @@ public static class PoliticaBloqueoLogin
     public static bool EstaBloqueado(DateTime? bloqueadoHasta, DateTime ahoraUtc) =>
         bloqueadoHasta.HasValue && bloqueadoHasta.Value > ahoraUtc;
 
-    /// <summary>Minutos que faltan, redondeados para arriba (nunca menos de 1 mientras siga bloqueada).</summary>
+    /// <summary>Minutos que faltan, redondeados para arriba, entre 1 y la duración del bloqueo.</summary>
     public static int MinutosRestantes(DateTime bloqueadoHasta, DateTime ahoraUtc) =>
-        Math.Max(1, (int)Math.Ceiling((bloqueadoHasta - ahoraUtc).TotalMinutes));
+        (int)Math.Clamp(Math.Ceiling((bloqueadoHasta - ahoraUtc).TotalMinutes), 1, MinutosBloqueo);
 
     public static string MensajeBloqueo(DateTime bloqueadoHasta, DateTime ahoraUtc)
     {
