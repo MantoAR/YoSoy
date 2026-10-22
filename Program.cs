@@ -1971,8 +1971,8 @@ app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
     var usuario = uDAO.ObtenerPorId(idUsuario.Value);
     if (usuario == null) return Results.BadRequest(new { mensaje = "Link inválido o vencido. Pedí uno nuevo." });
 
-    usuario.PasswordHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.NuevaPassword ?? "")));
-    uDAO.Modificar(usuario);
+    var hashNuevo = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(req.NuevaPassword ?? "")));
+    uDAO.GuardarPasswordRecuperada(usuario.IdUsuario, hashNuevo);
     uDAO.ResetearIntentos(idUsuario.Value);
     dao.MarcarUsado(tokenHash);
 
