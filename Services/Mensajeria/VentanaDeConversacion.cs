@@ -17,8 +17,10 @@ public sealed class VentanaDeConversacion(TimeProvider reloj)
 }
 
 public sealed record EstadoVentanaDeConversacion(
-    bool Abierta, string? Motivo, long SegundosRestantes, long? UltimoEntranteHaceSegundos)
+    bool Abierta, string? Motivo, long SegundosRestantes,
+    [property: System.Text.Json.Serialization.JsonIgnore] long? UltimoEntranteHaceSegundos)
 {
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? Mensaje => Motivo switch
     {
         "vencida" => VentanaDeConversacion.MensajeVencida,

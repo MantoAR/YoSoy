@@ -437,9 +437,9 @@ public class ColumnasChatPersonalTests
         var conversaciones = typeof(ConversacionDAO).GetConstructors().Single();
 
         Assert.True(mensajes.GetParameters().Single().IsOptional);
-        Assert.True(conversaciones.GetParameters().Single().IsOptional);
+        Assert.All(conversaciones.GetParameters(), p => Assert.True(p.IsOptional));
         Assert.Null(mensajes.GetParameters().Single().DefaultValue);
-        Assert.Null(conversaciones.GetParameters().Single().DefaultValue);
+        Assert.Null(conversaciones.GetParameters().Single(p => p.ParameterType == typeof(IColumnasChatPersonal)).DefaultValue);
     }
 }
 

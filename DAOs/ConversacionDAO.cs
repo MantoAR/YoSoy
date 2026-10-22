@@ -23,9 +23,16 @@ public interface IConversacionDAO
 public class ConversacionDAO : IConversacionDAO
 {
     private readonly IColumnasChatPersonal? _columnas;
+    private readonly IMensajeChatDAO _mensajes;
+    private readonly VentanaDeConversacion _ventana;
 
     // Sin la puerta (new ConversacionDAO(), como en algunas pruebas) NUNCA se toca Conversacion.NombreContacto (migración 17): es el comportamiento de siempre.
-    public ConversacionDAO(IColumnasChatPersonal? columnas = null) => _columnas = columnas;
+    public ConversacionDAO(IColumnasChatPersonal? columnas = null, TimeProvider? reloj = null, IMensajeChatDAO? mensajes = null)
+    {
+        _columnas = columnas;
+        _mensajes = mensajes ?? new MensajeChatDAO();
+        _ventana = new VentanaDeConversacion(reloj ?? new RelojDeLaClinica(ZonaHorariaDeLaClinica.Elegir(null)));
+    }
 
     // Se pregunta en cada llamada: el modo puede cambiar sin reiniciar la API.
     private bool UsaNombre => _columnas?.Disponibles == true;
@@ -157,6 +164,9 @@ public class ConversacionDAO : IConversacionDAO
                 IdProfesionalAsignado      = r["IdProfesionalAsignado"] == DBNull.Value ? null : (int)r["IdProfesionalAsignado"],
                 NombreProfesionalAsignado  = r["NombreProfesionalAsignado"] == DBNull.Value ? null : (string)r["NombreProfesionalAsignado"]
             });
+        r.Close();
+        foreach (var resumen in lista)
+            resumen.Ventana = _ventana.Evaluar(_mensajes.UltimoEntrante(resumen.IdConversacion));
         return lista;
     }
 

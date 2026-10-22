@@ -11,6 +11,7 @@ public class ConversacionResumen
     public string? NombreContacto { get; set; }
     public string Canal { get; set; } = "";
     public string Estado { get; set; } = "";
+    public EstadoVentanaDeConversacion Ventana { get; set; } = new(false, "nunca_escribio", 0, null);
     public string PasoActual { get; set; } = "";
     public DateTime FechaUltimaActividad { get; set; }
     public string? UltimoMensaje { get; set; }

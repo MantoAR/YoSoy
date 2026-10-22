@@ -383,6 +383,41 @@ public class ChatsSoloCrmBaseRealTests : IAsyncLifetime
     }
 
     [Theory]
+    [InlineData(86340, true, false)]
+    [InlineData(86401, false, false)]
+    [InlineData(0, false, true)]
+    public async Task Lista_y_detalle_informan_la_ventana_sin_perder_sus_campos(int antiguedad, bool abierta, bool nuncaEscribio)
+    {
+        var id = await NuevaConversacion(EstadoConversacion.DerivadaHumano);
+        var ahora = _fabrica.Services.GetRequiredService<TimeProvider>().GetLocalNow().DateTime;
+        if (nuncaEscribio)
+            DatosDePrueba.Ejecutar("DELETE FROM MensajeChat WHERE IdConversacion = @c AND Direccion = 'Entrante'", ("@c", id));
+        else
+            DatosDePrueba.Ejecutar("UPDATE MensajeChat SET FechaHora = @f WHERE IdConversacion = @c AND Direccion = 'Entrante'", ("@f", ahora.AddSeconds(-antiguedad)), ("@c", id));
+        // Un comando más nuevo no debe abrir ni prolongar la ventana.
+        DatosDePrueba.Ejecutar(@"INSERT INTO MensajeChat (IdConversacion, Direccion, Origen, Texto, FechaHora, EstadoEnvio)
+            VALUES (@c, 'Entrante', 'Paciente', 'BAJA', @f, 'Enviado')", ("@c", id), ("@f", ahora));
+
+        var lista = await _crm.GetFromJsonAsync<JsonElement[]>("/mensajeria/conversaciones");
+        var resumen = Assert.Single(lista!, c => c.GetProperty("idConversacion").GetInt32() == id);
+        var detalle = await _crm.GetFromJsonAsync<JsonElement>($"/mensajeria/conversaciones/{id}");
+        foreach (var c in new[] { resumen, detalle })
+        {
+            Assert.Equal(id, c.GetProperty("idConversacion").GetInt32());
+            Assert.Equal("DerivadaHumano", c.GetProperty("estado").GetString());
+            Assert.True(c.TryGetProperty("telefono", out _));
+            Assert.True(c.TryGetProperty("telefonoMostrar", out _));
+            var v = c.GetProperty("ventana");
+            Assert.Equal(new[] { "abierta", "motivo", "segundosRestantes" }, v.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+            Assert.Equal(abierta, v.GetProperty("abierta").GetBoolean());
+            Assert.Equal(abierta ? null : nuncaEscribio ? "nunca_escribio" : "vencida", v.GetProperty("motivo").GetString());
+            Assert.InRange(v.GetProperty("segundosRestantes").GetInt64(), abierta ? 1L : 0L, abierta ? 60L : 0L);
+        }
+        Assert.True(resumen.TryGetProperty("noLeidos", out _));
+        Assert.True(resumen.TryGetProperty("ultimoMensaje", out _));
+    }
+
+    [Theory]
     [InlineData(60, false, true)]
     [InlineData(86401, false, false)]
     [InlineData(0, true, false)]

@@ -262,12 +262,13 @@ public static class MensajeriaEndpoints
         });
 
         // 404 (no 403) cuando no hay pertenencia: no confirma que la conversación existe.
-        g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
+        g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones, IMensajeChatDAO mensajes, TimeProvider reloj) =>
         {
             var c = conversaciones.ObtenerPorId(id);
             return c is null || !VisibilidadConversacion.Puede(ctx, c)
                 ? Results.NotFound()
-                : Results.Ok(new { c.IdConversacion, c.Telefono, telefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono), c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
+                : Results.Ok(new { c.IdConversacion, c.Telefono, telefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono), c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad,
+                    ventana = new VentanaDeConversacion(reloj).Evaluar(mensajes.UltimoEntrante(id)) });
         });
 
         // Panel derecho del modo administrador. Solo los datos que necesita la vista
