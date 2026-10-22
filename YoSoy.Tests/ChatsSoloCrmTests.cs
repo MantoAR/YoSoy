@@ -382,6 +382,71 @@ public class ChatsSoloCrmBaseRealTests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData(86340, true, false)]
+    [InlineData(86401, false, false)]
+    [InlineData(0, false, true)]
+    public async Task Lista_y_detalle_informan_la_ventana_sin_perder_sus_campos(int antiguedad, bool abierta, bool nuncaEscribio)
+    {
+        var id = await NuevaConversacion(EstadoConversacion.DerivadaHumano);
+        var ahora = _fabrica.Services.GetRequiredService<TimeProvider>().GetLocalNow().DateTime;
+        if (nuncaEscribio)
+            DatosDePrueba.Ejecutar("DELETE FROM MensajeChat WHERE IdConversacion = @c AND Direccion = 'Entrante'", ("@c", id));
+        else
+            DatosDePrueba.Ejecutar("UPDATE MensajeChat SET FechaHora = @f WHERE IdConversacion = @c AND Direccion = 'Entrante'", ("@f", ahora.AddSeconds(-antiguedad)), ("@c", id));
+        // Un comando más nuevo no debe abrir ni prolongar la ventana.
+        DatosDePrueba.Ejecutar(@"INSERT INTO MensajeChat (IdConversacion, Direccion, Origen, Texto, FechaHora, EstadoEnvio)
+            VALUES (@c, 'Entrante', 'Paciente', 'BAJA', @f, 'Enviado')", ("@c", id), ("@f", ahora));
+
+        var lista = await _crm.GetFromJsonAsync<JsonElement[]>("/mensajeria/conversaciones");
+        var resumen = Assert.Single(lista!, c => c.GetProperty("idConversacion").GetInt32() == id);
+        var detalle = await _crm.GetFromJsonAsync<JsonElement>($"/mensajeria/conversaciones/{id}");
+        foreach (var c in new[] { resumen, detalle })
+        {
+            Assert.Equal(id, c.GetProperty("idConversacion").GetInt32());
+            Assert.Equal("DerivadaHumano", c.GetProperty("estado").GetString());
+            Assert.True(c.TryGetProperty("telefono", out _));
+            Assert.True(c.TryGetProperty("telefonoMostrar", out _));
+            var v = c.GetProperty("ventana");
+            Assert.Equal(new[] { "abierta", "motivo", "segundosRestantes" }, v.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal));
+            Assert.Equal(abierta, v.GetProperty("abierta").GetBoolean());
+            Assert.Equal(abierta ? null : nuncaEscribio ? "nunca_escribio" : "vencida", v.GetProperty("motivo").GetString());
+            Assert.InRange(v.GetProperty("segundosRestantes").GetInt64(), abierta ? 1L : 0L, abierta ? 60L : 0L);
+        }
+        Assert.True(resumen.TryGetProperty("noLeidos", out _));
+        Assert.True(resumen.TryGetProperty("ultimoMensaje", out _));
+    }
+
+    [Theory]
+    [InlineData(60, false, true)]
+    [InlineData(86401, false, false)]
+    [InlineData(0, true, false)]
+    public async Task El_CRM_responde_solo_dentro_de_la_ventana_y_el_409_no_deja_fila(int antiguedad, bool nuncaEscribio, bool sale)
+    {
+        var id = await NuevaConversacion(EstadoConversacion.DerivadaHumano);
+        var ahora = _fabrica.Services.GetRequiredService<TimeProvider>().GetLocalNow().DateTime;
+        if (nuncaEscribio)
+            DatosDePrueba.Ejecutar("DELETE FROM MensajeChat WHERE IdConversacion = @c AND Direccion = 'Entrante'", ("@c", id));
+        else
+            DatosDePrueba.Ejecutar("UPDATE MensajeChat SET FechaHora = @f WHERE IdConversacion = @c AND Direccion = 'Entrante'",
+                ("@f", ahora.AddSeconds(-antiguedad)), ("@c", id));
+        var antes = DatosDePrueba.Contar("SELECT COUNT(*) FROM MensajeChat WHERE IdConversacion = @c", ("@c", id));
+        var actividad = DatosDePrueba.Escalar("SELECT FechaUltimaActividad FROM Conversacion WHERE IdConversacion = @c", ("@c", id));
+
+        using var r = await _crm.PostAsJsonAsync($"/mensajeria/conversaciones/{id}/responder", new { texto = "Respuesta del CRM" });
+
+        Assert.Equal(sale ? HttpStatusCode.OK : HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Equal(antes + (sale ? 1 : 0), DatosDePrueba.Contar("SELECT COUNT(*) FROM MensajeChat WHERE IdConversacion = @c", ("@c", id)));
+        if (sale) return;
+        var cuerpo = await r.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("ventana_24h_cerrada", cuerpo.GetProperty("codigo").GetString());
+        Assert.Equal(nuncaEscribio ? "nunca_escribio" : "vencida", cuerpo.GetProperty("motivo").GetString());
+        Assert.Equal(nuncaEscribio ? VentanaDeConversacion.MensajeNuncaEscribio : VentanaDeConversacion.MensajeVencida, cuerpo.GetProperty("mensaje").GetString());
+        Assert.Equal(!nuncaEscribio, cuerpo.TryGetProperty("ultimoEntranteHaceSegundos", out var segundos));
+        if (!nuncaEscribio) Assert.True(segundos.GetInt64() >= antiguedad);
+        Assert.Equal(actividad, DatosDePrueba.Escalar("SELECT FechaUltimaActividad FROM Conversacion WHERE IdConversacion = @c", ("@c", id)));
+    }
+
     [Fact]
     public async Task Un_Profesional_no_puede_contestar_ni_cerrar_ni_tomar_una_conversacion_escalada()
     {

@@ -83,17 +83,17 @@ public sealed class DatosDePrueba : IDisposable
         // La auditoría es de solo agregar (migración 19: el trigger rechaza el DELETE, error 50018): no se puede borrar lo que dejó
         // la aplicación en LogAuditoria. Si alguna de sus filas apunta a lo que se iba a borrar (un usuario que actuó), eso queda
         // como está: no se toca nada de esta rama (ni sus hijas) y la fila retenida es una más de la base de pruebas, con marca.
-        foreach (var (hija, columnaHija, columnaPadre) in hijas)
-            if (EsDeSoloAgregar(hija) &&
-                Contar($"SELECT COUNT(*) FROM {hija} WHERE {columnaHija} IN (SELECT {columnaPadre} FROM {tabla} WHERE {condicion})", ("@v", valor)) > 0)
+        foreach (var hija in hijas)
+            if (EsDeSoloAgregar(hija.Tabla) &&
+                Contar($"SELECT COUNT(*) FROM {hija.Tabla} WHERE {CondicionDeHija(tabla, condicion, hija)}", ("@v", valor)) > 0)
                 return;
 
         // Primero lo que apunta a estas filas (las claves foráneas que referencian a la tabla), de forma recursiva.
-        foreach (var (hija, columnaHija, columnaPadre) in hijas)
+        foreach (var hija in hijas)
         {
-            if (string.Equals(hija, tabla, StringComparison.OrdinalIgnoreCase)) continue;   // auto-referencia
-            if (EsDeSoloAgregar(hija)) continue;   // ya se comprobó arriba que no tiene filas que apunten acá
-            BorrarEnCascada(hija, $"{columnaHija} IN (SELECT {columnaPadre} FROM {tabla} WHERE {condicion})", valor, profundidad + 1);
+            if (string.Equals(hija.Tabla, tabla, StringComparison.OrdinalIgnoreCase)) continue;   // auto-referencia
+            if (EsDeSoloAgregar(hija.Tabla)) continue;   // ya se comprobó arriba que no tiene filas que apunten acá
+            BorrarEnCascada(hija.Tabla, CondicionDeHija(tabla, condicion, hija), valor, profundidad + 1);
         }
         Ejecutar($"DELETE FROM {tabla} WHERE {condicion}", ("@v", valor));
     }
@@ -101,22 +101,37 @@ public sealed class DatosDePrueba : IDisposable
     private static bool EsDeSoloAgregar(string tablaCalificada) =>
         tablaCalificada.EndsWith("[LogAuditoria]", StringComparison.OrdinalIgnoreCase) || tablaCalificada.EndsWith("[LogError]", StringComparison.OrdinalIgnoreCase);
 
-    private static List<(string Hija, string ColumnaHija, string ColumnaPadre)> HijasDe(string tabla)
+    private sealed record ReferenciaHija(string Tabla, List<(string Hija, string Padre)> Columnas);
+
+    // Una FK compuesta se compara como una unidad. Usar sus columnas por separado
+    // borraba, por ejemplo, permisos de OTROS usuarios con el mismo IdRol.
+    private static string CondicionDeHija(string tabla, string condicion, ReferenciaHija hija) =>
+        $"EXISTS (SELECT 1 FROM {tabla} WHERE ({condicion}) AND " +
+        string.Join(" AND ", hija.Columnas.Select(c => $"{hija.Tabla}.{c.Hija} = {tabla}.{c.Padre}")) + ")";
+
+    private static List<ReferenciaHija> HijasDe(string tabla)
     {
-        var lista = new List<(string, string, string)>();
+        var referencias = new Dictionary<int, ReferenciaHija>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
         using var cmd = new SqlCommand(@"
-            SELECT QUOTENAME(OBJECT_SCHEMA_NAME(fk.parent_object_id)) + '.' + QUOTENAME(OBJECT_NAME(fk.parent_object_id)),
+            SELECT fk.object_id, QUOTENAME(OBJECT_SCHEMA_NAME(fk.parent_object_id)) + '.' + QUOTENAME(OBJECT_NAME(fk.parent_object_id)),
                    QUOTENAME(COL_NAME(fkc.parent_object_id, fkc.parent_column_id)),
                    QUOTENAME(COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id))
             FROM sys.foreign_keys fk
             JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
-            WHERE fk.referenced_object_id = OBJECT_ID(@t)", con);
+            WHERE fk.referenced_object_id = OBJECT_ID(@t)
+            ORDER BY fk.object_id, fkc.constraint_column_id", con);
         cmd.Parameters.AddWithValue("@t", tabla);
         using var r = cmd.ExecuteReader();
-        while (r.Read()) lista.Add((r.GetString(0), r.GetString(1), r.GetString(2)));
-        return lista;
+        while (r.Read())
+        {
+            var id = r.GetInt32(0);
+            if (!referencias.TryGetValue(id, out var referencia))
+                referencias[id] = referencia = new(r.GetString(1), new());
+            referencia.Columnas.Add((r.GetString(2), r.GetString(3)));
+        }
+        return referencias.Values.ToList();
     }
 
     public void Dispose()

@@ -174,6 +174,7 @@ public class PlantillasWhatsAppTests
             profesional.Especialidad = MarcaEspecialidad;
             E.Opciones.CurrentValue.UrlIngresoTurno = Url;
             E.Opciones.CurrentValue.AvisosPorWhatsApp = true;   // estas pruebas son de lo que SALE por WhatsApp: la llave viene apagada por defecto
+            E.WhatsApp.Permisos[1] = PermisoEnvioWhatsApp.ConConsentimiento;
 
             Turno = E.Db.AgregarTurno(1, 10, Escenario.Jueves0900.AddDays(2), idEstado);
             Turno.Modalidad = MarcaModalidad;

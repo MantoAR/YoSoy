@@ -257,12 +257,11 @@ public class NotificadorTurnos : INotificadorTurnos
         // ConsentimientoWhatsApp), no se arma la conversación y no se toca el canal. El mail y la campanita no dependen de esto.
         if (!Op.AvisosPorWhatsApp) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
 
-        // Consentimiento de WhatsApp (ConsentimientoWhatsApp): si el paciente revocó, no se manda nada, y ni se arma la conversación. Con una
-        // aceptación vigente (de este número y de este texto) el servicio de WhatsApp recibe optIn:true; sin decisión, no recibe optIn y
-        // decide él (solo le escribe a quien le escribió primero al número de la clínica).
+        // Solo una aceptación vigente permite avisos automáticos, aunque la persona haya escrito.
         var permiso = _politicaWhatsApp.Evaluar(t.IdPaciente, t.TelefonoPaciente);
         if (permiso == PermisoEnvioWhatsApp.Apagado) return ("Omitido", "Los avisos por WhatsApp están apagados (Mensajeria:AvisosPorWhatsApp).");
         if (permiso == PermisoEnvioWhatsApp.Revocado) return ("Omitido", "El paciente revocó los avisos por WhatsApp.");
+        if (permiso != PermisoEnvioWhatsApp.ConConsentimiento) return ("Omitido", "El paciente no tiene consentimiento vigente para avisos por WhatsApp.");
 
         // El número nacional de 10 dígitos si se lo entiende como teléfono argentino ("011 15 5555-0001" es 1155550001); si no, lo de
         // siempre (los últimos 10 dígitos).
@@ -276,10 +275,12 @@ public class NotificadorTurnos : INotificadorTurnos
         _conversaciones.Guardar(c);
 
         // IniciaElNegocio: un aviso de turno no responde a nada que la persona haya escrito (a diferencia de las respuestas del asistente y los
-        // avisos de cerrar y reabrir, que ServicioMensajes solo deja salir dentro de una conversación que ella empezó). Lo acota el consentimiento.
+        // avisos de cerrar y reabrir, que ServicioMensajes solo deja salir dentro de las 24 h del último entrante real). Lo acotan el consentimiento y el cupo diario.
         var m = _mensajes.EnviarAsync(c, texto, "Sistema", new OpcionesEnvio(OptIn: permiso == PermisoEnvioWhatsApp.ConConsentimiento, IniciaElNegocio: true))
             .GetAwaiter().GetResult();
         if (m.EstadoEnvio == "Enviado") return ("Enviado", null);
+        if (m.CodigoDeError == ServicioMensajes.CodigoTopeAvisos)
+            return ("Omitido", "Se alcanzó el tope diario de avisos para este número.");
         // whatsapp-service rechazó el aviso porque la persona no aceptó recibir WhatsApp (o pidió la baja): no es una falla ni se reintenta.
         if (m.CodigoDeError is "sin_consentimiento" or "baja")
             return ("Omitido", "La persona no aceptó recibir WhatsApp o pidió la baja.");

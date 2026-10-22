@@ -133,13 +133,15 @@ public class AvisosPorWhatsAppLlaveTests
     }
 
     [Fact]
-    public void Con_la_llave_prendida_sin_decision_sale_sin_optIn_y_decide_whatsapp_service()
+    public void Con_la_llave_prendida_sin_decision_se_omite_sin_consultar_al_canal()
     {
         var a = new Arnes(BaseEnMemoria.Confirmado, llave: true);
 
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
-        Assert.False(Assert.Single(a.Canal.Envios).Opciones.OptIn);
+        Assert.Empty(a.Canal.Envios);
+        Assert.Empty(a.Mensajes.Todos);
+        Assert.Equal("Omitido", a.Chat.Estado);
     }
 
     [Fact]

@@ -76,6 +76,7 @@ public class NotificadorWhatsAppConsentimientoTests
         {
             E.Db.Pacientes.Single(p => p.IdPaciente == 1).Telefono = telefono!;
             E.Opciones.CurrentValue.AvisosPorWhatsApp = true;   // son pruebas del consentimiento de los avisos por WhatsApp: la llave viene apagada por defecto
+            E.WhatsApp.Permisos[1] = PermisoEnvioWhatsApp.ConConsentimiento;
             Datos = new FakeDatos(E.Db);
             Notificador = new NotificadorTurnos(new DatosConTelefono(Datos, E.Db), Recordatorios, new InternasNulas(), E.Conversaciones, E.Mensajes,
                 new CanalSimulado(), E.WhatsApp, new FakeTurnoRepositorio(E.Db), new ServiceCollection().BuildServiceProvider(),
@@ -105,17 +106,17 @@ public class NotificadorWhatsAppConsentimientoTests
     }
 
     [Fact]
-    public void Sin_decision_el_aviso_sale_sin_optIn_y_lo_decide_el_servicio_de_WhatsApp()
+    public void Sin_decision_el_aviso_queda_Omitido_sin_conversacion_ni_envio()
     {
         var a = new Arnes();
+        a.E.WhatsApp.Permisos[1] = PermisoEnvioWhatsApp.SinDecision;
 
         a.Notificador.TurnoConfirmado(a.Turno.IdTurno);
 
-        Assert.Single(a.Salientes);
-        var opciones = Assert.Single(a.E.Mensajes.OpcionesDeEnvio);
-        Assert.False(opciones.OptIn);
-        Assert.True(opciones.IniciaElNegocio);
-        Assert.Equal("Enviado", a.Chat.Estado);
+        Assert.Empty(a.Salientes);
+        Assert.Empty(a.E.Conversaciones.Todas);
+        Assert.Empty(a.E.Mensajes.OpcionesDeEnvio);
+        Assert.Equal("Omitido", a.Chat.Estado);
     }
 
     [Fact]
@@ -402,6 +403,17 @@ public class ServicioMensajesOpcionesTests
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
         public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
+    public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
+    public bool IntentarInsertarAviso(MensajeChat mensaje, int tope)
+    {
+        lock (Todos)
+        {
+            if (Todos.Count(m => m.IdConversacion == mensaje.IdConversacion && m.Direccion == "Saliente" && m.Origen == "Sistema"
+                && (m.EstadoEnvio == "Enviado" || m.EstadoEnvio == "Pendiente") && m.FechaHora.Date == mensaje.FechaHora.Date) >= tope) return false;
+            Insertar(mensaje);
+            return true;
+        }
+    }
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -432,6 +444,8 @@ public class ServicioMensajesOpcionesTests
     {
         var (servicio, _, canal, c) = Armar();
 
+        servicio.RegistrarEntrante(c, "hola");
+
         await servicio.EnviarAsync(c, "con", "Humano", new OpcionesEnvio(OptIn: true));
         await servicio.EnviarAsync(c, "sin", "Humano");
 
@@ -445,9 +459,9 @@ public class ServicioMensajesOpcionesTests
         var (servicio, mensajes, canal, c) = Armar();
         canal.Resultado = new ResultadoEnvio(false, Error: "no", Codigo: "sin_consentimiento");
 
-        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
+        var rechazado = await servicio.EnviarAsync(c, "uno", "Sistema", new OpcionesEnvio(OptIn: true, IniciaElNegocio: true));
         canal.Resultado = new ResultadoEnvio(true, "x", Codigo: "algo");
-        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));
+        var enviado = await servicio.EnviarAsync(c, "dos", "Sistema", new OpcionesEnvio(OptIn: true, IniciaElNegocio: true));
 
         Assert.Equal(("Error", "sin_consentimiento"), (rechazado.EstadoEnvio, rechazado.CodigoDeError));
         Assert.Equal(("Enviado", (string?)null), (enviado.EstadoEnvio, enviado.CodigoDeError));

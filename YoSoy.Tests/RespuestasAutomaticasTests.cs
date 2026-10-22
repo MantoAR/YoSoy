@@ -5,15 +5,14 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
-// Las respuestas automáticas solo salen dentro de una conversación que la persona empezó.
+// Bot responde a una conversación iniciada; Humano y los avisos de cerrar/reabrir requieren ventana de 24 h.
 //
-// Para no parecer un bot ante WhatsApp, un mensaje AUTOMÁTICO (origen "Bot" o "Sistema") es una respuesta, y una respuesta solo se manda si la persona ya
-// escribió en esa conversación. La regla vive en ServicioMensajes, el único punto por el que sale todo, así que ningún camino nuevo se la salta sin
-// declararlo: las excepciones son el equipo ("Humano": decide una persona) y los avisos de turno por evento (OpcionesEnvio.IniciaElNegocio).
+// La regla vive en ServicioMensajes, antes de insertar o enviar. El equipo no es una excepción.
+// Los avisos de turno (Sistema + IniciaElNegocio) pueden salir fuera de la ventana, con consentimiento y cupo diario.
 //
 //  · ServicioMensajes, en memoria: con y sin mensajes entrantes, para cada origen y cada opción.
 //  · La aplicación entera contra una base de pruebas: el asistente contesta (la persona escribió), cerrar y reabrir una conversación mandan su aviso
-//    solo si la persona escribió, y el equipo puede responder.
+//    solo dentro de la ventana, y el equipo no puede iniciar una conversación.
 public class RespuestasAutomaticasTests
 {
     private sealed class MensajesEnMemoria : IMensajeChatDAO
@@ -24,6 +23,17 @@ public class RespuestasAutomaticasTests
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
         public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
+    public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
+    public bool IntentarInsertarAviso(MensajeChat mensaje, int tope)
+    {
+        lock (Todos)
+        {
+            if (Todos.Count(m => m.IdConversacion == mensaje.IdConversacion && m.Direccion == "Saliente" && m.Origen == "Sistema"
+                && (m.EstadoEnvio == "Enviado" || m.EstadoEnvio == "Pendiente") && m.FechaHora.Date == mensaje.FechaHora.Date) >= tope) return false;
+            Insertar(mensaje);
+            return true;
+        }
+    }
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -67,7 +77,7 @@ public class RespuestasAutomaticasTests
         Assert.Empty(a.Canal.Envios);                                                       // no llega al canal
         Assert.Empty(a.Mensajes.Todos);                                                     // y no queda en el historial como si hubiera salido
         Assert.Equal("Error", m.EstadoEnvio);
-        Assert.Equal(ServicioMensajes.CodigoSinConversacionIniciada, m.CodigoDeError);
+        Assert.Equal(origen == "Sistema" ? ServicioMensajes.CodigoVentanaCerrada : ServicioMensajes.CodigoSinConversacionIniciada, m.CodigoDeError);
         Assert.Equal(0, m.IdMensaje);                                                       // nunca se insertó
     }
 
@@ -88,13 +98,13 @@ public class RespuestasAutomaticasTests
     public async Task Lo_que_la_clinica_mando_antes_no_cuenta_como_que_la_persona_escribio()
     {
         var a = new Arnes();
-        await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));   // un aviso: sale
+        await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(OptIn: true, IniciaElNegocio: true));   // un aviso con consentimiento: sale
         Assert.Single(a.Canal.Envios);
 
         var m = await a.Servicio.EnviarAsync(a.Conversacion, "El equipo de YoSoy reabrió esta conversación.", "Sistema");
 
         Assert.Single(a.Canal.Envios);                                                     // el aviso no se convierte en una conversación de la persona
-        Assert.Equal(ServicioMensajes.CodigoSinConversacionIniciada, m.CodigoDeError);
+        Assert.Equal(ServicioMensajes.CodigoVentanaCerrada, m.CodigoDeError);
         Assert.Single(a.Mensajes.Todos);
     }
 
@@ -140,30 +150,67 @@ public class RespuestasAutomaticasTests
         Assert.Equal(6, a.Canal.Envios.Count);
     }
 
+    [Theory]
+    [InlineData("Humano", 86340, "hola", true)]
+    [InlineData("Humano", 86400, "hola", false)]
+    [InlineData("Sistema", 86401, "hola", false)]
+    [InlineData("Sistema", 86340, "hola", true)]
+    [InlineData("Humano", 0, "BAJA", false)]
+    [InlineData("Sistema", 0, "STOP", false)]
+    public async Task La_ventana_se_controla_antes_de_insertar(string origen, int antiguedad, string texto, bool sale)
+    {
+        var a = new Arnes();
+        var entrante = a.Servicio.RegistrarEntrante(a.Conversacion, texto);
+        entrante.FechaHora = entrante.FechaHora.AddSeconds(-antiguedad);
+        var resultado = await a.Servicio.EnviarAsync(a.Conversacion, "respuesta", origen);
+        Assert.Equal(sale ? 1 : 0, a.Canal.Envios.Count);
+        Assert.Equal(sale ? 2 : 1, a.Mensajes.Todos.Count);
+        Assert.Equal(sale ? "Enviado" : "Error", resultado.EstadoEnvio);
+        if (!sale)
+        {
+            Assert.Equal(0, resultado.IdMensaje);
+            Assert.Equal(ServicioMensajes.CodigoVentanaCerrada, resultado.CodigoDeError);
+        }
+    }
+
+    [Fact]
+    public async Task Humano_no_puede_saltearse_la_ventana_con_IniciaElNegocio()
+    {
+        var a = new Arnes();
+        var resultado = await a.Servicio.EnviarAsync(a.Conversacion, "hola", "Humano", new OpcionesEnvio(IniciaElNegocio: true));
+        Assert.Equal(ServicioMensajes.CodigoVentanaCerrada, resultado.CodigoDeError);
+        Assert.Empty(a.Mensajes.Todos);
+        Assert.Empty(a.Canal.Envios);
+    }
+
     // ───────────── Las excepciones, una por una ─────────────
 
     [Fact]
-    public async Task El_equipo_puede_responder_aunque_la_persona_no_haya_escrito()
+    public async Task El_equipo_no_puede_responder_si_la_persona_no_escribio()
     {
         var a = new Arnes();
 
         var m = await a.Servicio.EnviarAsync(a.Conversacion, "Hola, te escribimos del consultorio.", "Humano");
 
-        Assert.Single(a.Canal.Envios);           // lo escribe una persona del equipo y decide ella; el servicio de WhatsApp igual exige consentimiento
-        Assert.Equal("Enviado", m.EstadoEnvio);
+        Assert.Empty(a.Canal.Envios);
+        Assert.Empty(a.Mensajes.Todos);
+        Assert.Equal("Error", m.EstadoEnvio);
+        Assert.Equal(ServicioMensajes.CodigoVentanaCerrada, m.CodigoDeError);
+        Assert.Equal("nunca_escribio", m.VentanaRechazada?.Motivo);
     }
 
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Un_aviso_de_turno_por_evento_sale_sin_conversacion_previa_con_o_sin_optIn(bool optIn)
+    public async Task Un_aviso_de_turno_sale_sin_conversacion_solo_con_optIn(bool optIn)
     {
         var a = new Arnes();
 
         var m = await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(OptIn: optIn, IniciaElNegocio: true));
 
-        Assert.Equal(optIn, Assert.Single(a.Canal.Envios).Opciones.OptIn);
-        Assert.Equal("Enviado", m.EstadoEnvio);
+        Assert.Equal(optIn ? 1 : 0, a.Canal.Envios.Count);
+        Assert.Equal(optIn ? "Enviado" : "Omitido", m.EstadoEnvio);
+        Assert.Equal(optIn ? 1 : 0, a.Mensajes.Todos.Count);
     }
 
     [Fact]
@@ -339,14 +386,16 @@ public class RespuestasAutomaticasEndpointsTests : IAsyncLifetime
     // ───────────── El equipo ─────────────
 
     [Fact]
-    public async Task El_equipo_puede_responder_en_una_conversacion_que_armo_un_aviso()
+    public async Task El_equipo_no_envia_en_una_conversacion_que_armo_un_aviso()
     {
         var telefono = TelefonoNuevo();
         var idConversacion = ConversacionDeUnAviso(telefono);
 
         var r = await _crm.PostAsJsonAsync($"/mensajeria/conversaciones/{idConversacion}/responder", new { texto = "Hola, te escribimos del consultorio." });
 
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        Assert.Equal("Hola, te escribimos del consultorio.", Assert.Single(_canal.A(telefono)).Texto);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Empty(_canal.A(telefono));
+        Assert.Equal("ventana_24h_cerrada", (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("codigo").GetString());
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM MensajeChat WHERE IdConversacion = @c AND Origen = 'Humano'", ("@c", idConversacion)));
     }
 }

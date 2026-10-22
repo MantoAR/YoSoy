@@ -195,6 +195,9 @@
 .chats-enviar svg { width: 17px; height: 17px; }
 .chats-composer-ayuda { flex-shrink: 0; padding: 0 14px 8px; background: var(--surface); font-size: var(--fs-xs); color: var(--text-4); }
 .chats-composer-ayuda .ui-kbd { padding: 0 4px; font-size: 10px; }
+.chats-candado { display: flex; align-items: center; justify-content: center; width: 24px; height: 38px; flex-shrink: 0; color: var(--text-4); }
+.chats-candado svg { width: 18px; height: 18px; }
+.chats-ventana { flex-shrink: 0; padding: 0 14px 10px; background: var(--surface); font-size: var(--fs-xs); line-height: 1.5; color: var(--text-3); }
 
 /* Respuestas rápidas */
 .chats-plantillas {

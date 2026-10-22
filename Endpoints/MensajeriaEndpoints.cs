@@ -262,12 +262,13 @@ public static class MensajeriaEndpoints
         });
 
         // 404 (no 403) cuando no hay pertenencia: no confirma que la conversación existe.
-        g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones) =>
+        g.MapGet("/conversaciones/{id}", (int id, HttpContext ctx, IConversacionDAO conversaciones, IMensajeChatDAO mensajes, TimeProvider reloj) =>
         {
             var c = conversaciones.ObtenerPorId(id);
             return c is null || !VisibilidadConversacion.Puede(ctx, c)
                 ? Results.NotFound()
-                : Results.Ok(new { c.IdConversacion, c.Telefono, telefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono), c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad });
+                : Results.Ok(new { c.IdConversacion, c.Telefono, telefonoMostrar = TelefonoWhatsApp.Formatear(c.Telefono), c.IdPaciente, c.Canal, c.Estado, c.PasoActual, c.FechaUltimaActividad,
+                    ventana = new VentanaDeConversacion(reloj).Evaluar(mensajes.UltimoEntrante(id)) });
         });
 
         // Panel derecho del modo administrador. Solo los datos que necesita la vista
@@ -332,14 +333,18 @@ public static class MensajeriaEndpoints
         });
 
         g.MapPost("/conversaciones/{id}/responder", async (int id, RespuestaHumanaRequest req, HttpContext http,
-            IConversacionDAO conversaciones, IServicioMensajes mensajes, IDatosMensajeria datos, TimeProvider reloj) =>
+            IConversacionDAO conversaciones, IServicioMensajes mensajes, IMensajeChatDAO historial, IDatosMensajeria datos, TimeProvider reloj) =>
         {
             var texto = (req.Texto ?? "").Trim();
             if (texto.Length == 0) return Results.BadRequest(new { mensaje = "El mensaje está vacío." });
             var c = conversaciones.ObtenerPorId(id);
             if (c is null || !VisibilidadConversacion.Puede(http, c)) return Results.NotFound();
 
+            var ventana = new VentanaDeConversacion(reloj).Evaluar(historial.UltimoEntrante(id));
+            if (!ventana.Abierta) return RechazoVentana(ventana);
             var m = await mensajes.EnviarAsync(c, texto, "Humano");
+            // La ventana pudo vencer entre la consulta anterior y el control del servicio.
+            if (m.VentanaRechazada is { } rechazada) return RechazoVentana(rechazada);
             c.FechaUltimaActividad = reloj.GetLocalNow().DateTime;
             conversaciones.Guardar(c);
             Auditar(http, "Respuesta manual en chat", id, c.IdPaciente is int idPac ? datos.ObtenerPaciente(idPac)?.Nombre : null);
@@ -695,6 +700,19 @@ public static class MensajeriaEndpoints
     public static RouteGroupBuilder RequiereMensajeriaHabilitada(this RouteGroupBuilder grupo) =>
         grupo.AddEndpointFilter(async (ctx, next) =>
             MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
+
+    private static IResult RechazoVentana(EstadoVentanaDeConversacion ventana)
+    {
+        var cuerpo = new Dictionary<string, object?>
+        {
+            ["codigo"] = ServicioMensajes.CodigoVentanaCerrada,
+            ["motivo"] = ventana.Motivo,
+            ["mensaje"] = ventana.Mensaje
+        };
+        if (ventana.UltimoEntranteHaceSegundos is long segundos)
+            cuerpo["ultimoEntranteHaceSegundos"] = segundos;
+        return Results.Json(cuerpo, statusCode: 409);
+    }
 
     // Candado de una ruta suelta: solo responde a pedidos de la propia máquina, sin importar SoloLocal (EsLocal: ni uno que pasó por un proxy). A cualquier otro, 404, el mismo que
     // el del grupo y el del webhook: no confirma que la ruta existe. Corre después del filtro del grupo, que sigue valiendo.

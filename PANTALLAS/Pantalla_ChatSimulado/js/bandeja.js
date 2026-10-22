@@ -59,6 +59,7 @@
         timer: null, pulsando: false, vueltasSinCambios: 0, sinConexion: false,
         plantillas: [], sonido: false, audio: null, boton: null
     };
+    est.borradoresVentana = new Map();
     let raiz = null;
     const $ = sel => raiz.querySelector(sel);
 
@@ -189,7 +190,20 @@
     }
 
     // ── Lista de conversaciones ─────────────────────────────────
+    function fusionarResumen(c, anterior) {
+        const traeVentana = c.ventana != null;
+        const resultado = { ...anterior, ...c };
+        if (!traeVentana && anterior?.ventana != null) resultado.ventana = anterior.ventana;
+        Object.defineProperty(resultado, "ventanaRecibidaEn", {
+            value: traeVentana ? performance.now() : anterior?.ventanaRecibidaEn,
+            writable: true, configurable: true
+        });
+        if (traeVentana) delete resultado.explicacionVentana;
+        return resultado;
+    }
+
     function aplicarResumen(lista, completa) {
+        lista = lista.map(c => fusionarResumen(c, est.convs.get(c.idConversacion)));
         const antes = est.convs;
         if (completa) est.convs = new Map(lista.map(c => [c.idConversacion, c]));
         else { est.convs = new Map(antes); lista.forEach(c => est.convs.set(c.idConversacion, c)); }
@@ -348,6 +362,12 @@
         est.nuevosAbajo = 0; est.pendientes = []; est.leidaHasta = 0;
         raiz.classList.add("con-conversacion");
         dibujarHilo();
+        const borrador = est.borradoresVentana.get(id);
+        if (borrador) {
+            $("#chatsTexto").value = borrador;
+            est.borradoresVentana.delete(id);
+            ajustarAlto();
+        }
         dibujarLista();
         // Mantiene la preferencia ya elegida (est.contexto, con su propio default inicial en
         // iniciar()/expandir()) en vez de forzarla a visible en cada selección — antes, cerrar
@@ -402,11 +422,13 @@
                     <div class="chats-plantillas oculto" id="chatsPlantillas" role="listbox" aria-label="Respuestas rápidas"></div>
                     <button class="ui-btn-icono" type="button" id="chatsBtnPlantillas" aria-label="Respuestas rápidas (/)" title="Respuestas rápidas (/)" aria-expanded="false">${YS.icono("rayo")}</button>
                     <label class="sr-only" for="chatsTexto">Respuesta</label>
+                    <span class="chats-candado oculto" id="chatsCandado" aria-hidden="true">${YS.icono("candado")}</span>
                     <textarea id="chatsTexto" rows="1" maxlength="4000" placeholder="Escribí un mensaje — &quot;/&quot; respuestas rápidas"></textarea>
                     <button class="ui-btn ui-btn--primary chats-enviar" type="submit" id="chatsEnviar" aria-label="Enviar (Enter)" title="Enviar (Enter)">${YS.icono("enviar")}</button>
                 </div>
             </form>
-            <div class="chats-composer-ayuda"><span class="ui-kbd">Enter</span> envía · <span class="ui-kbd">Shift</span>+<span class="ui-kbd">Enter</span> nueva línea · <span class="ui-kbd">/</span> respuestas rápidas</div>`;
+            <div class="chats-ventana oculto" id="chatsVentana" role="status"></div>
+            <div class="chats-composer-ayuda" id="chatsAyudaComposer"><span class="ui-kbd">Enter</span> envía · <span class="ui-kbd">Shift</span>+<span class="ui-kbd">Enter</span> nueva línea · <span class="ui-kbd">/</span> respuestas rápidas</div>`;
         dibujarCabeceraHilo();
         dibujarAvisoWhatsApp();
         const m = $("#chatsMensajes");
@@ -454,16 +476,45 @@
         actualizarComposer(c);
     }
 
+    const MENSAJES_VENTANA = {
+        vencida: "Pasaron más de 24 h desde el último mensaje de esta persona. Para cuidar el número del centro, solo se puede responder dentro de las 24 h. Podrás escribirle de nuevo cuando ella escriba.",
+        nunca_escribio: "Esta persona todavía no escribió por este número. El centro no puede iniciar la conversación."
+    };
+
+    function ventanaActual(c, ahora = performance.now()) {
+        const v = c?.ventana;
+        if (v == null) return { abierta: true, motivo: null, segundosRestantes: null };
+        const transcurrido = Math.max(0, (ahora - (c?.ventanaRecibidaEn ?? ahora)) / 1000);
+        const restantes = v?.abierta ? Math.max(0, Math.min(86400, Number(v.segundosRestantes) || 0) - transcurrido) : 0;
+        const abierta = v?.abierta === true && restantes > 0;
+        return { abierta, motivo: abierta ? null : (v?.motivo || (v ? "vencida" : "nunca_escribio")), segundosRestantes: Math.ceil(restantes) };
+    }
+
     function actualizarComposer(c) {
+        clearTimeout(est.timerVentana);
+        if (!raiz) return;
         const t = $("#chatsTexto");
         if (!t || !c) return;
         const cerrada = c.estado === "Cerrada";
-        t.disabled = cerrada;
-        $("#chatsEnviar").disabled = cerrada;
-        $("#chatsBtnPlantillas").disabled = cerrada;
+        const ventana = ventanaActual(c);
+        const bloqueada = !ventana.abierta;
+        t.disabled = cerrada || bloqueada;
+        $("#chatsEnviar").disabled = cerrada || bloqueada;
+        $("#chatsBtnPlantillas").disabled = cerrada || bloqueada;
+        $("#chatsCandado").classList.toggle("oculto", !bloqueada);
+        const aviso = $("#chatsVentana");
+        aviso.classList.toggle("oculto", !bloqueada);
+        aviso.textContent = bloqueada ? (c.explicacionVentana || MENSAJES_VENTANA[ventana.motivo] || MENSAJES_VENTANA.vencida) : "";
+        $("#chatsAyudaComposer").classList.toggle("oculto", bloqueada);
+        t.setAttribute("aria-describedby", bloqueada ? "chatsVentana" : "chatsAyudaComposer");
+        if (cerrada || bloqueada) cerrarPlantillas();
         t.placeholder = cerrada
             ? (personal() ? "La conversación está cerrada. Si el paciente vuelve a escribir, vuelve a quedar para atender." : "La conversación está cerrada. Si el paciente vuelve a escribir, la atiende el asistente.")
-            : 'Escribí un mensaje — "/" respuestas rápidas';
+            : bloqueada ? "Esperando un mensaje de esta persona" : 'Escribí un mensaje — "/" respuestas rápidas';
+        // Un solo temporizador hasta el vencimiento; el tiempo se descuenta con reloj
+        // monotónico. Cada respuesta de la API reemplaza esta estimación local.
+        if (ventana.abierta && ventana.segundosRestantes != null)
+            est.timerVentana = setTimeout(() => actualizarComposer(est.convs.get(est.actual)), ventana.segundosRestantes * 1000);
     }
 
     async function cargarHilo() {
@@ -690,7 +741,9 @@
         const t = $("#chatsTexto");
         const texto = t.value.trim();
         const c = est.convs.get(est.actual);
-        if (!texto || !c || c.estado === "Cerrada") return;
+        if (!texto || !c || c.estado === "Cerrada" || !ventanaActual(c).abierta) return;
+        // Recuperar un rechazo junto con un borrador nuevo puede superar maxlength.
+        if (texto.length > 4000) { YS.toast("El mensaje supera los 4000 caracteres. Acortalo antes de enviarlo.", "info"); return; }
         const p = { id: ++est.idTmp, texto, conv: c.idConversacion, error: null };
         est.pendientes.push(p);
         t.value = ""; ajustarAlto(); cerrarPlantillas();
@@ -712,6 +765,26 @@
             irAbajo(true);
             est.vueltasSinCambios = 0; programar(400);
         } catch (e) {
+            if (e.status === 409 && e.datos?.codigo === "ventana_24h_cerrada") {
+                est.pendientes = est.pendientes.filter(x => x.id !== p.id);
+                raiz?.querySelector(`[data-tmp="${p.id}"]`)?.remove();
+                const c = est.convs.get(p.conv);
+                if (c) {
+                    c.ventana = { abierta: false, motivo: e.datos.motivo, segundosRestantes: 0 };
+                    c.ventanaRecibidaEn = performance.now();
+                    c.explicacionVentana = e.datos.mensaje;
+                }
+                const t = raiz && est.actual === p.conv ? $("#chatsTexto") : null;
+                if (t) {
+                    t.value = p.texto + (t.value ? "\n" + t.value : "");
+                    ajustarAlto();
+                    actualizarComposer(c);
+                } else {
+                    const previo = est.borradoresVentana.get(p.conv);
+                    est.borradoresVentana.set(p.conv, p.texto + (previo ? "\n" + previo : ""));
+                }
+                return;
+            }
             p.error = e.message || true;
             if (gen !== est.generacion) return;
             raiz.querySelector(`[data-tmp="${p.id}"]`)?.replaceWith(nodoPendiente(p));
@@ -1459,6 +1532,7 @@
     function apagar() {
         clearTimeout(est.timer);
         clearTimeout(est.timerWa);
+        clearTimeout(est.timerVentana);
         est.boton?.boton.remove();
         if (est.modo === "cajon") raiz?.remove();
         raiz = null;
