@@ -5,7 +5,7 @@ Implementada en `feature/chats-ventana-24h`, sin cambios de esquema ni cambios e
 ## Regla y reloj
 
 - `VentanaDeConversacion` recibe `TimeProvider` y compara la hora local de la clínica con `MensajeChat.FechaHora`, un DATETIME sin zona. A las 24 h exactas la ventana está cerrada.
-- `UltimoEntrante` recorre entrantes de la conversación por `FechaHora DESC, IdMensaje DESC`, en páginas de 20 con OFFSET y usando `IX_MensajeChat_Conversacion`. Devuelve el primero que no reconozca `ComandoWhatsApp.EsBaja`; incluye sus variantes como STOP y signos.
+- `UltimoEntrante` recorre entrantes de la conversación por `FechaHora DESC, IdMensaje DESC`, en páginas de 20 con OFFSET y sin forzar un índice. Devuelve el primero que no reconozca `ComandoWhatsApp.EsBaja`; incluye sus variantes como STOP y signos.
 - No usa `GROUP BY Texto`. `Texto` es NOT NULL en el esquema y en la base de pruebas; aun así, la lectura usa `IsDBNull` y un entrante sin texto contaría como real. No se alteró la columna para probar NULL.
 - Los segundos restantes quedan entre 0 y 86400, incluso si el último entrante tiene fecha futura. La antigüedad nunca es negativa.
 
@@ -64,3 +64,8 @@ El filtro de la segunda base incluye `Migracion!=17`, confirmado por el usuario,
 ## Límites de la validación
 
 La lista consulta la ventana por conversación y no se midió su rendimiento con miles de conversaciones. Las pruebas de interfaz comprueban lógica y cambios de DOM con Node; no equivalen a una inspección visual en un navegador real. Los controles de WhatsApp del proceso Node se mantienen como una capa adicional.
+
+## Pendiente
+
+- La lista consulta `UltimoEntrante` una vez por conversación. Si el volumen crece, pasarlo a una sola consulta.
+- Para encender los avisos de WhatsApp en producción hace falta aplicar la migración 16 y tener consentimiento registrado: ahora `SinDecision` queda `Omitido`.

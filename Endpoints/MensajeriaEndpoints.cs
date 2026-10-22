@@ -701,8 +701,6 @@ public static class MensajeriaEndpoints
         grupo.AddEndpointFilter(async (ctx, next) =>
             MensajeriaDisponible(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
 
-    // Candado de una ruta suelta: solo responde a pedidos de la propia máquina, sin importar SoloLocal (EsLocal: ni uno que pasó por un proxy). A cualquier otro, 404, el mismo que
-    // el del grupo y el del webhook: no confirma que la ruta existe. Corre después del filtro del grupo, que sigue valiendo.
     private static IResult RechazoVentana(EstadoVentanaDeConversacion ventana)
     {
         var cuerpo = new Dictionary<string, object?>
@@ -716,6 +714,8 @@ public static class MensajeriaEndpoints
         return Results.Json(cuerpo, statusCode: 409);
     }
 
+    // Candado de una ruta suelta: solo responde a pedidos de la propia máquina, sin importar SoloLocal (EsLocal: ni uno que pasó por un proxy). A cualquier otro, 404, el mismo que
+    // el del grupo y el del webhook: no confirma que la ruta existe. Corre después del filtro del grupo, que sigue valiendo.
     private static TBuilder SoloDesdeLaPropiaMaquina<TBuilder>(this TBuilder ruta) where TBuilder : IEndpointConventionBuilder =>
         ruta.AddEndpointFilter(async (ctx, next) => EsLocal(ctx.HttpContext) ? await next(ctx) : Results.NotFound());
 

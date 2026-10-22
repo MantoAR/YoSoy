@@ -190,10 +190,20 @@
     }
 
     // ── Lista de conversaciones ─────────────────────────────────
+    function fusionarResumen(c, anterior) {
+        const traeVentana = c.ventana != null;
+        const resultado = { ...anterior, ...c };
+        if (!traeVentana && anterior?.ventana != null) resultado.ventana = anterior.ventana;
+        Object.defineProperty(resultado, "ventanaRecibidaEn", {
+            value: traeVentana ? performance.now() : anterior?.ventanaRecibidaEn,
+            writable: true, configurable: true
+        });
+        if (traeVentana) delete resultado.explicacionVentana;
+        return resultado;
+    }
+
     function aplicarResumen(lista, completa) {
-        lista.forEach(c => Object.defineProperty(c, "ventanaRecibidaEn", {
-            value: performance.now(), writable: true, configurable: true
-        }));
+        lista = lista.map(c => fusionarResumen(c, est.convs.get(c.idConversacion)));
         const antes = est.convs;
         if (completa) est.convs = new Map(lista.map(c => [c.idConversacion, c]));
         else { est.convs = new Map(antes); lista.forEach(c => est.convs.set(c.idConversacion, c)); }
@@ -473,6 +483,7 @@
 
     function ventanaActual(c, ahora = performance.now()) {
         const v = c?.ventana;
+        if (v == null) return { abierta: true, motivo: null, segundosRestantes: null };
         const transcurrido = Math.max(0, (ahora - (c?.ventanaRecibidaEn ?? ahora)) / 1000);
         const restantes = v?.abierta ? Math.max(0, Math.min(86400, Number(v.segundosRestantes) || 0) - transcurrido) : 0;
         const abierta = v?.abierta === true && restantes > 0;
@@ -502,7 +513,7 @@
             : bloqueada ? "Esperando un mensaje de esta persona" : 'Escribí un mensaje — "/" respuestas rápidas';
         // Un solo temporizador hasta el vencimiento; el tiempo se descuenta con reloj
         // monotónico. Cada respuesta de la API reemplaza esta estimación local.
-        if (ventana.abierta)
+        if (ventana.abierta && ventana.segundosRestantes != null)
             est.timerVentana = setTimeout(() => actualizarComposer(est.convs.get(est.actual)), ventana.segundosRestantes * 1000);
     }
 

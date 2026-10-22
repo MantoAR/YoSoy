@@ -63,7 +63,7 @@ public class MensajeChatDAO : IMensajeChatDAO
         if (tope <= 0) return false;
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        using var tx = con.BeginTransaction(System.Data.IsolationLevel.Serializable);
+        using var tx = con.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
         using var destino = new SqlCommand("SELECT Telefono FROM Conversacion WHERE IdConversacion = @c", con, tx);
         destino.Parameters.AddWithValue("@c", m.IdConversacion);
         var telefono = destino.ExecuteScalar() as string ?? throw new InvalidOperationException("La conversación del aviso no existe.");
@@ -145,7 +145,7 @@ public class MensajeChatDAO : IMensajeChatDAO
         // Se recorren páginas pequeñas; las bajas usan el mismo reconocedor que los servicios.
         using var cmd = new SqlCommand(@"
             SELECT Texto, FechaHora
-            FROM MensajeChat WITH (INDEX(IX_MensajeChat_Conversacion))
+            FROM MensajeChat
             WHERE IdConversacion = @IdConv AND Direccion = 'Entrante'
             ORDER BY FechaHora DESC, IdMensaje DESC
             OFFSET @Desde ROWS FETCH NEXT 20 ROWS ONLY", con);

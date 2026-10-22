@@ -7,6 +7,7 @@ public class VentanaConversacionJsTests
     private const string Script = """
         const fs = require('fs'), vm = require('vm');
         const entrada = JSON.parse(process.env.ENTRADA);
+        let confirmarVinculo;
         let ahora = 1000, quitadas = 0, errores = 0, pedidos = 0, avisos = 0;
         const temporizadores = [];
         function nodo() {
@@ -20,20 +21,23 @@ public class VentanaConversacionJsTests
             'chatsVentana', 'chatsAyudaComposer', 'chatsPlantillas'].map(id => ['#' + id, nodo()]));
         const raiz = { querySelector: s => s.startsWith('[data-tmp=')
             ? { remove() { quitadas++; }, replaceWith() { errores++; } } : campos[s] || null };
-        const YS = { debounce: f => f, el: () => nodo(), toast: () => avisos++,
+        const YS = { confirmar: async () => true, esc: s => s,
+            modal: () => ({ cerrar() {}, cuerpo: { innerHTML: '', querySelector: () => ({ focus() {}, addEventListener: (evento, fn) => confirmarVinculo = fn }) } }),
+            debounce: f => f, el: () => nodo(), toast: () => avisos++,
             api: async () => { pedidos++; throw Object.assign(new Error('rechazo'), {
                 status: entrada.status ?? 409,
                 datos: { codigo: entrada.codigo ?? 'ventana_24h_cerrada', motivo: entrada.motivo ?? 'vencida',
                     mensaje: entrada.mensaje ?? 'Explicación del servidor' } }); } };
         let codigo = fs.readFileSync(process.env.MODULO, 'utf8');
         codigo = codigo.replace('YS.bandeja = {',
-            'YS.pruebas = { est, ventanaActual, actualizarComposer, mandar, enviar, raiz: r => raiz = r }; YS.bandeja = {');
-        vm.runInNewContext(codigo, { window: { YS }, performance: { now: () => ahora },
+            'YS.pruebas = { est, ventanaActual, actualizarComposer, mandar, enviar, fusionarResumen, tomarControl, abrirVincular, prepararResumen() { actualizarContadores = () => {}; dibujarLista = () => {}; dibujarCabeceraHilo = () => actualizarComposer(est.convs.get(est.actual)); cargarContexto = () => {}; }, raiz: r => raiz = r }; YS.bandeja = {');
+        vm.runInNewContext(codigo, { window: { YS }, document: { hidden: false }, performance: { now: () => ahora },
             setTimeout(fn, ms) { temporizadores.push({fn, ms}); return temporizadores.length; }, clearTimeout() {} });
         const p = YS.pruebas;
         p.raiz(raiz);
         const c = { idConversacion: 7, estado: entrada.estado || 'DerivadaHumano',
-            ventana: entrada.ventana || { abierta: true, motivo: null, segundosRestantes: 60 }, ventanaRecibidaEn: 1000 };
+            ventana: Object.hasOwn(entrada, 'ventana') ? entrada.ventana : { abierta: true, motivo: null, segundosRestantes: 60 }, ventanaRecibidaEn: 1000 };
+        if (entrada.sinVentana) delete c.ventana;
         p.est.actual = entrada.otra ? 8 : 7; p.est.generacion = 1; p.est.convs.set(7, c);
         campos['#chatsTexto'].value = entrada.texto || '';
         (async () => {
@@ -50,7 +54,18 @@ public class VentanaConversacionJsTests
                     p.est.pendientes = [pendiente];
                     await p.mandar(pendiente);
                 } else {
-                    p.actualizarComposer(c);
+                    if (entrada.actualizacion) {
+                        p.prepararResumen();
+                        ahora = 31000;
+                        YS.api = async url => url.endsWith('/conversaciones')
+                            ? [{ idConversacion: 7, estado: 'DerivadaHumano', nombrePaciente: 'Actualizado', telefono: '123', ventana: null }] : {};
+                        if (entrada.actualizacion === 'tomar-control') await p.tomarControl(7);
+                        else {
+                            p.abrirVincular(7, { idPaciente: 3, nombre: 'Prueba', dniParcial: '123' });
+                            await confirmarVinculo();
+                        }
+                    }
+                    p.actualizarComposer(p.est.convs.get(7));
                     if (entrada.expirar) { ahora = 61000; temporizadores.at(-1).fn(); }
                     if (entrada.reabrir) {
                         c.ventana = { abierta: true, motivo: null, segundosRestantes: 60 };
@@ -59,6 +74,7 @@ public class VentanaConversacionJsTests
                     }
                 }
                 resultado = { bloqueado: campos['#chatsTexto'].disabled, enviarBloqueado: campos['#chatsEnviar'].disabled,
+                    nombrePaciente: p.est.convs.get(7).nombrePaciente, recibidaEn: p.est.convs.get(7).ventanaRecibidaEn, temporizadores: temporizadores.length,
                     plantillasBloqueadas: campos['#chatsBtnPlantillas'].disabled,
                     candadoOculto: campos['#chatsCandado'].classList.contains('oculto'),
                     explicacion: campos['#chatsVentana'].textContent, texto: campos['#chatsTexto'].value,
@@ -77,6 +93,33 @@ public class VentanaConversacionJsTests
         });
         Assert.True(codigo == 0, error);
         return JsonDocument.Parse(salida.Trim()).RootElement.Clone();
+    }
+
+    [FactConNodeDelServicioDeWhatsApp]
+    public void Sin_campo_ventana_o_con_null_el_compositor_queda_habilitado_sin_temporizador()
+    {
+        foreach (var entrada in new object[] { new { sinVentana = true }, new { ventana = (object?)null } })
+        {
+            var r = Evaluar(entrada);
+            Assert.False(r.GetProperty("bloqueado").GetBoolean());
+            Assert.False(r.GetProperty("enviarBloqueado").GetBoolean());
+            Assert.False(r.GetProperty("plantillasBloqueadas").GetBoolean());
+            Assert.Equal(0, r.GetProperty("temporizadores").GetInt32());
+        }
+    }
+
+    [FactConNodeDelServicioDeWhatsApp]
+    public void Vincular_y_tomar_control_con_resumen_parcial_conservan_la_ventana_cerrada_y_su_reloj()
+    {
+        foreach (var accion in new[] { "vincular", "tomar-control" })
+        {
+            var r = Evaluar(new { actualizacion = accion,
+                ventana = new { abierta = false, motivo = "vencida", segundosRestantes = 0 } });
+            Assert.True(r.GetProperty("bloqueado").GetBoolean());
+            Assert.True(r.GetProperty("enviarBloqueado").GetBoolean());
+            Assert.Equal(1000, r.GetProperty("recibidaEn").GetInt32());
+            Assert.Equal("Actualizado", r.GetProperty("nombrePaciente").GetString());
+        }
     }
 
     [FactConNodeDelServicioDeWhatsApp]

@@ -1,8 +1,52 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 [Trait("Categoria", "Integracion")]
 public class VentanaDeConversacionBaseRealTests
 {
+    [Fact]
+    public async Task La_DI_comparte_el_reloj_fijo_y_el_historial_entre_resumen_y_envio()
+    {
+        using var datos = new DatosDePrueba();
+        var telefono = "di24-" + Guid.NewGuid().ToString("N")[..12];
+        datos.AlLimpiar("Conversacion", "Telefono", telefono);
+        var c = new ConversacionDAO().ObtenerOCrear(telefono, "Prueba");
+        var reloj = new RelojFijo(new DateTime(2031, 3, 4, 10, 0, 0));
+        var historial = new MensajesChatEnMemoria();
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Mensajeria:PalabrasRiesgo:0"] = "urgencia"
+        }).Build();
+        var servicios = new ServiceCollection();
+        servicios.AddLogging();
+        // Las mismas extensiones y el mismo orden que Program.cs.
+        servicios.AddRelojDeLaClinica(config);
+        servicios.RemoveAll<TimeProvider>();
+        servicios.AddSingleton<TimeProvider>(reloj);
+        servicios.AddMensajeria(config);
+        servicios.RemoveAll<IMensajeChatDAO>();
+        servicios.AddSingleton<IMensajeChatDAO>(historial);
+        servicios.RemoveAll<IMessageChannel>();
+        servicios.AddSingleton<IMessageChannel>(new CanalEspia());
+        using var proveedor = servicios.BuildServiceProvider();
+        var conversaciones = proveedor.GetRequiredService<IConversacionDAO>();
+        var mensajes = proveedor.GetRequiredService<IServicioMensajes>();
+        var entrante = mensajes.RegistrarEntrante(c, "Hola");
+        Assert.Equal(reloj.Ahora, entrante.FechaHora);
+        var abierta = conversaciones.ListarResumen(null).Single(x => x.IdConversacion == c.IdConversacion).Ventana!;
+        Assert.True(abierta.Abierta);
+        Assert.Equal(86400, abierta.SegundosRestantes);
+        Assert.Equal("Enviado", (await mensajes.EnviarAsync(c, "Respuesta", "Humano")).EstadoEnvio);
+        reloj.Avanzar(TimeSpan.FromDays(1));
+        var cerrada = conversaciones.ListarResumen(null).Single(x => x.IdConversacion == c.IdConversacion).Ventana!;
+        Assert.False(cerrada.Abierta);
+        Assert.Equal(ServicioMensajes.CodigoVentanaCerrada,
+            (await mensajes.EnviarAsync(c, "Respuesta tardía", "Humano")).CodigoDeError);
+        Assert.Equal(2, historial.Todos.Count);
+    }
+
     [Fact]
     public void Ultimo_entrante_ignora_bajas_salientes_y_otras_conversaciones()
     {
