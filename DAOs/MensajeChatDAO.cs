@@ -10,6 +10,7 @@ public interface IMensajeChatDAO
 
     /// <summary>¿La persona escribió alguna vez en esta conversación? (hay al menos un mensaje entrante)</summary>
     bool TieneMensajeEntrante(int idConversacion);
+    DateTime? UltimoEntrante(int idConversacion);
 
     /// <summary>
     /// Guarda un mensaje que ENTRA con lo que trae whatsapp-service (id y tipo, de la migración 17). Devuelve el id del mensaje, o null si ya estaba guardado (el mismo id en

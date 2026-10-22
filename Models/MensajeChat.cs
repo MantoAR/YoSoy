@@ -22,4 +22,8 @@ public class MensajeChat
     // de whatsapp-service). Lo usa NotificadorTurnos para distinguir un aviso que la persona no aceptó de una falla.
     [System.Text.Json.Serialization.JsonIgnore]
     public string? CodigoDeError { get; set; }
+
+    // Conserva la evaluación que rechazó el envío, aunque llegue otro entrante antes de responder HTTP.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public EstadoVentanaDeConversacion? VentanaRechazada { get; set; }
 }

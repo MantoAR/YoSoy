@@ -43,6 +43,7 @@ public class RecordatoriosSinWhatsAppTests
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
         public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
+    public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
     }
 
     // El aviso con el teléfono y el mail del paciente (FakeDatos no los carga), y la campanita con su texto.

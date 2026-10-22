@@ -17,15 +17,14 @@ public interface IServicioMensajes
 // MensajeChat (historial para cualquier canal) y después lo entrega por el
 // canal activo, dejando registrado si se envió o dio error.
 //
-// UNA REGLA, para no parecer un bot ante WhatsApp: un mensaje AUTOMÁTICO (origen "Bot" o "Sistema") es una respuesta, y una respuesta solo sale
-// dentro de una conversación en la que la persona ya escribió. Si nunca escribió (por ejemplo, la conversación la armó un aviso de turno y alguien
-// del equipo la cierra o la reabre) no se manda nada, no se guarda y se devuelve un error con el código "sin_conversacion_iniciada". Las
-// excepciones, a propósito y una por una: el equipo ("Humano": decide una persona) y los avisos que declaran OpcionesEnvio.IniciaElNegocio (los
-// avisos de turno por evento, que acotan el consentimiento y whatsapp-service). Vale igual para cualquier canal: lo que se prueba es lo que corre.
+// Humano y Sistema (cerrar/reabrir) solo responden dentro de las 24 h del último entrante real.
+// Los avisos de turno (Sistema + IniciaElNegocio) se rigen por consentimiento y tope diario.
+// El asistente (Bot) conserva su regla: solo responde a una conversación iniciada por la persona.
 public class ServicioMensajes : IServicioMensajes
 {
     /// <summary>El código del error cuando se frena un mensaje automático porque la persona nunca escribió en la conversación.</summary>
     public const string CodigoSinConversacionIniciada = "sin_conversacion_iniciada";
+    public const string CodigoVentanaCerrada = "ventana_24h_cerrada";
 
     private readonly IMensajeChatDAO _mensajes;
     private readonly IMessageChannel _canal;
@@ -87,8 +86,23 @@ public class ServicioMensajes : IServicioMensajes
             EstadoEnvio    = "Pendiente"
         };
 
-        // Una respuesta automática sin conversación que la persona haya empezado: no se guarda ni se manda (el estado "Error" es del resultado, no de una fila).
-        if (EsAutomatico(origen) && !opciones.IniciaElNegocio && !_mensajes.TieneMensajeEntrante(c.IdConversacion))
+        // Antes de insertar: un rechazo no deja una fila fantasma. Humano nunca puede
+        // saltarse la ventana, aunque alguien le pase IniciaElNegocio por error.
+        if (origen == "Humano" || (origen == "Sistema" && !opciones.IniciaElNegocio))
+        {
+            var ventana = new VentanaDeConversacion(_reloj).Evaluar(_mensajes.UltimoEntrante(c.IdConversacion));
+            if (!ventana.Abierta)
+            {
+                _log.LogInformation("No se manda el mensaje ({Origen}) de la conversación {IdConversacion}: ventana de 24 h cerrada ({Motivo}).",
+                    origen, c.IdConversacion, ventana.Motivo);
+                m.EstadoEnvio = "Error";
+                m.CodigoDeError = CodigoVentanaCerrada;
+                m.VentanaRechazada = ventana;
+                return m;
+            }
+        }
+
+        if (origen == "Bot" && !opciones.IniciaElNegocio && !_mensajes.TieneMensajeEntrante(c.IdConversacion))
         {
             _log.LogInformation("No se manda el mensaje automático ({Origen}) de la conversación {IdConversacion}: la persona todavía no escribió en ella.",
                 origen, c.IdConversacion);
@@ -115,9 +129,6 @@ public class ServicioMensajes : IServicioMensajes
         _mensajes.ActualizarEstadoEnvio(m.IdMensaje, m.EstadoEnvio);
         return m;
     }
-
-    // "Bot" y "Sistema" salen solos; "Humano" lo escribe una persona del equipo; "Paciente" es lo que entra.
-    private static bool EsAutomatico(string origen) => origen is "Bot" or "Sistema";
 
     private static string Recortar(string texto) =>
         texto.Length > 4000 ? texto[..4000] : texto;

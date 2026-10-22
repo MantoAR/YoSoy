@@ -14,6 +14,7 @@ public sealed class MensajesChatEnMemoria : IMensajeChatDAO
     public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
     public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
     public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
+    public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
 }
 
 /// <summary>Un canal de mensajería que no manda nada a ningún lado: anota a quién, qué y con qué opciones se le habría mandado.</summary>

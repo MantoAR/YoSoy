@@ -402,6 +402,7 @@ public class ServicioMensajesOpcionesTests
         public List<MensajeChat> ObtenerPorConversacion(int idConversacion, int desdeIdMensaje) => new();
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
         public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
+    public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -431,6 +432,8 @@ public class ServicioMensajesOpcionesTests
     public async Task Las_opciones_llegan_al_canal_y_sin_opciones_llega_Ninguna()
     {
         var (servicio, _, canal, c) = Armar();
+
+        servicio.RegistrarEntrante(c, "hola");
 
         await servicio.EnviarAsync(c, "con", "Humano", new OpcionesEnvio(OptIn: true));
         await servicio.EnviarAsync(c, "sin", "Humano");
