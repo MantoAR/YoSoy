@@ -37,7 +37,12 @@ public class PacienteProfesionalDAO
         var lista = new List<int>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand("SELECT IdPaciente FROM PacienteProfesional WHERE IdProfesional = @Id", con);
+        // Nueva permite revisar el motivo antes de aceptar; NULL y Activo son vínculos
+        // históricos. Un vínculo rechazado o cancelado no acredita ser tratante.
+        var cmd = new SqlCommand(@"
+            SELECT IdPaciente FROM PacienteProfesional
+            WHERE IdProfesional = @Id
+              AND ISNULL(EstadoAsignacion, 'Confirmada') NOT IN ('Rechazada', 'Cancelada')", con);
         cmd.Parameters.AddWithValue("@Id", idProfesional);
         using var r = cmd.ExecuteReader();
         while (r.Read()) lista.Add((int)r["IdPaciente"]);
