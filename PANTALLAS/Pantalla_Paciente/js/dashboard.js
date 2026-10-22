@@ -59,17 +59,23 @@ async function renderInicio(c) {
     });
     c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3);
     try {
-        const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
-        const [res, turnos, consentimiento] = await Promise.all([
+        const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
+        const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
+        const [res, turnos, consentimiento, perfil, informe, profesionales, whatsapp] = await Promise.all([
             YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
-            pedir(`/pacientes/${idPaciente}/turnos-detalle`, []),
-            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null)
+            pedir(`/pacientes/${idPaciente}/turnos-detalle`, FALLA),
+            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null),
+            pedir(`/pacientes/${idPaciente}`, FALLA),
+            pedir(`/pacientes/${idPaciente}/informe-admision`, FALLA, { permitir404: true }),   // null = todavía no lo mandó
+            pedir(`/pacientes/${idPaciente}/mis-profesionales`, FALLA),
+            pedir("/consentimiento-whatsapp", null)
         ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
         const t = res.status === 404 ? null : await res.json();
 
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const proximos = turnos
+        const listaTurnos = turnos === FALLA ? [] : turnos;
+        const proximos = listaTurnos
             .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
             .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
         const porConfirmar = proximos.filter(propuestoPorProfesional);
@@ -126,7 +132,11 @@ async function renderInicio(c) {
                 </li>`).join("")}</ul>`
             : YS.vacio({ icono: "agenda", texto: "Todavía no tenés turnos agendados." });
 
-        c.innerHTML = `
+        // Paciente nuevo: mientras le falte algún paso, Inicio lo guía (ver armarPrimerosPasos). Si algo no se pudo
+        // consultar, no se adivina: queda el Inicio de siempre.
+        const guia = [turnos, perfil, informe, profesionales].includes(FALLA) || consentimiento == null ? null
+            : armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos: listaTurnos, proximo: t, whatsapp });
+        const inicioHtml = `
             <div class="ui-stats">
                 <a class="ui-stat" href="#agenda">
                     <span class="ui-stat-etiqueta">${YS.icono("agenda")}Turnos próximos</span>
@@ -147,9 +157,147 @@ async function renderInicio(c) {
                     ${listaHtml}
                 </div>
             </div>`;
+        // Con profesional asignado (pasos 6 y 7) los turnos ya importan: van debajo de la guía.
+        c.innerHTML = !guia ? inicioHtml : guia.html + (guia.paso >= 6 ? `<div class="pp-turnos">${inicioHtml}</div>` : "");
     } catch {
         c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
+}
+
+// ── PRIMEROS PASOS (paciente nuevo) ────────────────────────
+// El orden que sigue alguien recién dado de alta, con lo que la API ya devuelve: nada nuevo en el servidor. Un paso está
+// hecho por lo que hay en la base, no porque se lo haya visitado. Quien ya tiene profesional asignado (por ejemplo, llegó
+// por el link público de su profesional) no necesita la admisión: los pasos 3 a 5 cuentan como hechos. Con los siete
+// hechos devuelve null y Inicio vuelve a ser el de siempre.
+function armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos, proximo, whatsapp }) {
+    const conProfesional = profesionales.length > 0;
+    const conWhatsApp = !!whatsapp && !YS.whatsapp.apagado(whatsapp);
+    const enEntrevista = !!informe && /entrevista/i.test(String(informe.estado || ""));
+    const ir = destino => destino.startsWith("#") ? `location.hash='${destino}'` : `location.href='${destino}'`;
+
+    const pasos = [
+        { titulo: "Completá tus datos", hecho: !!(perfil.fechaNacimiento && perfil.telefono), destino: "#perfil",
+          texto: "Cargá tu fecha de nacimiento y tu teléfono." + (conWhatsApp ? " Ahí también podés activar, si querés, los avisos por WhatsApp." : ""),
+          boton: "Ir a Mis datos", nota: "Podés cambiarlos cuando quieras." },
+        { titulo: "Firmá el consentimiento de telemedicina", hecho: !!consentimiento.firmado, destino: "consentimiento.html",
+          texto: "Es el permiso para atenderte por video. Lo necesitás para confirmar cualquier turno, así que conviene firmarlo ahora.",
+          boton: "Leer y firmar", nota: "Lo podés volver a leer en Consentimiento." },
+        { titulo: "Contanos sobre vos", hecho: !!informe || conProfesional, destino: "#admision",
+          texto: "Completá el informe de admisión. Con lo que nos cuentes, el equipo elige el profesional adecuado para vos.",
+          boton: "Completar el informe de admisión", nota: "Los campos con * son obligatorios." },
+        { titulo: "Entrevista de admisión", hecho: conProfesional, destino: "#admision", espera: true,
+          requiere: informe ? null : "Se habilita cuando envíes tu informe de admisión.",
+          texto: "Una charla corta por video con el equipo de admisión, para conocerte antes de asignarte un profesional.",
+          aviso: enEntrevista
+              ? "Tu entrevista ya está programada. Te llegó un aviso a la campanita con el día, la hora y el botón para entrar."
+              : "Tu informe está en revisión. No tenés que hacer nada por ahora: cuando tengamos la fecha de la entrevista te avisamos por la campanita y por mail." },
+        { titulo: "Conocé a tu profesional", hecho: conProfesional, destino: "#profesionales",
+          requiere: "Te lo asignamos después de la entrevista de admisión.",
+          texto: "Ya tenés profesional asignado. Podés ver su especialidad y, si alguna vez lo necesitás, pedir un cambio.",
+          boton: "Ver Mis profesionales", nota: "" },
+        { titulo: "Pedí tu primer turno", hecho: turnos.some(x => x.estadoDescripcion !== "Cancelado"), destino: "#agenda",
+          requiere: conProfesional ? null : "Se habilita cuando tengas profesional asignado.",
+          texto: "Elegí un día y un horario libre de tu profesional. Si tu profesional te propone un turno, solo tenés que confirmarlo.",
+          boton: "Pedir un turno", nota: "" },
+        { titulo: "Tu primera sesión", hecho: turnos.some(x => x.estadoDescripcion === "Realizado"), destino: "#sesion",
+          requiere: turnos.some(x => x.estadoDescripcion !== "Cancelado") ? null : "Se habilita cuando tengas tu primer turno.",
+          texto: "El día del turno entrás a la Sala de video. Antes de conectarte elegís si aceptás o no la lectura de tus expresiones.",
+          boton: "Ir a la Sala de video",
+          nota: proximo ? `Tu turno: ${YS.fecha.larga(proximo.fecha, true)} a las ${String(proximo.hora).substring(0, 5)} hs. La sala abre 10 minutos antes.` : "La sala abre 10 minutos antes del horario." }
+    ];
+
+    const indiceActual = pasos.findIndex(p => !p.hecho);
+    if (indiceActual === -1) return null;
+    const paso = indiceActual + 1;
+    const hechos = pasos.filter(p => p.hecho).length;
+
+    const check = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>`;
+    const candado = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>`;
+    const flecha = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>`;
+    const reloj = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+
+    const filas = pasos.map((p, i) => {
+        const n = i + 1;
+        if (p.hecho) return `
+            <li class="pp-paso pp-paso--hecho">
+                <span class="pp-num pp-num--hecho">${check}</span>
+                <span class="pp-titulo">${YS.esc(p.titulo)}</span>
+                <span class="pp-chip">Hecho</span>
+                <a href="${p.destino}" class="pp-ver" aria-label="Ver: ${YS.esc(p.titulo)}">Ver</a>
+            </li>`;
+        if (i === indiceActual) return `
+            <li class="pp-paso pp-paso--actual" aria-current="step">
+                <span class="pp-num pp-num--actual">${n}</span>
+                <div class="pp-cuerpo">
+                    <span class="pp-etiqueta">Tu próximo paso</span>
+                    <span class="pp-titulo-grande">${YS.esc(p.titulo)}</span>
+                    <span class="pp-texto">${YS.esc(p.texto)}</span>
+                    ${p.espera
+                        ? `<div class="pp-aviso">${reloj}<span>${YS.esc(p.aviso)}</span></div>`
+                        : `<div class="pp-acciones">
+                               <button type="button" class="ui-btn ui-btn--primary pp-boton" onclick="${ir(p.destino)}">${YS.esc(p.boton)}${flecha}</button>
+                               ${p.nota ? `<span class="texto-suave texto-chico">${YS.esc(p.nota)}</span>` : ""}
+                           </div>`}
+                </div>
+            </li>`;
+        // Sin un requisito pendiente (los pasos 1 a 3 nunca tienen) se puede hacer ya, en cualquier orden; si no, el candado dice de qué depende.
+        if (!p.requiere && p.espera) return `
+            <li class="pp-paso pp-paso--pendiente">
+                <span class="pp-num">${n}</span>
+                <div class="pp-cuerpo-chico">
+                    <span class="pp-titulo">${YS.esc(p.titulo)}</span>
+                    <span class="texto-suave texto-chico">${YS.esc(p.aviso)}</span>
+                </div>
+            </li>`;
+        if (!p.requiere) return `
+            <li class="pp-paso pp-paso--pendiente">
+                <span class="pp-num">${n}</span>
+                <div class="pp-cuerpo-chico">
+                    <span class="pp-titulo">${YS.esc(p.titulo)}</span>
+                    <span class="texto-suave texto-chico">Podés hacerlo cuando quieras.</span>
+                </div>
+                <a href="${p.destino}" class="pp-ver" aria-label="${YS.esc(p.boton)}">Ir</a>
+            </li>`;
+        return `
+            <li class="pp-paso pp-paso--pendiente">
+                <span class="pp-num">${n}</span>
+                <div class="pp-cuerpo-chico">
+                    <span class="pp-titulo">${YS.esc(p.titulo)}</span>
+                    <span class="texto-suave texto-chico">${YS.esc(p.requiere)}</span>
+                </div>
+                <span class="pp-candado" role="img" aria-label="Todavía no disponible">${candado}</span>
+            </li>`;
+    }).join("");
+
+    const html = `
+        <section class="pp" aria-label="Tus primeros pasos en YoSoy">
+            <p class="pp-intro texto-suave">Estos son tus primeros pasos en YoSoy. Te mostramos siempre cuál sigue.</p>
+            <div class="card pp-progreso">
+                <div class="pp-progreso-fila">
+                    <span class="texto-fuerte">Paso ${paso} de ${pasos.length}</span>
+                    <span class="texto-suave texto-chico">${hechos === 1 ? "1 paso hecho" : `${hechos} pasos hechos`}</span>
+                </div>
+                <div class="pp-barra" role="progressbar" aria-label="Avance de los primeros pasos" aria-valuemin="0" aria-valuemax="${pasos.length}" aria-valuenow="${hechos}">
+                    <div style="width: ${Math.round(hechos / pasos.length * 100)}%"></div>
+                </div>
+            </div>
+            <div class="pp-columnas">
+                <ol class="pp-lista">${filas}</ol>
+                <aside class="pp-lateral">
+                    <div class="card">
+                        <div class="titulo-tarjeta">Cómo sigue todo</div>
+                        <p class="pp-lateral-texto">Con tu informe de admisión, el equipo elige el profesional adecuado para vos. Después de una entrevista corta por video, te lo asignamos y ya podés pedir turnos.</p>
+                    </div>
+                    ${conWhatsApp ? `
+                    <div class="card">
+                        <div class="titulo-tarjeta">Avisos por WhatsApp</div>
+                        <p class="pp-lateral-texto">Es opcional. Si los activás, te avisamos solo el día y la hora de tus turnos.</p>
+                        <a href="#perfil" class="pp-enlace">Configurar en Mis datos</a>
+                    </div>` : ""}
+                </aside>
+            </div>
+        </section>`;
+    return { paso, html };
 }
 
 // ── AGENDA / CALENDARIO ────────────────────────────────────

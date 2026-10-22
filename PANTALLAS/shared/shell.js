@@ -58,16 +58,17 @@
         paciente: {
             etiqueta: "Mi espacio",
             items: [
+                // En el orden en que lo recorre un paciente nuevo (la guía de primeros pasos de Inicio).
                 { id: "inicio", texto: "Inicio" },
+                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
+                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" },
                 {
                     texto: "Turnos", items: [
                         { id: "agenda", texto: "Mis turnos", icono: "agenda", desc: "Pedir, cancelar o reprogramar" },
                         { id: "profesionales", texto: "Mis profesionales", icono: "pacientes", desc: "Tu equipo y cambio de profesional" }
                     ]
                 },
-                { id: "sesion", texto: "Sala de video" },
-                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
-                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" }
+                { id: "sesion", texto: "Sala de video" }
             ],
             usuario: [{ id: "perfil", texto: "Mis datos", icono: "usuario" }]
         },
@@ -171,7 +172,8 @@
         if (rol === "profesional") {
             const pagina = it => it.items ? { ...it, items: it.items.map(s => ({ pagina: "profesional", ...s })) } : { pagina: "profesional", ...it };
             const propios = items.map(pagina);
-            if (YS.sesion.tienePrivilegio("admision")) propios.push(GRUPO_ADMISION);
+            // Con Admisión, va segundo, después de Inicio: Inicio, Admisión, Agenda, Pacientes, Mis casos, Sala de video, Reportes.
+            if (YS.sesion.tienePrivilegio("admision")) propios.splice(1, 0, GRUPO_ADMISION);
             if (YS.sesion.tienePermiso("auditor")) propios.push(GRUPO_AUDITOR);
             return { ...base, items: propios };
         }

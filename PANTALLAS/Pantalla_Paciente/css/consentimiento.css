@@ -28,3 +28,6 @@
 
 .ayuda { color: var(--text-3); font-size: var(--fs-sm); margin-top: 10px; }
 
+
+/* Volver al inicio después de firmar: cómodo de tocar en el celular */
+#btnVolver { min-height: 44px; }

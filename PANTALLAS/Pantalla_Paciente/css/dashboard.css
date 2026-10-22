@@ -218,3 +218,50 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 /* Avisos flotantes: el último resume los que quedan en la campana */
 .notif-flotante--mas { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-left-color: var(--border-strong); }
 .notif-flotante--mas .notif-mensaje, .notif-flotante--mas .notif-botones { margin: 0; }
+
+/* Inicio: primeros pasos del paciente nuevo (armarPrimerosPasos en js/dashboard.js) */
+.pp { display: flex; flex-direction: column; gap: 16px; }
+.pp-intro { margin: 0; font-size: var(--fs-lg); }
+.pp-progreso { margin-bottom: 0; display: flex; flex-direction: column; gap: 10px; }
+.pp-progreso-fila { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.pp-barra { height: 8px; background: var(--surface-3); border-radius: 99px; overflow: hidden; }
+.pp-barra > div { height: 100%; background: var(--accent); border-radius: 99px; }
+.pp-columnas { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pp-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.pp-paso { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: var(--r-xl); background: var(--surface); border: 1px solid var(--border); }
+.pp-paso--actual { align-items: flex-start; padding: 20px 22px; border: 2px solid var(--accent); box-shadow: var(--shadow-md); }
+.pp-paso--pendiente { background: var(--surface-2); border: 1px dashed var(--border-strong); }
+.pp-num {
+    width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-3); font-size: var(--fs-md); font-weight: 600;
+}
+.pp-num--hecho { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
+.pp-num--actual { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.pp-titulo { flex: 1; min-width: 0; font-size: var(--fs-lg); color: var(--text-2); }
+.pp-chip { font-size: var(--fs-sm); font-weight: 600; color: var(--ok); background: var(--ok-bg); border: 1px solid var(--ok-border); border-radius: 99px; padding: 2px 10px; }
+.pp-ver { font-size: var(--fs-md); color: var(--accent-strong); }
+.pp-cuerpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pp-cuerpo-chico { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pp-cuerpo-chico .pp-titulo { font-weight: 500; }
+.pp-etiqueta { font-size: var(--fs-sm); font-weight: 600; color: var(--accent-strong); text-transform: uppercase; letter-spacing: .05em; }
+.pp-titulo-grande { font-size: var(--fs-2xl); font-weight: 700; color: var(--text); }
+.pp-texto { font-size: var(--fs-lg); color: var(--text-2); line-height: 1.55; }
+.pp-acciones { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.pp-boton { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; }
+.pp-aviso {
+    display: flex; gap: 10px; align-items: flex-start; margin-top: 4px; padding: 12px 14px; border-radius: var(--r-lg);
+    background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info); font-size: var(--fs-md); line-height: 1.5;
+}
+.pp-aviso svg { flex-shrink: 0; margin-top: 1px; }
+.pp-candado { color: var(--text-3); display: flex; }
+.pp-lateral { display: flex; flex-direction: column; gap: 16px; }
+.pp-lateral .card { margin-bottom: 0; }
+.pp-lateral-texto { margin: 0 0 8px; font-size: var(--fs-md); color: var(--text-2); line-height: 1.6; }
+.pp-enlace { font-size: var(--fs-md); font-weight: 600; color: var(--accent-strong); }
+.pp-turnos { margin-top: 24px; }
+@media (max-width: 1100px) { .pp-columnas { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+    .pp-paso--actual { flex-direction: column; padding: 16px; }
+    .pp-boton { width: 100%; justify-content: center; }
+    .pp-ver { display: none; }
+}
