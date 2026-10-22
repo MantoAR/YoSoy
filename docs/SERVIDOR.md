@@ -126,6 +126,21 @@ lo dio por verificado. Sin secretos.
 - **Para volver atrás (API):** `/opt/yosoy/app-anterior-cm-20261020`; también quedaron los de `ws` y `e2` (el de `e2` es
   `/opt/yosoy/app-anterior-e2-20261020`).
 
+## Despliegues u24, vu, cv y w24: registro por completar
+
+Resumen tomado de los runbooks y del progreso del código indicados abajo. **Esas fuentes no acreditan la fecha ni el hash publicados en el VPS**: los runbooks de u24, vu y cv dicen que todavía no se ejecutaron, y el progreso de w24 documenta la implementación local. Por eso esos datos quedan como **completar**; las fechas de escritura y los commits de partida de las ramas no son constancia de un despliegue. Las secciones anteriores conservan el estado histórico verificado.
+
+| Tag | Cambio | Base de datos | Fecha de producción | Hash publicado | Fuente |
+|---|---|---|---|---|---|
+| `u24` | Usuarios del Configurador, clave temporal y cambio obligatorio al primer ingreso; asignación de profesionales | Migración **24**, `Usuario.DebeCambiarPassword`; cuentas existentes en 0 | completar | completar | [Usuarios](DEPLOY_USUARIOS_PRODUCCION.md) |
+| `vu` | Vista única de Administración para Configurador + CRM y pantalla Leads | Sin migración ni variables nuevas | completar | completar | [Vista única](DEPLOY_VISTA_UNICA_PRODUCCION.md) |
+| `cv` | Chats v2, fase 1: vincular/desvincular pacientes, formato de teléfono, quién responde, tomar control e interruptores de IA | Migración **25**, `Conversacion.IaActiva`, opcional según el runbook; los interruptores guardan la decisión, todavía no hay respuestas de IA | completar | completar | [Chats v2](DEPLOY_CHATS_VISTA_PRODUCCION.md) |
+| `w24` | Ventana de respuesta de 24 h desde el último entrante real, rechazo 409 y bloqueo del compositor; consentimiento estricto y tope diario de avisos | **Sin migración propia** | completar | completar | [Ventana de 24 h](PROGRESO_VENTANA_24H.md) |
+
+Para `w24`, BAJA no abre la ventana y los avisos de cerrar/reabrir también están sujetos a ella. Los avisos de WhatsApp que inician una conversación siguen apagados por defecto: para habilitarlos hace falta aplicar la **migración 16** y tener consentimiento registrado, porque `SinDecision` queda `Omitido`. Esto no convierte la migración 16 en requisito para publicar w24 con los avisos apagados.
+
+Al completar el registro, anotar también la ruta real de la API anterior y el resultado de la prueba de humo de cada despliegue; no deducirlos del tag ni de un merge local.
+
 ## Cómo entra el tráfico
 
 ```
