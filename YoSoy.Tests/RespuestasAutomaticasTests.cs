@@ -5,15 +5,14 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
-// Las respuestas automáticas solo salen dentro de una conversación que la persona empezó.
+// Bot responde a una conversación iniciada; Humano y los avisos de cerrar/reabrir requieren ventana de 24 h.
 //
-// Para no parecer un bot ante WhatsApp, un mensaje AUTOMÁTICO (origen "Bot" o "Sistema") es una respuesta, y una respuesta solo se manda si la persona ya
-// escribió en esa conversación. La regla vive en ServicioMensajes, el único punto por el que sale todo, así que ningún camino nuevo se la salta sin
-// declararlo: las excepciones son el equipo ("Humano": decide una persona) y los avisos de turno por evento (OpcionesEnvio.IniciaElNegocio).
+// La regla vive en ServicioMensajes, antes de insertar o enviar. El equipo no es una excepción.
+// Los avisos de turno (Sistema + IniciaElNegocio) pueden salir fuera de la ventana, con consentimiento y cupo diario.
 //
 //  · ServicioMensajes, en memoria: con y sin mensajes entrantes, para cada origen y cada opción.
 //  · La aplicación entera contra una base de pruebas: el asistente contesta (la persona escribió), cerrar y reabrir una conversación mandan su aviso
-//    solo si la persona escribió, y el equipo puede responder.
+//    solo dentro de la ventana, y el equipo no puede iniciar una conversación.
 public class RespuestasAutomaticasTests
 {
     private sealed class MensajesEnMemoria : IMensajeChatDAO

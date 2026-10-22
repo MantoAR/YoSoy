@@ -275,7 +275,7 @@ public class NotificadorTurnos : INotificadorTurnos
         _conversaciones.Guardar(c);
 
         // IniciaElNegocio: un aviso de turno no responde a nada que la persona haya escrito (a diferencia de las respuestas del asistente y los
-        // avisos de cerrar y reabrir, que ServicioMensajes solo deja salir dentro de una conversación que ella empezó). Lo acota el consentimiento.
+        // avisos de cerrar y reabrir, que ServicioMensajes solo deja salir dentro de las 24 h del último entrante real). Lo acotan el consentimiento y el cupo diario.
         var m = _mensajes.EnviarAsync(c, texto, "Sistema", new OpcionesEnvio(OptIn: permiso == PermisoEnvioWhatsApp.ConConsentimiento, IniciaElNegocio: true))
             .GetAwaiter().GetResult();
         if (m.EstadoEnvio == "Enviado") return ("Enviado", null);
