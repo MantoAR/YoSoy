@@ -25,6 +25,16 @@ public class RespuestasAutomaticasTests
         public List<MensajeChat> ObtenerAnteriores(int idConversacion, int? antesDeIdMensaje, int cantidad) => new();
         public bool TieneMensajeEntrante(int idConversacion) => Todos.Any(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante");
     public DateTime? UltimoEntrante(int idConversacion) => Todos.Where(m => m.IdConversacion == idConversacion && m.Direccion == "Entrante" && !ComandoWhatsApp.EsBaja(m.Texto)).Select(m => (DateTime?)m.FechaHora).Max();
+    public bool IntentarInsertarAviso(MensajeChat mensaje, int tope)
+    {
+        lock (Todos)
+        {
+            if (Todos.Count(m => m.IdConversacion == mensaje.IdConversacion && m.Direccion == "Saliente" && m.Origen == "Sistema"
+                && (m.EstadoEnvio == "Enviado" || m.EstadoEnvio == "Pendiente") && m.FechaHora.Date == mensaje.FechaHora.Date) >= tope) return false;
+            Insertar(mensaje);
+            return true;
+        }
+    }
     }
 
     private sealed class CanalQueRegistra : IMessageChannel
@@ -89,7 +99,7 @@ public class RespuestasAutomaticasTests
     public async Task Lo_que_la_clinica_mando_antes_no_cuenta_como_que_la_persona_escribio()
     {
         var a = new Arnes();
-        await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(IniciaElNegocio: true));   // un aviso: sale
+        await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(OptIn: true, IniciaElNegocio: true));   // un aviso con consentimiento: sale
         Assert.Single(a.Canal.Envios);
 
         var m = await a.Servicio.EnviarAsync(a.Conversacion, "El equipo de YoSoy reabrió esta conversación.", "Sistema");
@@ -193,14 +203,15 @@ public class RespuestasAutomaticasTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Un_aviso_de_turno_por_evento_sale_sin_conversacion_previa_con_o_sin_optIn(bool optIn)
+    public async Task Un_aviso_de_turno_sale_sin_conversacion_solo_con_optIn(bool optIn)
     {
         var a = new Arnes();
 
         var m = await a.Servicio.EnviarAsync(a.Conversacion, "Tu turno quedó confirmado.", "Sistema", new OpcionesEnvio(OptIn: optIn, IniciaElNegocio: true));
 
-        Assert.Equal(optIn, Assert.Single(a.Canal.Envios).Opciones.OptIn);
-        Assert.Equal("Enviado", m.EstadoEnvio);
+        Assert.Equal(optIn ? 1 : 0, a.Canal.Envios.Count);
+        Assert.Equal(optIn ? "Enviado" : "Omitido", m.EstadoEnvio);
+        Assert.Equal(optIn ? 1 : 0, a.Mensajes.Todos.Count);
     }
 
     [Fact]

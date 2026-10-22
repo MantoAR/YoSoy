@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Options;
+
 public interface IServicioMensajes
 {
     MensajeChat RegistrarEntrante(Conversacion c, string texto);
@@ -25,18 +27,22 @@ public class ServicioMensajes : IServicioMensajes
     /// <summary>El código del error cuando se frena un mensaje automático porque la persona nunca escribió en la conversación.</summary>
     public const string CodigoSinConversacionIniciada = "sin_conversacion_iniciada";
     public const string CodigoVentanaCerrada = "ventana_24h_cerrada";
+    public const string CodigoTopeAvisos = "tope_avisos_diario";
 
     private readonly IMensajeChatDAO _mensajes;
     private readonly IMessageChannel _canal;
     private readonly TimeProvider _reloj;
     private readonly ILogger<ServicioMensajes> _log;
+    private readonly IOptionsMonitor<MensajeriaOptions>? _opciones;
 
-    public ServicioMensajes(IMensajeChatDAO mensajes, IMessageChannel canal, TimeProvider reloj, ILogger<ServicioMensajes> log)
+    public ServicioMensajes(IMensajeChatDAO mensajes, IMessageChannel canal, TimeProvider reloj, ILogger<ServicioMensajes> log,
+        IOptionsMonitor<MensajeriaOptions>? opciones = null)
     {
         _mensajes = mensajes;
         _canal    = canal;
         _reloj    = reloj;
         _log      = log;
+        _opciones = opciones;
     }
 
     public MensajeChat RegistrarEntrante(Conversacion c, string texto)
@@ -111,7 +117,22 @@ public class ServicioMensajes : IServicioMensajes
             return m;
         }
 
-        _mensajes.Insertar(m);
+        if (origen == "Sistema" && opciones.IniciaElNegocio)
+        {
+            if (!opciones.OptIn)
+            {
+                m.EstadoEnvio = "Omitido";
+                m.CodigoDeError = "sin_consentimiento";
+                return m;
+            }
+            if (!_mensajes.IntentarInsertarAviso(m, _opciones?.CurrentValue.TopeAvisosPorNumeroPorDia ?? 3))
+            {
+                m.EstadoEnvio = "Omitido";
+                m.CodigoDeError = CodigoTopeAvisos;
+                return m;
+            }
+        }
+        else _mensajes.Insertar(m);
 
         ResultadoEnvio resultado;
         try

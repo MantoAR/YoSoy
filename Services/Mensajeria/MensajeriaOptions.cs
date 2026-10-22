@@ -43,6 +43,7 @@ public class MensajeriaOptions
     public int IntervaloChequeoMinutos { get; set; } = 5;
     public int TimeoutConversacionMinutos { get; set; } = 30;
     public int MaxIntentosEnvio { get; set; } = 3;
+    public int TopeAvisosPorNumeroPorDia { get; set; } = 3;
 
     // Apaga todos los endpoints /mensajeria (chat simulado y administración).
     public bool ChatSimuladoHabilitado { get; set; }

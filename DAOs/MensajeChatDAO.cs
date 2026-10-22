@@ -11,6 +11,7 @@ public interface IMensajeChatDAO
     /// <summary>¿La persona escribió alguna vez en esta conversación? (hay al menos un mensaje entrante)</summary>
     bool TieneMensajeEntrante(int idConversacion);
     DateTime? UltimoEntrante(int idConversacion);
+    bool IntentarInsertarAviso(MensajeChat mensaje, int tope);
 
     /// <summary>
     /// Guarda un mensaje que ENTRA con lo que trae whatsapp-service (id y tipo, de la migración 17). Devuelve el id del mensaje, o null si ya estaba guardado (el mismo id en
@@ -36,10 +37,15 @@ public class MensajeChatDAO : IMensajeChatDAO
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(@"
+        return Insertar(m, con, null);
+    }
+
+    private static int Insertar(MensajeChat m, SqlConnection con, SqlTransaction? transaccion)
+    {
+        using var cmd = new SqlCommand(@"
             INSERT INTO MensajeChat (IdConversacion, Direccion, Origen, Texto, FechaHora, EstadoEnvio)
             VALUES (@IdConv, @Direccion, @Origen, @Texto, @FechaHora, @EstadoEnvio);
-            SELECT CAST(SCOPE_IDENTITY() AS INT);", con);
+            SELECT CAST(SCOPE_IDENTITY() AS INT);", con, transaccion);
         cmd.Parameters.AddWithValue("@IdConv",      m.IdConversacion);
         cmd.Parameters.AddWithValue("@Direccion",   m.Direccion);
         cmd.Parameters.AddWithValue("@Origen",      m.Origen);
@@ -48,6 +54,46 @@ public class MensajeChatDAO : IMensajeChatDAO
         cmd.Parameters.AddWithValue("@EstadoEnvio", m.EstadoEnvio);
         m.IdMensaje = (int)cmd.ExecuteScalar();
         return m.IdMensaje;
+    }
+
+    // Reserva el cupo insertando Pendiente en la misma transacción que cuenta los avisos.
+    // El candado por número/día también coordina distintas instancias de la API.
+    public bool IntentarInsertarAviso(MensajeChat m, int tope)
+    {
+        if (tope <= 0) return false;
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var tx = con.BeginTransaction(System.Data.IsolationLevel.Serializable);
+        using var destino = new SqlCommand("SELECT Telefono FROM Conversacion WHERE IdConversacion = @c", con, tx);
+        destino.Parameters.AddWithValue("@c", m.IdConversacion);
+        var telefono = destino.ExecuteScalar() as string ?? throw new InvalidOperationException("La conversación del aviso no existe.");
+        var dia = m.FechaHora.Date;
+        using (var candado = new SqlCommand(@"
+            DECLARE @resultado int;
+            EXEC @resultado = sp_getapplock @Resource = @recurso, @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction', @LockTimeout = 10000;
+            SELECT @resultado;", con, tx))
+        {
+            candado.Parameters.AddWithValue("@recurso", FormattableString.Invariant($"avisos-whatsapp:{telefono}:{dia:yyyyMMdd}"));
+            if (Convert.ToInt32(candado.ExecuteScalar()) < 0)
+                throw new InvalidOperationException("No se pudo reservar el cupo diario del aviso.");
+        }
+        using var contar = new SqlCommand(@"
+            SELECT COUNT(*) FROM MensajeChat m
+            JOIN Conversacion c ON c.IdConversacion = m.IdConversacion
+            WHERE c.Telefono = @telefono AND m.Direccion = 'Saliente' AND m.Origen = 'Sistema'
+              AND m.EstadoEnvio IN ('Enviado', 'Pendiente') AND m.FechaHora >= @desde AND m.FechaHora < @hasta", con, tx);
+        contar.Parameters.AddWithValue("@telefono", telefono);
+        contar.Parameters.AddWithValue("@desde", dia);
+        contar.Parameters.AddWithValue("@hasta", dia.AddDays(1));
+        if (Convert.ToInt32(contar.ExecuteScalar()) >= tope)
+        {
+            tx.Commit();
+            return false;
+        }
+        Insertar(m, con, tx);
+        tx.Commit();
+        return true;
     }
 
     public int? InsertarEntrante(MensajeChat m)
