@@ -316,15 +316,10 @@ public class NotificadorTurnos : INotificadorTurnos
         }
     }
 
-    private string QuienEs(Conversacion c)
-    {
-        if (c.IdPaciente is int id)
-        {
-            var p = _datos.ObtenerPaciente(id);
-            if (p != null) return $"paciente {p.Nombre}, tel. {c.Telefono}";
-        }
-        return $"no identificado, tel. {c.Telefono}";
-    }
+    // El id de conversación ya permite abrir el chat autorizado: la campanita
+    // compartida no necesita guardar el nombre ni siquiera parte del teléfono.
+    private static string QuienEs(Conversacion c) =>
+        c.IdPaciente.HasValue ? "paciente vinculado" : "no identificado";
 
     private void Seguro(string operacion, Action accion)
     {

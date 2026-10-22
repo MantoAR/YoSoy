@@ -72,6 +72,29 @@ public class CierreSeguridadTests : IAsyncLifetime
     public async Task Historia_clinica_profesional_asociado_la_ve() =>
         Assert.Equal(HttpStatusCode.OK, (await _asociado.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
 
+    [Theory]
+    [InlineData("Confirmada", true)]
+    [InlineData("Nueva", true)]
+    [InlineData("Activo", true)]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("Rechazada", false)]
+    [InlineData("Cancelada", false)]
+    public async Task El_estado_de_asignacion_restringe_la_lista_y_el_acceso_clinico(string? estado, bool permitido)
+    {
+        DatosDePrueba.Ejecutar(@"
+            UPDATE PacienteProfesional SET EstadoAsignacion = @estado
+            WHERE IdPaciente = @paciente AND IdProfesional = @profesional",
+            ("@estado", estado), ("@paciente", IdPaciente), ("@profesional", IdProfesionalAsociado));
+
+        var ids = new PacienteProfesionalDAO().ObtenerIdPacientesDeProfesional(IdProfesionalAsociado);
+        Assert.Equal(permitido, ids.Contains(IdPaciente));
+        var pacientes = await _asociado.GetFromJsonAsync<List<Paciente>>($"/profesionales/{IdProfesionalAsociado}/pacientes");
+        Assert.Equal(permitido, pacientes!.Any(p => p.IdPaciente == IdPaciente));
+        Assert.Equal(permitido ? HttpStatusCode.OK : HttpStatusCode.NotFound,
+            (await _asociado.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);
+    }
+
     [Fact]
     public async Task Historia_clinica_profesional_ajeno_recibe_404_no_403() =>
         Assert.Equal(HttpStatusCode.NotFound, (await _ajeno.GetAsync($"/pacientes/{IdPaciente}/historiaclinica")).StatusCode);

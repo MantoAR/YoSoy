@@ -105,6 +105,17 @@ public class UsuarioDAO
         return ((int)r["IntentosFallidos"], r["BloqueadoHasta"] == DBNull.Value ? null : (DateTime?)r["BloqueadoHasta"]);
     }
 
+    public void GuardarPasswordRecuperada(int idUsuario, string hash)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var cmd = new SqlCommand(
+            "UPDATE Usuario SET PasswordHash = @Hash, DebeCambiarPassword = 0 WHERE IdUsuario = @Id", con);
+        cmd.Parameters.AddWithValue("@Hash", hash);
+        cmd.Parameters.AddWithValue("@Id", idUsuario);
+        cmd.ExecuteNonQuery();
+    }
+
     public void ResetearIntentos(int idUsuario)
     {
         using var con = Conexion.ObtenerConexion();
