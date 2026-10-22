@@ -432,7 +432,14 @@ public class EmocionesBaseRealTests
         // En la base: cifrado, atado a la fila y al consentimiento; las notas, en claro como siempre.
         var fila = d.Sesion(idSesion);
         Assert.StartsWith("ys1.k1.", fila.Emociones);
-        foreach (var palabra in new[] { "neutral", "Neutral", "promedios", "sad", "muestras" }) Assert.DoesNotContain(palabra, fila.Emociones!);
+        // El base64 puede contener "sad" por azar. Validar el cifrado autenticado y
+        // su contenido descifrado evita confundir coincidencias con texto en claro.
+        var cifrado = app.Factory.Services.GetRequiredService<IEmocionesCifrado>();
+        Assert.Equal(ResultadoDescifrado.Ok, cifrado.Descifrar(fila.Emociones!,
+            EmocionesCifradoService.DatosAsociadosDeSesion(idSesion), out var textoPlano));
+        Assert.NotEqual(textoPlano, fila.Emociones);
+        using var contenido = JsonDocument.Parse(textoPlano!);
+        Assert.Equal(JsonValueKind.Object, contenido.RootElement.ValueKind);
         Assert.NotNull(fila.IdConsentimiento);
         Assert.Equal("nota [TEST-PR6]", fila.Notas);
         Assert.Null(fila.AnuladasUtc);
