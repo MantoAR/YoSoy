@@ -107,6 +107,37 @@ public class RecuperacionPasswordTests
     }
 
     [Fact]
+    public async Task Recuperar_con_token_valido_limpia_el_cambio_obligatorio_de_password()
+    {
+        using var factory = FactorySinMailReal();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var (idUsuario, _) = await CrearUsuarioDePrueba(con, "recuperacion@example.test");
+        try
+        {
+            using (var marcar = new SqlCommand("UPDATE Usuario SET DebeCambiarPassword = 1 WHERE IdUsuario = @Id", con))
+            {
+                marcar.Parameters.AddWithValue("@Id", idUsuario);
+                await marcar.ExecuteNonQueryAsync();
+            }
+            Assert.True(new UsuarioDAO().ObtenerPorId(idUsuario)!.DebeCambiarPassword);
+            var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+            var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token)));
+            var recuperaciones = new RecuperacionPasswordDAO();
+            recuperaciones.CrearToken(idUsuario, hash, DateTime.Now.AddMinutes(RecuperacionPasswordDAO.DuracionTokenMinutos));
+            using var client = factory.CreateClient();
+
+            var respuesta = await client.PostAsJsonAsync("/recuperacion-password/reset",
+                new { token, nuevaPassword = "ClaveRecuperada456" });
+
+            Assert.True(respuesta.IsSuccessStatusCode);
+            Assert.False(new UsuarioDAO().ObtenerPorId(idUsuario)!.DebeCambiarPassword);
+            Assert.Null(recuperaciones.ObtenerIdUsuarioPorTokenVigente(hash));
+        }
+        finally { await BorrarUsuarioDePrueba(con, idUsuario); }
+    }
+
+    [Fact]
     public async Task Token_vencido_no_sirve()
     {
         using var factory = new WebApplicationFactory<Program>();
