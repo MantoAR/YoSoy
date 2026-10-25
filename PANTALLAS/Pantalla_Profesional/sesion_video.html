@@ -462,6 +462,7 @@ async function entrarASala() {
     // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
     // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
     // para siempre en "Esperando al paciente...".
+    iniciarAvisoDeActividad();
     control = YS.video.entrar({
         sesion: sesionVideo, acceso, stream, paraRol: 'profesional',
         alVideoRemoto: s => {
@@ -487,9 +488,64 @@ async function entrarASala() {
     });
 }
 
+// La sala corre dentro de un iframe del panel, y el panel (js/sesion.js) cierra la sesión tras 10 minutos sin actividad
+// EN SU documento: lo que se hace acá adentro no le llega. Por eso, mientras la sala está en uso, se le avisa cada minuto
+// que hay actividad (sesion.js escucha exactamente este mensaje, del mismo origen). Sin esto, una sesión larga mostraba
+// "Tu sesión expiró" en medio de la llamada y "Volver al inicio" se llevaba la sala y las notas.
+//
+// "En uso" no termina con la llamada: mientras haya notas sin guardar en la historia clínica, o el panel de cierre esté
+// abierto, el aviso sigue. Se corta cuando la API confirma el guardado, o cuando el profesional sale de la sala (la página
+// se descarga y el reloj muere con ella).
+const INTERVALO_ACTIVIDAD_MS = 60000;
+let avisoActividadTimer = null;
+let salaFinalizada = false;          // la llamada ya terminó (finalizarSesion)
+let panelDeCierreAbierto = false;    // HOOK: el panel de cierre lo pone en true mientras esté abierto
+function avisarActividad() {
+    try { if (window.parent && window.parent !== window) window.parent.postMessage('ys-actividad', location.origin); }
+    catch { /* sin panel padre (página abierta suelta): no hay nada que avisar */ }
+}
+// Después de la llamada, la sala sigue "en uso" solo mientras haya algo que perder.
+function salaSigueEnUso() {
+    return !salaFinalizada || hayNotasSinGuardar() || panelDeCierreAbierto;
+}
+function latidoDeActividad() {
+    if (!salaSigueEnUso()) { detenerAvisoDeActividad(); return; }
+    avisarActividad();
+}
+function iniciarAvisoDeActividad() {
+    if (avisoActividadTimer) return;
+    avisarActividad();
+    avisoActividadTimer = setInterval(latidoDeActividad, INTERVALO_ACTIVIDAD_MS);
+}
+function detenerAvisoDeActividad() {
+    clearInterval(avisoActividadTimer);
+    avisoActividadTimer = null;
+}
+// Se llama cuando algo dejó de retener la sala (terminó la llamada, la API confirmó el guardado, se cerró el panel).
+function soltarAvisoSiNoHaceFalta() {
+    if (!salaSigueEnUso()) detenerAvisoDeActividad();
+}
+
+// Las notas que se escribieron y todavía no están en la historia clínica se pierden al cerrar o recargar la pestaña:
+// el navegador pregunta antes. (Un borrador que sobreviva a esto es otro cambio.)
+let guardadoEnHC = false;
+function hayNotasSinGuardar() {
+    return !guardadoEnHC && document.getElementById('notas-evolucion').value.trim() !== '';
+}
+// Si se escribe después de finalizar (y el aviso ya se había cortado), vuelve a hacer falta.
+document.getElementById('notas-evolucion').addEventListener('input', () => {
+    if (salaFinalizada && salaSigueEnUso()) iniciarAvisoDeActividad();
+});
+window.addEventListener('beforeunload', e => {
+    if (!hayNotasSinGuardar()) return;
+    e.preventDefault();
+    e.returnValue = '';
+});
+
 // No se pudo entrar a la sala: vuelve a la pantalla de conexión diciendo por qué. La sesión sigue elegida, así que una
 // vez resuelto alcanza con tocar "Entrar a la sala" de nuevo.
 function volverAConexion(motivo) {
+    detenerAvisoDeActividad();
     analisis?.detener();
     analisis = null;
     stream?.getTracks().forEach(t => t.stop());
@@ -711,6 +767,8 @@ function seleccionarCierre(tipo) {
 
 // ─── FINALIZAR ────────────────────────────────────────────
 async function finalizarSesion() {
+    salaFinalizada = true;
+    soltarAvisoSiNoHaceFalta();   // sigue avisando si quedan notas sin guardar (o el panel de cierre abierto)
     clearTimeout(detectionTimer);
     clearInterval(timerInterval);
     analisis?.detener();   // guardar y exportar vuelven a preguntar antes de usar nada
@@ -777,6 +835,8 @@ async function guardarEnHC() {
     try {
         const r = await YS.api('/sesiones-clinicas', { method: 'POST', json: body, sinRedireccion: true });
         btn.textContent = '✅ Guardado en HC';
+        guardadoEnHC = true;
+        soltarAvisoSiNoHaceFalta();
         const estado = r && r.emociones && r.emociones.estado;
         if (estado === 'guardadas') {
             toast('✅ Sesión guardada en la Historia Clínica del paciente, con las emociones (cifradas).');
