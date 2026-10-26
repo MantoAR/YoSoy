@@ -65,7 +65,9 @@ public static class ConsentimientoVideoEndpoints
                 ahoraUtc = p.AhoraUtc,
                 consultarCadaSegundos = p.ConsultarCadaSegundos,
                 vigenciaSegundos = p.VigenciaSegundos,
-                version = p.Version
+                version = p.Version,
+                // Lo que el paciente aceptó de la videollamada de esta sesión (migración 28): el indicador del profesional y, si la revocó, el cierre ordenado del video.
+                video = new { exigido = p.VideoExigido, estado = p.VideoEstado, revocadoUtc = p.VideoRevocadoUtc }
             });
         }).RequireAuthorization().RequireRateLimiting("video-consentimiento");
 

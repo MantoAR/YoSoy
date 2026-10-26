@@ -11,16 +11,6 @@
 .texto-suave { color: var(--text-3); font-size: var(--fs-md); }
 .mb-12 { margin-bottom: 12px; } .mt-8 { margin-top: 8px; } .mt-12 { margin-top: 12px; }
 
-/* ── Inicio: próximo turno ──────────────────────── */
-.proximo-turno { max-width: 720px; padding: 20px 22px; border-left: 3px solid var(--accent); }
-.proximo-etiqueta { font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
-.proximo-fecha { font-size: var(--fs-2xl); font-weight: 600; color: var(--text); }
-.proximo-fecha::first-letter { text-transform: uppercase; }
-.proximo-hora { font-size: 28px; font-weight: 600; color: var(--accent); margin: 2px 0 16px; }
-.proximo-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; border-top: 1px solid var(--border); padding-top: 14px; }
-.proximo-datos .etiqueta { font-size: var(--fs-sm); color: var(--text-3); margin-bottom: 2px; }
-.proximo-datos .valor { font-size: var(--fs-lg); font-weight: 500; color: var(--text); }
-
 /* ── Agenda (calendario mensual) ────────────────── */
 .filtro-prof { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .filtro-prof label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); white-space: nowrap; }
@@ -51,13 +41,15 @@
 /* Hoy: barra violeta arriba (el día elegido lleva el borde completo, .seleccionado) */
 .cal-dia.hoy::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--accent); pointer-events: none; }
 .cal-dia.con-turno, .cal-dia.con-turno-pendiente, .cal-dia.con-turno-cancelado { cursor: pointer; }
-.cal-dia.con-turno::after, .cal-dia.con-turno-pendiente::after, .cal-dia.con-turno-cancelado::after {
-    content: ""; position: absolute; left: 10px; right: 10px; bottom: 9px; height: 16px; border-radius: var(--r-sm); border: 1px solid;
+.cal-dia.con-turno-cancelado .cal-num { color: var(--text-4); }
+/* Cada turno del día, con su hora y su estado (colores de .estado-*, los de la leyenda) */
+.cal-num { display: block; }
+.cal-turno {
+    display: block; margin-top: 4px; padding: 1px 6px; border: 1px solid; border-radius: var(--r-sm);
+    font-size: var(--fs-xs); font-weight: 600; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.cal-dia.con-turno::after           { background: var(--ok-bg);      border-color: var(--ok-border); }
-.cal-dia.con-turno-pendiente::after { background: var(--warn-bg);    border-color: var(--warn-border); }
-.cal-dia.con-turno-cancelado::after { background: var(--neutral-bg); border-color: var(--neutral-border); }
-.cal-dia.con-turno-cancelado { color: var(--text-4); text-decoration: line-through; }
+.cal-turno.estado-Cancelado { text-decoration: line-through; }
+@media (max-width: 560px) { .cal-dia { padding: 6px 4px; } .cal-turno { padding: 1px 3px; font-size: 10px; } }
 .cal-dia.con-turno:hover, .cal-dia.con-turno-pendiente:hover, .cal-dia.con-turno-cancelado:hover { background: var(--surface-2); }
 .cal-dia.dia-disponible-prof { background: #FAF8FF; color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent-border); cursor: pointer; }
 .cal-dia.dia-disponible-prof:hover { background: var(--accent-soft); }
@@ -89,7 +81,7 @@
 .estado-Confirmado { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
 .estado-Cancelado  { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 .estado-Realizado  { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
-.estado-propuesto  { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-border); }
+.estado-propuesto  { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }   /* "A confirmar", como en el almanaque */
 .estado-En-entrevista { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .estado-Derivado   { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
 .panel-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -165,22 +157,9 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 .toast { animation: toast-in .2s ease; }
 .toast.saliendo { animation: toast-out .25s ease forwards; }
 .toast-icono { font-size: 14px; flex-shrink: 0; }
-@keyframes toast-in  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
+@keyframes toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 
-/* ── Avisos flotantes de notificaciones sin leer (la campana está en la barra, shared/shell.js) ── */
-.notif-flotantes { position: fixed; top: calc(var(--topbar-h) + 12px); right: 20px; z-index: 40; max-width: 360px; display: flex; flex-direction: column; gap: 8px; }
-.notif-flotante { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-lg); }
-.notif-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.notif-mensaje { font-size: var(--fs-md); color: var(--text-2); margin-bottom: 8px; line-height: 1.45; }
-.notif-botones { display: flex; gap: 6px; flex-wrap: wrap; }
-
-/* Turno propuesto por el profesional: aviso y botón para confirmarlo */
-.proximo-propuesta {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
-    margin-top: 14px; padding: 10px 12px; border-radius: var(--r-md);
-    background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-weight: 500;
-}
 .panel-aviso { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-md); background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-size: var(--fs-md); }
 
 /* Inicio: próximo turno y lista de turnos debajo de las tarjetas de resumen */
@@ -200,7 +179,7 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 
 /* Mis datos y sala de video (formularios del sistema de diseño) */
 .perfil-form { max-width: 760px; }
-.sesion-entrada { max-width: 560px; }
+.sesion-entrada { max-width: 720px; }   /* el mismo ancho que la tarjeta de Admisión (.card--angosta) */
 .sesion-entrada-fila { display: flex; gap: 8px; }
 .sesion-entrada-fila .ui-input { flex: 1; font-family: var(--mono); letter-spacing: .08em; }
 
@@ -218,3 +197,80 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 /* Avisos flotantes: el último resume los que quedan en la campana */
 .notif-flotante--mas { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-left-color: var(--border-strong); }
 .notif-flotante--mas .notif-mensaje, .notif-flotante--mas .notif-botones { margin: 0; }
+
+/* Inicio: misma estructura que el resto (tarjetas de resumen y dos tarjetas parejas debajo). js/dashboard.js:
+   inicioPacienteNuevo (con los primeros pasos) e inicioPacienteEnAtencion (con los turnos). */
+.inicio-columnas--parejas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .inicio-columnas--parejas { grid-template-columns: minmax(0, 1fr); } }
+
+/* Paciente recién registrado: la tarea del momento y la lista de los siete pasos */
+.pp-actual { display: flex; gap: 14px; align-items: flex-start; }
+.pp-num {
+    width: 24px; height: 24px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-3); font-size: var(--fs-sm); font-weight: 600;
+}
+.pp-num--hecho { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
+.pp-num--actual { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.pp-num--grande { width: 36px; height: 36px; font-size: var(--fs-lg); }
+.pp-cuerpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pp-titulo-grande { font-size: var(--fs-xl); font-weight: 600; color: var(--text); }
+.pp-texto { font-size: var(--fs-md); color: var(--text-2); line-height: 1.55; }
+.pp-acciones { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.pp-boton { min-height: 44px; padding: 0 18px; }
+.pp-aviso {
+    display: flex; gap: 10px; align-items: flex-start; margin-top: 4px; padding: 12px 14px; border-radius: var(--r-lg);
+    background: var(--info-bg); border: 1px solid var(--info-border); color: var(--info); font-size: var(--fs-md); line-height: 1.5;
+}
+.pp-aviso svg { flex-shrink: 0; margin-top: 1px; }
+.pp-codigo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--accent); border-radius: var(--r-md); }
+.pp-codigo-valor { font-size: var(--fs-lg); letter-spacing: .06em; font-variant-numeric: tabular-nums; color: var(--accent-strong); }
+.pp-lista-cabecera { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pp-barra { height: 6px; background: var(--surface-3); border-radius: 99px; overflow: hidden; margin-bottom: 6px; }
+.pp-barra > div { height: 100%; background: var(--accent); border-radius: 99px; }
+.pp-filas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pp-fila { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
+.pp-fila:last-child { border-bottom: none; }
+.pp-fila-titulo { flex: 1; min-width: 0; color: var(--text); }
+.pp-fila--hecha .pp-fila-titulo, .pp-fila--bloqueada .pp-fila-titulo { color: var(--text-3); }
+.pp-fila--actual .pp-fila-titulo { font-weight: 600; }
+.pp-fila-estado { font-size: var(--fs-sm); color: var(--text-3); text-align: right; }
+.pp-fila-estado--ok { color: var(--ok); }
+.pp-fila-estado--actual { color: var(--accent-strong); font-weight: 600; }
+.pp-fila-ir { font-size: var(--fs-md); font-weight: 500; color: var(--accent-strong); padding: 10px 4px; }
+
+/* Paciente en atención: turno a confirmar y tarjeta de su profesional */
+.inicio-propuesta { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-color: var(--warn-border); }
+.inicio-propuesta-texto { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.inicio-propuesta-etiqueta { font-size: var(--fs-sm); font-weight: 600; color: var(--warn); }
+.inicio-propuesta-acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+.inicio-prof-nota { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-md); color: var(--text-2); }
+.inicio-prof-enlaces { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-md); }
+
+@media (max-width: 600px) {
+    .pp-boton, .inicio-propuesta-acciones .ui-btn { width: 100%; justify-content: center; }
+    .inicio-propuesta-acciones { width: 100%; }
+}
+
+/* Admisión ya enviada (htmlAdmisionEnviada en js/dashboard.js) */
+.admision-datos { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-2); }
+.admision-dato { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-size: var(--fs-md); }
+.admision-dato-etiqueta { color: var(--text-2); }
+.admision-dato-valor { font-weight: 600; color: var(--text); }
+/* Admisión realizada: el check verde, como el consentimiento ya firmado (css/consentimiento.css) */
+.card.admision-realizada { display: flex; gap: 14px; align-items: flex-start; border-left: 3px solid var(--ok); }
+.admision-cuerpo { flex: 1; min-width: 0; }
+.admision-realizada-icono {
+    flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border);
+}
+.admision-realizada-icono svg { width: 18px; height: 18px; }
+.admision-realizada-titulo { color: var(--ok); }
+
+/* «Sobre mí»: días, franja y profesionales preferidos */
+.grupo-opciones { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 0; }
+.grupo-opciones legend { padding: 0 6px; font-weight: 600; color: var(--text); }
+.grupo-opciones-lista { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 6px; }
+.grupo-opciones-lista--columna { flex-direction: column; flex-wrap: nowrap; gap: 6px; max-height: 220px; overflow-y: auto; }
+
+/* Entrar a la sesión: gris hasta 10 minutos antes del turno */
+.pp-boton[disabled] { opacity: .55; cursor: not-allowed; }

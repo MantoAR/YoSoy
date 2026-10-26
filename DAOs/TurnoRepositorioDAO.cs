@@ -7,8 +7,10 @@ public interface ITurnoRepositorio
 {
     List<Agenda> AgendaDe(int idProfesional);
     List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha);
+    // Horas de las entrevistas de admisión que ese profesional ya programó ese día (migración 26).
+    List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha);
     int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha);
-    bool TieneConsentimiento(int idPaciente, string descripcionTipo);
+    bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null);
     Turno? ObtenerTurno(int idTurno);
     string? DescripcionEstado(int idEstadoTurno);
     int? IdEstado(string descripcion);
@@ -43,6 +45,23 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         return lista;
     }
 
+    public List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha)
+    {
+        var lista = new List<TimeSpan>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT FechaEntrevista
+            FROM InformeAdmision
+            WHERE IdProfesionalEntrevista = @IdProf AND Estado = 'En entrevista'
+              AND FechaEntrevista >= @Fecha AND FechaEntrevista < DATEADD(DAY, 1, @Fecha)", con);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(((DateTime)r["FechaEntrevista"]).TimeOfDay);
+        return lista;
+    }
+
     public int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha)
     {
         using var con = Conexion.ObtenerConexion();
@@ -59,9 +78,9 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         return (int)cmd.ExecuteScalar();
     }
 
-    // Misma consulta que usa la página de firma (ConsentimientoDAO.ObtenerVigente).
-    public bool TieneConsentimiento(int idPaciente, string descripcionTipo) =>
-        new ConsentimientoDAO().ObtenerVigente(idPaciente, descripcionTipo) != null;
+    // LA misma decisión que la página de firma y que el requisito de asignar un profesional (ConsentimientoTratamiento).
+    public bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null) =>
+        ConsentimientoTratamiento.Estado(idPaciente, descripcionTipo, version).Vigente;
 
     public string? DescripcionEstado(int idEstadoTurno)
     {

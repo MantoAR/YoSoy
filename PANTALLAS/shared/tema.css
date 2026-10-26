@@ -717,7 +717,8 @@ body.ui-sin-scroll { overflow: hidden; }
 /* Las funciones toast() de cada pantalla y YS.toast() crean
    #toast-container > .toast.toast-{ok|error|warn|info} */
 #toast-container {
-    position: fixed; right: 20px; bottom: 20px; z-index: var(--z-toast);
+    /* Arriba, debajo de la barra superior, en todas las pantallas: nunca al final de la página. */
+    position: fixed; right: 20px; top: calc(var(--topbar-h, 56px) + 12px); z-index: var(--z-toast);
     display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none;
 }
 #toast-container .toast {
@@ -764,8 +765,8 @@ body.ui-sin-scroll { overflow: hidden; }
 @keyframes ui-brillo { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 @keyframes ui-aparece { from { opacity: 0; transform: translateY(-4px) scale(.99); } to { opacity: 1; transform: none; } }
 @keyframes ui-aparece-fondo { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ui-toast-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes ui-toast-sale { to { opacity: 0; transform: translateY(8px); } }
+@keyframes ui-toast-entra { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes ui-toast-sale { to { opacity: 0; transform: translateY(-8px); } }
 
 /* ── Elección de módulo (etapa 2 de roles y permisos) ─────────
    La usan la pantalla de ingreso y el diálogo "Cambiar de módulo" del menú del usuario. */

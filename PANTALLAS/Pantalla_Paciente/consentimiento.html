@@ -15,6 +15,7 @@
          muestra solo la marca y el botón Ingresar, y la página explica qué hacer. -->
     <main class="ui-pagina">
         <div class="ui-contenido consentimiento">
+            <a id="btnVolverArriba" class="ui-btn ui-btn--sm consentimiento-volver" href="dashboard.html#inicio">← Volver al inicio</a>
             <p id="paciente" class="consentimiento-paciente"></p>
 
             <!-- Mientras se consulta el estado -->
@@ -37,9 +38,15 @@
             <section id="yaFirmado" class="tarjeta firmado oculto" role="status">
                 <div class="firmado-icono" aria-hidden="true"></div>
                 <div>
-                    <h2>Ya firmaste este consentimiento</h2>
+                    <h2 id="tituloFirmado" tabindex="-1">Ya firmaste este consentimiento</h2>
                     <p id="detalleFirma"></p>
-                    <p class="ayuda">No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.</p>
+                    <p id="ayudaFirmado" class="ayuda">No hace falta volver a firmarlo. Si ya no querés darlo, podés revocarlo.</p>
+                    <p id="marcaProvisoriaFirmado" class="nota-borrador oculto" role="note"></p>
+                    <div class="acciones mt-16">
+                        <a id="btnVolver" class="ui-btn ui-btn--primary ui-btn--lg" href="dashboard.html#inicio">Volver al inicio</a>
+                        <button id="btnRevocar" class="ui-btn ui-btn--danger ui-btn--lg" type="button">Revocar mi consentimiento</button>
+                    </div>
+                    <p class="ayuda">Si lo revocás, queda el registro de cuándo lo firmaste y cuándo lo revocaste. Mientras esté revocado no se te puede asignar un profesional ni confirmar turnos hasta que vuelvas a firmarlo.</p>
                 </div>
             </section>
 
@@ -53,13 +60,28 @@
                         validado por el equipo antes de usar la plataforma con pacientes reales.
                     </p>
                 </div>
+                <p id="marcaProvisoria" class="nota-borrador oculto" role="note"></p>
                 <p id="lineaVersion" class="version oculto">Versión del texto: <span id="versionTexto"></span></p>
 
+                <!-- Una persona menor de edad no firma sola: firma su madre, padre o tutor (se elige quién). -->
+                <div id="bloqueTutor" class="campo-form ui-campo oculto">
+                    <label for="selTutor">Como sos menor de edad, lo firma tu madre, padre o tutor. ¿Quién firma?</label>
+                    <select id="selTutor" class="ui-select"></select>
+                </div>
+
                 <div class="acciones">
-                    <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leí el consentimiento y lo acepto</button>
-                    <a class="ui-btn ui-btn--lg" href="dashboard.html">Ahora no</a>
+                    <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leo y acepto</button>
+                    <a class="ui-btn ui-btn--lg" href="dashboard.html#inicio">Ahora no</a>
                 </div>
                 <p class="ayuda">Al aceptar se guarda la fecha y la hora de tu firma. Es necesario para que se confirmen tus turnos.</p>
+            </section>
+
+            <!-- Mis sesiones: revocar la videollamada o la lectura de emociones de una sesión sin esperar a entrar a la sala (también se puede desde la sala). -->
+            <section id="misSesiones" class="tarjeta oculto" aria-labelledby="misSesionesTitulo">
+                <h2 id="misSesionesTitulo">Mis sesiones: video y emociones</h2>
+                <p class="ayuda">Acá ves las sesiones recientes en las que aceptaste usar la videollamada. Podés dejar de usar el video o de compartir tus expresiones cuando quieras.</p>
+                <ul id="listaSesiones" class="lista-sesiones"></ul>
+                <p id="errorSesiones" class="ui-alerta ui-alerta--danger oculto" role="alert"></p>
             </section>
 
             <p id="error" class="ui-alerta ui-alerta--danger mt-16 oculto" role="alert"></p>
@@ -68,6 +90,7 @@
 
     <script src="../shared/ui.js"></script>
     <script src="../shared/shell.js"></script>
+    <script src="../shared/emociones.js"></script>
     <script>
         YS.shell.iniciar({ rol: "paciente", activo: "consentimiento", opcional: true,
                            titulo: "Consentimiento informado", subtitulo: "Atención psicológica por telemedicina" });

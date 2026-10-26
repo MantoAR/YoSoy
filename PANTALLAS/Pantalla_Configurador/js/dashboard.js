@@ -12,12 +12,12 @@ const MODULO = ["configurador", "crm", "profesional", "administracion"].includes
 const SECCIONES_POR_MODULO = {
     // Configurador: sin Inicio. Fuera del menu (su codigo y sus endpoints siguen): grupos, reglasderivacion, coberturas, privilegios, roles, recuperacion.
     configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "chatsia", "especialidades", "auditoria"],
-    crm: ["inicio", "chats", "escalamientos", "etiquetas", "casos", "casosderivaciones",
+    crm: ["inicio", "chats", "escalamientos", "etiquetas", "admisiones", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
     // Administracion (vista unica = Configurador + CRM): CRM, Configuracion, Usuarios y Auditoria, sin Inicio. Chats, Leads, Etiquetas y Escalamientos
     // solo se ven con la mensajeria disponible (lo decide el menu); Turnos y Agendas, con Gestion de agendas. Siguen fuera del menu: grupos, reglasderivacion,
     // coberturas, privilegios, roles, recuperacion e inicio.
-    administracion: ["chats", "leads", "etiquetas", "escalamientos", "casos", "casosderivaciones",
+    administracion: ["chats", "leads", "etiquetas", "escalamientos", "admisiones", "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : []),
           "whatsapp", "chatsia", "especialidades", "altausuario", "permisos", "usuarios", "solicitudes", "auditoria"],
     profesional: [
@@ -196,7 +196,7 @@ async function mostrarTab(tab, params = {}) {
 
     if (tab === 'inicio') { MODULO === "crm" ? inicioCrm() : inicioConfigurador(); return; }
     if (tab === 'reportesgenerales') { reportes(); return; }
-    if (tab === 'admisiones') { admisiones(); return; }
+    if (tab === 'admisiones') { admisiones(params.filtro); return; }
     tabActual = tab;
 
     const contenido = document.getElementById("contenido");
@@ -1286,7 +1286,17 @@ async function descargarReporteHtml() {
 
 let _admisionesCache = [];
 
-async function admisiones() {
+// Revisión de los formularios «Sobre mí» (admisión). La entrevista de admisión ya no existe en el recorrido: la reemplaza este formulario que completa el
+// paciente y revisa la recepcionista, con tres acciones y confirmación explícita en cada una (la API las audita): Aceptar, Devolver con aclaración y Otro recurso.
+// Después de aceptar, la asignación del profesional sigue siendo manual (la hace quien revisa).
+// Los estados «En entrevista» y «Rechazado» son del camino anterior: los informes que quedaron así se revisan igual que uno pendiente.
+const ESTADOS_PARA_REVISAR = ["Pendiente", "En entrevista", "Rechazado"];
+const esParaRevisar = a => ESTADOS_PARA_REVISAR.includes(a.estado);
+const ETIQUETA_ESTADO_ADMISION = { "Pendiente": "Para revisar", "En entrevista": "Para revisar", "Rechazado": "Para revisar", "Aprobado": "Aceptado", "Devuelto": "Devuelto", "Derivado": "Asignado", "Otro recurso": "Otro recurso" };
+const TONO_ESTADO_ADMISION = { "Para revisar": "warn", "Aceptado": "info", "Devuelto": "neutral", "Asignado": "ok", "Otro recurso": "danger" };
+
+// filtro: la solapa que queda a la vista. Sin indicarla, "Para revisar"; si no queda ninguno, "Aceptados" (hay que asignarles profesional).
+async function admisiones(filtro) {
     const c = document.getElementById("contenido");
     c.innerHTML = YS.cargando();
     try {
@@ -1295,33 +1305,58 @@ async function admisiones() {
     } catch(e) { _admisionesCache = []; }
 
     if (YS.shell.actual !== "admisiones") return;
-    YS.shell.encabezado({ subtitulo: `${_admisionesCache.length} informe${_admisionesCache.length === 1 ? "" : "s"}` });
+    YS.shell.encabezado({ subtitulo: `${_admisionesCache.length} formulario${_admisionesCache.length === 1 ? "" : "s"}` });
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("admisiones") }]);
 
-    const tono = { "Pendiente": "warn", "En entrevista": "info", "Derivado": "ok", "Rechazado": "danger" };
+    const hay = fn => _admisionesCache.some(fn);
+    if (filtro === "entrevista") filtro = "pendientes";   // el link viejo del Inicio de Admisión
+    if (!filtro) filtro = hay(esParaRevisar) ? "pendientes" : hay(a => a.estado === "Aprobado") ? "aceptados" : "pendientes";
     c.innerHTML = '<div id="tablaAdmisiones"></div><div id="detalleAdmision" class="mt-16"></div>';
     YS.tabla(document.getElementById("tablaAdmisiones"), {
-        filas: _admisionesCache, unidad: ["informe", "informes"], placeholder: "Buscar por paciente, DNI o especialidad",
+        filas: _admisionesCache, filtro, unidad: ["formulario", "formularios"], placeholder: "Buscar por paciente, DNI o especialidad",
         buscar: a => [a.nombrePaciente, a.dni, a.especialidad].join(" "),
+        // En el orden del trabajo de la recepcionista: primero lo que hay que revisar, después lo aceptado que espera profesional, lo devuelto y lo resuelto.
         filtros: [
-            { id: "abiertas", texto: "Por resolver", pasa: a => a.estado !== "Derivado" },
-            { id: "todas", texto: "Todas", pasa: () => true },
-            { id: "pendientes", texto: "Pendientes", pasa: a => a.estado === "Pendiente" },
-            { id: "entrevista", texto: "En entrevista", pasa: a => a.estado === "En entrevista" },
-            { id: "derivadas", texto: "Derivadas", pasa: a => a.estado === "Derivado" },
-            { id: "rechazadas", texto: "Rechazadas", pasa: a => a.estado === "Rechazado" }
+            { id: "pendientes", texto: "Para revisar", pasa: esParaRevisar },
+            { id: "aceptados", texto: "Aceptados (falta asignar)", pasa: a => a.estado === "Aprobado" },
+            { id: "devueltos", texto: "Devueltos", pasa: a => a.estado === "Devuelto" },
+            { id: "resueltas", texto: "Asignados y otro recurso", pasa: a => a.estado === "Derivado" || a.estado === "Otro recurso" },
+            { id: "todas", texto: "Todos", pasa: () => true }
         ],
-        vacio: { icono: "portapapeles", titulo: "No hay informes de admisión", texto: "Los completan los pacientes desde su panel." },
+        vacio: { icono: "portapapeles", titulo: "No hay formularios", texto: `Los completa cada paciente desde «${YS.NOMBRE_FORMULARIO_ADMISION}» en su panel.` },
         columnas: [
             { titulo: "Paciente", orden: a => YS.normalizar(a.nombrePaciente),
               html: a => `<span class="ui-flex">${YS.avatar(a.nombrePaciente, a.idPaciente, "sm")}<span class="principal">${YS.esc(a.nombrePaciente)}</span></span>` },
             { titulo: "DNI", html: a => celda(a.dni) },
             { titulo: "Especialidad", html: a => celda(a.especialidad), orden: a => a.especialidad || "" },
-            { titulo: "Fecha", html: a => celda(a.fechaCreacion) },
-            { titulo: "Estado", html: a => `<span class="ui-chip ui-chip--${tono[a.estado] || "neutral"}">${YS.esc(a.estado)}</span>`, orden: a => a.estado },
-            { titulo: "", clase: "acciones", html: a => `<button class="ui-btn ui-btn--sm" onclick="verAdmision(${a.idInforme})">Ver informe</button>` }
+            { titulo: "Recibido", html: a => celda(a.fechaCreacion), orden: a => fechaHoraDMY(a.fechaCreacion)?.getTime() ?? 0 },
+            { titulo: "Estado", html: a => { const e = ETIQUETA_ESTADO_ADMISION[a.estado] || a.estado; return `<span class="ui-chip ui-chip--${TONO_ESTADO_ADMISION[e] || "neutral"}">${YS.esc(e)}</span>`; },
+              orden: a => ETIQUETA_ESTADO_ADMISION[a.estado] || a.estado },
+            { titulo: "Consentimiento", html: a => a.consentimientoFirmado ? '<span class="ui-chip ui-chip--ok">Firmado</span>' : '<span class="ui-chip ui-chip--warn">Pendiente</span>', orden: a => a.consentimientoFirmado ? 1 : 0 },
+            { titulo: "", clase: "acciones", html: a => `<button class="ui-btn ui-btn--sm" onclick="verAdmision(${a.idInforme})">Ver formulario</button>` }
         ]
     });
+}
+
+// "dd/MM/yyyy HH:mm" (como lo devuelve la API) → Date en la hora local, o null.
+function fechaHoraDMY(texto) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})(?: (\d{2}):(\d{2}))?/.exec(texto || "");
+    return m ? new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0)) : null;
+}
+
+const NOMBRE_DIA = { lunes: "Lunes", martes: "Martes", miercoles: "Miércoles", jueves: "Jueves", viernes: "Viernes", sabado: "Sábado", domingo: "Domingo" };
+const NOMBRE_FRANJA = { manana: "mañana (8 a 12 hs)", tarde: "tarde (12 a 18 hs)", noche: "noche (18 a 22 hs)", cualquiera: "cualquier horario" };
+
+// Lo que el paciente marcó: por ahora solo se muestra (el cruce con las agendas es un trabajo siguiente).
+function textoHorarioPreferido(h) {
+    if (!h) return "";
+    const dias = (h.dias || []).map(d => NOMBRE_DIA[d] || d).join(", ");
+    return [dias, NOMBRE_FRANJA[h.franja] ? "franja: " + NOMBRE_FRANJA[h.franja] : ""].filter(Boolean).join(" · ");
+}
+function textoProfesionalesPreferidos(a) {
+    const p = a.profesionalesPreferidos;
+    if (!p) return "";
+    return p.cualquiera ? "Me da igual" : (a.profesionalesPreferidosNombres || []).join(", ");
 }
 
 function verAdmision(idInforme) {
@@ -1333,48 +1368,52 @@ function verAdmision(idInforme) {
         return '<div class="dato-admision"><span class="etiqueta-dato">' + label + '</span><span class="valor-dato">' + YS.esc(valor) + '</span></div>';
     };
 
-    const esEntrevista = a.estado === "En entrevista" || a.estado === "Rechazado";
-    const esPendiente  = a.estado === "Pendiente";
-    const esDerivado   = a.estado === "Derivado";
+    const avisoConsentimiento = a.consentimientoFirmado ? '' :
+        '<p class="ui-alerta ui-alerta--warn mb-12"><span><strong>Consentimiento de tratamiento pendiente:</strong> ' + YS.esc(a.consentimientoMotivo === "vencido" ? "el que firmó venció (pasó más de un año)." : "el paciente todavía no lo firmó.") +
+        ' Podés aceptar el formulario, pero no asignarle un profesional hasta que firme. Al aceptar se le avisa para que firme.</span></p>';
 
     let acciones = "";
-    if (esPendiente) {
+    if (esParaRevisar(a)) {
         acciones = '<div class="caja-accion">' +
-            '<h4>Programar primera entrevista</h4>' +
-            '<div class="fila-form">' +
-            '<div class="campo-form ui-campo"><label for="entFecha">Fecha</label><input type="date" id="entFecha" class="ui-input"></div>' +
-            '<div class="campo-form ui-campo"><label for="entHora">Hora</label><input type="time" id="entHora" class="ui-input"></div>' +
-            '<button class="ui-btn ui-btn--primary" onclick="programarEntrevista(' + a.idInforme + ')">Programar</button>' +
+            '<h4>Revisar el formulario</h4>' + avisoConsentimiento +
+            '<p class="texto-suave mb-12">Leelo y elegí qué hacer. Cada opción te pide confirmar y queda registrada con tu nombre.</p>' +
+            '<div class="ui-flex" style="gap:8px; flex-wrap:wrap">' +
+            '<button class="ui-btn ui-btn--primary" onclick="aceptarFormulario(' + a.idInforme + ')">Aceptar</button>' +
+            '<button class="ui-btn" onclick="devolverFormulario(' + a.idInforme + ')">Devolver con aclaración</button>' +
+            '<button class="ui-btn ui-btn--danger" onclick="otroRecursoFormulario(' + a.idInforme + ')">Otro recurso</button>' +
             '</div></div>';
-    }
-    if (esEntrevista) {
+    } else if (a.estado === "Aprobado") {
+        // La asignación sigue siendo manual. TODO (trabajo siguiente): acá se va a PROPONER profesional y horario según las preferencias y las agendas; quien revisa confirma.
         acciones = '<div class="caja-accion">' +
-            '<h4>Derivar al profesional</h4>' +
-            (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
-            '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
-            '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +
-            '<div class="campo-form ui-campo mb-12"><label for="derObs">Observaciones de la entrevista</label>' +
-            '<textarea id="derObs" rows="3" class="ui-textarea">' + YS.esc(a.observacionesEntrevista || "") + '</textarea></div>' +
+            '<h4>Asignar profesional</h4>' + avisoConsentimiento +
+            '<p class="texto-suave mb-12">El formulario está aceptado. Elegí el profesional que lo va a atender' + (textoProfesionalesPreferidos(a) ? ' (el paciente prefiere: ' + YS.esc(textoProfesionalesPreferidos(a)) + ')' : '') + '.</p>' +
             '<div class="fila-form">' +
-            '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Profesional asignado</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
-            '<button class="ui-btn ui-btn--primary" onclick="derivarAdmision(' + a.idInforme + ')">Derivar</button>' +
-            '</div></div>';
-    }
-    if (esDerivado) {
+            '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Profesional</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
+            '<button class="ui-btn ui-btn--primary" onclick="derivarAdmision(' + a.idInforme + ')"' + (a.consentimientoFirmado ? '' : ' disabled title="Disponible cuando el paciente firme el consentimiento"') + '>Asignar profesional</button>' +
+            '</div><p class="texto-suave texto-chico mt-8 mb-0">Solo aparecen los profesionales con horarios de atención configurados.</p>' +
+            '</div>';
+    } else if (a.estado === "Devuelto") {
+        acciones = '<div class="ui-alerta ui-alerta--info ui-alerta--bloque mt-16">' +
+            '<strong>Devuelto al paciente</strong><p class="mt-8 mb-0">' + YS.esc(a.aclaracionRecepcion || "") + '</p>' +
+            '<p class="texto-suave texto-chico mt-8 mb-0">Esperando que lo complete de nuevo. Cuando lo reenvíe vuelve a «Para revisar».</p></div>';
+    } else if (a.estado === "Derivado") {
         acciones = '<div class="ui-alerta ui-alerta--ok ui-alerta--bloque mt-16">' +
-            '<strong>Derivado a: ' + YS.esc(a.nombreProfesionalDerivado || "-") + '</strong>' +
+            '<strong>Profesional asignado: ' + YS.esc(a.nombreProfesionalDerivado || "-") + '</strong>' +
             (a.observacionesEntrevista ? '<p class="mt-8 mb-0">' + YS.esc(a.observacionesEntrevista) + '</p>' : "") +
             '</div>';
+    } else if (a.estado === "Otro recurso") {
+        acciones = '<div class="ui-alerta ui-alerta--danger ui-alerta--bloque mt-16">' +
+            '<strong>Ingreso cerrado: otro recurso</strong><p class="mt-8 mb-0">' + YS.esc(a.motivoRechazo || "") + '</p></div>';
     }
 
     document.getElementById("detalleAdmision").innerHTML =
         '<div class="tarjeta">' +
-        '<h3 class="tarjeta-titulo">Informe de ' + YS.esc(a.nombrePaciente) + '</h3>' +
+        '<h3 class="tarjeta-titulo">«' + YS.esc(YS.NOMBRE_FORMULARIO_ADMISION) + '» de ' + YS.esc(a.nombrePaciente) + '</h3>' +
         '<div class="grilla-2">' +
         campo("DNI", a.dni) +
         campo("Fecha de nacimiento", a.fechaNacimiento) +
         campo("Especialidad solicitada", a.especialidad) +
-        campo("Tipo de entrevista", a.tipoEntrevista) +
+        campo("Tipo de atención", a.tipoEntrevista) +
         campo("Motivo de consulta", a.motivoConsulta) +
         campo("Tratamiento anterior", a.tratamientoAnterior ? ("Si. " + (a.tratamientoAnteriorDetalle || "")) : "No") +
         campo("Medicacion actual", a.recibeMedicacion ? ("Si. " + (a.medicacionDetalle || "")) : "No") +
@@ -1382,52 +1421,92 @@ function verAdmision(idInforme) {
         campo("Preferencias de atencion", a.preferenciasAtencion) +
         campo("Red de apoyo", a.redApoyo) +
         campo("Objetivos del paciente", a.objetivosPaciente) +
+        campo("Horario preferido", textoHorarioPreferido(a.horarioPreferido)) +
+        campo("Profesionales que prefiere", textoProfesionalesPreferidos(a)) +
         '</div>' +
-        '<button class="ui-btn ui-btn--sm mt-8" onclick="verHCAdmision(' + a.idPaciente + ')">Ver historia clínica completa</button>' +
         acciones +
         '</div>';
 
-    if (esEntrevista) cargarProfesionalesDerivacion();
+    if (a.estado === "Aprobado") cargarProfesionalesDerivacion();
     document.getElementById("detalleAdmision").scrollIntoView({ behavior: "smooth" });
 }
 
+// ── Las tres acciones de la revisión, cada una con confirmación explícita ──
+async function enviarRevision(idInforme, accion, cuerpo, mensajeOk, filtroDespues) {
+    try {
+        const r = await YS.fetch("/informes-admision/" + idInforme + "/" + accion, {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmo: true, ...cuerpo })
+        });
+        if (r.ok) { toast(mensajeOk); admisiones(filtroDespues); return; }
+        toast(await YS.leerMensaje(r, "No se pudo completar la acción."), "error");
+    } catch {
+        toast("No se pudo conectar con el servidor.", "error");
+    }
+}
+
+async function aceptarFormulario(idInforme) {
+    const a = _admisionesCache.find(x => x.idInforme === idInforme);
+    if (!a) return;
+    const ok = await YS.confirmar({
+        titulo: "Aceptar el formulario",
+        mensaje: "¿Aceptar el formulario de " + a.nombrePaciente + "?" + (a.consentimientoFirmado ? "" : " Todavía no firmó el consentimiento: le vamos a avisar para que firme."),
+        textoConfirmar: "Aceptar"
+    });
+    if (ok) enviarRevision(idInforme, "aceptar", {}, "Formulario aceptado. Ya podés asignarle un profesional.", "aceptados");
+}
+
+async function devolverFormulario(idInforme) {
+    const a = _admisionesCache.find(x => x.idInforme === idInforme);
+    if (!a) return;
+    const aclaracion = await YS.pedirTexto({
+        titulo: "Devolver con aclaración", mensaje: "El paciente va a ver qué le falta en sus primeros pasos y podrá completarlo de nuevo.",
+        etiqueta: "Qué le falta al formulario", multilinea: true, maximo: 1000, textoConfirmar: "Devolver al paciente",
+        mensajeRequerido: "Escribí qué le falta para poder devolverlo."
+    });
+    if (aclaracion) enviarRevision(idInforme, "devolver", { aclaracion }, "Formulario devuelto. Se le avisó al paciente.", "devueltos");
+}
+
+async function otroRecursoFormulario(idInforme) {
+    const a = _admisionesCache.find(x => x.idInforme === idInforme);
+    if (!a) return;
+    const motivo = await YS.pedirTexto({
+        titulo: "Otro recurso: cerrar el ingreso", mensaje: "Esto cierra el ingreso de " + a.nombrePaciente + ": no va a ingresar a YoSoy. Queda registrado con tu nombre.",
+        etiqueta: "Motivo", multilinea: true, maximo: 500, peligro: true, textoConfirmar: "Cerrar el ingreso",
+        mensajeRequerido: "Escribí el motivo: queda registrado."
+    });
+    if (motivo) enviarRevision(idInforme, "otro-recurso", { motivo }, "Ingreso cerrado: otro recurso. Se le avisó al paciente.", "resueltas");
+}
+
+// Solo profesionales activos con horarios de atención configurados: si no, el paciente queda asignado sin dónde pedir
+// su primer turno (la API lo vuelve a controlar al derivar).
 async function cargarProfesionalesDerivacion() {
-    let profs = [];
-    try { profs = await (await YS.fetch("/profesionales")).json(); } catch(e) {}
+    let profs = null;
+    try { profs = await YS.api("/informes-admision/profesionales-derivables"); } catch(e) {}
     const sel = document.getElementById("derProf");
     if (sel === null) return;
+    if (profs === null) { sel.innerHTML = '<option value="">No se pudo cargar la lista</option>'; return; }
+    if (!profs.length) { sel.innerHTML = '<option value="">Ningún profesional tiene horarios de atención configurados</option>'; return; }
     sel.innerHTML = '<option value="">Elegí un profesional</option>' + profs
-        .filter(function(p) { return p.estado === "Activo"; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + '</option>'; })
+        .map(function(p) {
+            return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + (p.especialidad ? ' · ' + YS.esc(p.especialidad) : '') + '</option>';
+        })
         .join("");
 }
 
-async function programarEntrevista(idInforme) {
-    const fecha = document.getElementById("entFecha").value;
-    const hora  = document.getElementById("entHora").value;
-    if (!fecha) YS.form.marcar("entFecha", "Elegí la fecha.");
-    if (!hora) YS.form.marcar("entHora", "Elegí la hora.");
-    if (!fecha || !hora) return;
-    const r = await YS.fetch("/informes-admision/" + idInforme + "/entrevista", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha: fecha + "T" + hora + ":00", observaciones: null })
-    });
-    if (r.ok) { const resp = await r.json(); toast("Entrevista programada. Código de sala: " + resp.codigoSala + ". Se le avisó al paciente."); admisiones(); }
-    else toast(await YS.leerMensaje(r, "No se pudo programar la entrevista."), "error");
-}
-
+// Asignar el profesional a un formulario ya aceptado (manual, con confirmación).
 async function derivarAdmision(idInforme) {
     const idProf = parseInt(document.getElementById("derProf").value);
-    const obs    = document.getElementById("derObs").value || null;
     if (isNaN(idProf)) { YS.form.marcar("derProf", "Elegí el profesional."); return; }
+    const a = _admisionesCache.find(x => x.idInforme === idInforme);
+    const nombre = document.getElementById("derProf").selectedOptions[0].textContent;
+    if (!await YS.confirmar({ titulo: "Asignar profesional", mensaje: "¿Asignar a " + (a ? a.nombrePaciente : "este paciente") + " con " + nombre + "?", textoConfirmar: "Asignar" })) return;
     const r = await YS.fetch("/informes-admision/" + idInforme + "/derivar", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idProfesional: idProf, observaciones: obs })
+        body: JSON.stringify({ idProfesional: idProf })
     });
-    if (r.ok) { toast("Paciente derivado. Ya aparece en Mis pacientes del profesional."); admisiones(); }
-    else toast(await YS.leerMensaje(r, "No se pudo derivar al paciente."), "error");
+    if (r.ok) { toast("Profesional asignado. Ya aparece en Mis pacientes del profesional."); admisiones("resueltas"); }
+    else toast(await YS.leerMensaje(r, "No se pudo asignar el profesional."), "error");
 }
 
 async function verHCAdmision(idPaciente) {
@@ -2256,7 +2335,7 @@ async function renderAltaUsuario(c) {
                     </div>
                 </fieldset>
                 <fieldset class="editor-permisos-modulo">
-                    <legend><label class="ui-check"><input type="checkbox" id="altaRolCrm"> <span class="texto-fuerte">CRM y atención al cliente</span></label></legend>
+                    <legend><label class="ui-check"><input type="checkbox" id="altaRolCrm"> <span class="texto-fuerte">Recepcionista</span></label></legend>
                     <div id="altaBloqueCrm" class="oculto">
                         <label class="ui-check"><input type="checkbox" id="altaAgendas"> Privilegio: Gestión de agendas
                             <span class="texto-chico ui-muted">(turnos y horarios de todos los profesionales; nunca historias clínicas)</span></label>

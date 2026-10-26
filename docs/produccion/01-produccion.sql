@@ -1498,6 +1498,78 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 27)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (27, N'add_alta_derivacion_cierre.sql', 'Script');
 GO
 
+-- ── Migración 28: consentimientos dentro del circuito (migrations/add_consentimientos_circuito.sql). Opcional ──
+IF COL_LENGTH('dbo.Consentimiento', 'IdTutorFirmante') IS NULL
+    ALTER TABLE dbo.Consentimiento ADD IdTutorFirmante INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Consentimiento_TutorFirmante')
+    ALTER TABLE dbo.Consentimiento ADD CONSTRAINT FK_Consentimiento_TutorFirmante FOREIGN KEY (IdTutorFirmante) REFERENCES dbo.Tutor(IdTutor);
+GO
+IF OBJECT_ID('dbo.AceptacionVideollamada', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AceptacionVideollamada (
+        IdAceptacion    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_AceptacionVideollamada PRIMARY KEY,
+        IdUsuario       INT NULL CONSTRAINT FK_AceptacionVideollamada_Usuario REFERENCES dbo.Usuario(IdUsuario),
+        IdPaciente      INT NOT NULL CONSTRAINT FK_AceptacionVideollamada_Paciente REFERENCES dbo.Paciente(IdPaciente),
+        Origen          NVARCHAR(10) NOT NULL,
+        IdOrigen        INT NOT NULL,
+        VersionTexto    NVARCHAR(40) NOT NULL,
+        HashTexto       CHAR(64) NOT NULL,
+        DecididoUtc     DATETIME2(3) NOT NULL CONSTRAINT DF_AceptacionVideollamada_Decidido DEFAULT (SYSUTCDATETIME()),
+        RevocadoUtc     DATETIME2(3) NULL,
+        IdUsuarioRevoca INT NULL CONSTRAINT FK_AceptacionVideollamada_UsuarioRevoca REFERENCES dbo.Usuario(IdUsuario),
+        CONSTRAINT CK_AceptacionVideollamada_Origen CHECK (Origen IN (N'turno', N'admision'))
+    );
+    CREATE UNIQUE INDEX UX_AceptacionVideollamada_Vigente ON dbo.AceptacionVideollamada (Origen, IdOrigen, IdPaciente) WHERE RevocadoUtc IS NULL;
+    CREATE INDEX IX_AceptacionVideollamada_Paciente ON dbo.AceptacionVideollamada (IdPaciente, DecididoUtc);
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 28)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (28, N'add_consentimientos_circuito.sql', 'Script');
+GO
+-- ── Migración 29: franjas de admisión y quién programó la entrevista (migrations/add_admision_agenda_entrevista.sql) ──
+IF COL_LENGTH('dbo.Agenda', 'EsAdmision') IS NULL
+    ALTER TABLE dbo.Agenda ADD EsAdmision BIT NOT NULL
+        CONSTRAINT DF_Agenda_EsAdmision DEFAULT (0);
+IF COL_LENGTH('dbo.InformeAdmision', 'IdProfesionalEntrevista') IS NULL
+    ALTER TABLE dbo.InformeAdmision ADD IdProfesionalEntrevista INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_InformeAdmision_ProfesionalEntrevista')
+    ALTER TABLE dbo.InformeAdmision ADD CONSTRAINT FK_InformeAdmision_ProfesionalEntrevista
+        FOREIGN KEY (IdProfesionalEntrevista) REFERENCES dbo.Profesional (IdProfesional);
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 29)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (29, N'add_admision_agenda_entrevista.sql', 'Script');
+GO
+
+-- ── Migración 30: fecha de inicio y de fin de cada franja de la agenda (migrations/add_vigencia_agenda.sql) ──
+IF COL_LENGTH('dbo.Agenda', 'FechaInicio') IS NULL
+    ALTER TABLE dbo.Agenda ADD FechaInicio DATE NULL;
+IF COL_LENGTH('dbo.Agenda', 'FechaFin') IS NULL
+    ALTER TABLE dbo.Agenda ADD FechaFin DATE NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Agenda_Vigencia')
+    ALTER TABLE dbo.Agenda ADD CONSTRAINT CK_Agenda_Vigencia
+        CHECK (FechaInicio IS NULL OR FechaFin IS NULL OR FechaFin >= FechaInicio);
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 30)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (30, N'add_vigencia_agenda.sql', 'Script');
+GO
+
+-- ── Migración 31: primeros pasos del paciente (migrations/add_primeros_pasos.sql) ──
+IF COL_LENGTH('dbo.InformeAdmision', 'AclaracionRecepcion') IS NULL ALTER TABLE dbo.InformeAdmision ADD AclaracionRecepcion NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'IdUsuarioRevision') IS NULL ALTER TABLE dbo.InformeAdmision ADD IdUsuarioRevision INT NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'FechaRevision') IS NULL ALTER TABLE dbo.InformeAdmision ADD FechaRevision DATETIME NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'HorarioPreferido') IS NULL ALTER TABLE dbo.InformeAdmision ADD HorarioPreferido NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'ProfesionalesPreferidos') IS NULL ALTER TABLE dbo.InformeAdmision ADD ProfesionalesPreferidos NVARCHAR(500) NULL;
+IF COL_LENGTH('dbo.Consentimiento', 'FechaRevocacion') IS NULL ALTER TABLE dbo.Consentimiento ADD FechaRevocacion DATETIME NULL;
+IF COL_LENGTH('dbo.Consentimiento', 'IdUsuarioRevocacion') IS NULL ALTER TABLE dbo.Consentimiento ADD IdUsuarioRevocacion INT NULL;
+IF COL_LENGTH('dbo.Notificacion', 'Evento') IS NULL ALTER TABLE dbo.Notificacion ADD Evento NVARCHAR(100) NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Notificacion_Evento' AND object_id = OBJECT_ID('dbo.Notificacion'))
+    CREATE UNIQUE INDEX UX_Notificacion_Evento ON dbo.Notificacion (IdPaciente, Evento) WHERE Evento IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 31)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (31, N'add_primeros_pasos.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

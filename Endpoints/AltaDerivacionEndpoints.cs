@@ -155,7 +155,7 @@ public static class AltaDerivacionEndpoints
         app.MapGet("/derivaciones/traspasos-pendientes", (HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente ve los traspasos pendientes." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista ve los traspasos pendientes." }, statusCode: 403);
             if (!ADMigracion.Disponible()) return Results.Ok(Array.Empty<object>());
             return Results.Ok(new DerivacionCierreDAO().TraspasosPendientes().Select(d => new
             {
@@ -166,7 +166,7 @@ public static class AltaDerivacionEndpoints
         app.MapPost("/derivaciones/{id:int}/traspasar", (int id, TraspasarRequest? req, HttpContext ctx, IdentidadActualService identidad, AsignacionService asignacion, EmailService email, ILogger<DerivacionCierreDAO> log) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede confirmar un traspaso." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista puede confirmar un traspaso." }, statusCode: 403);
             var yo = identidad.Resolver(ctx)!;
             if (!ADMigracion.Disponible()) return Falla(AltaDerivacionReglas.FaltaMigracion27);
             var dao = new DerivacionCierreDAO();
@@ -205,7 +205,7 @@ public static class AltaDerivacionEndpoints
         app.MapPost("/derivaciones/{id:int}/resolver", (int id, HttpContext ctx, IdentidadActualService identidad) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede resolver una derivación rechazada." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista puede resolver una derivación rechazada." }, statusCode: 403);
             if (!ADMigracion.Disponible()) return Falla(AltaDerivacionReglas.FaltaMigracion27);
             var yo = identidad.Resolver(ctx)!;
             var r = new DerivacionCierreDAO().Resolver(id, Autor(yo, null));

@@ -15,6 +15,9 @@
     const YS = window.YS;
     if (!YS) { console.error("shell.js necesita shared/ui.js"); return; }
 
+    // Cómo se llama en pantalla el módulo CRM (la recepcionista). Solo el texto visible: el rol, los permisos y las rutas siguen siendo «crm».
+    const ETIQUETA_CRM = "Recepcionista";
+
     // ── Menús por rol: lo que cada rol ya puede hacer hoy ───────
     // Grupos de Configuración y Usuarios y la Auditoría: los comparten el menú del Configurador y el de Administración (una sola definición).
     const GRUPO_CONFIGURACION = {
@@ -58,16 +61,17 @@
         paciente: {
             etiqueta: "Mi espacio",
             items: [
+                // En el orden en que lo recorre un paciente nuevo (la guía de primeros pasos de Inicio).
                 { id: "inicio", texto: "Inicio" },
+                { id: "admision", texto: YS.NOMBRE_FORMULARIO_ADMISION, titulo: YS.NOMBRE_FORMULARIO_ADMISION },
+                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" },
                 {
                     texto: "Turnos", items: [
                         { id: "agenda", texto: "Mis turnos", icono: "agenda", desc: "Pedir, cancelar o reprogramar" },
                         { id: "profesionales", texto: "Mis profesionales", icono: "pacientes", desc: "Tu equipo y cambio de profesional" }
                     ]
                 },
-                { id: "sesion", texto: "Sala de video" },
-                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
-                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" }
+                { id: "sesion", texto: "Sala de video" }
             ],
             usuario: [{ id: "perfil", texto: "Mis datos", icono: "usuario" }]
         },
@@ -92,7 +96,8 @@
             etiqueta: "Administración",
             items: [
                 {
-                    texto: "CRM", items: [
+                    texto: ETIQUETA_CRM, items: [
+                        { id: "admisiones", texto: "Formularios", icono: "portapapeles", desc: "«Sobre mí» para revisar y asignar" },
                         { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
                         { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" }
                     ]
@@ -104,11 +109,12 @@
             usuario: []
         },
         crm: {
-            etiqueta: "CRM y atención al cliente",
+            etiqueta: ETIQUETA_CRM,
             items: [
                 { id: "inicio", texto: "Inicio" },
                 {
                     texto: "Casos", items: [
+                        { id: "admisiones", texto: "Formularios", icono: "portapapeles", desc: "«Sobre mí» para revisar y asignar" },
                         { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
                         // id "casosderivaciones", no "derivaciones": ese id es Admisión > Solicitudes
                         // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
@@ -130,7 +136,7 @@
     };
     // Administración: los ítems de conversaciones que se suman AL PRINCIPIO del grupo CRM (Chats y Leads primero).
     const ITEMS_CHATS_ADMINISTRACION = {
-        texto: "CRM", enGrupo: true, items: [
+        texto: ETIQUETA_CRM, enGrupo: true, items: [
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
             { id: "leads", texto: "Leads", icono: "pacientes", desc: "Todas las conversaciones: pacientes y personas sin identificar" },
             { id: "etiquetas", texto: "Etiquetas", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" },
@@ -147,7 +153,7 @@
     // panel de gestión (pagina: "gestion"); el resto del menú, en el panel profesional.
     const GRUPO_ADMISION = {
         texto: "Admisión", items: [
-            { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Informes y primera entrevista", pagina: "gestion" },
+            { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Formularios para revisar y asignar", pagina: "gestion" },
             { id: "derivaciones", texto: "Solicitudes de cambio", icono: "flechas", desc: "Pedidos de cambio de profesional", pagina: "gestion" },
             { id: "asignaciones", texto: "Asignaciones", icono: "pacientes", desc: "Qué profesional atiende a cada paciente", pagina: "gestion" }
         ]
@@ -171,14 +177,15 @@
         if (rol === "profesional") {
             const pagina = it => it.items ? { ...it, items: it.items.map(s => ({ pagina: "profesional", ...s })) } : { pagina: "profesional", ...it };
             const propios = items.map(pagina);
-            if (YS.sesion.tienePrivilegio("admision")) propios.push(GRUPO_ADMISION);
+            // Con Admisión, va segundo, después de Inicio: Inicio, Admisión, Agenda, Pacientes, Mis casos, Sala de video, Reportes.
+            if (YS.sesion.tienePrivilegio("admision")) propios.splice(1, 0, GRUPO_ADMISION);
             if (YS.sesion.tienePermiso("auditor")) propios.push(GRUPO_AUDITOR);
             return { ...base, items: propios };
         }
         if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
         if (rol === "administracion" && YS.sesion.tienePrivilegio("gestion_agendas")) {
             // Turnos y Agendas van dentro del grupo CRM, después de Derivaciones.
-            const crm = items.find(it => it.texto === "CRM");
+            const crm = items.find(it => it.texto === ETIQUETA_CRM);
             crm.items.push({ ...GRUPO_AGENDAS.items[0] }, { ...GRUPO_AGENDAS.items[1], texto: "Agendas" });
         }
         return { ...base, items };
@@ -193,7 +200,7 @@
     }
     // Dónde entra un grupo agregado "al principio": después de Inicio si el menú lo tiene, o primero si no.
     const posicionInicial = items => items.some(it => it.id === "inicio") ? 1 : 0;
-    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente", administracion: "Administración" };
+    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: ETIQUETA_CRM, administracion: "Administración" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
     let cfg = null, menu = null, actual = null, primeraMarca = true;
@@ -474,12 +481,16 @@
         paciente: {
             titulo: "Notificaciones",
             async cargar() {
-                const lista = await YS.api(`/pacientes/${YS.sesion.idPaciente()}/notificaciones`);
+                // Solo las NO LEÍDAS: al leer una, desaparece de la lista (no se acumulan avisos viejos ni repetidos).
+                const lista = (await YS.api(`/pacientes/${YS.sesion.idPaciente()}/notificaciones`)).filter(n => n.leida === false);
                 return {
-                    noLeidos: lista.filter(n => n.leida === false).length,
+                    noLeidos: lista.length,
                     items: lista.map(n => ({
                         id: n.idNotificacion, titulo: n.titulo, texto: n.mensaje, fecha: n.fecha, noLeido: n.leida === false,
-                        accion: n.link ? { texto: "Unirse / Ver sala", alClick: () => unirseSala(n.link, n.idNotificacion) } : null
+                        // Un link que es una página (el aviso de firmar el consentimiento) se abre tal cual; el resto es el código de una sala.
+                        accion: !n.link ? null : n.link.startsWith("/")
+                            ? { texto: "Firmar consentimiento", alClick: () => abrirAviso(n.link, n.idNotificacion) }
+                            : { texto: "Unirse / Ver sala", alClick: () => unirseSala(n.link, n.idNotificacion) }
                     }))
                 };
             },
@@ -490,15 +501,26 @@
                 document.dispatchEvent(new CustomEvent("ys:avisos-leidos"));
                 return true;   // vuelve a cargar el contador
             },
-            vacio: "No tenés notificaciones."
+            vacio: "No tenés notificaciones sin leer."
         },
         // Turnos confirmados por el paciente que todavía no tienen sala (antes eran avisos flotantes).
         profesional: {
             titulo: "Avisos",
             async cargar() {
-                const lista = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`);
+                // Con el privilegio Admisión, primero los formularios «Sobre mí» para revisar (aceptar, devolver u otro recurso).
+                // Quedan en la campana mientras sigan sin revisar.
+                const conAdmision = YS.sesion.tienePrivilegio("admision");
+                const [lista, informes] = await Promise.all([
+                    YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`),
+                    conAdmision ? YS.api("/informes-admision-detalle").catch(() => []) : []
+                ]);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
+                const pendientes = informes.filter(a => ["Pendiente", "En entrevista", "Rechazado"].includes(a.estado));   // los dos últimos son del camino viejo de la entrevista
+                const irAAdmisiones = () => {
+                    if (cfg.pagina === "gestion") { location.hash = "#admisiones"; campana.ctrl.cerrar?.(); }
+                    else location.href = YS.rutas.gestion + "#admisiones";
+                };
                 // Derivaciones internas: lo que me toca responder y los avisos de derivación / traspaso (si la API todavía no los tiene, la campanita sigue como siempre).
                 const clinicos = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/avisos-clinicos`).catch(() => ({ avisos: [], porResponder: [] }));
                 const porResponder = (clinicos.porResponder || []).map(d => ({
@@ -516,10 +538,15 @@
                     accion: a.leida === false ? { texto: "Entendido", alClick: () => marcarAvisoClinico(a.idAviso) } : null
                 }));
                 return {
-                    noLeidos: sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
+                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
                     items: [
                         ...porResponder,
                         ...avisos,
+                        ...pendientes.map(a => ({
+                            id: "adm-" + a.idInforme, titulo: "Formulario para revisar", noLeido: true,
+                            texto: `${a.nombrePaciente} · Recibido el ${a.fechaCreacion} hs`,
+                            accion: { texto: "Revisar", tipo: "primary", alClick: irAAdmisiones }
+                        })),
                         ...sinSala.map(t => ({
                             id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
                             texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
@@ -534,6 +561,11 @@
     };
 
     const fechaDMY = s => { const [d, m, a] = String(s).split("/").map(Number); return new Date(a, m - 1, d); };
+
+    async function abrirAviso(ruta, idNotif) {
+        try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
+        location.href = ruta;
+    }
 
     async function unirseSala(codigo, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
@@ -610,7 +642,8 @@
             this.dibujar();
             if (this.def.alAbrir && this._datos?.noLeidos) {
                 const datos = this._datos;
-                if (await this.def.alAbrir(datos)) { this.b.contador(0); }
+                // Leídas al abrir: la lista que se está viendo queda hasta cerrar, y la próxima vez que se abra se vuelve a pedir (solo aparecen las no leídas).
+                if (await this.def.alAbrir(datos)) { this.b.contador(0); this._datos = null; }
             }
         },
         dibujar() {

@@ -713,6 +713,10 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppSe
     var pideWhatsApp = avisosPorWhatsApp && req.AceptaWhatsApp == true;
     if (pideWhatsApp && consentimientoWhatsApp.ValidarAceptacionEnRegistro(req.Telefono, req.FechaNacimiento, req.VersionTextoWhatsApp) is { } errorWhatsApp)
         return ConsentimientoWhatsAppEndpoints.Error(errorWhatsApp);
+    // El teléfono es obligatorio al registrarse (después de lo de WhatsApp, que tiene su propio aviso para el celular),
+    // con las mismas reglas que Mis datos: números, espacios, +, paréntesis o guiones.
+    if (string.IsNullOrWhiteSpace(req.Telefono) || !System.Text.RegularExpressions.Regex.IsMatch(req.Telefono.Trim(), @"^[\d\s+()-]{6,20}$"))
+        return Results.BadRequest(new { mensaje = "El teléfono es obligatorio: usá solo números, espacios, + o guiones." });
 
     var paciente = new Paciente
     {
@@ -981,7 +985,8 @@ app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoRegla
     var yo = identidad.Resolver(ctx);
     if (!yo!.GestionaAgendas && !yo.HaceAdmision && yo.IdProfesional != id) return Results.Json(new { mensaje = "Solo podés ver tu propia vista previa." }, statusCode: 403);
     var rango = Math.Clamp(dias ?? 14, 1, 90);
-    return Results.Ok(reglas.HorariosLibresDelProfesional(id, rango, 500));
+    // Tope alto: el calendario de Mis horarios muestra los 90 días completos (24 horarios por día son ~2200).
+    return Results.Ok(reglas.HorariosLibresDelProfesional(id, rango, 3000));
 }).RequireAuthorization();
 
 // Cierre de seguridad, Paso 3: el profesional solo administra sus propias franjas; quien
@@ -991,6 +996,10 @@ app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService ident
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
+    // Una franja de admisión (migración 26) la marca quien hace admisión o quien gestiona agendas.
+    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = false;
+    if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
+        return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agendas", a);
 }).Solo(Quien.Profesional | Quien.Agendas);
@@ -1006,6 +1015,9 @@ app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualS
 
     a.IdAgenda = id;
     if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
+    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
+    if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
+        return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     dao.Modificar(a);
     return Results.Ok(a);
 }).Solo(Quien.Profesional | Quien.Agendas);
@@ -1033,6 +1045,10 @@ app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identi
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
+    // Una franja de admisión (migración 26) la marca quien hace admisión o quien gestiona agendas.
+    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = false;
+    if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
+        return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agenda", a);
 }).Solo(Quien.Profesional | Quien.Agendas);
@@ -1048,6 +1064,9 @@ app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualSe
 
     a.IdAgenda = id;
     if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
+    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
+    if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
+        return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     dao.Modificar(a);
     return Results.Ok(a);
 }).Solo(Quien.Profesional | Quien.Agendas);
@@ -1130,6 +1149,8 @@ app.MapGet("/profesionales/{id}/pacientes", (int id, HttpContext ctx, IdentidadA
 // clínica, así que queda en la auditoría clínica.
 app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp, HttpContext ctx) =>
 {
+    // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se asigna profesional (ConsentimientoTratamiento; la misma decisión que RN-02).
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, id) is { } sinConsentimiento) return sinConsentimiento;
     new PacienteProfesionalDAO().Asignar(id, pp.IdProfesional);
     AuditoriaIds.Registrar(ctx, "Asignación de profesional", "PacienteProfesional", pp.IdProfesional, id);
     return Results.Ok();
@@ -2154,6 +2175,7 @@ app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignaci
     var yo = identidad.Resolver(ctx)!;
     // Roles y permisos: la admisión asistida la hace Admisión (antes el Configurador).
     if (!yo.HaceAdmision) i.IdPaciente = yo.IdPaciente!.Value;
+    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
@@ -2197,7 +2219,38 @@ app.MapGet("/pacientes/{id}/informe-admision", (int id, HttpContext ctx, Identid
     if (i is null) return Results.NotFound();
     // Etapa 2: lectura del informe por alguien del equipo → auditoría clínica.
     if (!yo.EsPaciente) AuditoriaIds.Registrar(ctx, "Consulta de informe de admisión", "InformeAdmision", i.IdInforme, id);
-    return Results.Ok(i);
+    // Para la pantalla Admisión del paciente: cuándo y con quién fue la entrevista y a quién lo derivaron
+    // (las observaciones de la entrevista no van).
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    using var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+        SELECT ia.FechaEntrevista, ia.CodigoSala, ia.AclaracionRecepcion, ia.MotivoRechazo, ia.HorarioPreferido, ia.ProfesionalesPreferidos,
+               LTRIM(RTRIM(ent.Nombre + ' ' + ISNULL(ent.Apellido, ''))) AS NombreProfesionalEntrevista,
+               LTRIM(RTRIM(der.Nombre + ' ' + ISNULL(der.Apellido, ''))) AS NombreProfesionalDerivado
+        FROM InformeAdmision ia
+        LEFT JOIN Profesional ent ON ent.IdProfesional = ia.IdProfesionalEntrevista
+        LEFT JOIN Profesional der ON der.IdProfesional = ia.IdProfesionalDerivado
+        WHERE ia.IdInforme = @Id", con);
+    cmd.Parameters.AddWithValue("@Id", i.IdInforme);
+    using var r = cmd.ExecuteReader();
+    r.Read();
+    string? Texto(string col) => r[col] == DBNull.Value ? null : r[col].ToString();
+    return Results.Ok(new
+    {
+        i.IdInforme, i.IdPaciente, i.IdEspecialidad, i.MotivoConsulta, i.TratamientoAnterior, i.TratamientoAnteriorDetalle,
+        i.RecibeMedicacion, i.MedicacionDetalle, i.GustosIntereses, i.PreferenciasAtencion, i.TipoEntrevista, i.RedApoyo,
+        i.ObjetivosPaciente, i.Estado, i.FechaCreacion,
+        fechaEntrevista = r["FechaEntrevista"] == DBNull.Value ? null : ((DateTime)r["FechaEntrevista"]).ToString("dd/MM/yyyy HH:mm"),
+        // El código de su propia sala de entrevista (el mismo que le llega a la campanita).
+        codigoSala = Texto("CodigoSala"),
+        // Primeros pasos: lo que la recepción aclaró al devolverlo, el motivo si cerró el ingreso y las preferencias que el paciente cargó.
+        aclaracionRecepcion = Texto("AclaracionRecepcion"),
+        motivoCierre = i.Estado == EstadoInforme.OtroRecurso ? Texto("MotivoRechazo") : null,
+        horarioPreferido = PreferenciasAdmision.Leer(Texto("HorarioPreferido")),
+        profesionalesPreferidos = PreferenciasAdmision.Leer(Texto("ProfesionalesPreferidos")),
+        nombreProfesionalEntrevista = Texto("NombreProfesionalEntrevista"),
+        nombreProfesionalDerivado = Texto("NombreProfesionalDerivado")
+    });
 }).RequireAuthorization();
 
 // Sin uso directo por ninguna pantalla: Configurador, mismo criterio que el resto de este
@@ -2210,7 +2263,7 @@ app.MapPut("/informes-admision/{id}/estado", (int id, string estado) =>
 
 
 // ── Admision: endpoints de Admisión (roles y permisos; antes del configurador) ──
-app.MapGet("/informes-admision-detalle", () =>
+app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
 {
     // (Admisión y auditor: ver .Solo() al final de este endpoint.)
     using var con = Conexion.ObtenerConexion();
@@ -2221,19 +2274,31 @@ app.MapGet("/informes-admision-detalle", () =>
                ia.RecibeMedicacion, ia.MedicacionDetalle, ia.GustosIntereses, ia.PreferenciasAtencion,
                ia.TipoEntrevista, ia.RedApoyo, ia.ObjetivosPaciente, ia.Estado, ia.FechaCreacion,
                ia.FechaEntrevista, ia.ObservacionesEntrevista, ia.IdProfesionalDerivado, ia.CodigoSala, ia.MotivoRechazo,
-               prof.Nombre + ' ' + ISNULL(prof.Apellido, '') AS NombreProfesionalDerivado
+               prof.Nombre + ' ' + ISNULL(prof.Apellido, '') AS NombreProfesionalDerivado,
+               ent.Nombre + ' ' + ISNULL(ent.Apellido, '') AS NombreProfesionalEntrevista,
+               ia.AclaracionRecepcion, ia.HorarioPreferido, ia.ProfesionalesPreferidos
         FROM InformeAdmision ia
         INNER JOIN Paciente p ON p.IdPaciente = ia.IdPaciente
         INNER JOIN Especialidad e ON e.IdEspecialidad = ia.IdEspecialidad
         LEFT JOIN Profesional prof ON prof.IdProfesional = ia.IdProfesionalDerivado
+        LEFT JOIN Profesional ent ON ent.IdProfesional = ia.IdProfesionalEntrevista
         ORDER BY ia.FechaCreacion DESC", con);
     var reader = cmd.ExecuteReader();
     var lista = new System.Collections.Generic.List<object>();
+    // Estado del consentimiento de tratamiento y telemedicina de cada paciente (la misma decisión que RN-02 y que el requisito de asignar), una consulta por paciente.
+    var opConsentimiento = ctxConsentimiento.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<ConsentimientoOptions>>().CurrentValue;
+    var consentimientoDe = new System.Collections.Generic.Dictionary<int, EstadoTratamiento>();
+    var nombresProfesionales = PreferenciasAdmision.ProfesionalesElegibles().ToDictionary(p => p.IdProfesional, p => p.Nombre + (string.IsNullOrWhiteSpace(p.Especialidad) ? "" : " · " + p.Especialidad));
     while (reader.Read())
     {
+        var idPacienteFila = (int)reader["IdPaciente"];
+        if (!consentimientoDe.TryGetValue(idPacienteFila, out var estadoConsentimiento))
+            consentimientoDe[idPacienteFila] = estadoConsentimiento = ConsentimientoTratamiento.Estado(idPacienteFila, opConsentimiento);
         lista.Add(new {
             idInforme               = (int)reader["IdInforme"],
             idPaciente              = (int)reader["IdPaciente"],
+            consentimientoFirmado   = estadoConsentimiento.Vigente,
+            consentimientoMotivo    = estadoConsentimiento.Vigente ? null : estadoConsentimiento.Motivo,
             nombrePaciente          = reader["NombrePaciente"].ToString(),
             dni                     = reader["Dni"].ToString(),
             fechaNacimiento         = reader["FechaNacimiento"] == DBNull.Value ? null : ((DateTime)reader["FechaNacimiento"]).ToString("dd/MM/yyyy"),
@@ -2255,46 +2320,101 @@ app.MapGet("/informes-admision-detalle", () =>
             idProfesionalDerivado   = reader["IdProfesionalDerivado"] == DBNull.Value ? (int?)null : (int)reader["IdProfesionalDerivado"],
             codigoSala              = reader["CodigoSala"] == DBNull.Value ? "" : reader["CodigoSala"].ToString(),
             motivoRechazo           = reader["MotivoRechazo"] == DBNull.Value ? "" : reader["MotivoRechazo"].ToString(),
-            nombreProfesionalDerivado = reader["NombreProfesionalDerivado"] == DBNull.Value ? "" : reader["NombreProfesionalDerivado"].ToString()
+            nombreProfesionalDerivado = reader["NombreProfesionalDerivado"] == DBNull.Value ? "" : reader["NombreProfesionalDerivado"].ToString(),
+            // Primeros pasos (migración 31): lo que aclaró la recepción al devolverlo y las preferencias del paciente (solo se muestran; el cruce con las agendas es un trabajo siguiente).
+            aclaracionRecepcion     = reader["AclaracionRecepcion"] == DBNull.Value ? "" : reader["AclaracionRecepcion"].ToString(),
+            horarioPreferido        = PreferenciasAdmision.Leer(reader["HorarioPreferido"] as string),
+            profesionalesPreferidos = PreferenciasAdmision.Leer(reader["ProfesionalesPreferidos"] as string),
+            profesionalesPreferidosNombres = ((reader["ProfesionalesPreferidos"] as string) is { } pj && PreferenciasAdmision.Leer(pj) is { } pe && pe.TryGetProperty("ids", out var pids)
+                ? pids.EnumerateArray().Select(x => nombresProfesionales.TryGetValue(x.GetInt32(), out var n) ? n : "Profesional #" + x.GetInt32()).ToList() : new System.Collections.Generic.List<string>()),
+            // Quién programó la entrevista (migración 26); "" en las de antes.
+            nombreProfesionalEntrevista = reader["NombreProfesionalEntrevista"] == DBNull.Value ? "" : reader["NombreProfesionalEntrevista"].ToString()!.Trim()
         });
     }
     return Results.Ok(lista);
-}).Solo(Quien.Admision | Quien.Auditor);
+}).Solo(Quien.Admision | Quien.Auditor | Quien.Crm);   // la recepcionista (CRM) revisa los formularios «Sobre mí»
 
-app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req, HttpContext ctx, IdentidadActualService identidad) =>
+// Programa la primera entrevista de admisión en forma AUTOMÁTICA: el primer horario libre de las franjas de admisión
+// de quien la programa (Mis horarios de trabajo, migración 26), dentro de las 24 horas de recibida la solicitud
+// (PlazoEntrevistaAdmision). Libre = sin turno ni otra entrevista suya a esa hora, así quedan una detrás de otra. Queda
+// guardado quién la programó (la grilla lo muestra) y al paciente le llega el aviso con el día y la hora.
+app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req, HttpContext ctx, IdentidadActualService identidad,
+    TurnoReglasService reglas, TimeProvider reloj) =>
 {
     var yo = identidad.Resolver(ctx)!;
+    if (yo.IdProfesional is not int idProfesional)
+        return Results.Json(new { mensaje = "No se pudo identificar tu usuario profesional." }, statusCode: 403);
+    if (!reglas.TieneAgendaDeAdmision(idProfesional))
+        return Results.Json(new { codigo = "SIN_AGENDA_ADMISION",
+            mensaje = "Para programar entrevistas tenés que tener un horario de admisión en Mis horarios de trabajo." }, statusCode: 409);
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
+
+    // De a una: dos profesionales de admisión que programan al mismo tiempo no pueden tomar el mismo horario ni la misma
+    // admisión. El bloqueo es de toda la organización y dura lo que esta transacción (milisegundos): el segundo espera a
+    // que el primero termine y recién ahí busca su horario, ya con la entrevista del primero guardada.
+    using var tx = con.BeginTransaction();
+    using (var cmdLock = new Microsoft.Data.SqlClient.SqlCommand(@"
+        DECLARE @r INT;
+        EXEC @r = sp_getapplock @Resource = N'YoSoy.ProgramarEntrevistaAdmision', @LockMode = 'Exclusive',
+                                @LockOwner = 'Transaction', @LockTimeout = 15000;
+        SELECT @r;", con, tx))
+    {
+        if ((int)cmdLock.ExecuteScalar()! < 0)
+            return Results.Json(new { mensaje = "Otro profesional de admisión está programando una entrevista. Probá de nuevo en unos segundos." }, statusCode: 503);
+    }
+
+    DateTime recibida; string estado;
+    using (var cmdInf = new Microsoft.Data.SqlClient.SqlCommand("SELECT FechaCreacion, Estado FROM InformeAdmision WHERE IdInforme = @Id", con, tx))
+    {
+        cmdInf.Parameters.AddWithValue("@Id", id);
+        using var r = cmdInf.ExecuteReader();
+        if (!r.Read()) return Results.NotFound();
+        recibida = (DateTime)r["FechaCreacion"];
+        estado = r["Estado"]?.ToString() ?? "";
+    }
+    if (estado != "Pendiente")
+        return Results.Json(new { mensaje = "Esta admisión ya no está pendiente: la entrevista ya se programó o se resolvió." }, statusCode: 409);
+
+    var ahora = reloj.GetLocalNow().DateTime;
+    var limite = PlazoEntrevistaAdmision.Limite(recibida, ahora);
+    if (reglas.PrimerHorarioDeAdmision(idProfesional, limite) is not DateTime fecha)
+        return Results.Json(new { codigo = "SIN_HORARIO_ADMISION",
+            mensaje = $"No tenés horarios de admisión libres hasta el {limite:dd/MM/yyyy} a las {limite:HH:mm} hs (las 24 horas desde la solicitud). Agregá horarios en Mis horarios de trabajo." },
+            statusCode: 409);
 
     // Generar codigo de sala unico para la entrevista
     var codigoSala = "ADM-" + id + "-" + DateTime.Now.Ticks.ToString("x").ToUpper();
 
+    // Solo si sigue Pendiente: si otro la programó en el medio, no se pisa.
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
         UPDATE InformeAdmision
-        SET FechaEntrevista = @Fecha, ObservacionesEntrevista = @Obs, Estado = 'En entrevista', CodigoSala = @Sala
-        WHERE IdInforme = @Id;
-        SELECT IdPaciente FROM InformeAdmision WHERE IdInforme = @Id;", con);
-    cmd.Parameters.AddWithValue("@Fecha", req.Fecha);
-    cmd.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
+        SET FechaEntrevista = @Fecha, ObservacionesEntrevista = @Obs, Estado = 'En entrevista', CodigoSala = @Sala,
+            IdProfesionalEntrevista = @IdProf
+        OUTPUT inserted.IdPaciente
+        WHERE IdInforme = @Id AND Estado = 'Pendiente';", con, tx);
+    cmd.Parameters.AddWithValue("@Fecha", fecha);
+    cmd.Parameters.AddWithValue("@Obs", (object?)req.Observaciones ?? DBNull.Value);
     cmd.Parameters.AddWithValue("@Sala", codigoSala);
+    cmd.Parameters.AddWithValue("@IdProf", idProfesional);
     cmd.Parameters.AddWithValue("@Id", id);
-    var idPacObj = cmd.ExecuteScalar();
+    if (cmd.ExecuteScalar() is not int idPac)
+        return Results.Json(new { mensaje = "Esta admisión ya no está pendiente: la entrevista ya se programó o se resolvió." }, statusCode: 409);
 
-    if (idPacObj != null)
-    {
-        var fechaLegible = req.Fecha.ToString("dd/MM/yyyy") + " a las " + req.Fecha.ToString("HH:mm") + " hs";
-        var cmdNotif = new Microsoft.Data.SqlClient.SqlCommand(@"
-            INSERT INTO Notificacion (IdPaciente, Titulo, Mensaje, Link)
-            VALUES (@IdPac, @Titulo, @Mensaje, @Link)", con);
-        cmdNotif.Parameters.AddWithValue("@IdPac", (int)idPacObj);
-        cmdNotif.Parameters.AddWithValue("@Titulo", "Entrevista de admision programada");
-        cmdNotif.Parameters.AddWithValue("@Mensaje", "Tu entrevista de admision fue programada para el " + fechaLegible + ". Codigo de sala: " + codigoSala);
-        cmdNotif.Parameters.AddWithValue("@Link", codigoSala);
-        cmdNotif.ExecuteNonQuery();
-    }
+    var es = System.Globalization.CultureInfo.GetCultureInfo("es-AR");
+    var fechaLegible = fecha.ToString("dddd dd/MM/yyyy", es) + " a las " + fecha.ToString("HH:mm") + " hs";
+    var cmdNotif = new Microsoft.Data.SqlClient.SqlCommand(@"
+        INSERT INTO Notificacion (IdPaciente, Titulo, Mensaje, Link)
+        VALUES (@IdPac, @Titulo, @Mensaje, @Link)", con, tx);
+    cmdNotif.Parameters.AddWithValue("@IdPac", idPac);
+    cmdNotif.Parameters.AddWithValue("@Titulo", "Entrevista de admisión programada");
+    cmdNotif.Parameters.AddWithValue("@Mensaje", "Tu entrevista de admisión es el " + fechaLegible + ". Código de sala: " + codigoSala);
+    cmdNotif.Parameters.AddWithValue("@Link", codigoSala);
+    cmdNotif.ExecuteNonQuery();
+    tx.Commit();   // libera el bloqueo: recién ahora puede programar el siguiente
 
-    return Results.Ok(new { codigoSala });
+    return Results.Ok(new { codigoSala, fecha = fecha.ToString("dd/MM/yyyy HH:mm") });
 }).Solo(Quien.Admision);
 
 // ── Notificaciones ──────────────────────────────────────────
@@ -2348,18 +2468,67 @@ app.MapPut("/notificaciones/{id}/leida", (int id, HttpContext ctx, IdentidadActu
     return Results.NoContent();
 }).RequireAuthorization();
 
-app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpContext ctx, AsignacionService asignacion) =>
+// A quién se le puede derivar una admisión: profesionales activos con horarios de atención configurados (franjas
+// disponibles de turnos, no de admisión). Es la lista de "Profesional asignado" del panel de Admisión.
+app.MapGet("/informes-admision/profesionales-derivables", () =>
 {
     using var con = Conexion.ObtenerConexion();
     con.Open();
+    var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+        SELECT p.IdProfesional, p.Nombre, p.Apellido, e.Nombre AS Especialidad
+        FROM Profesional p
+        LEFT JOIN Especialidad e ON e.IdEspecialidad = p.IdEspecialidad
+        WHERE p.Estado = 'Activo'
+          AND EXISTS (SELECT 1 FROM Agenda a
+                      WHERE a.IdProfesional = p.IdProfesional AND a.Disponible = 1 AND a.EsAdmision = 0
+                        AND a.Dia IS NOT NULL AND a.HoraInicio IS NOT NULL AND a.HoraFin IS NOT NULL
+                        AND (a.FechaFin IS NULL OR a.FechaFin >= CAST(GETDATE() AS DATE)))
+        ORDER BY p.Nombre, p.Apellido", con);
+    using var r = cmd.ExecuteReader();
+    var lista = new System.Collections.Generic.List<object>();
+    while (r.Read())
+        lista.Add(new
+        {
+            idProfesional = (int)r["IdProfesional"],
+            nombre = r["Nombre"].ToString(),
+            apellido = r["Apellido"] == DBNull.Value ? "" : r["Apellido"].ToString(),
+            especialidad = r["Especialidad"] == DBNull.Value ? "" : r["Especialidad"].ToString()
+        });
+    return Results.Ok(lista);
+}).Solo(Quien.Admision | Quien.Crm);
 
-    // Obtener el paciente del informe
-    var cmdGet = new Microsoft.Data.SqlClient.SqlCommand(
-        "SELECT IdPaciente FROM InformeAdmision WHERE IdInforme = @Id", con);
-    cmdGet.Parameters.AddWithValue("@Id", id);
-    var idPacObj = cmdGet.ExecuteScalar();
-    if (idPacObj == null) return Results.NotFound();
-    int idPac = (int)idPacObj;
+app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpContext ctx, AsignacionService asignacion,
+    TurnoReglasService reglas, TimeProvider reloj) =>
+{
+    // Solo a un profesional con horarios de atención: si no, el paciente queda asignado sin dónde pedir su primer turno.
+    if (!reglas.TieneAgendaDeTurnos(req.IdProfesional))
+        return Results.Json(new { codigo = "SIN_AGENDA",
+            mensaje = "Ese profesional no tiene horarios de atención configurados: no se le puede derivar un paciente." }, statusCode: 409);
+
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+
+    // El paciente del informe y si la entrevista ya se hizo (DerivacionAdmision): programada, con su horario ya llegado
+    // y con las observaciones cargadas (las que vienen ahora o las que ya estaban guardadas).
+    int idPac; string? estado, obsGuardadas; DateTime? fechaEntrevista;
+    using (var cmdGet = new Microsoft.Data.SqlClient.SqlCommand(
+        "SELECT IdPaciente, Estado, FechaEntrevista, ObservacionesEntrevista FROM InformeAdmision WHERE IdInforme = @Id", con))
+    {
+        cmdGet.Parameters.AddWithValue("@Id", id);
+        using var r = cmdGet.ExecuteReader();
+        if (!r.Read()) return Results.NotFound();
+        idPac = (int)r["IdPaciente"];
+        estado = r["Estado"] as string;
+        fechaEntrevista = r["FechaEntrevista"] as DateTime?;
+        obsGuardadas = r["ObservacionesEntrevista"] as string;
+    }
+    var noSePuede = DerivacionAdmision.Validar(estado, fechaEntrevista,
+        string.IsNullOrWhiteSpace(req.Observaciones) ? obsGuardadas : req.Observaciones, reloj.GetLocalNow().DateTime);
+    if (noSePuede is { } falta)
+        return Results.Json(new { codigo = falta.Codigo, mensaje = falta.Mensaje }, statusCode: 409);
+
+    // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se deriva (no se asigna profesional): se rechaza ANTES de tocar el informe y se le avisa al paciente.
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, idPac) is { } sinConsentimiento) return sinConsentimiento;
 
     // Actualizar el informe
     var cmdUpd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -2384,7 +2553,10 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     cmdVinc.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmdVinc.ExecuteNonQuery();
 
-    // Primera evolucion en la HC a nombre del admisionista (se muestra en azul)
+    // Primera evolucion en la HC a nombre del admisionista (se muestra en azul). Solo en el camino viejo, con entrevista: un formulario aceptado (recorrido actual) no abre
+    // ni crea la historia clínica, y no hubo ninguna entrevista que registrar.
+    if (estado != EstadoInforme.Aprobado)
+    {
     var cmdEvo = new Microsoft.Data.SqlClient.SqlCommand(@"
         DECLARE @IdHistoria INT = (SELECT TOP 1 IdHistoria FROM HistoriaClinica WHERE IdPaciente = @IdPac);
         IF @IdHistoria IS NULL
@@ -2403,6 +2575,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     cmdEvo.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmdEvo.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
     cmdEvo.ExecuteNonQuery();
+    }
 
     // Sincroniza el Caso de esta admisión (Fase 2, aditivo): no cambia nada de lo de
     // arriba ni la respuesta. Si había una derivación sugerida pendiente, la resuelve
@@ -2432,7 +2605,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     }
 
     return Results.NoContent();
-}).Solo(Quien.Admision);
+}).Solo(Quien.Admision | Quien.Crm);
 
 // ── Mis Pacientes con estado de asignacion ──────────────────
 app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>
@@ -2486,6 +2659,84 @@ app.MapPut("/asignaciones/estado", (AsignacionEstadoRequest req, HttpContext ctx
     cmd.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmd.ExecuteNonQuery();
     return Results.NoContent();
+}).Solo(Quien.Profesional);
+
+// ── Primer turno de una asignación nueva (Mis pacientes › Confirmar) ─
+// El horario no se elige: es el primer libre de la agenda del profesional (TurnoReglasService.PrimerHorarioLibre), así
+// los primeros turnos quedan uno detrás de otro, sin huecos. El GET muestra la grilla de horarios libres con el propuesto
+// marcado; el POST lo vuelve a calcular en el momento (lo que se ve puede haberse ocupado) y crea el turno.
+static bool EsAsignacionNueva(Microsoft.Data.SqlClient.SqlConnection con, Microsoft.Data.SqlClient.SqlTransaction? tx, int idPaciente, int idProfesional)
+{
+    using var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+        SELECT COUNT(*) FROM PacienteProfesional
+        WHERE IdPaciente = @IdPac AND IdProfesional = @IdProf AND EstadoAsignacion = 'Nueva'", con, tx);
+    cmd.Parameters.AddWithValue("@IdPac", idPaciente);
+    cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+    return (int)cmd.ExecuteScalar()! > 0;
+}
+
+app.MapGet("/asignaciones/{idPaciente}/primer-turno", (int idPaciente, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    if (yo.IdProfesional is not int idProfesional)
+        return Results.Json(new { mensaje = "No se pudo identificar tu usuario profesional." }, statusCode: 403);
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+    if (!EsAsignacionNueva(con, null, idPaciente, idProfesional))
+        return Results.Json(new { mensaje = "Este paciente no tiene una asignación nueva con vos." }, statusCode: 409);
+    return Results.Ok(new
+    {
+        propuesto = reglas.PrimerHorarioLibre(idPaciente, idProfesional),
+        // Los mismos días en que se busca el primer horario libre: el calendario de la propuesta los muestra todos.
+        libres = reglas.HorariosLibres(idPaciente, idProfesional, TurnoReglasService.DiasPrimerTurno, 3000)
+    });
+}).Solo(Quien.Profesional);
+
+app.MapPost("/asignaciones/{idPaciente}/primer-turno", (int idPaciente, INotificadorTurnos notificador, TurnoReglasService reglas,
+    HttpContext ctx, IdentidadActualService identidad) =>
+{
+    var yo = identidad.Resolver(ctx)!;
+    if (yo.IdProfesional is not int idProfesional)
+        return Results.Json(new { mensaje = "No se pudo identificar tu usuario profesional." }, statusCode: 403);
+
+    using var con = Conexion.ObtenerConexion();
+    con.Open();
+
+    // De a una por profesional: si confirma dos pacientes casi a la vez, el segundo espera y toma el horario siguiente
+    // en vez de chocar con el primero.
+    using var tx = con.BeginTransaction();
+    using (var cmdLock = new Microsoft.Data.SqlClient.SqlCommand(@"
+        DECLARE @r INT;
+        EXEC @r = sp_getapplock @Resource = @Recurso, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
+        SELECT @r;", con, tx))
+    {
+        cmdLock.Parameters.AddWithValue("@Recurso", "YoSoy.PrimerTurno." + idProfesional);
+        if ((int)cmdLock.ExecuteScalar()! < 0)
+            return Results.Json(new { mensaje = "Se está programando otro turno tuyo. Probá de nuevo en unos segundos." }, statusCode: 503);
+    }
+
+    if (!EsAsignacionNueva(con, tx, idPaciente, idProfesional))
+        return Results.Json(new { mensaje = "Este paciente ya no tiene una asignación nueva con vos: la propuesta ya se envió o se resolvió." }, statusCode: 409);
+    if (reglas.PrimerHorarioLibre(idPaciente, idProfesional) is not DateTime momento)
+        return Results.Json(new { codigo = "SIN_HORARIO",
+            mensaje = $"No tenés horarios libres en los próximos {TurnoReglasService.DiasPrimerTurno} días. Agregá horarios en Mis horarios de trabajo." },
+            statusCode: 409);
+
+    var resultado = reglas.Solicitar(idPaciente, idProfesional, momento, "Primer turno - derivacion de admision", creadoPor: "profesional");
+    if (!resultado.Regla.Ok) return resultado.Regla.ComoConflicto();
+
+    using (var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
+        UPDATE PacienteProfesional SET EstadoAsignacion = 'Confirmada'
+        WHERE IdPaciente = @IdPac AND IdProfesional = @IdProf", con, tx))
+    {
+        cmd.Parameters.AddWithValue("@IdPac", idPaciente);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.ExecuteNonQuery();
+    }
+    tx.Commit();
+
+    notificador.TurnoAgendadoPorProfesional(idPaciente, idProfesional, momento.Date, momento.TimeOfDay);
+    return Results.Created("/turnos", new { idTurno = resultado.IdTurno, fecha = momento });
 }).Solo(Quien.Profesional);
 
 // ── Rechazo por el profesional: vuelve a la bandeja del admisionista ─
@@ -2614,6 +2865,15 @@ app.MapPut("/turnos/{id}/generar-sala", (int id, HttpContext ctx, IdentidadActua
     if (yo is { EsProfesional: true } && yo.IdProfesional != turno.IdProfesional)
         return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
 
+    // Ni siquiera una cita urgente se saltea el consentimiento: sin el de tratamiento y telemedicina firmado y vigente no se habilita la sala. Queda el bloqueo a la vista del profesional
+    // y el paciente recibe el aviso para firmar (campanita y mail).
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, turno.IdPaciente) is { } sinConsentimiento)
+    {
+        BloqueoConsentimiento.Registrar(ctx.RequestServices.GetRequiredService<INotificacionInternaDAO>(), turno.IdProfesional, id, new PacienteDAO().ObtenerPorId(turno.IdPaciente)?.Nombre ?? "El paciente",
+            "todavía no firmó el consentimiento de tratamiento y telemedicina.");
+        return sinConsentimiento;
+    }
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var codigoSala = "SALA-" + id + "-" + DateTime.Now.Ticks.ToString("x").ToUpper();
@@ -2657,8 +2917,10 @@ app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapVideo();
 app.MapConsentimientoVideo();
+app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
+app.MapPrimerosPasos();
 
 // ═══════════════════════════════════════════════════════
 // REPORTES DEL PROFESIONAL
@@ -2855,7 +3117,8 @@ app.MapGet("/reportes/profesional/{id}/lista-pacientes", (int id, HttpContext ct
 
 app.Run();
 
-public record EntrevistaRequest(DateTime Fecha, string Observaciones);
+// La fecha ya no viene del cliente: la asigna la API desde la agenda de admisión (una "fecha" en el cuerpo se ignora).
+public record EntrevistaRequest(string? Observaciones);
 public record DerivarRequest(int IdProfesional, string Observaciones);
 
 public record AsignacionEstadoRequest(int IdPaciente, int IdProfesional, string Estado);

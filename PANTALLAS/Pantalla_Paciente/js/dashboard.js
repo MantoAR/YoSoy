@@ -44,7 +44,7 @@ function mostrarSeccion(id) {
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
     else if (id === "sesion")        c.innerHTML = renderSesion();
-    else if (id === "admision")      renderAdmision(c);
+    else if (id === "admision")      renderSobreMi(c);   // «Sobre mí» (primeros_pasos.js)
 }
 
 async function cerrarSesion() {
@@ -59,17 +59,21 @@ async function renderInicio(c) {
     });
     c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3);
     try {
-        const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
-        const [res, turnos, consentimiento] = await Promise.all([
+        const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
+        const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
+        const [res, turnos, consentimiento, profesionales, pasos] = await Promise.all([
             YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
-            pedir(`/pacientes/${idPaciente}/turnos-detalle`, []),
-            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null)
+            pedir(`/pacientes/${idPaciente}/turnos-detalle`, FALLA),
+            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null),
+            pedir(`/pacientes/${idPaciente}/mis-profesionales`, FALLA),
+            pedir(`/pacientes/${idPaciente}/primeros-pasos`, null)   // los siete pasos, calculados por el servidor con datos reales
         ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
         const t = res.status === 404 ? null : await res.json();
 
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const proximos = turnos
+        const listaTurnos = turnos === FALLA ? [] : turnos;
+        const proximos = listaTurnos
             .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
             .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
         const porConfirmar = proximos.filter(propuestoPorProfesional);
@@ -79,77 +83,124 @@ async function renderInicio(c) {
             : consentimiento.firmado
                 ? `<a class="ui-stat ui-stat--ok" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Firmado</span><span class="ui-stat-pie">El ${YS.esc(YS.fecha.corta(consentimiento.fechaFirma))}</span></a>`
                 : `<a class="ui-stat ui-stat--warn" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Sin firmar</span><span class="ui-stat-pie">Hace falta para confirmar tus turnos</span></a>`;
+        const tarjetaProximo = `
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono("video")}Próximo turno</span>
+                <span class="ui-stat-valor">${t ? YS.esc(String(t.hora).substring(0, 5)) : "—"}</span>
+                <span class="ui-stat-pie">${t ? `${YS.esc(YS.capitalizar(YS.fecha.larga(t.fecha)))} · ${YS.esc(t.nombreProfesional)}` : "Todavía no tenés turnos"}</span>
+            </a>`;
 
-        const proximoHtml = !t
-            ? `<div class="card">${YS.vacio({ icono: "agenda", titulo: "No tenés turnos próximos", texto: "Podés pedir uno desde Mis turnos eligiendo un día en el calendario.", accion: { texto: "Ir a Mis turnos", onclick: "location.hash = '#agenda'" } })}</div>`
-            : `
-            <div class="card proximo-turno">
-                <p class="proximo-etiqueta">Próximo turno</p>
-                <div class="proximo-fecha">${YS.esc(YS.fecha.larga(t.fecha, true))}</div>
-                <div class="proximo-hora">${YS.esc(t.hora.substring(0, 5))} hs</div>
-                <div class="proximo-datos">
-                    <div>
-                        <div class="etiqueta">Profesional</div>
-                        <div class="valor">${YS.esc(t.nombreProfesional)}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Especialidad</div>
-                        <div class="valor">${YS.esc(t.especialidad)}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Modalidad</div>
-                        <div class="valor">${YS.esc(t.modalidad ?? "-")}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Estado</div>
-                        <div class="valor"><span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span></div>
-                    </div>
-                </div>
-                ${propuestoPorProfesional(t) ? `
-                <div class="proximo-propuesta">
-                    <span>Tu profesional te propuso este turno. Confirmalo para que quede agendado.</span>
-                    <button class="btn-accion btn-guardar" onclick="confirmarTurnoPaciente(${t.idTurno})">Confirmar turno</button>
-                </div>` : ""}
-            </div>`;
-
-        const listaHtml = proximos.length
-            ? `<ul class="inicio-turnos">${proximos.slice(0, 5).map(x => `
-                <li>
-                    <div class="inicio-turno-fecha"><span>${YS.fecha.parse(x.fecha).getDate()}</span>${YS.esc(YS.fecha.parse(x.fecha).toLocaleString("es-AR", { month: "short" }))}</div>
-                    <div class="inicio-turno-datos">
-                        <div class="texto-fuerte">${YS.esc(x.hora.substring(0, 5))} hs · ${YS.esc(x.nombreProfesional)}</div>
-                        <div class="texto-suave texto-chico">${YS.esc(x.especialidad)}${x.modalidad ? " · " + YS.esc(x.modalidad) : ""}</div>
-                    </div>
-                    ${propuestoPorProfesional(x)
-                        ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
-                        : `<span class="panel-estado-badge estado-${YS.esc(x.estadoDescripcion)}">${YS.esc(x.estadoDescripcion)}</span>`}
-                </li>`).join("")}</ul>`
-            : YS.vacio({ icono: "agenda", texto: "Todavía no tenés turnos agendados." });
-
-        c.innerHTML = `
-            <div class="ui-stats">
-                <a class="ui-stat" href="#agenda">
-                    <span class="ui-stat-etiqueta">${YS.icono("agenda")}Turnos próximos</span>
-                    <span class="ui-stat-valor">${proximos.length}</span>
-                    <span class="ui-stat-pie">Ver el calendario</span>
-                </a>
-                <a class="ui-stat${porConfirmar.length ? " ui-stat--marca" : ""}" href="#agenda">
-                    <span class="ui-stat-etiqueta">${YS.icono("check")}Por confirmar</span>
-                    <span class="ui-stat-valor">${porConfirmar.length}</span>
-                    <span class="ui-stat-pie">${porConfirmar.length ? "Te los propuso tu profesional" : "Nada pendiente de tu parte"}</span>
-                </a>
-                ${tarjetaConsentimiento}
-            </div>
-            <div class="inicio-columnas">
-                ${proximoHtml}
-                <div class="card">
-                    <div class="titulo-tarjeta">Tus próximos turnos</div>
-                    ${listaHtml}
-                </div>
-            </div>`;
+        // Hasta su primera sesión el Inicio lo guía con los primeros pasos (también con profesional asignado: confirmar el
+        // primer turno y entrar a la sala son pasos de la guía); con los siete hechos, sus turnos al frente. Los pasos y el
+        // botón principal los decide el servidor. Si algo no se pudo consultar, no se adivina: queda el Inicio con los turnos.
+        const guia = pasos && (pasos.cerrado || pasos.hechos < pasos.total) ? pasos : null;
+        c.innerHTML = guia
+            ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo)
+            : inicioPacienteEnAtencion({ proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
+                                         tarjetaConsentimiento, profesionales: pasos?.profesional ? [pasos.profesional] : profesionales === FALLA ? [] : profesionales });
+        programarHabilitacionDeLaSesion(guia);
     } catch {
         c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
+}
+
+// ── INICIO: paciente en atención ───────────────────────────
+// Ya tiene profesional. Cada turno aparece una sola vez: el próximo en su tarjeta (o, si se lo propuso el profesional,
+// en el aviso para confirmarlo) y los siguientes en "Más adelante". Al lado, lo que necesita para entrar a la sesión.
+function inicioPacienteEnAtencion({ proximos, porConfirmar, realizados, tarjetaConsentimiento, profesionales }) {
+    const hora = x => String(x.hora).substring(0, 5);
+    const cuando = x => `${YS.capitalizar(YS.fecha.larga(x.fecha))} a las ${hora(x)} hs`;
+    const proximo = proximos[0];
+    const propuesto = porConfirmar[0];
+    const masAdelante = proximos.filter(x => x !== proximo && x !== propuesto);
+
+    const etiquetaEstado = x => propuestoPorProfesional(x)
+        ? `<span class="panel-estado-badge estado-propuesto">A confirmar</span>`
+        : `<span class="panel-estado-badge estado-${YS.esc(x.estadoDescripcion)}">${YS.esc(x.estadoDescripcion)}</span>`;
+    const listaHtml = masAdelante.length
+        ? `<ul class="inicio-turnos">${masAdelante.slice(0, 4).map(x => `
+            <li>
+                <div class="inicio-turno-fecha"><span>${YS.fecha.parse(x.fecha).getDate()}</span>${YS.esc(YS.fecha.parse(x.fecha).toLocaleString("es-AR", { month: "short" }))}</div>
+                <div class="inicio-turno-datos">
+                    <div class="texto-fuerte">${YS.esc(hora(x))} hs · ${YS.esc(x.nombreProfesional)}</div>
+                    <div class="texto-suave texto-chico">${YS.esc(x.especialidad)}${x.modalidad ? " · " + YS.esc(x.modalidad) : ""}</div>
+                </div>
+                ${etiquetaEstado(x)}
+            </li>`).join("")}</ul>
+            ${masAdelante.length > 4 ? `<p class="texto-suave texto-chico mt-8 mb-0">Y ${masAdelante.length - 4} más en Turnos.</p>` : ""}`
+        : YS.vacio({ icono: "agenda", texto: proximo ? "No tenés otros turnos agendados." : "Todavía no tenés turnos agendados.",
+                     accion: { texto: "Pedir un turno", onclick: "location.hash = '#agenda'" } });
+
+    const avisoPropuesto = propuesto ? `
+        <section class="card inicio-propuesta" aria-labelledby="inicio-propuesta-titulo">
+            <div class="inicio-propuesta-texto">
+                <span class="inicio-propuesta-etiqueta" id="inicio-propuesta-titulo">Turno a confirmar${porConfirmar.length > 1 ? ` (1 de ${porConfirmar.length})` : ""}</span>
+                <span class="texto-fuerte">${YS.esc(cuando(propuesto))} con ${YS.esc(propuesto.nombreProfesional)}</span>
+                <span class="texto-suave texto-chico">Confirmalo para que quede agendado, o reprogramalo si no te queda bien.</span>
+            </div>
+            <div class="inicio-propuesta-acciones">
+                <button type="button" class="ui-btn ui-btn--primary pp-boton" onclick="confirmarTurnoPaciente(${propuesto.idTurno})">Confirmar turno</button>
+                <button type="button" class="ui-btn pp-boton" onclick="irAlTurno('${YS.esc(propuesto.fecha)}')">Reprogramar</button>
+            </div>
+        </section>` : "";
+
+    // Si el próximo turno es el que está para confirmar, la tarjeta lleva al aviso en vez de repetirlo.
+    const proximoEsPropuesto = proximo && proximo === propuesto;
+    const tarjetaProximo = `
+            <a class="ui-stat${proximoEsPropuesto ? " ui-stat--warn" : ""}" href="#agenda"${proximo ? ` onclick="irAlTurno('${YS.esc(proximo.fecha)}'); return false;"` : ""}>
+                <span class="ui-stat-etiqueta">${YS.icono("video")}Próximo turno</span>
+                <span class="ui-stat-valor">${proximo ? YS.esc(hora(proximo)) : "—"}</span>
+                <span class="ui-stat-pie">${proximo
+                    ? `${YS.esc(YS.capitalizar(YS.fecha.larga(proximo.fecha)))}${proximoEsPropuesto ? " · A confirmar" : ` · ${YS.esc(proximo.nombreProfesional)}`}`
+                    : "Todavía no tenés turnos"}</span>
+            </a>`;
+
+    const prof = profesionales[0];
+    const tarjetaProfesional = `
+            <a class="ui-stat" href="#profesionales">
+                <span class="ui-stat-etiqueta">${YS.icono("pacientes")}Tu profesional</span>
+                <span class="ui-stat-valor">${prof ? YS.esc(prof.nombre) : "—"}</span>
+                <span class="ui-stat-pie">${prof ? YS.esc(prof.especialidad || "") + (profesionales.length > 1 ? ` · y ${profesionales.length - 1} más` : "") : "Sin profesional asignado"}</span>
+            </a>`;
+
+    const tarjetaSesion = `
+        <section class="card" aria-labelledby="inicio-sesion-titulo">
+            <div class="titulo-tarjeta" id="inicio-sesion-titulo">Tu sesión por video</div>
+            <p class="inicio-prof-nota">La sala de video abre 10 minutos antes de cada turno. Entrá desde la Sala de video con tu turno confirmado.</p>
+            <div class="inicio-prof-enlaces">
+                <a href="#sesion">Ir a la Sala de video</a>
+                <a href="#agenda">Ver el calendario de turnos</a>
+                <a href="#profesionales">Ver Mis profesionales</a>
+            </div>
+        </section>`;
+
+    return `
+        <div class="ui-stats">
+            ${tarjetaProximo}
+            ${tarjetaProfesional}
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono("check")}Sesiones realizadas</span>
+                <span class="ui-stat-valor">${realizados}</span>
+                <span class="ui-stat-pie">${realizados ? "Desde que empezaste" : "Todavía ninguna"}</span>
+            </a>
+            ${tarjetaConsentimiento}
+        </div>
+        ${avisoPropuesto}
+        <div class="inicio-columnas inicio-columnas--parejas">
+            <section class="card" aria-labelledby="inicio-turnos-titulo">
+                <div class="titulo-tarjeta" id="inicio-turnos-titulo">Más adelante</div>
+                ${listaHtml}
+            </section>
+            ${tarjetaSesion}
+        </div>`;
+}
+
+// "Reprogramar" desde Inicio: abre Turnos en el mes del turno, con el día ya elegido (ahí está el botón Reprogramar).
+let _diaAlEntrarAgenda = null;
+function irAlTurno(fecha) {
+    const d = YS.fecha.parse(fecha);
+    if (d) { calAnio = d.getFullYear(); calMes = d.getMonth(); _diaAlEntrarAgenda = d.getDate(); }
+    location.hash = "#agenda";
 }
 
 // ── AGENDA / CALENDARIO ────────────────────────────────────
@@ -189,8 +240,10 @@ async function renderAgenda(c) {
             </div>
             <div class="cal-grid" id="calGrid"></div>
             <div class="cal-leyenda">
+                <span class="ui-chip ui-chip--warn">Turno a confirmar</span>
                 <span class="ui-chip ui-chip--ok">Turno confirmado</span>
-                <span class="ui-chip ui-chip--warn">Pendiente</span>
+                <span class="ui-chip ui-chip--info">Turno realizado</span>
+                <span class="ui-chip ui-chip--neutral">Turno cancelado</span>
                 <span class="ui-chip ui-chip--marca">Días que atiende el profesional</span>
                 <span class="ui-chip ui-chip--neutral">Sin disponibilidad</span>
             </div>
@@ -199,6 +252,7 @@ async function renderAgenda(c) {
     `;
 
     dibujarCalendario();
+    if (_diaAlEntrarAgenda) { const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null; mostrarPanelDia(dia); }   // vino de Reprogramar en Inicio
 }
 
 async function cambiarProfCalendario() {
@@ -308,9 +362,13 @@ function dibujarCalendario() {
             onclick = !esPasado ? `onclick="mostrarPanelDia(${dia})"` : "";
         }
 
+        // En el día se escribe cada turno con su hora y su estado, con el color de la leyenda.
+        const etiquetas = !_modoReprogramar && tieneT ? turnosPorDia[dia]
+            .slice().sort((a, b) => (a.hora || "").localeCompare(b.hora || ""))
+            .map(t => { const e = estadoCalendario(t); return `<span class="cal-turno ${e.clase}" title="${YS.esc(e.texto)}">${YS.esc((t.hora || "").substring(0, 5))} · ${YS.esc(e.texto)}</span>`; })
+            .join("") : "";
 
-
-        html += `<div class="${clases}" ${onclick}>${dia}</div>`;
+        html += `<div class="${clases}" data-dia="${dia}" ${onclick}><span class="cal-num">${dia}</span>${etiquetas}</div>`;
     }
 
     grid.innerHTML = html;
@@ -322,7 +380,7 @@ async function mostrarPanelDia(dia) {
     _diaSeleccionado = dia;
     document.querySelectorAll(".cal-dia").forEach(el => el.classList.remove("seleccionado"));
     document.querySelectorAll(".cal-dia").forEach(el => {
-        if (el.textContent.trim() === String(dia)) el.classList.add("seleccionado");
+        if (el.dataset.dia === String(dia)) el.classList.add("seleccionado");
     });
     const turnosDia = turnosCalendario.filter(t => {
         const f = new Date(t.fecha);
@@ -352,7 +410,7 @@ async function mostrarPanelDia(dia) {
                     <div class="panel-especialidad">${YS.esc(t.especialidad)}</div>
                 </div>
                 ${propuestoPorProfesional(t)
-                    ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
+                    ? `<span class="panel-estado-badge estado-propuesto">A confirmar</span>`
                     : `<span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span>`}
             </div>
             <div class="panel-chips">
@@ -754,6 +812,7 @@ async function renderPerfil(c) {
                     ${campo("pDomicilio", "Domicilio", p.domicilio, ' autocomplete="street-address" maxlength="150"', true)}
                 </div>
                 <div class="ui-form-acciones">
+                    <a class="ui-btn" href="#inicio">Volver al inicio</a>
                     <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
                 </div>
             </form>
@@ -948,182 +1007,23 @@ function entrarSesion() {
     window.location.href = 'sesion_video.html?sala=' + encodeURIComponent(codigo) + '&idPaciente=' + idPaciente;
 }
 
-async function renderAdmision(c) {
-    // ¿Ya mandó el informe? (404 = todavía no)
-    let inf;
-    try { inf = await YS.api(`/pacientes/${idPaciente}/informe-admision`, { permitir404: true }); }
-    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('admision')" }); return; }
-    if (YS.shell.actual !== "admision") return;
-    if (inf) {
-        c.innerHTML = `
-            <div class="card card--angosta">
-                <div class="titulo-tarjeta">Tu informe de admisión ya fue enviado</div>
-                <p class="mb-12">Estado actual: <span class="panel-estado-badge estado-${YS.esc(String(inf.estado).replace(/\s+/g, "-"))}">${YS.esc(inf.estado)}</span></p>
-                <p class="texto-suave">Cuando el equipo de admisión revise tu informe, te vamos a contactar para coordinar la primera entrevista.</p>
-            </div>`;
-        return;
-    }
-
-    const especialidades = await YS.api("/especialidades").catch(() => []);
-    if (YS.shell.actual !== "admision") return;
-    const opts = especialidades
-        .filter(e => e.estado === "Activo")
-        .map(e => `<option value="${e.idEspecialidad}">${YS.esc(e.nombre)}</option>`)
-        .join("");
-    const texto = (id, etiqueta, filas, placeholder = "") => `
-        <div class="ui-campo ui-campo--ancho"><label for="${id}">${etiqueta}</label>
-            <textarea id="${id}" class="ui-textarea" rows="${filas}" maxlength="1000" placeholder="${placeholder}"></textarea></div>`;
-
-    c.innerHTML = `
-        <div class="card card--angosta form-admision">
-            <p class="texto-suave mb-16">Completá este formulario para que el equipo de admisión pueda conocerte y asignarte el profesional adecuado. Los campos con * son obligatorios.</p>
-            <form id="formAdmision" novalidate>
-                <div class="ui-form-grid">
-                    <div class="ui-campo ui-campo--ancho"><label for="admEspecialidad">Especialidad solicitada *</label>
-                        <select id="admEspecialidad" class="ui-select"><option value="">Elegí una especialidad</option>${opts}</select></div>
-                    ${texto("admMotivo", "Motivo de consulta *", 3, "Contanos brevemente por qué buscás atención")}
-                    <div class="ui-campo"><label for="admTratAnterior">¿Hiciste algún tratamiento antes?</label>
-                        <select id="admTratAnterior" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
-                    <div class="ui-campo oculto" id="campoTratDetalle"><label for="admTratDetalle">¿Cuál?</label>
-                        <input type="text" id="admTratDetalle" class="ui-input" maxlength="300"></div>
-                    <div class="ui-campo"><label for="admMedicacion">¿Tomás alguna medicación?</label>
-                        <select id="admMedicacion" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
-                    <div class="ui-campo oculto" id="campoMedDetalle"><label for="admMedDetalle">¿Cuál?</label>
-                        <input type="text" id="admMedDetalle" class="ui-input" maxlength="300"></div>
-                </div>
-
-                <div class="ui-form-seccion">Conociéndote mejor</div>
-                <p class="texto-suave mb-12">Estas preguntas nos ayudan a darte una atención personalizada. Son opcionales.</p>
-                <div class="ui-form-grid">
-                    ${texto("admGustos", "Gustos e intereses", 3, "Actividades que disfrutás, hobbies, música, películas o libros, deportes, qué te ayuda a relajarte, algo que quieras aprender")}
-                    ${texto("admPreferencias", "Preferencias durante la atención", 3, "Cómo preferís que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites")}
-                    <div class="ui-campo"><label for="admTipoEntrevista">Tipo de entrevista preferida</label>
-                        <select id="admTipoEntrevista" class="ui-select"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select></div>
-                    ${texto("admRedApoyo", "Red de apoyo", 2, "¿Con quién convivís? ¿Contás con familiares o personas de confianza que te acompañen?")}
-                    ${texto("admObjetivos", "¿Qué esperás lograr con el tratamiento?", 2)}
-                </div>
-                <div class="ui-form-acciones">
-                    <button type="submit" class="ui-btn ui-btn--primary" id="btnEnviarAdmision">Enviar informe de admisión</button>
-                </div>
-            </form>
-        </div>`;
-    // "¿Cuál?" aparece solo si se contesta que sí
-    const alternar = (select, campo) => document.getElementById(select).addEventListener("change", e =>
-        document.getElementById(campo).classList.toggle("oculto", e.target.value !== "true"));
-    alternar("admTratAnterior", "campoTratDetalle");
-    alternar("admMedicacion", "campoMedDetalle");
-    document.getElementById("formAdmision").addEventListener("submit", e => { e.preventDefault(); enviarAdmision(); });
-}
-
-async function enviarAdmision() {
-    const valido = YS.form.validar([
-        { id: "admEspecialidad", requerido: "Elegí la especialidad." },
-        { id: "admMotivo", requerido: "Contanos el motivo de consulta." }
-    ]);
-    if (!valido) return;
-
-    const valor = id => document.getElementById(id).value.trim() || null;
-    const tratamiento = document.getElementById("admTratAnterior").value === "true";
-    const medicacion  = document.getElementById("admMedicacion").value === "true";
-    const body = {
-        idPaciente:                 parseInt(idPaciente),
-        idEspecialidad:             parseInt(document.getElementById("admEspecialidad").value),
-        motivoConsulta:             valor("admMotivo"),
-        tratamientoAnterior:        tratamiento,
-        tratamientoAnteriorDetalle: tratamiento ? valor("admTratDetalle") : null,
-        recibeMedicacion:           medicacion,
-        medicacionDetalle:          medicacion ? valor("admMedDetalle") : null,
-        gustosIntereses:            valor("admGustos"),
-        preferenciasAtencion:       valor("admPreferencias"),
-        tipoEntrevista:             document.getElementById("admTipoEntrevista").value,
-        redApoyo:                   valor("admRedApoyo"),
-        objetivosPaciente:          valor("admObjetivos"),
-        estado:                     "Pendiente"
-    };
-
-    const boton = document.getElementById("btnEnviarAdmision");
-    boton.disabled = true;
-    try {
-        const r = await YS.fetch("/informes-admision", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
-        if (r.ok) {
-            toast("Informe enviado. El equipo de admisión te va a contactar.");
-            mostrarSeccion("admision");
-        } else toast(await YS.leerMensaje(r, "No se pudo enviar el informe."), "error");
-    } catch {
-        toast("No se pudo conectar con el servidor.", "error");
-    } finally {
-        boton.disabled = false;
-    }
-}
-
-async function cargarNotificaciones() {
-    let notifs = [];
-    try { notifs = await (await YS.fetch("/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
-    const noLeidas = notifs.filter(function(n) { return n.leida === false; });
-    window._notifsFlotantes = noLeidas;
-    if (noLeidas.length === 0) return;
-
-    let cont = document.getElementById("notif-container");
-    if (cont === null) {
-        cont = document.createElement("div");
-        cont.id = "notif-container";
-        cont.className = "notif-flotantes";
-        document.body.appendChild(cont);
-    }
-    cont.innerHTML = "";
-
-    // Como máximo tres, primero los que tienen acción (entrar a la entrevista); el resto queda en la campana
-    const MAX_FLOTANTES = 3;
-    const conAccion = noLeidas.filter(n => n.link);
-    const visibles = conAccion.concat(noLeidas.filter(n => !n.link)).slice(0, MAX_FLOTANTES);
-    visibles.forEach(function(n) {
-        const card = document.createElement("div");
-        card.className = "notif-flotante";
-        let botones = '<button class="ui-btn ui-btn--sm" onclick="marcarLeida(' + n.idNotificacion + ')">Cerrar</button>';
-        if (n.link !== null && n.link !== "") {
-            botones = '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseEntrevista(null, ' + n.idNotificacion + ')">Unirse a la entrevista</button>' + botones;
-        }
-        card.innerHTML = '<div class="notif-titulo">' + YS.esc(n.titulo) + '</div>' +
-            '<div class="notif-mensaje">' + YS.esc(n.mensaje) + '</div>' +
-            '<div class="notif-botones">' + botones + '</div>';
-        cont.appendChild(card);
-    });
-    const resto = noLeidas.length - visibles.length;
-    if (resto > 0) {
-        const mas = document.createElement("div");
-        mas.className = "notif-flotante notif-flotante--mas";
-        mas.innerHTML = '<div class="notif-mensaje">Tenés ' + resto + ' aviso' + (resto === 1 ? '' : 's') + ' más.</div>' +
-            '<div class="notif-botones"><button class="ui-btn ui-btn--sm" onclick="YS.shell.campana.abrir()">Ver todos</button></div>';
-        cont.appendChild(mas);
-    }
-}
-
-async function marcarLeida(idNotif) {
-    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
-    YS.shell.campana.refrescar();
-    cargarNotificaciones();
-    const cont = document.getElementById("notif-container");
-    if (cont !== null) cont.innerHTML = "";
-    cargarNotificaciones();
-}
-
-// El código de la sala se toma de la notificación cargada (antes viajaba dentro del onclick)
-async function unirseEntrevista(codigoSala, idNotif) {
-    codigoSala ??= (window._notifsFlotantes || []).find(n => n.idNotificacion === idNotif)?.link;
-    if (!codigoSala) return;
-    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
-    window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
-}
-
-cargarNotificaciones();
+// Los avisos del paciente se ven en la campanita de la barra superior (shared/shell.js), solo los no leídos. Antes se repetían además como tarjetas
+// flotantes con el mismo texto: el mismo aviso aparecía dos veces (y una tercera en la tarjeta «Turno a confirmar» de Inicio).
 
 // Turno pendiente que propuso el profesional y el paciente todavía no confirmó.
 function propuestoPorProfesional(t) {
     return t.estadoDescripcion === "Pendiente" && t.creadoPor === "profesional" && !t.confirmadoPaciente;
+}
+
+// Texto y color de un turno en el almanaque (los mismos de la leyenda).
+function estadoCalendario(t) {
+    if (propuestoPorProfesional(t)) return { texto: "A confirmar", clase: "estado-Pendiente" };
+    return {
+        Pendiente:  { texto: "Pendiente",  clase: "estado-Pendiente" },
+        Confirmado: { texto: "Confirmado", clase: "estado-Confirmado" },
+        Realizado:  { texto: "Realizado",  clase: "estado-Realizado" },
+        Cancelado:  { texto: "Cancelado",  clase: "estado-Cancelado" }
+    }[t.estadoDescripcion] || { texto: t.estadoDescripcion || "Turno", clase: "estado-Cancelado" };
 }
 
 async function confirmarTurnoPaciente(idTurno) {

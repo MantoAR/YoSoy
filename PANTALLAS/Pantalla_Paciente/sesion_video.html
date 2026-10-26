@@ -10,7 +10,10 @@
     <link rel="stylesheet" href="../shared/tema.css">
     <style>
         /* Propio de esta página; colores, tipografía y botones salen de ../shared/tema.css */
-        .sala-espera { max-width: 560px; }
+        /* La espera queda alineada con el resto del panel (el mismo contenedor centrado de 1240 px que Admisión y Turnos)
+           y la tarjeta con el ancho de la de Admisión; la videollamada sí usa todo el ancho. */
+        .sala-espera { max-width: 1192px; margin: 0 auto; }
+        .sala-espera > .card { max-width: 720px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 12px; }
         .card h3 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 6px; }
         .texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0; }
@@ -40,6 +43,12 @@
         .emo-botones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
         .emo-decision { margin: 10px 0 0; font-weight: 500; }
         .emo-sesion { margin-top: 12px; }
+        /* Antes de empezar la sesión: videollamada (obligatoria) y lectura de emociones (opcional) */
+        .antes-sesion { margin-top: 14px; }
+        .antes-sesion h4 { margin: 8px 0 8px; font-size: var(--fs-lg); font-weight: 600; }
+        .antes-sesion p { margin: 0 0 8px; line-height: 1.5; }
+        .video-decision { margin: 10px 0 0; font-weight: 500; }
+        .emo-opcional { margin: 16px 0 0; font-size: var(--fs-md); color: var(--text-2, var(--text)); }
         .videos-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 12px; }
         .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
         .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -86,6 +95,23 @@
                 <span class="aviso-provisorio"><span class="ui-chip ui-chip--warn ui-chip--sin-punto">Aviso provisorio</span>
                     El texto legal definitivo lo tiene que validar el equipo legal.</span>
             </div>
+            <!-- ANTES DE EMPEZAR LA SESIÓN. (1) La videollamada es obligatoria: sin aceptarla no se entra a la sala; el servidor lo exige (POST /video/acceso),
+                 esto es solo la pantalla. Cada aceptación guarda fecha, hora y versión del texto. Sin la migración 28 la API contesta exigida = false y este bloque no aparece. -->
+            <div class="ui-alerta ui-alerta--marca ui-alerta--bloque antes-sesion oculto" role="region" aria-labelledby="video-titulo" id="panel-video">
+                <span class="ui-chip ui-chip--warn ui-chip--sin-punto oculto" id="video-provisorio"></span>
+                <h4 id="video-titulo">Antes de empezar la sesión</h4>
+                <div class="emo-texto" id="video-texto" tabindex="0"></div>
+                <div class="emo-botones">
+                    <button type="button" class="ui-btn ui-btn--primary" id="btn-video-acepto">Acepto usar la videollamada</button>
+                    <button type="button" class="ui-btn oculto" id="btn-video-cambie">Cambié de idea: no quiero usar el video</button>
+                </div>
+                <p class="video-decision" id="video-decision" aria-live="polite"></p>
+            </div>
+            <!-- (2) El análisis de emociones es OPCIONAL, empieza sin aceptar y no cambia la atención. -->
+            <p class="emo-opcional oculto" id="emo-opcional"><strong>Análisis de emociones (opcional).</strong>
+                Si lo aceptás, tu profesional puede ver, en su pantalla y mientras dura la sesión, una estimación de tus expresiones faciales (por ejemplo, «neutral» o «tristeza»).
+                El análisis se hace en el navegador de tu profesional: tu imagen no se envía ni se guarda en ningún servidor para esto; al terminar se guarda, cifrado, solo un promedio.
+                Está desactivado hasta que lo aceptes y podés cambiar de idea cuando quieras, también durante la sesión.</p>
             <!-- Lectura de expresiones faciales: es OPCIONAL y se decide antes de conectarse, sin opción premarcada. El
                  texto y su versión los sirve la API (es lo que queda registrado con la decisión). Si la persona es menor de
                  edad, o el servidor no lo tiene configurado, el panel no aparece y la videollamada anda igual. -->
@@ -118,6 +144,7 @@
         </div>
         <div class="controles">
             <button class="ui-btn ui-btn--danger-solido" onclick="finalizarSesion()">Finalizar sesión</button>
+            <button class="ui-btn ui-btn--danger oculto" id="btn-video-dejar" type="button">Dejar de usar el video</button>
             <span class="estado" id="estado-txt" aria-live="polite">Conectando…</span>
         </div>
         <p class="medios-activos">Tu cámara y tu micrófono están activos durante esta sesión.</p>
@@ -159,11 +186,13 @@ function pintarConsentimiento() {
     const c = consentimiento;
     // Sin información, o no disponible (menor de edad, servidor sin configurar): no se ofrece nada y la llamada anda igual.
     if (!c || !c.disponible) {
+        $('emo-opcional').classList.add('oculto');
         panel.classList.add('oculto');
         $('emo-sesion').classList.add('oculto');
         return;
     }
     panel.classList.remove('oculto');
+    $('emo-opcional').classList.remove('oculto');
     $('emo-provisorio').classList.toggle('oculto', !c.provisorio);
     if (c.titulo) $('emo-titulo').textContent = c.titulo;
     if (Array.isArray(c.texto) && c.texto.length) {
@@ -175,11 +204,14 @@ function pintarConsentimiento() {
     $('btn-emo-acepto').classList.toggle('oculto', estado === 'acepta');
     $('btn-emo-rechazo').classList.toggle('oculto', estado !== 'sin-decision');
     $('btn-emo-dejar').classList.toggle('oculto', estado !== 'acepta');
+    // La lectura de emociones va encima del video: hasta aceptar la videollamada no se puede permitir.
+    $('btn-emo-acepto').disabled = ocupadoEmociones || videoPendiente();
+    $('btn-emo-sesion-permitir').disabled = ocupadoEmociones || videoPendiente();
     $('btn-emo-acepto').textContent = estado === 'sin-decision'
         ? 'Acepto que se analicen mis expresiones' : 'Cambié de idea: acepto que se analicen mis expresiones';
 
     const decision = $('emo-decision');
-    decision.textContent = mensajeEmociones || ({
+    decision.textContent = mensajeEmociones || (videoPendiente() && estado !== 'acepta' ? 'Primero aceptá la videollamada (arriba).' : null) || ({
         'sin-decision': 'Elegí una opción para poder conectarte. No es obligatorio aceptar.',
         'acepta': 'Elegiste: aceptar la lectura de tus expresiones. Podés dejar de compartirlas cuando quieras.',
         'rechaza': 'Elegiste: no aceptar. La videollamada se hace igual, sin análisis.',
@@ -213,6 +245,93 @@ async function cargarConsentimiento(sesion) {
     pintarConsentimiento();
     return consentimiento;
 }
+
+// ─── ACEPTACIÓN DE LA VIDEOLLAMADA (obligatoria) ───────────────
+// La API es la autoridad (POST /video/acceso la exige aunque esta pantalla se saltee). Acá solo se la pide y se la pinta.
+let aceptacionVideo = null;   // último estado que dijo la API (null: no se pudo saber → no se muestra nada y el servidor decide al entrar)
+let ocupadoVideo = false;
+let mensajeVideo = '';
+
+const videoPendiente = () => !!aceptacionVideo && aceptacionVideo.exigida && aceptacionVideo.estado !== 'acepta';
+
+function pintarAceptacionVideo() {
+    const panel = $('panel-video');
+    const a = aceptacionVideo;
+    if (!a || !a.exigida) { panel.classList.add('oculto'); pintarConsentimiento(); return; }
+    panel.classList.remove('oculto');
+    $('video-provisorio').textContent = a.marcaProvisoria || '';
+    $('video-provisorio').classList.toggle('oculto', !a.marcaProvisoria);
+    if (a.titulo) $('video-titulo').textContent = a.titulo;
+    if (Array.isArray(a.texto) && a.texto.length)
+        $('video-texto').replaceChildren(...a.texto.map(t => { const p = document.createElement('p'); p.textContent = t; return p; }));
+    const acepta = a.estado === 'acepta';
+    $('btn-video-acepto').classList.toggle('oculto', acepta);
+    $('btn-video-cambie').classList.toggle('oculto', !acepta);
+    $('btn-video-acepto').textContent = a.estado === 'revocada' ? 'Cambié de idea: acepto usar la videollamada' : 'Acepto usar la videollamada';
+    const d = $('video-decision');
+    d.textContent = mensajeVideo || ({
+        'pendiente': 'Para entrar a la sesión tenés que aceptar usar la videollamada.',
+        'acepta': 'Aceptaste usar la videollamada. Podés dejar de usar el video cuando quieras.',
+        'revocada': 'Dejaste de usar el video. Si querés entrar, volvé a aceptar.'
+    })[a.estado] || '';
+    d.classList.toggle('error', !!mensajeVideo);
+    $('btn-video-dejar').classList.toggle('oculto', !acepta);
+    pintarConsentimiento();
+}
+
+async function cargarAceptacionVideo(sesion) {
+    try { aceptacionVideo = await YS.emociones.obtenerVideo(sesion); } catch (err) { aceptacionVideo = null; }
+    pintarAceptacionVideo();
+    return aceptacionVideo;
+}
+
+async function operarVideo(operacion) {
+    if (ocupadoVideo || !sesionDeVideo) return;
+    ocupadoVideo = true;
+    mensajeVideo = '';
+    document.querySelectorAll('#panel-video button').forEach(b => { b.disabled = true; });
+    try {
+        await operacion();
+        aceptacionVideo = await YS.emociones.obtenerVideo(sesionDeVideo);
+        // Sin video no hay lectura de emociones: la API ya la cortó; se vuelve a pedir el estado para mostrarlo.
+        try { consentimiento = await YS.emociones.obtener(sesionDeVideo); } catch { /* queda lo que había */ }
+    } catch (err) {
+        if (err.codigo === 'version-desactualizada') {
+            try { aceptacionVideo = await YS.emociones.obtenerVideo(sesionDeVideo); } catch { /* queda lo que había */ }
+        }
+        mensajeVideo = err.message;
+    } finally {
+        document.querySelectorAll('#panel-video button').forEach(b => { b.disabled = false; });
+        ocupadoVideo = false;
+        pintarAceptacionVideo();
+    }
+}
+
+const aceptarVideo = () => operarVideo(() => YS.emociones.aceptarVideo(sesionDeVideo, aceptacionVideo.version));
+const dejarVideoAntes = () => operarVideo(() => YS.emociones.revocarVideo(sesionDeVideo));
+
+// En plena sesión: el video se corta ya, la lectura de emociones también y el profesional recibe el aviso.
+async function dejarDeUsarVideo() {
+    if (!sesionDeVideo) return;
+    const ok = await YS.confirmar({ titulo: 'Dejar de usar el video', mensaje: 'La sesión de video se va a cortar y tu profesional va a recibir el aviso. ¿Querés seguir?', textoConfirmar: 'Dejar de usar el video', peligro: true });
+    if (!ok) return;
+    let error = '';
+    try {
+        await YS.emociones.revocarVideo(sesionDeVideo);
+        try { aceptacionVideo = await YS.emociones.obtenerVideo(sesionDeVideo); } catch { /* queda lo que había */ }
+        try { consentimiento = await YS.emociones.obtener(sesionDeVideo); } catch { /* queda lo que había */ }
+    } catch (err) { error = err.message; }
+    // Aunque la API no conteste, el video se corta acá: es lo que la persona pidió.
+    cerrarSesion();
+    pintarAceptacionVideo();
+    const estado = $('estado-espera');
+    estado.textContent = error ? 'Cortamos el video, pero no pudimos avisarle al servidor: ' + error : 'Dejaste de usar el video. Tu profesional recibió el aviso. Si querés volver a entrar, aceptá de nuevo la videollamada.';
+    estado.className = error ? 'estado-box error' : 'estado-box conectado';
+}
+
+$('btn-video-acepto').addEventListener('click', aceptarVideo);
+$('btn-video-cambie').addEventListener('click', dejarVideoAntes);
+$('btn-video-dejar').addEventListener('click', dejarDeUsarVideo);
 
 // Corre una operación del consentimiento sin permitir dos a la vez, y deja el panel con el estado real de la API.
 async function operarEmociones(operacion) {
@@ -264,13 +383,14 @@ $('btn-emo-sesion-permitir').addEventListener('click', aceptarEmociones);
     }
     // Si la sesión viene en la URL como turno / admisión no hace falta ningún código.
     if (!codigo) document.getElementById('input-sala').classList.add('oculto');
-    estado.textContent = codigo
-        ? 'El código de tu sala ya está cargado. Tocá "Conectarme" cuando estés listo.'
-        : 'Tu sesión ya está lista. Tocá "Conectarme" cuando estés listo.';
+    // El código (o la sesión) ya viaja en el link: no hace falta pedírselo al profesional.
+    document.querySelector('#pantalla-espera .texto-ayuda').textContent = 'Tocá "Conectarme" cuando estés listo.';
+    estado.textContent = '';
     estado.className = 'estado-box';
     document.getElementById('btn-conectar').focus();
     // Con la sesión conocida, el texto del consentimiento se puede leer con calma antes de conectarse.
     cargarConsentimiento(sesion);
+    cargarAceptacionVideo(sesion);
 })();
 
 async function conectarse() {
@@ -297,6 +417,16 @@ async function conectarse() {
         estadoBox.textContent = 'Preparando tu sesión…';
         estadoBox.className = 'estado-box';
         await cargarConsentimiento(sesion);
+    }
+    // 0a. Videollamada: es obligatoria. Sin aceptarla no se sigue (el servidor lo exige igual al pedir el acceso).
+    if (!aceptacionVideo || sesionDeVideo?.origen !== sesion.origen || sesionDeVideo?.id !== sesion.id) await cargarAceptacionVideo(sesion);
+    if (videoPendiente()) {
+        estadoBox.textContent = 'Para entrar tenés que aceptar usar la videollamada (más arriba).';
+        estadoBox.className = 'estado-box error';
+        $('panel-video').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        $('btn-video-acepto').focus();
+        boton.disabled = false;
+        return;
     }
     if (consentimiento && consentimiento.disponible && consentimiento.estado === 'sin-decision') {
         estadoBox.textContent = 'Antes de conectarte, elegí si aceptás o no la lectura de tus expresiones (más abajo). Después tocá "Conectarme".';

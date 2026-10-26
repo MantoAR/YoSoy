@@ -76,6 +76,9 @@ public class GuardiaEmocionesService
         var (disponible, motivoNoDisponible) = _consentimiento.Disponibilidad(ses.IdPaciente, _textos.Actual());
         if (!disponible) return Descartada(motivoNoDisponible!, origen, id);
 
+        // Sin la videollamada aceptada de esta sesión (o revocada) tampoco se guardan emociones.
+        if (_consentimiento.FaltaAceptarVideo(ses.Origen, ses.Id, ses.IdPaciente)) return Descartada("video-no-aceptado", origen, id);
+
         var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
         switch (ConsentimientoVideoService.EstadoDe(ultimo))
         {
@@ -153,6 +156,7 @@ public class GuardiaEmocionesService
         "sin-consentimiento" => "el paciente todavía no decidió si acepta la lectura de emociones",
         "rechazado" => "el paciente no aceptó la lectura de emociones",
         "revocado" => "el paciente dejó de compartir sus expresiones",
+        "video-no-aceptado" => "el paciente no aceptó la videollamada de esta sesión (o la revocó)",
         "menor-de-edad" => "la lectura de emociones no está disponible para esta persona",
         "edad-desconocida" => "falta la fecha de nacimiento del paciente",
         "no-configurado" => "el servidor no tiene configurado el cifrado de los datos",

@@ -28,3 +28,20 @@
 
 .ayuda { color: var(--text-3); font-size: var(--fs-sm); margin-top: 10px; }
 
+/* Mis sesiones: video y emociones */
+.lista-sesiones { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.sesion-aceptada { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); }
+
+/* Volver al inicio después de firmar: cómodo de tocar en el celular */
+#btnVolver { min-height: 44px; }
+
+/* Volver al inicio, siempre a la vista arriba */
+.consentimiento-volver { margin-bottom: 12px; }
+
+/* Constancia de la firma en la ventana del panel principal */
+.constancia-consentimiento { display: flex; gap: 14px; align-items: flex-start; }
+.constancia-titulo { margin: 0 0 6px; font-size: var(--fs-lg); }
+.constancia-datos { margin: 0; display: grid; gap: 4px; }
+.constancia-datos > div { display: flex; gap: 8px; }
+.constancia-datos dt { color: var(--text-3); min-width: 130px; }
+.constancia-datos dd { margin: 0; font-weight: 500; }

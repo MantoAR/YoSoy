@@ -145,12 +145,39 @@ public class UsuariosAdminUnidadTests
         var esquema = Leer("docs", "produccion", "01-produccion.sql");
         Assert.Contains("DebeCambiarPassword", esquema);
         Assert.Contains("(24, N'add_debe_cambiar_password.sql', 'Script')", esquema);
-        Assert.Equal(27, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión) y la 27 (alta y derivación asistidas) son opcionales; la 24 sigue siendo la última que el código EXIGE
+        Assert.Equal(31, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión), la 27 (alta y derivación) y la 28 (consentimientos del circuito) son opcionales; la 29 (agenda de admisión) y la 30 (vigencia de la agenda) se exigen; la 24 sigue siendo la última que el código EXIGE
         var m = VerificadorEsquema.Migraciones.Single(x => x.Numero == 24);
         Assert.Equal("add_debe_cambiar_password.sql", m.Archivo);
         Assert.Contains("DebeCambiarPassword", m.Marcador);
         Assert.False(m.Opcional);   // el ingreso lee la columna: sin ella no entra nadie
         Assert.True(File.Exists(Path.Combine(Raiz, "migrations", m.Archivo)));
+    }
+
+    [Fact]
+    public void El_esquema_consolidado_trae_la_migracion_29_y_el_verificador_la_exige()
+    {
+        var esquema = Leer("docs", "produccion", "01-produccion.sql");
+        Assert.Contains("EsAdmision", esquema);
+        Assert.Contains("IdProfesionalEntrevista", esquema);
+        Assert.Contains("(29, N'add_admision_agenda_entrevista.sql', 'Script')", esquema);
+        var m = VerificadorEsquema.Migraciones.Single(x => x.Numero == 29);
+        Assert.Equal("add_admision_agenda_entrevista.sql", m.Archivo);
+        Assert.False(m.Opcional);   // la grilla de admisiones y la agenda leen las dos columnas
+        Assert.True(File.Exists(Path.Combine(Raiz, "migrations", m.Archivo)));
+        Assert.True(File.Exists(Path.Combine(Raiz, "docs", "produccion", "deshacer-migracion-29.sql")));
+    }
+
+    [Fact]
+    public void El_esquema_consolidado_trae_la_migracion_30_y_el_verificador_la_exige()
+    {
+        var esquema = Leer("docs", "produccion", "01-produccion.sql");
+        Assert.Contains("CK_Agenda_Vigencia", esquema);
+        Assert.Contains("(30, N'add_vigencia_agenda.sql', 'Script')", esquema);
+        var m = VerificadorEsquema.Migraciones.Single(x => x.Numero == 30);
+        Assert.Equal("add_vigencia_agenda.sql", m.Archivo);
+        Assert.False(m.Opcional);   // la agenda lee las dos columnas
+        Assert.True(File.Exists(Path.Combine(Raiz, "migrations", m.Archivo)));
+        Assert.True(File.Exists(Path.Combine(Raiz, "docs", "produccion", "deshacer-migracion-30.sql")));
     }
 
     [Fact]

@@ -49,7 +49,7 @@ public class Migracion27Tests
                 cmd.ExecuteNonQuery();
             }
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
-            foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
+            foreach (var sentencia in Migracion28Pruebas.QuitarDesdeLa28) Ejecutar(sentencia);
         }
 
         public SqlConnection Abrir() { var c = new SqlConnection(_cadena); c.Open(); return c; }
@@ -267,6 +267,6 @@ public class Migracion27Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 27).Opcional);
-        Assert.Equal(27, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(31, VerificadorEsquema.VersionRequerida);
     }
 }

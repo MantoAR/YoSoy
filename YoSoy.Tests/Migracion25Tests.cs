@@ -37,7 +37,7 @@ public class Migracion25Tests
             // La forma de producción ANTES de la 25: sin la tabla de la migración 16 (54 tablas) y sin la columna ni su versión.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
             // El esquema consolidado ya trae la 27 (alta clínica y derivación asistidas), que es posterior: se saca primero (la 27 necesita la 26).
-            foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
+            foreach (var sentencia in Migracion28Pruebas.QuitarDesdeLa28) Ejecutar(sentencia);
             // El esquema consolidado ya trae la 26 (cierre de sesión), que es posterior: se saca para que la última versión sea la 24.
             Ejecutar("DROP INDEX UX_SesionClinica_Clave ON SesionClinica");
             Ejecutar("DROP INDEX UX_SesionClinica_Evolucion ON SesionClinica");

@@ -96,6 +96,7 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         { id: "sexo", requerido: "Elegí una opción." },
         { id: "fechaNacimiento", requerido: "Ingresá tu fecha de nacimiento.",
           validar: v => v && new Date(v + "T12:00:00") > new Date() ? "La fecha no puede ser posterior a hoy." : null },
+        { id: "telefono", requerido: "Ingresá tu teléfono, con código de área.", patron: /^[\d\s+()-]{6,20}$/, mensajePatron: "Usá solo números, espacios, + o guiones." },
         { id: "email", requerido: "Ingresá tu email.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un email válido." },
         { id: "domicilio", requerido: "Ingresá la calle." },
         { id: "numero", requerido: "Ingresá el número." },

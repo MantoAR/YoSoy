@@ -19,7 +19,7 @@ public class ConfiguradorMenuTests
         const sinDom = () => { throw new Error('esta prueba no debería tocar el DOM'); };
         const YS = {
           sesion: { tienePermiso: p => sesion.permisos.includes(p), tienePrivilegio: p => sesion.privilegios.includes(p), modulos: () => [], modulo: () => '' },
-          rutas: {}, esc: s => s, el: sinDom, icono: sinDom
+          rutas: {}, esc: s => s, el: sinDom, icono: sinDom, NOMBRE_FORMULARIO_ADMISION: 'Sobre mí'
         };
         vm.runInNewContext(fs.readFileSync(process.env.SHELL, 'utf8'), { window: { YS }, console, document: { addEventListener() {} } });
         const salida = {};
@@ -89,7 +89,7 @@ public class ConfiguradorMenuTests
         var conCrm = Menus(new[] { "configurador", "crm" }, roles: new[] { "configurador" });
         foreach (var clave in new[] { "configurador", "configurador+chats" })
         {
-            Assert.DoesNotContain("CRM", sinCrm[clave].Select(e => e.Grupo));
+            Assert.DoesNotContain("Recepcionista", sinCrm[clave].Select(e => e.Grupo));
             Assert.DoesNotContain("chats", sinCrm[clave].SelectMany(e => e.Ids));
             Assert.Equal(Resumen(sinCrm[clave]), Resumen(conCrm[clave]));
         }
@@ -102,14 +102,14 @@ public class ConfiguradorMenuTests
     public void El_menu_del_CRM_es_el_de_siempre()
     {
         var m = Menus(new[] { "crm" })["crm"];
-        Assert.Equal(new[] { "inicio", "Casos[casos,casosderivaciones]" }, Resumen(m));
+        Assert.Equal(new[] { "inicio", "Casos[admisiones,casos,casosderivaciones]" }, Resumen(m));
 
         var conChats = Menus(new[] { "crm" })["crm+chats"];
-        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[casos,casosderivaciones]" }, Resumen(conChats));
+        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[admisiones,casos,casosderivaciones]" }, Resumen(conChats));
         Assert.Equal(new[] { "Chats", "Escalamientos", "Etiquetas de chats" }, conChats[1].Items!.Select(i => i.Texto));
 
         var conAgendas = Menus(new[] { "crm" }, new[] { "gestion_agendas" })["crm+chats"];
-        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[casos,casosderivaciones]", "Agendas[turnos,agendas]" }, Resumen(conAgendas));
+        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[admisiones,casos,casosderivaciones]", "Agendas[turnos,agendas]" }, Resumen(conAgendas));
     }
 
     [FactConNodeDelServicioDeWhatsApp]
@@ -120,20 +120,21 @@ public class ConfiguradorMenuTests
         Assert.Equal(new[] { "inicio", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes" }, Resumen(m["profesional"]));
         Assert.Equal(Resumen(m["profesional"]), Resumen(m["profesional+chats"]));   // ni los chats (D2)
 
+        // El paciente, en el orden de la guía de primeros pasos de Inicio.
         var p = Menus(new[] { "paciente" });
-        Assert.Equal(new[] { "inicio", "Turnos[agenda,profesionales]", "sesion", "admision", "consentimiento" }, Resumen(p["paciente"]));
+        Assert.Equal(new[] { "inicio", "admision", "consentimiento", "Turnos[agenda,profesionales]", "sesion" }, Resumen(p["paciente"]));
         Assert.Equal(Resumen(p["paciente"]), Resumen(p["paciente+chats"]));
     }
 
     [FactConNodeDelServicioDeWhatsApp]
-    public void El_menu_del_Profesional_con_Admision_y_auditor_es_el_de_siempre()
+    public void El_menu_del_Profesional_con_Admision_lleva_Admision_despues_de_Inicio()
     {
         var m = Menus(new[] { "profesional", "auditor" }, new[] { "admision" }, new[] { "profesional" })["profesional"];
 
         Assert.Equal(new[]
         {
-            "inicio", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes",
-            "Admisión[admisiones,derivaciones,asignaciones]", "Auditoría[reportesgenerales,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
+            "inicio", "Admisión[admisiones,derivaciones,asignaciones]", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes",
+            "Auditoría[reportesgenerales,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
         }, Resumen(m));
     }
 
@@ -149,14 +150,14 @@ public class ConfiguradorMenuTests
         var m = Menus(SesionAdministracion, roles: new[] { "administracion" });
 
         // Sin chats (mensajería no disponible): el grupo CRM solo trae Casos y Derivaciones.
-        Assert.Equal(new[] { "CRM[casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        Assert.Equal(new[] { "Recepcionista[admisiones,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
             Resumen(m["administracion"]));
         // Con chats: Chats y Leads van PRIMERO dentro de CRM ▾; después Etiquetas, Escalamientos, Casos y Derivaciones.
         var conChats = m["administracion+chats"];
-        Assert.Equal(new[] { "CRM[chats,leads,etiquetas,escalamientos,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        Assert.Equal(new[] { "Recepcionista[chats,leads,etiquetas,escalamientos,admisiones,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
             Resumen(conChats));
-        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Casos", "Derivaciones" }, Textos(conChats[0]));
-        Assert.Equal(new[] { "CRM", "Configuración", "Usuarios", "Auditoría" }, conChats.Select(e => e.Grupo ?? e.Texto));
+        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Formularios", "Casos", "Derivaciones" }, Textos(conChats[0]));
+        Assert.Equal(new[] { "Recepcionista", "Configuración", "Usuarios", "Auditoría" }, conChats.Select(e => e.Grupo ?? e.Texto));
         Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades" }, Textos(conChats[1]));
         Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Solicitudes de registro" }, Textos(conChats[2]));
     }
@@ -165,8 +166,8 @@ public class ConfiguradorMenuTests
     public void Turnos_y_Agendas_van_dentro_de_CRM_solo_con_el_privilegio_Gestion_de_agendas()
     {
         var con = Menus(SesionAdministracion, new[] { "gestion_agendas" }, new[] { "administracion" })["administracion+chats"];
-        Assert.Equal(new[] { "chats", "leads", "etiquetas", "escalamientos", "casos", "casosderivaciones", "turnos", "agendas" }, con[0].Ids);
-        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Casos", "Derivaciones", "Turnos", "Agendas" }, Textos(con[0]));
+        Assert.Equal(new[] { "chats", "leads", "etiquetas", "escalamientos", "admisiones", "casos", "casosderivaciones", "turnos", "agendas" }, con[0].Ids);
+        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Formularios", "Casos", "Derivaciones", "Turnos", "Agendas" }, Textos(con[0]));
         var sin = Menus(SesionAdministracion, roles: new[] { "administracion" })["administracion+chats"];
         Assert.DoesNotContain("turnos", sin.SelectMany(e => e.Ids));
         Assert.DoesNotContain("agendas", sin.SelectMany(e => e.Ids));
@@ -201,7 +202,7 @@ public class ConfiguradorMenuTests
         var conChats = sin["crm+chats"];
         Assert.Equal(new[] { "inicio", "Conversaciones", "Casos" }, conChats.Select(e => e.Id ?? e.Grupo!));
         Assert.Equal(new[] { "Chats", "Escalamientos", "Etiquetas de chats" }, Textos(conChats[1]));
-        Assert.Equal(new[] { "Casos", "Derivaciones" }, Textos(conChats[2]));
+        Assert.Equal(new[] { "Formularios", "Casos", "Derivaciones" }, Textos(conChats[2]));   // «Formularios»: la recepcionista revisa los «Sobre mí»
         Assert.Equal("Inicio", conChats[0].Texto);
 
         var conAgendas = Menus(new[] { "crm" }, new[] { "gestion_agendas" }, new[] { "crm" })["crm+chats"];

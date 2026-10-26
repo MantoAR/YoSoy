@@ -59,7 +59,7 @@ public class RegistroPacienteMailBaseRealTests
         var marca = "XTEST-" + Guid.NewGuid().ToString("N")[..10];
         var mail = marca.ToLowerInvariant() + "@example.com";
 
-        var r = await cliente.PostAsJsonAsync("/pacientes", new { nombre = "Prueba " + marca, dni = marca, mail, usuario = marca, contrasena = "ClaveDePrueba123" });
+        var r = await cliente.PostAsJsonAsync("/pacientes", new { nombre = "Prueba " + marca, dni = marca, mail, usuario = marca, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
         var j = await VideoApp.Json(r);
         if (r.IsSuccessStatusCode)
         {
