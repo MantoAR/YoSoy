@@ -2332,7 +2332,7 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
         });
     }
     return Results.Ok(lista);
-}).Solo(Quien.Admision | Quien.Auditor);
+}).Solo(Quien.Admision | Quien.Auditor | Quien.Crm);   // la recepcionista (CRM) revisa los formularios «Sobre mí»
 
 // Programa la primera entrevista de admisión en forma AUTOMÁTICA: el primer horario libre de las franjas de admisión
 // de quien la programa (Mis horarios de trabajo, migración 26), dentro de las 24 horas de recibida la solicitud
@@ -2495,7 +2495,7 @@ app.MapGet("/informes-admision/profesionales-derivables", () =>
             especialidad = r["Especialidad"] == DBNull.Value ? "" : r["Especialidad"].ToString()
         });
     return Results.Ok(lista);
-}).Solo(Quien.Admision);
+}).Solo(Quien.Admision | Quien.Crm);
 
 app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpContext ctx, AsignacionService asignacion,
     TurnoReglasService reglas, TimeProvider reloj) =>
@@ -2605,7 +2605,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     }
 
     return Results.NoContent();
-}).Solo(Quien.Admision);
+}).Solo(Quien.Admision | Quien.Crm);
 
 // ── Mis Pacientes con estado de asignacion ──────────────────
 app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>

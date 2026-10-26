@@ -15,6 +15,7 @@
          muestra solo la marca y el botón Ingresar, y la página explica qué hacer. -->
     <main class="ui-pagina">
         <div class="ui-contenido consentimiento">
+            <a id="btnVolverArriba" class="ui-btn ui-btn--sm consentimiento-volver" href="dashboard.html#inicio">← Volver al inicio</a>
             <p id="paciente" class="consentimiento-paciente"></p>
 
             <!-- Mientras se consulta el estado -->
@@ -39,9 +40,13 @@
                 <div>
                     <h2 id="tituloFirmado" tabindex="-1">Ya firmaste este consentimiento</h2>
                     <p id="detalleFirma"></p>
-                    <p id="ayudaFirmado" class="ayuda">No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.</p>
+                    <p id="ayudaFirmado" class="ayuda">No hace falta volver a firmarlo. Si ya no querés darlo, podés revocarlo.</p>
                     <p id="marcaProvisoriaFirmado" class="nota-borrador oculto" role="note"></p>
-                    <a id="btnVolver" class="ui-btn ui-btn--primary ui-btn--lg mt-16" href="dashboard.html#inicio">Volver al inicio</a>
+                    <div class="acciones mt-16">
+                        <a id="btnVolver" class="ui-btn ui-btn--primary ui-btn--lg" href="dashboard.html#inicio">Volver al inicio</a>
+                        <button id="btnRevocar" class="ui-btn ui-btn--danger ui-btn--lg" type="button">Revocar mi consentimiento</button>
+                    </div>
+                    <p class="ayuda">Si lo revocás, queda el registro de cuándo lo firmaste y cuándo lo revocaste. Mientras esté revocado no se te puede asignar un profesional ni confirmar turnos hasta que vuelvas a firmarlo.</p>
                 </div>
             </section>
 
@@ -65,8 +70,8 @@
                 </div>
 
                 <div class="acciones">
-                    <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leí el consentimiento y lo acepto</button>
-                    <a class="ui-btn ui-btn--lg" href="dashboard.html">Ahora no</a>
+                    <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leo y acepto</button>
+                    <a class="ui-btn ui-btn--lg" href="dashboard.html#inicio">Ahora no</a>
                 </div>
                 <p class="ayuda">Al aceptar se guarda la fecha y la hora de tu firma. Es necesario para que se confirmen tus turnos.</p>
             </section>

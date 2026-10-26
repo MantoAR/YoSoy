@@ -44,7 +44,7 @@ function mostrarSeccion(id) {
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
     else if (id === "sesion")        c.innerHTML = renderSesion();
-    else if (id === "admision")      renderAdmision(c);
+    else if (id === "admision")      renderSobreMi(c);   // «Sobre mí» (primeros_pasos.js)
 }
 
 async function cerrarSesion() {
@@ -61,14 +61,12 @@ async function renderInicio(c) {
     try {
         const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
         const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
-        const [res, turnos, consentimiento, perfil, informe, profesionales, whatsapp] = await Promise.all([
+        const [res, turnos, consentimiento, profesionales, pasos] = await Promise.all([
             YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
             pedir(`/pacientes/${idPaciente}/turnos-detalle`, FALLA),
             pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null),
-            pedir(`/pacientes/${idPaciente}`, FALLA),
-            pedir(`/pacientes/${idPaciente}/informe-admision`, FALLA, { permitir404: true }),   // null = todavía no lo mandó
             pedir(`/pacientes/${idPaciente}/mis-profesionales`, FALLA),
-            pedir("/consentimiento-whatsapp", null)
+            pedir(`/pacientes/${idPaciente}/primeros-pasos`, null)   // los siete pasos, calculados por el servidor con datos reales
         ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
         const t = res.status === 404 ? null : await res.json();
@@ -93,104 +91,17 @@ async function renderInicio(c) {
             </a>`;
 
         // Hasta su primera sesión el Inicio lo guía con los primeros pasos (también con profesional asignado: confirmar el
-        // primer turno y entrar a la sala son pasos de la guía); con los siete hechos, sus turnos al frente.
-        // Si algo no se pudo consultar, no se adivina: queda el Inicio con los turnos.
-        const guia = [turnos, perfil, informe, profesionales].includes(FALLA) || consentimiento == null ? null
-            : armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos: listaTurnos, whatsapp });
+        // primer turno y entrar a la sala son pasos de la guía); con los siete hechos, sus turnos al frente. Los pasos y el
+        // botón principal los decide el servidor. Si algo no se pudo consultar, no se adivina: queda el Inicio con los turnos.
+        const guia = pasos && (pasos.cerrado || pasos.hechos < pasos.total) ? pasos : null;
         c.innerHTML = guia
-            ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo, profesionales)
+            ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo)
             : inicioPacienteEnAtencion({ proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
-                                         tarjetaConsentimiento, profesionales: profesionales === FALLA ? [] : profesionales });
+                                         tarjetaConsentimiento, profesionales: pasos?.profesional ? [pasos.profesional] : profesionales === FALLA ? [] : profesionales });
+        programarHabilitacionDeLaSesion(guia);
     } catch {
         c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
-}
-
-// ── INICIO: paciente recién registrado ─────────────────────
-// Las mismas cuatro tarjetas de resumen que el resto de las pantallas y, debajo, la tarea del momento al lado de la
-// lista compacta de los siete pasos.
-function inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo, profesionales) {
-    const actual = guia.pasos[guia.indiceActual];
-    const ir = destino => destino.startsWith("#") ? `location.hash='${destino}'` : `location.href='${destino}'`;
-    const conProfesional = profesionales.length > 0;
-    const check = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>`;
-    const reloj = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
-
-    const filas = guia.pasos.map((p, i) => {
-        const n = i + 1;
-        if (p.hecho) return `
-            <li class="pp-fila pp-fila--hecha">
-                <span class="pp-num pp-num--hecho">${check}</span>
-                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
-                <span class="pp-fila-estado pp-fila-estado--ok">Hecho</span>
-            </li>`;
-        if (i === guia.indiceActual) return `
-            <li class="pp-fila pp-fila--actual" aria-current="step">
-                <span class="pp-num pp-num--actual">${n}</span>
-                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
-                <span class="pp-fila-estado pp-fila-estado--actual">Ahora</span>
-            </li>`;
-        // Sin un requisito pendiente se puede hacer ya, en cualquier orden; si no, dice de qué depende.
-        const accion = p.requiere
-            ? `<span class="pp-fila-estado">${YS.esc(p.requiereCorto || p.requiere)}</span>`
-            : p.espera ? `<span class="pp-fila-estado">En revisión</span>`
-            : `<a href="${p.destino}" class="pp-fila-ir" aria-label="${YS.esc(p.boton)}">Ir</a>`;
-        return `
-            <li class="pp-fila${p.requiere ? " pp-fila--bloqueada" : ""}">
-                <span class="pp-num">${n}</span>
-                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
-                ${accion}
-            </li>`;
-    }).join("");
-
-    return `
-        <div class="ui-stats">
-            <button type="button" class="ui-stat ui-stat--marca" onclick="document.getElementById('pp-proximo').scrollIntoView({ behavior: 'smooth' })">
-                <span class="ui-stat-etiqueta">${YS.icono("check")}Tu proceso</span>
-                <span class="ui-stat-valor">Paso ${guia.paso} de ${guia.pasos.length}</span>
-                <span class="ui-stat-pie">${YS.esc(actual.titulo)}</span>
-            </button>
-            ${tarjetaConsentimiento}
-            <a class="ui-stat" href="#profesionales">
-                <span class="ui-stat-etiqueta">${YS.icono("pacientes")}Tu profesional</span>
-                <span class="ui-stat-valor">${conProfesional ? YS.esc(profesionales[0].nombre) : "—"}</span>
-                <span class="ui-stat-pie">${conProfesional ? YS.esc(profesionales[0].especialidad || "") : "Se asigna después de la admisión"}</span>
-            </a>
-            ${tarjetaProximo}
-        </div>
-        <div class="inicio-columnas inicio-columnas--parejas">
-            <section class="card" id="pp-proximo" aria-labelledby="pp-proximo-titulo">
-                <div class="titulo-tarjeta" id="pp-proximo-titulo">Tu próximo paso</div>
-                <div class="pp-actual">
-                    <span class="pp-num pp-num--actual pp-num--grande">${guia.paso}</span>
-                    <div class="pp-cuerpo">
-                        <span class="pp-titulo-grande">${YS.esc(actual.titulo)}</span>
-                        <span class="pp-texto">${YS.esc(actual.texto)}</span>
-                        ${actual.espera
-                            ? `<div class="pp-aviso">${reloj}<span>${YS.esc(actual.aviso)}</span></div>
-                               ${actual.codigo ? `<div class="pp-codigo">
-                                   <span class="texto-suave texto-chico">Código de la entrevista</span>
-                                   <strong class="pp-codigo-valor">${YS.esc(actual.codigo)}</strong>
-                                   <a class="ui-btn ui-btn--sm" href="sesion_video.html?sala=${encodeURIComponent(actual.codigo)}&idPaciente=${idPaciente}">Entrar a la entrevista</a>
-                               </div>` : ""}`
-                            : `<div class="pp-acciones">
-                                   <button type="button" class="ui-btn ui-btn--primary pp-boton" onclick="${actual.accion || ir(actual.destino)}">${YS.esc(actual.boton)}</button>
-                                   ${actual.nota ? `<span class="texto-suave texto-chico">${YS.esc(actual.nota)}</span>` : ""}
-                               </div>`}
-                    </div>
-                </div>
-            </section>
-            <section class="card" aria-labelledby="pp-lista-titulo">
-                <div class="pp-lista-cabecera">
-                    <div class="titulo-tarjeta" id="pp-lista-titulo">Tus primeros pasos</div>
-                    <span class="texto-suave texto-chico">${guia.hechos} de ${guia.pasos.length} hechos</span>
-                </div>
-                <div class="pp-barra" role="progressbar" aria-label="Avance de los primeros pasos" aria-valuemin="0" aria-valuemax="${guia.pasos.length}" aria-valuenow="${guia.hechos}">
-                    <div style="width: ${Math.round(guia.hechos / guia.pasos.length * 100)}%"></div>
-                </div>
-                <ol class="pp-filas">${filas}</ol>
-            </section>
-        </div>`;
 }
 
 // ── INICIO: paciente en atención ───────────────────────────
@@ -290,69 +201,6 @@ function irAlTurno(fecha) {
     const d = YS.fecha.parse(fecha);
     if (d) { calAnio = d.getFullYear(); calMes = d.getMonth(); _diaAlEntrarAgenda = d.getDate(); }
     location.hash = "#agenda";
-}
-
-// ── PRIMEROS PASOS (paciente nuevo) ────────────────────────
-// El orden que sigue alguien recién dado de alta, con lo que la API ya devuelve: nada nuevo en el servidor. Un paso está
-// hecho por lo que hay en la base, no porque se lo haya visitado. Quien ya tiene profesional asignado (por ejemplo, llegó
-// por el link público de su profesional) no necesita la admisión: los pasos 3 a 5 cuentan como hechos. Con los siete
-// hechos devuelve null. Devuelve los pasos; los dibuja inicioPacienteNuevo.
-function armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos, whatsapp }) {
-    const conProfesional = profesionales.length > 0;
-    const conWhatsApp = !!whatsapp && !YS.whatsapp.apagado(whatsapp);
-    const enEntrevista = !!informe && /entrevista/i.test(String(informe.estado || ""));
-    // El primer turno: el que propuso el profesional (para confirmar), uno que pidió el paciente (espera la confirmación
-    // del profesional) o uno ya confirmado. Confirmado o realizado = paso 6 hecho.
-    const cuando = x => `${YS.fecha.larga(x.fecha, true)} a las ${String(x.hora).substring(0, 5)} hs`;
-    const porFecha = (a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora));
-    const confirmado = turnos.filter(x => x.estadoDescripcion === "Confirmado" || x.estadoDescripcion === "Realizado").sort(porFecha)[0];
-    const propuesto = turnos.filter(propuestoPorProfesional).sort(porFecha)[0];
-    const pedido = turnos.filter(x => x.estadoDescripcion === "Pendiente" && !propuestoPorProfesional(x)).sort(porFecha)[0];
-
-    const pasos = [
-        { titulo: "Completá tus datos", hecho: !!(perfil.fechaNacimiento && perfil.telefono), destino: "#perfil",
-          texto: "Cargá tu fecha de nacimiento y tu teléfono." + (conWhatsApp ? " Ahí también podés activar, si querés, los avisos por WhatsApp." : ""),
-          boton: "Ir a Mis datos", nota: "Podés cambiarlos cuando quieras." },
-        { titulo: "Firmá el consentimiento de telemedicina", hecho: !!consentimiento.firmado, destino: "consentimiento.html",
-          texto: "Es el permiso para atenderte por video. Lo necesitás para confirmar cualquier turno, así que conviene firmarlo ahora.",
-          boton: "Leer y firmar", nota: "Lo podés volver a leer en Consentimiento." },
-        { titulo: "Contanos sobre vos", hecho: !!informe || conProfesional, destino: "#admision",
-          texto: "Completá el informe de admisión. Con lo que nos cuentes, el equipo elige el profesional adecuado para vos.",
-          boton: "Completar el informe de admisión", nota: "Los campos con * son obligatorios." },
-        { titulo: "Entrevista de admisión", hecho: conProfesional, destino: "#admision", espera: true,
-          requiere: informe ? null : "Se habilita cuando envíes tu informe de admisión.", requiereCorto: "Después del informe",
-          texto: "Una charla corta por video con el equipo de admisión, para conocerte antes de asignarte un profesional.",
-          aviso: enEntrevista
-              ? `Tu entrevista ya está programada${informe.fechaEntrevista ? ` para el ${informe.fechaEntrevista} hs` : ""}. También te llegó el aviso a la campanita con el día, la hora y el botón para entrar.`
-              : "Tu informe está en revisión. No tenés que hacer nada por ahora: cuando tengamos la fecha de la entrevista te avisamos por la campanita y por mail.",
-          // El código de la sala de la entrevista, el mismo que trae el aviso de la campanita.
-          codigo: enEntrevista ? informe.codigoSala || null : null },
-        { titulo: "Conocé a tu profesional", hecho: conProfesional, destino: "#profesionales",
-          requiere: "Te lo asignamos después de la entrevista de admisión.", requiereCorto: "Después de la entrevista",
-          texto: "Ya tenés profesional asignado. Podés ver su especialidad y, si alguna vez lo necesitás, pedir un cambio.",
-          boton: "Ver Mis profesionales", nota: "" },
-        { titulo: "Confirmá tu primer turno", hecho: !!confirmado, destino: "#agenda",
-          requiere: conProfesional ? null : "Se habilita cuando tengas profesional asignado.", requiereCorto: "Con profesional asignado",
-          ...(propuesto ? {
-              texto: `Tu profesional te propuso el primer turno para el ${cuando(propuesto)}. Confirmalo para que quede agendado.`,
-              boton: "Confirmar turno", accion: `confirmarTurnoPaciente(${propuesto.idTurno})`,
-              nota: "Si no te queda bien, reprogramalo desde Turnos." }
-            : pedido ? {
-              texto: `Pediste tu primer turno para el ${cuando(pedido)}.`, espera: true,
-              aviso: "Tu profesional lo tiene que confirmar. No tenés que hacer nada: te avisamos por la campanita." }
-            : {
-              texto: "Tu profesional te va a proponer el primer turno y te avisamos por la campanita. Si preferís, pedilo vos en un horario libre.",
-              boton: "Ir a Turnos", nota: "" }) },
-        { titulo: "Tu primera sesión", hecho: turnos.some(x => x.estadoDescripcion === "Realizado"), destino: "#sesion",
-          requiere: confirmado ? null : "Se habilita cuando confirmes tu primer turno.", requiereCorto: "Con el turno confirmado",
-          texto: "Ya tenés tu turno confirmado. Ese día entrá a la Sala de video (desde el menú o desde el aviso de la campanita), elegí si aceptás o no la lectura de tus expresiones y tocá \"Conectarme\".",
-          boton: "Ir a la Sala de video",
-          nota: confirmado ? `Tu turno: ${cuando(confirmado)}. La sala abre 10 minutos antes.` : "La sala abre 10 minutos antes del horario." }
-    ];
-
-    const indiceActual = pasos.findIndex(p => !p.hecho);
-    if (indiceActual === -1) return null;
-    return { pasos, indiceActual, paso: indiceActual + 1, hechos: pasos.filter(p => p.hecho).length };
 }
 
 // ── AGENDA / CALENDARIO ────────────────────────────────────
@@ -1157,150 +1005,6 @@ function entrarSesion() {
     const codigo = document.getElementById('codigoSala').value.trim();
     if (!codigo) { YS.form.marcar('codigoSala', 'Ingresá el código de sala.'); document.getElementById('codigoSala').focus(); return; }
     window.location.href = 'sesion_video.html?sala=' + encodeURIComponent(codigo) + '&idPaciente=' + idPaciente;
-}
-
-// El informe ya enviado: en qué etapa está y, una vez hecha la entrevista, con quién y cuándo fue y a qué profesional
-// lo derivaron. Abajo, "Volver al inicio" como en Consentimiento.
-function htmlAdmisionEnviada(inf) {
-    const dato = (etiqueta, valor) => valor ? `
-        <div class="admision-dato"><span class="admision-dato-etiqueta">${etiqueta}</span><span class="admision-dato-valor">${YS.esc(valor)}</span></div>` : "";
-    const entrevista = inf.fechaEntrevista ? `${inf.fechaEntrevista} hs` : null;
-    let titulo, texto, estado = inf.estado;
-    if (inf.estado === "Derivado") {
-        titulo = "Ya realizaste tu admisión";
-        texto = inf.nombreProfesionalDerivado
-            ? `Fuiste derivado/a con el profesional <strong>${YS.esc(inf.nombreProfesionalDerivado)}</strong>. Ya podés pedir tu primer turno en Turnos o esperar su propuesta.`
-            : "Fuiste derivado/a con un profesional. Ya podés ver tus turnos en Turnos.";
-    } else if (inf.estado === "En entrevista" || inf.estado === "Rechazado") {
-        // "Rechazado": el profesional elegido no lo tomó y vuelve a admisión; para el paciente sigue en curso.
-        estado = "En entrevista";
-        titulo = "Tu entrevista de admisión está programada";
-        texto = "Entrá a la Sala de video a la hora de la entrevista. Después, el equipo de admisión te deriva con el profesional que te va a atender.";
-    } else {
-        titulo = "Tu informe de admisión ya fue enviado";
-        texto = "Cuando el equipo de admisión revise tu informe, te vamos a avisar el día y la hora de la primera entrevista.";
-    }
-    const realizada = inf.estado === "Derivado";
-    return `
-        <div class="card card--angosta${realizada ? " admision-realizada" : ""}">
-            ${realizada ? `<div class="admision-realizada-icono" aria-hidden="true">${YS.icono("check")}</div>` : ""}
-            <div class="admision-cuerpo">
-            <div class="titulo-tarjeta${realizada ? " admision-realizada-titulo" : ""}">${titulo}</div>
-            <p class="mb-12">Estado actual: <span class="panel-estado-badge estado-${YS.esc(String(estado).replace(/\s+/g, "-"))}">${YS.esc(estado)}</span></p>
-            <p class="mb-12">${texto}</p>
-            ${entrevista || inf.nombreProfesionalEntrevista || inf.nombreProfesionalDerivado ? `
-            <div class="admision-datos">
-                ${dato("Profesional de admisión", inf.nombreProfesionalEntrevista)}
-                ${dato(inf.estado === "Derivado" ? "Fecha y hora de la admisión" : "Fecha y hora de la entrevista", entrevista)}
-                ${inf.estado === "Derivado" ? dato("Profesional asignado", inf.nombreProfesionalDerivado) : ""}
-            </div>` : ""}
-            <a class="ui-btn ui-btn--primary ui-btn--lg mt-16" href="#inicio">Volver al inicio</a>
-            </div>
-        </div>`;
-}
-
-async function renderAdmision(c) {
-    // ¿Ya mandó el informe? (404 = todavía no)
-    let inf;
-    try { inf = await YS.api(`/pacientes/${idPaciente}/informe-admision`, { permitir404: true }); }
-    catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('admision')" }); return; }
-    if (YS.shell.actual !== "admision") return;
-    if (inf) { c.innerHTML = htmlAdmisionEnviada(inf); return; }
-
-    const especialidades = await YS.api("/especialidades").catch(() => []);
-    if (YS.shell.actual !== "admision") return;
-    const opts = especialidades
-        .filter(e => e.estado === "Activo")
-        .map(e => `<option value="${e.idEspecialidad}">${YS.esc(e.nombre)}</option>`)
-        .join("");
-    const texto = (id, etiqueta, filas, placeholder = "") => `
-        <div class="ui-campo ui-campo--ancho"><label for="${id}">${etiqueta}</label>
-            <textarea id="${id}" class="ui-textarea" rows="${filas}" maxlength="1000" placeholder="${placeholder}"></textarea></div>`;
-
-    c.innerHTML = `
-        <div class="card card--angosta form-admision">
-            <p class="texto-suave mb-16">Completá este formulario para que el equipo de admisión pueda conocerte y asignarte el profesional adecuado. Los campos con * son obligatorios.</p>
-            <form id="formAdmision" novalidate>
-                <div class="ui-form-grid">
-                    <div class="ui-campo ui-campo--ancho"><label for="admEspecialidad">Especialidad solicitada *</label>
-                        <select id="admEspecialidad" class="ui-select"><option value="">Elegí una especialidad</option>${opts}</select></div>
-                    ${texto("admMotivo", "Motivo de consulta *", 3, "Contanos brevemente por qué buscás atención")}
-                    <div class="ui-campo"><label for="admTratAnterior">¿Hiciste algún tratamiento antes?</label>
-                        <select id="admTratAnterior" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
-                    <div class="ui-campo oculto" id="campoTratDetalle"><label for="admTratDetalle">¿Cuál?</label>
-                        <input type="text" id="admTratDetalle" class="ui-input" maxlength="300"></div>
-                    <div class="ui-campo"><label for="admMedicacion">¿Tomás alguna medicación?</label>
-                        <select id="admMedicacion" class="ui-select"><option value="false">No</option><option value="true">Sí</option></select></div>
-                    <div class="ui-campo oculto" id="campoMedDetalle"><label for="admMedDetalle">¿Cuál?</label>
-                        <input type="text" id="admMedDetalle" class="ui-input" maxlength="300"></div>
-                </div>
-
-                <div class="ui-form-seccion">Conociéndote mejor</div>
-                <p class="texto-suave mb-12">Estas preguntas nos ayudan a darte una atención personalizada. Son opcionales.</p>
-                <div class="ui-form-grid">
-                    ${texto("admGustos", "Gustos e intereses", 3, "Actividades que disfrutás, hobbies, música, películas o libros, deportes, qué te ayuda a relajarte, algo que quieras aprender")}
-                    ${texto("admPreferencias", "Preferencias durante la atención", 3, "Cómo preferís que se dirijan a vos, algo que te genere ansiedad en una consulta, apoyos que necesites")}
-                    <div class="ui-campo"><label for="admTipoEntrevista">Tipo de entrevista preferida</label>
-                        <select id="admTipoEntrevista" class="ui-select"><option value="Sin preferencia">Sin preferencia</option><option value="Individual">Individual</option><option value="Familiar">Familiar</option><option value="Grupal">Grupal</option></select></div>
-                    ${texto("admRedApoyo", "Red de apoyo", 2, "¿Con quién convivís? ¿Contás con familiares o personas de confianza que te acompañen?")}
-                    ${texto("admObjetivos", "¿Qué esperás lograr con el tratamiento?", 2)}
-                </div>
-                <div class="ui-form-acciones">
-                    <button type="submit" class="ui-btn ui-btn--primary" id="btnEnviarAdmision">Enviar informe de admisión</button>
-                </div>
-            </form>
-        </div>`;
-    // "¿Cuál?" aparece solo si se contesta que sí
-    const alternar = (select, campo) => document.getElementById(select).addEventListener("change", e =>
-        document.getElementById(campo).classList.toggle("oculto", e.target.value !== "true"));
-    alternar("admTratAnterior", "campoTratDetalle");
-    alternar("admMedicacion", "campoMedDetalle");
-    document.getElementById("formAdmision").addEventListener("submit", e => { e.preventDefault(); enviarAdmision(); });
-}
-
-async function enviarAdmision() {
-    const valido = YS.form.validar([
-        { id: "admEspecialidad", requerido: "Elegí la especialidad." },
-        { id: "admMotivo", requerido: "Contanos el motivo de consulta." }
-    ]);
-    if (!valido) return;
-
-    const valor = id => document.getElementById(id).value.trim() || null;
-    const tratamiento = document.getElementById("admTratAnterior").value === "true";
-    const medicacion  = document.getElementById("admMedicacion").value === "true";
-    const body = {
-        idPaciente:                 parseInt(idPaciente),
-        idEspecialidad:             parseInt(document.getElementById("admEspecialidad").value),
-        motivoConsulta:             valor("admMotivo"),
-        tratamientoAnterior:        tratamiento,
-        tratamientoAnteriorDetalle: tratamiento ? valor("admTratDetalle") : null,
-        recibeMedicacion:           medicacion,
-        medicacionDetalle:          medicacion ? valor("admMedDetalle") : null,
-        gustosIntereses:            valor("admGustos"),
-        preferenciasAtencion:       valor("admPreferencias"),
-        tipoEntrevista:             document.getElementById("admTipoEntrevista").value,
-        redApoyo:                   valor("admRedApoyo"),
-        objetivosPaciente:          valor("admObjetivos"),
-        estado:                     "Pendiente"
-    };
-
-    const boton = document.getElementById("btnEnviarAdmision");
-    boton.disabled = true;
-    try {
-        const r = await YS.fetch("/informes-admision", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        });
-        if (r.ok) {
-            toast("Informe enviado. El equipo de admisión te va a contactar.");
-            mostrarSeccion("admision");
-        } else toast(await YS.leerMensaje(r, "No se pudo enviar el informe."), "error");
-    } catch {
-        toast("No se pudo conectar con el servidor.", "error");
-    } finally {
-        boton.disabled = false;
-    }
 }
 
 async function cargarNotificaciones() {

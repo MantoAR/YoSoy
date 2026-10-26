@@ -49,6 +49,12 @@ public class PrimerosPasosDAO
                 turnos.Add(new TurnoPaso((int)r["IdTurno"], ((DateTime)r["Fecha"]).Date + (TimeSpan)r["Hora"], (string)r["Estado"],
                     (bool)r["ConfirmadoPaciente"], r["CreadoPor"] as string, r["CodigoSala"] as string));
         }
-        return new DatosPrimerosPasos(consentimiento, informe, profesional, turnos);
+        bool perfilCompleto;
+        using (var cmd = new SqlCommand(@"SELECT CASE WHEN FechaNacimiento IS NOT NULL AND LTRIM(RTRIM(ISNULL(Telefono, N''))) <> N'' THEN 1 ELSE 0 END FROM Paciente WHERE IdPaciente = @P", con))
+        {
+            cmd.Parameters.AddWithValue("@P", idPaciente);
+            perfilCompleto = Convert.ToInt32(cmd.ExecuteScalar() ?? 0) == 1;
+        }
+        return new DatosPrimerosPasos(consentimiento, informe, profesional, turnos, perfilCompleto);
     }
 }

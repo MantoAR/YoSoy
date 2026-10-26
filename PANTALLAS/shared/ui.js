@@ -57,6 +57,9 @@
     // ── DOM ─────────────────────────────────────────────────────
     const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
     /** Escapa texto para insertarlo en HTML (nombres, motivos, mensajes del servidor). */
+    // Nombre visible del formulario de admisión (antes «Informe de admisión»). Se cambia acá, en un solo lugar.
+    YS.NOMBRE_FORMULARIO_ADMISION = "Sobre mí";
+
     YS.esc = s => String(s ?? "").replace(/[&<>"']/g, c => ESC[c]);
 
     /** Crea un elemento: YS.el("button", { class: "ui-btn", text: "Hola", on: { click: fn } }, hijo...) */
@@ -353,7 +356,7 @@
         },
         async cerrar({ preguntar = true } = {}) {
             if (preguntar && !await YS.confirmar({
-                titulo: "Cerrar sesión", mensaje: "¿Querés cerrar la sesión en este equipo?", textoConfirmar: "Cerrar sesión"
+                titulo: "Cerrar sesión", mensaje: "¿Querés cerrar tu sesión?", textoConfirmar: "Cerrar sesión"
             })) return;
             // Borradores de notas sin guardar (shared/borrador.js, si la página lo cargó): se pregunta antes de descartarlos.
             if (YS.borradorAlCerrarSesion && !await YS.borradorAlCerrarSesion(localStorage.getItem("idUsuario"))) return;

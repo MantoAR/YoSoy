@@ -55,7 +55,7 @@ public static class PrimerosPasosEndpoints
 
         app.MapGet("/profesionales/elegibles", () =>
             Results.Ok(PreferenciasAdmision.ProfesionalesElegibles().Select(p => new { p.IdProfesional, p.Nombre, p.Especialidad })))
-            .Solo(Quien.Paciente | Quien.Admision);
+            .Solo(Quien.Paciente | Quien.Admision | Quien.Crm);
 
         // El paciente completa de nuevo el formulario devuelto. Sobre el mismo informe: vuelve a «Pendiente» para otra revisión. No crea otro informe ni otro caso.
         app.MapPut("/pacientes/{id}/informe-admision", (int id, InformeAdmision i, HttpContext ctx, IdentidadActualService identidad) =>
@@ -93,7 +93,7 @@ public static class PrimerosPasosEndpoints
                 AvisarSiNoFirmo(ctx, pac, consentimiento.CurrentValue);
             }
             return Responder(r);
-        }).Solo(Quien.Admision);
+        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
 
         app.MapPut("/informes-admision/{id}/devolver", (int id, RevisionRequest req, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
         {
@@ -102,7 +102,7 @@ public static class PrimerosPasosEndpoints
             var r = RevisionAdmision.Devolver(id, yo.IdUsuario, req.Aclaracion, reloj.GetLocalNow().DateTime);
             if (r.Ok && r.Cambio && r.IdPaciente is int pac) AuditoriaIds.Registrar(ctx, "Devolvió el formulario de admisión con una aclaración", "InformeAdmision", id, pac);
             return Responder(r);
-        }).Solo(Quien.Admision);
+        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
 
         app.MapPut("/informes-admision/{id}/otro-recurso", (int id, RevisionRequest req, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
         {
@@ -111,7 +111,7 @@ public static class PrimerosPasosEndpoints
             var r = RevisionAdmision.OtroRecurso(id, yo.IdUsuario, req.Motivo, reloj.GetLocalNow().DateTime);
             if (r.Ok && r.Cambio && r.IdPaciente is int pac) AuditoriaIds.Registrar(ctx, "Cerró el ingreso con «otro recurso»", "InformeAdmision", id, pac);
             return Responder(r);
-        }).Solo(Quien.Admision);
+        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
 
         // Revocar el consentimiento de tratamiento. «Borrar» es revocar CON CONSTANCIA: la fila no se elimina (la auditoría tiene que conservar quién firmó, cuándo y cuándo revocó).
         // TODO-VALIDAR: si el consentimiento revocado debe conservarse tal cual o anonimizarse pasado un tiempo lo decide alguien de formación legal.

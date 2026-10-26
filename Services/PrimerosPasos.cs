@@ -26,7 +26,8 @@ public record DatosPrimerosPasos(
     EstadoTratamiento Consentimiento,
     InformePaso? Informe,
     ProfesionalPaso? Profesional,
-    IReadOnlyList<TurnoPaso> Turnos);
+    IReadOnlyList<TurnoPaso> Turnos,
+    bool PerfilCompleto = true);   // fecha de nacimiento y teléfono cargados (el registro ya pide el teléfono)
 
 public static class PasoEstado
 {
@@ -67,6 +68,7 @@ public static class AccionTipo
     public const string CompletarFormulario = "completar-formulario";
     public const string ConfirmarTurno = "confirmar-turno";
     public const string VerTurnos = "ver-turnos";
+    public const string CompletarDatos = "completar-datos";
     public const string EntrarSesion = "entrar-sesion";
 }
 
@@ -83,8 +85,11 @@ public static class PrimerosPasos
         var conProfesional = d.Profesional is not null;
         var omiteAdmision = conProfesional && informe is null;
 
-        // 1 · Registro: si hay datos, el paciente existe.
-        pasos.Add(new(PasoClave.Registro, "Te registraste", PasoEstado.Hecho, "Tu cuenta ya está creada.", null));
+        // 1 · Registro: la cuenta existe; está completo cuando tiene fecha de nacimiento y teléfono.
+        if (d.PerfilCompleto)
+            pasos.Add(new(PasoClave.Registro, "Te registraste", PasoEstado.Hecho, "Tu cuenta y tus datos están completos.", null));
+        else
+            pasos.Add(new(PasoClave.Registro, "Completá tus datos", PasoEstado.Actual, "Cargá tu fecha de nacimiento y tu teléfono. Podés cambiarlos cuando quieras.", new(AccionTipo.CompletarDatos, "Ir a Mis datos")));
 
         // 2 · Consentimiento firmado y vigente (la misma decisión que usa el servidor para asignar profesional y confirmar turnos).
         var c = d.Consentimiento;

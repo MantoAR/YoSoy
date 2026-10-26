@@ -44,6 +44,14 @@ public class PrimerosPasosBaseRealTests : IDisposable
         return DatosDePrueba.Cliente(_fabrica, token);
     }
 
+    // Un paciente con sus datos completos (fecha de nacimiento y teléfono): así el primer paso del recorrido ya está hecho.
+    private int NuevoPaciente(string? nombre = null, string? mail = null)
+    {
+        var pac = _d.Paciente(nombre, mail: mail);
+        DatosDePrueba.Ejecutar("UPDATE Paciente SET FechaNacimiento = @f, Telefono = N'11 5555-0001' WHERE IdPaciente = @p", ("@f", new DateTime(1990, 5, 20)), ("@p", pac));
+        return pac;
+    }
+
     private HttpClient Paciente(int idPaciente) => DatosDePrueba.Cliente(_fabrica, _d.UsuarioDePaciente(idPaciente), Roles.Paciente, idPaciente: idPaciente);
 
     private static async Task<JsonElement> Json(HttpResponseMessage r) => JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement.Clone();
@@ -51,7 +59,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
 
     private (int Paciente, int Informe, HttpClient Recep) Escenario(string estado = "Pendiente")
     {
-        var pac = _d.Paciente("Ana Gomez " + _d.Marca, mail: $"{_d.Marca}@example.test");
+        var pac = NuevoPaciente("Ana Gomez " + _d.Marca, mail: $"{_d.Marca}@example.test");
         var informe = _d.InformeAdmision(pac, estado, null, null);
         DatosDePrueba.Ejecutar("UPDATE InformeAdmision SET IdEspecialidad = @e WHERE IdInforme = @i", ("@e", _d.Especialidad()), ("@i", informe));
         return (pac, informe, Recepcion(_d.Profesional()));
@@ -121,6 +129,21 @@ public class PrimerosPasosBaseRealTests : IDisposable
     }
 
     [FactConBaseDePrimerosPasos]
+    public async Task La_recepcionista_del_modulo_CRM_tambien_revisa_los_formularios()
+    {
+        var (pac, informe, _) = Escenario();
+        var crm = DatosDePrueba.Cliente(_fabrica, _d.Usuario(), Roles.Crm);
+        var lista = await Json(await crm.GetAsync("/informes-admision-detalle"));
+        Assert.Contains(lista.EnumerateArray(), x => x.GetProperty("idInforme").GetInt32() == informe);
+        Assert.Equal(HttpStatusCode.OK, (await crm.PutAsJsonAsync($"/informes-admision/{informe}/devolver", new { confirmo = true, aclaracion = "Falta el motivo" })).StatusCode);
+        Assert.Equal("Devuelto", EstadoDe(informe));
+        // El Configurador solo (sin CRM) sigue sin poder revisar.
+        var configurador = DatosDePrueba.Cliente(_fabrica, _d.Usuario(), Roles.Configurador);
+        Assert.Equal(HttpStatusCode.Forbidden, (await configurador.PutAsJsonAsync($"/informes-admision/{informe}/aceptar", Confirmo)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await configurador.GetAsync("/informes-admision-detalle")).StatusCode);
+    }
+
+    [FactConBaseDePrimerosPasos]
     public async Task Aceptar_un_informe_que_no_existe_da_404()
     {
         var (_, _, recep) = Escenario();
@@ -185,7 +208,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     {
         var (pac, informe, recep) = Escenario();
         await recep.PutAsJsonAsync($"/informes-admision/{informe}/devolver", new { confirmo = true, aclaracion = "x" });
-        var otro = _d.Paciente();
+        var otro = NuevoPaciente();
         Assert.Equal(HttpStatusCode.Forbidden, (await Paciente(otro).PutAsJsonAsync($"/pacientes/{pac}/informe-admision", new { motivoConsulta = "x" })).StatusCode);
         Assert.Equal("Devuelto", EstadoDe(informe));
     }
@@ -234,7 +257,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task El_formulario_guarda_el_horario_y_los_profesionales_preferidos_y_la_recepcionista_los_ve()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var prof = _d.Profesional(nombre: "Marta");
         var esp = _d.Especialidad();
         var r = await Paciente(pac).PostAsJsonAsync("/informes-admision", Formulario(esp,
@@ -257,7 +280,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task El_me_da_igual_se_guarda_sin_profesionales_puntuales()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var r = await Paciente(pac).PostAsJsonAsync("/informes-admision", Formulario(_d.Especialidad(), null, new { cualquiera = true, ids = Array.Empty<int>() }));
         Assert.Equal(HttpStatusCode.Created, r.StatusCode);
         _d.AlLimpiar("InformeAdmision", "IdInforme", (await Json(r)).GetProperty("idInforme").GetInt32());
@@ -267,7 +290,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Preferencias_invalidas_se_rechazan_con_un_mensaje_claro_y_no_crean_el_formulario()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var paciente = Paciente(pac);
         var esp = _d.Especialidad();
 
@@ -291,7 +314,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Un_paciente_no_puede_mandar_dos_formularios()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var paciente = Paciente(pac);
         var primero = await paciente.PostAsJsonAsync("/informes-admision", Formulario(_d.Especialidad()));
         Assert.Equal(HttpStatusCode.Created, primero.StatusCode);
@@ -303,7 +326,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Los_profesionales_elegibles_traen_nombre_y_especialidad_y_no_al_admisionista_interno()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var prof = _d.Profesional(nombre: "Marta");
         var lista = await Json(await Paciente(pac).GetAsync("/profesionales/elegibles"));
         var fila = lista.EnumerateArray().Single(x => x.GetProperty("idProfesional").GetInt32() == prof);
@@ -361,7 +384,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Revocar_deja_la_constancia_no_borra_la_fila_y_deja_de_ser_vigente()
     {
-        var pac = _d.Paciente("Luis Perez " + _d.Marca);
+        var pac = NuevoPaciente("Luis Perez " + _d.Marca);
         _d.ConsentimientoFirmado(pac);
         var paciente = Paciente(pac);
         Assert.True((await Json(await paciente.GetAsync($"/pacientes/{pac}/consentimiento-telemedicina"))).GetProperty("firmado").GetBoolean());
@@ -389,7 +412,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Revocar_avisa_a_la_recepcionista_y_al_profesional_de_los_turnos_futuros_sin_cancelarlos()
     {
-        var pac = _d.Paciente("Luis Perez " + _d.Marca);
+        var pac = NuevoPaciente("Luis Perez " + _d.Marca);
         var prof = _d.Profesional();
         _d.ConsentimientoFirmado(pac);
         var futuro = _d.Turno(pac, prof, "Confirmado", DateTime.Today.AddDays(5), TimeSpan.FromHours(10));
@@ -415,9 +438,9 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Solo_el_propio_paciente_revoca_su_consentimiento()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         _d.ConsentimientoFirmado(pac);
-        var otro = _d.Paciente();
+        var otro = NuevoPaciente();
         Assert.Equal(HttpStatusCode.Forbidden, (await Paciente(otro).PostAsJsonAsync($"/pacientes/{pac}/consentimiento-telemedicina/revocar", Confirmo)).StatusCode);
         var profesional = _d.Profesional();
         var comun = DatosDePrueba.Cliente(_fabrica, _d.UsuarioDeProfesional(profesional), Roles.Profesional, idProfesional: profesional);
@@ -428,7 +451,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Revocado_el_paciente_puede_volver_a_firmar_y_queda_la_historia_de_firmas()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         _d.ConsentimientoFirmado(pac);
         var paciente = Paciente(pac);
         await paciente.PostAsJsonAsync($"/pacientes/{pac}/consentimiento-telemedicina/revocar", Confirmo);
@@ -445,7 +468,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Una_firma_de_hace_mas_de_un_ano_vence_se_pide_firmar_y_se_puede_volver_a_firmar()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var op = new ConsentimientoOptions();
         DatosDePrueba.Ejecutar(@"INSERT INTO Consentimiento (IdPaciente, IdTipoConsentimiento, Version, FechaFirma, Estado)
             SELECT @p, IdTipoConsentimiento, @v, DATEADD(MONTH, -13, GETDATE()), N'Activo' FROM TipoConsentimiento WHERE Descripcion = @t",
@@ -485,8 +508,8 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task Cada_paciente_ve_solo_sus_primeros_pasos()
     {
-        var pac = _d.Paciente();
-        var otro = _d.Paciente();
+        var pac = NuevoPaciente();
+        var otro = NuevoPaciente();
         Assert.Equal(HttpStatusCode.Forbidden, (await Paciente(otro).GetAsync($"/pacientes/{pac}/primeros-pasos")).StatusCode);
         var r = await Json(await Paciente(pac).GetAsync($"/pacientes/{pac}/primeros-pasos"));
         Assert.Equal(7, r.GetProperty("total").GetInt32());
@@ -496,7 +519,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     [FactConBaseDePrimerosPasos]
     public async Task La_hora_de_la_sesion_la_decide_el_servidor_y_el_boton_se_habilita_diez_minutos_antes()
     {
-        var pac = _d.Paciente();
+        var pac = NuevoPaciente();
         var prof = _d.Profesional();
         _d.ConsentimientoFirmado(pac);
         _d.PacienteProfesional(pac, prof);

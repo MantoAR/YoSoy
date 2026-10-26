@@ -28,6 +28,8 @@ public static class ConsentimientoEndpoints
                 firmado        = e.Vigente,
                 fechaFirma     = e.FechaFirma,
                 versionFirmada = e.Version,
+                // Vigencia anual: hasta cuándo vale la firma (null si no vence o no hay firma vigente).
+                venceEl        = e.Vigente && e.FechaFirma is DateTime firmada && op.VigenciaMeses > 0 ? firmada.AddMonths(op.VigenciaMeses) : (DateTime?)null,
                 tipo           = op.TipoRequerido,
                 versionTexto   = op.VersionTexto,
                 // Por qué no está vigente: sin-firma, vencido (pasó la vigencia anual), version-anterior (el texto cambió: hay que volver a firmar) o falta-tutor (un menor: lo firma su tutor).

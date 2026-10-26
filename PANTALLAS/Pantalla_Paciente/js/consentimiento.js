@@ -35,13 +35,14 @@ function mostrarMarca(texto) {
 
 // recienFirmado: la persona acaba de firmar en esta pantalla. Se le confirma con un título propio y lo que le habilita, y
 // el foco va al botón para volver (sin redirección automática: la confirmación tiene que poder leerse).
-function mostrarFirmado(fechaFirma, version, recienFirmado = false) {
+function mostrarFirmado(fechaFirma, version, recienFirmado = false, venceEl = null) {
     $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
     $("tituloFirmado").textContent = recienFirmado ? "Consentimiento firmado" : "Ya firmaste este consentimiento";
-    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (versionEsReal(version) ? ` (versión del texto: ${version}).` : ".");
+    $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)} hs` + (versionEsReal(version) ? ` (versión del texto: ${version})` : "") +
+        (venceEl ? `. Vale hasta el ${new Date(venceEl).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}.` : ".");
     $("ayudaFirmado").textContent = recienFirmado
         ? "Listo: ya podés confirmar tus turnos. Guardamos la fecha y la hora de tu firma."
-        : "No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.";
+        : "No hace falta volver a firmarlo. Si ya no querés darlo, podés revocarlo.";
     mostrar("yaFirmado");
     if (recienFirmado) {
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -67,13 +68,14 @@ async function cargar() {
         $("paciente").textContent = `Paciente: ${p.nombre} · DNI ${p.dni}`;
 
         mostrarMarca(estado.marcaProvisoria);
-        if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada); return; }
+        if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada, false, estado.venceEl); return; }
         versionTexto = estado.versionTexto;
         // Menor de edad: lo firma un tutor. Si el texto cambió de versión, hay que volver a firmarlo.
         const tutores = estado.esMenor ? (estado.tutores || []) : [];
         $("bloqueTutor").classList.toggle("oculto", tutores.length === 0);
         $("selTutor").innerHTML = tutores.map(t => `<option value="${t.idTutor}">${YS.esc(t.nombre)}${t.vinculo ? " (" + YS.esc(t.vinculo) + ")" : ""}</option>`).join("");
-        if (estado.motivo === "version-anterior") error("El texto del consentimiento cambió desde la última vez que lo firmaste. Leelo y volvé a firmarlo para seguir.");
+        if (estado.motivo === "vencido") error("Tu consentimiento venció (pasó más de un año desde que lo firmaste). Leelo y firmalo de nuevo para seguir.");
+        else if (estado.motivo === "version-anterior") error("El texto del consentimiento cambió desde la última vez que lo firmaste. Leelo y volvé a firmarlo para seguir.");
         else if (estado.esMenor && tutores.length === 0) error("Tu ficha no tiene cargado a ningún tutor. Pedile a Admisión que lo cargue para poder firmar.");
         $("versionTexto").textContent = versionTexto;
         $("lineaVersion").classList.toggle("oculto", !versionEsReal(versionTexto));
@@ -145,6 +147,33 @@ async function revocarSesion(operacion, titulo, mensaje) {
     await cargarSesiones();
 }
 
+// Revocar con constancia: la fila no se borra (queda quién firmó, cuándo y cuándo revocó). Mientras esté revocado no se asigna profesional ni se confirman turnos.
+async function revocar() {
+    const ok = await YS.confirmar({
+        titulo: "Revocar mi consentimiento",
+        mensaje: "Si lo revocás, no vamos a poder asignarte un profesional ni confirmar tus turnos hasta que vuelvas a firmarlo. Tus turnos ya confirmados no se cancelan solos: se le avisa a tu profesional. ¿Querés revocarlo?",
+        textoConfirmar: "Sí, revocar", textoCancelar: "No, mantenerlo", peligro: true
+    });
+    if (!ok) return;
+    error("");
+    const btn = $("btnRevocar");
+    btn.disabled = true;
+    try {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina/revocar`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmo: true })
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) { error(data.mensaje || "No se pudo revocar el consentimiento. Probá de nuevo."); return; }
+        YS.toast(data.mensaje || "Revocaste tu consentimiento.", "info", 6000);
+        await cargar();
+    } catch {
+        error("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.");
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+$("btnRevocar").addEventListener("click", revocar);
 $("btnFirmar").addEventListener("click", firmar);
 $("btnReintentar").addEventListener("click", cargar);
 cargar();

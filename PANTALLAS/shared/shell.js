@@ -15,6 +15,9 @@
     const YS = window.YS;
     if (!YS) { console.error("shell.js necesita shared/ui.js"); return; }
 
+    // Cómo se llama en pantalla el módulo CRM (la recepcionista). Solo el texto visible: el rol, los permisos y las rutas siguen siendo «crm».
+    const ETIQUETA_CRM = "Recepcionista";
+
     // ── Menús por rol: lo que cada rol ya puede hacer hoy ───────
     // Grupos de Configuración y Usuarios y la Auditoría: los comparten el menú del Configurador y el de Administración (una sola definición).
     const GRUPO_CONFIGURACION = {
@@ -60,7 +63,7 @@
             items: [
                 // En el orden en que lo recorre un paciente nuevo (la guía de primeros pasos de Inicio).
                 { id: "inicio", texto: "Inicio" },
-                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
+                { id: "admision", texto: YS.NOMBRE_FORMULARIO_ADMISION, titulo: YS.NOMBRE_FORMULARIO_ADMISION },
                 { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" },
                 {
                     texto: "Turnos", items: [
@@ -93,7 +96,8 @@
             etiqueta: "Administración",
             items: [
                 {
-                    texto: "CRM", items: [
+                    texto: ETIQUETA_CRM, items: [
+                        { id: "admisiones", texto: "Formularios", icono: "portapapeles", desc: "«Sobre mí» para revisar y asignar" },
                         { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
                         { id: "casosderivaciones", texto: "Derivaciones", icono: "flechas", desc: "Pendientes de confirmar un grupo y profesional" }
                     ]
@@ -105,11 +109,12 @@
             usuario: []
         },
         crm: {
-            etiqueta: "CRM y atención al cliente",
+            etiqueta: ETIQUETA_CRM,
             items: [
                 { id: "inicio", texto: "Inicio" },
                 {
                     texto: "Casos", items: [
+                        { id: "admisiones", texto: "Formularios", icono: "portapapeles", desc: "«Sobre mí» para revisar y asignar" },
                         { id: "casos", texto: "Casos", icono: "portapapeles", desc: "Casos derivados a un grupo y profesional" },
                         // id "casosderivaciones", no "derivaciones": ese id es Admisión > Solicitudes
                         // de cambio (tabla Derivacion, otro significado — ver CAMBIOS_AGUS.md, Fase 2).
@@ -131,7 +136,7 @@
     };
     // Administración: los ítems de conversaciones que se suman AL PRINCIPIO del grupo CRM (Chats y Leads primero).
     const ITEMS_CHATS_ADMINISTRACION = {
-        texto: "CRM", enGrupo: true, items: [
+        texto: ETIQUETA_CRM, enGrupo: true, items: [
             { id: "chats", texto: "Chats", icono: "chat", desc: "Conversaciones de WhatsApp con el equipo" },
             { id: "leads", texto: "Leads", icono: "pacientes", desc: "Todas las conversaciones: pacientes y personas sin identificar" },
             { id: "etiquetas", texto: "Etiquetas", icono: "etiqueta", desc: "Catálogo de etiquetas para conversaciones" },
@@ -148,7 +153,7 @@
     // panel de gestión (pagina: "gestion"); el resto del menú, en el panel profesional.
     const GRUPO_ADMISION = {
         texto: "Admisión", items: [
-            { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Informes y primera entrevista", pagina: "gestion" },
+            { id: "admisiones", texto: "Admisiones", icono: "portapapeles", desc: "Formularios para revisar y asignar", pagina: "gestion" },
             { id: "derivaciones", texto: "Solicitudes de cambio", icono: "flechas", desc: "Pedidos de cambio de profesional", pagina: "gestion" },
             { id: "asignaciones", texto: "Asignaciones", icono: "pacientes", desc: "Qué profesional atiende a cada paciente", pagina: "gestion" }
         ]
@@ -180,7 +185,7 @@
         if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
         if (rol === "administracion" && YS.sesion.tienePrivilegio("gestion_agendas")) {
             // Turnos y Agendas van dentro del grupo CRM, después de Derivaciones.
-            const crm = items.find(it => it.texto === "CRM");
+            const crm = items.find(it => it.texto === ETIQUETA_CRM);
             crm.items.push({ ...GRUPO_AGENDAS.items[0] }, { ...GRUPO_AGENDAS.items[1], texto: "Agendas" });
         }
         return { ...base, items };
@@ -501,8 +506,8 @@
         profesional: {
             titulo: "Avisos",
             async cargar() {
-                // Con el privilegio Admisión, primero las admisiones pendientes: hay que programar la entrevista
-                // dentro de las 24 horas de recibida la solicitud. Quedan en la campana mientras sigan pendientes.
+                // Con el privilegio Admisión, primero los formularios «Sobre mí» para revisar (aceptar, devolver u otro recurso).
+                // Quedan en la campana mientras sigan sin revisar.
                 const conAdmision = YS.sesion.tienePrivilegio("admision");
                 const [lista, informes] = await Promise.all([
                     YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`),
@@ -510,7 +515,7 @@
                 ]);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
-                const pendientes = informes.filter(a => a.estado === "Pendiente");
+                const pendientes = informes.filter(a => ["Pendiente", "En entrevista", "Rechazado"].includes(a.estado));   // los dos últimos son del camino viejo de la entrevista
                 const irAAdmisiones = () => {
                     if (cfg.pagina === "gestion") { location.hash = "#admisiones"; campana.ctrl.cerrar?.(); }
                     else location.href = YS.rutas.gestion + "#admisiones";
@@ -537,9 +542,9 @@
                         ...porResponder,
                         ...avisos,
                         ...pendientes.map(a => ({
-                            id: "adm-" + a.idInforme, titulo: "Admisión pendiente", noLeido: true,
-                            texto: `${a.nombrePaciente} · ${plazoEntrevista(a.fechaCreacion)}`,
-                            accion: { texto: "Ver admisiones", tipo: "primary", alClick: irAAdmisiones }
+                            id: "adm-" + a.idInforme, titulo: "Formulario para revisar", noLeido: true,
+                            texto: `${a.nombrePaciente} · Recibido el ${a.fechaCreacion} hs`,
+                            accion: { texto: "Revisar", tipo: "primary", alClick: irAAdmisiones }
                         })),
                         ...sinSala.map(t => ({
                             id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
@@ -559,17 +564,6 @@
     async function abrirAviso(ruta, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
         location.href = ruta;
-    }
-
-    // "Recibida el 23/10 09:30 · programar antes del 24/10 09:30" (o "fuera de plazo"): las 24 horas de la primera
-    // entrevista de admisión (Services/PlazoEntrevistaAdmision.cs). fechaCreacion viene como "dd/MM/yyyy HH:mm".
-    function plazoEntrevista(fechaCreacion) {
-        const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(fechaCreacion || "");
-        if (!m) return "Recibida " + (fechaCreacion || "");
-        const recibida = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
-        const limite = new Date(recibida.getTime() + 24 * 60 * 60 * 1000);
-        const corta = d => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-        return `Recibida el ${corta(recibida)} · ` + (Date.now() > limite.getTime() ? "fuera de plazo" : `programar antes del ${corta(limite)}`);
     }
 
     async function unirseSala(codigo, idNotif) {

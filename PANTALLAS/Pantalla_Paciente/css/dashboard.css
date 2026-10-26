@@ -272,3 +272,12 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 }
 .admision-realizada-icono svg { width: 18px; height: 18px; }
 .admision-realizada-titulo { color: var(--ok); }
+
+/* «Sobre mí»: días, franja y profesionales preferidos */
+.grupo-opciones { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 0; }
+.grupo-opciones legend { padding: 0 6px; font-weight: 600; color: var(--text); }
+.grupo-opciones-lista { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 6px; }
+.grupo-opciones-lista--columna { flex-direction: column; flex-wrap: nowrap; gap: 6px; max-height: 220px; overflow-y: auto; }
+
+/* Entrar a la sesión: gris hasta 10 minutos antes del turno */
+.pp-boton[disabled] { opacity: .55; cursor: not-allowed; }

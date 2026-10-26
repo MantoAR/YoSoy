@@ -23,6 +23,14 @@ public class PrimerosPasosTests
     }
 
     [Fact]
+    public void Sin_fecha_de_nacimiento_o_telefono_el_primer_paso_es_completar_los_datos()
+    {
+        var r = PrimerosPasos.Calcular(new DatosPrimerosPasos(Firmado, null, null, Array.Empty<TurnoPaso>(), PerfilCompleto: false), Ahora);
+        Assert.Equal("registro", r.PasoActual);
+        Assert.Equal(AccionTipo.CompletarDatos, r.Principal!.Tipo);
+    }
+
+    [Fact]
     public void Paciente_recien_registrado_su_unico_boton_es_firmar_el_consentimiento()
     {
         var r = Calcular(SinFirma);
