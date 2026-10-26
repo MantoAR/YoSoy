@@ -125,6 +125,9 @@
         .cierre-mensaje { font-size: var(--fs-sm); color: var(--danger); }
         .cierre-resultado { border: 1px solid var(--ok-border, var(--border)); background: var(--ok-bg, var(--surface-2)); border-radius: var(--r-md); padding: 10px 12px; }
         .cierre-resultado ul { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-md); color: var(--text-2); }
+        .borrador-estado { font-size: var(--fs-xs); color: var(--text-3); margin: 2px 0 0; }
+        .borrador-estado.alerta { color: var(--danger); }
+        .borrador-recuperar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .proximo-turno { display: flex; flex-direction: column; gap: 10px; }
         .proximo-dias { display: flex; flex-wrap: wrap; gap: 12px; }
         .proximo-dia { min-width: 150px; }
@@ -237,7 +240,13 @@
             <div class="card">
                 <h3>Evolución clínica</h3>
                 <div class="evolucion-box">
+                    <div id="borrador-recuperar" class="cierre-aviso borrador-recuperar oculto" role="alert">
+                        <span id="borrador-recuperar-texto"></span>
+                        <button type="button" class="btn-verde" onclick="seguirConBorrador()">Seguir con el borrador</button>
+                        <button type="button" class="btn-gris" onclick="descartarBorrador()">Descartar</button>
+                    </div>
                     <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
+                    <div id="borrador-estado" class="borrador-estado" role="status" aria-live="polite"></div>
                 </div>
             </div>
         </div>
@@ -305,6 +314,7 @@
     <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="../shared/ui.js"></script>
+<script src="../shared/borrador.js"></script>
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
 <script src="../shared/emociones.js"></script>
@@ -529,6 +539,9 @@ async function entrarASala() {
     analisis?.detener();
     analisis = YS.emociones.analizar({ sesion: sesionVideo, alCambiar: alCambiarPermiso });
     analisis.iniciar();
+
+    // 2c. Borrador de la nota: se mira si quedó uno de esta sesión y desde acá se guarda lo que se escribe (cifrado, en este equipo).
+    iniciarBorrador();
 
     // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
     // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
@@ -885,6 +898,7 @@ function elegirRealizo(valor) {
     document.getElementById('cierre-ayuda-realizo').textContent = ayuda[valor];
     mensajeCierre('');
     actualizarCierre();
+    programarBorrador();
 }
 
 // ─── TIPO DE CIERRE ───────────────────────────────────────
@@ -898,6 +912,7 @@ function seleccionarCierre(tipo) {
     mostrarAvisoDelTipo();
     resaltarProximoTurno();
     actualizarCierre();
+    programarBorrador();
 }
 
 // Alta y derivación NO se hacen acá: solo queda registrado el tipo de cierre. Se avisa que falta completarlo y se da el acceso a la
@@ -946,6 +961,123 @@ function anotarEvolucion() {
     nota.focus({ preventScroll: true });
 }
 
+// ─── BORRADOR LOCAL DE LA NOTA ────────────────────────────
+// Lo que se escribe se guarda en ESTE equipo, cifrado (shared/borrador.js), para que una recarga o un cierre de pestaña no lo pierdan.
+// Es un BORRADOR: no es una evolución ni una firma, no se manda al servidor durante la llamada y se descarta al guardar el cierre.
+// Se guardan la nota, el tipo de cierre, la respuesta de «¿se realizó?» y la clave del cierre; no la transcripción ni las emociones.
+let claveBorrador = null;      // cierre:{usuario}:{origen}:{id}: un borrador por usuario y por sesión
+let borradorOk = false;        // se pudo abrir el almacenamiento cifrado de este equipo
+let borradorTimer = null;
+let borradorPendiente = false; // hay un borrador anterior y todavía no se decidió qué hacer con él
+let borradorRecuperado = null;
+const idUsuarioLocal = () => localStorage.getItem('idUsuario');
+const horaDelBorrador = ms => new Date(ms).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function estadoBorrador(texto, alerta = false) {
+    const el = document.getElementById('borrador-estado');
+    el.textContent = texto;
+    el.classList.toggle('alerta', alerta);
+}
+
+async function iniciarBorrador() {
+    if (!sesionVideo) return;
+    claveBorrador = `cierre:${idUsuarioLocal()}:${sesionVideo.origen}:${sesionVideo.id}`;
+    claveCierre = claveCierre || nuevaClaveCierre();
+    const B = window.YS && YS.borrador;
+    let ok = false;
+    try { ok = !!B && await B.disponible(); } catch { ok = false; }
+    if (!ok) {
+        // No se finge: sin almacenamiento cifrado no hay borrador, y el aviso del navegador al cerrar sigue siendo la única red.
+        estadoBorrador('No se pudo guardar el borrador en este equipo (el navegador no lo permite). Si cerrás o recargás la pestaña antes de guardar, lo que escribiste se pierde.', true);
+        return;
+    }
+    borradorOk = true;
+    try { await B.purgarVencidos(); } catch { /* una purga que falla no impide trabajar */ }
+    let previo = null;
+    try { previo = await B.leer(idUsuarioLocal(), claveBorrador); } catch { previo = null; }
+    if (previo && previo.datos) {
+        // No se aplica solo: se pregunta. Hasta decidir, la caja de la nota queda bloqueada para no pisar nada.
+        borradorRecuperado = previo;
+        borradorPendiente = true;
+        document.getElementById('notas-evolucion').disabled = true;
+        document.getElementById('borrador-recuperar-texto').textContent = `Recuperaste un borrador de esta sesión del ${horaDelBorrador(previo.guardadoEn)}.`;
+        document.getElementById('borrador-recuperar').classList.remove('oculto');
+        estadoBorrador('Elegí qué hacer con el borrador anterior para seguir escribiendo.');
+        return;
+    }
+    estadoBorrador('Borrador en este equipo: se guarda mientras escribís. Todavía no está en la historia clínica.');
+}
+
+function resolverBorradorPendiente() {
+    borradorPendiente = false;
+    borradorRecuperado = null;
+    document.getElementById('borrador-recuperar').classList.add('oculto');
+    const nota = document.getElementById('notas-evolucion');
+    nota.disabled = false;
+    nota.focus({ preventScroll: true });
+}
+
+function seguirConBorrador() {
+    const d = (borradorRecuperado && borradorRecuperado.datos) || {};
+    document.getElementById('notas-evolucion').value = d.notas || '';
+    if (d.claveCierre) claveCierre = d.claveCierre;
+    if (d.tipoCierre) seleccionarCierre(d.tipoCierre);
+    if (d.decision) {
+        const radio = document.querySelector(`input[name="cierre-realizo"][value="${d.decision}"]`);
+        if (radio) { radio.checked = true; elegirRealizo(d.decision); }
+    }
+    const cuando = borradorRecuperado ? horaDelBorrador(borradorRecuperado.guardadoEn) : '';
+    resolverBorradorPendiente();
+    estadoBorrador(`Seguís con el borrador del ${cuando}. Todavía no está en la historia clínica.`);
+    if (!salaFinalizada || salaSigueEnUso()) iniciarAvisoDeActividad();
+}
+
+async function descartarBorrador() {
+    try { await YS.borrador.borrar(idUsuarioLocal(), claveBorrador); } catch { /* si no se pudo borrar, igual deja de ofrecerse */ }
+    resolverBorradorPendiente();
+    estadoBorrador('Borrador descartado. Lo que escribas desde ahora se guarda como un borrador nuevo.');
+}
+
+// El guardado es diferido (2 s sin escribir) y también al salir de la caja: no se cifra en cada tecla.
+function programarBorrador() {
+    if (!borradorOk || cierreGuardado) return;
+    clearTimeout(borradorTimer);
+    borradorTimer = setTimeout(guardarBorrador, 2000);
+}
+
+async function guardarBorrador() {
+    clearTimeout(borradorTimer);
+    if (!borradorOk || borradorPendiente || cierreGuardado) return;
+    const notas = document.getElementById('notas-evolucion').value;
+    try {
+        if (!notas.trim() && !tipoCierreSeleccionado && !decisionRealizo) {
+            await YS.borrador.borrar(idUsuarioLocal(), claveBorrador);   // nada que conservar
+            estadoBorrador('Borrador en este equipo: se guarda mientras escribís. Todavía no está en la historia clínica.');
+            return;
+        }
+        const cuando = await YS.borrador.guardar(idUsuarioLocal(), claveBorrador,
+            { notas, tipoCierre: tipoCierreSeleccionado, decision: decisionRealizo, claveCierre });
+        estadoBorrador(`Borrador guardado en este equipo · ${new Date(cuando).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}. Todavía no está en la historia clínica.`);
+    } catch {
+        borradorOk = false;
+        estadoBorrador('No se pudo guardar el borrador en este equipo. Si cerrás o recargás la pestaña antes de guardar, lo que escribiste se pierde.', true);
+    }
+}
+
+// El cierre quedó en la historia clínica: el borrador ya no hace falta.
+async function descartarBorradorGuardado(texto) {
+    clearTimeout(borradorTimer);
+    const habia = borradorOk;
+    borradorOk = false;
+    if (habia) { try { await YS.borrador.borrar(idUsuarioLocal(), claveBorrador); } catch { /* si no se pudo, vence solo a las 72 horas */ } }
+    estadoBorrador(texto);
+}
+
+document.getElementById('notas-evolucion').addEventListener('input', programarBorrador);
+document.getElementById('notas-evolucion').addEventListener('blur', guardarBorrador);
+// Para quien aloja la sala en un iframe (el panel principal): ¿hay algo que se perdería al salir de la sala?
+window.ysCierrePendiente = () => !cierreGuardado && (hayNotasSinGuardar() || panelDeCierreAbierto);
+
 // ─── PRÓXIMO TURNO ────────────────────────────────────────
 // El selector abre con el paciente y el profesional ya cargados y muestra los horarios que el paciente vería al reservar (los mismos
 // de «Mis horarios»). «Enviar propuesta» crea un turno PENDIENTE a nombre del profesional y le avisa al paciente: el turno recién queda
@@ -972,7 +1104,7 @@ function resaltarProximoTurno() {
     const sugerido = tipoCierreSeleccionado === 'Seguimiento' && !proximoTurnoEnviado;
     btn.classList.toggle('sugerido', sugerido);
     btn.title = sugerido ? 'Sugerido: el paciente sigue en seguimiento' : '';
-    if (sugerido && !proximoAbiertoAMano) alternarProximoTurno(true);
+    if (sugerido && !proximoAbiertoAMano && !document.getElementById('panel-cierre').classList.contains('oculto')) alternarProximoTurno(true);
 }
 
 async function cargarHorariosProximo() {
@@ -1152,6 +1284,7 @@ async function guardarEnHC() {
         guardadoEnHC = true;
         soltarAvisoSiNoHaceFalta();
         cierreGuardado = true;
+        descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');
         mostrarResultadoDelCierre(r, motivo, emociones);
         // HOOK: lo que sigue después del cierre (seguimiento, alta o derivación). La feature de alta / derivación se engancha a este evento.
         document.dispatchEvent(new CustomEvent('ys:cierre-guardado', { detail: r.siguientePaso }));
@@ -1159,7 +1292,7 @@ async function guardarEnHC() {
         // El botón sigue habilitado: se puede reintentar (con la misma clave) sin duplicar nada.
         btn.disabled = false;
         const m = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
-            : err.status === 0 ? 'No se pudo conectar con el servidor. No se perdió lo que escribiste: volvé a tocar «Guardar cierre» y no se duplica nada.'
+            : err.status === 0 ? 'No se pudo conectar con el servidor. ' + (borradorOk ? 'Tu borrador sigue en este equipo: ' : 'Lo que escribiste sigue en esta pantalla: ') + 'volvé a tocar «Guardar cierre» y no se duplica nada.'
             : err.message;
         mensajeCierre(m);
         toast('❌ No se pudo guardar el cierre. ' + m, 8000);

@@ -137,4 +137,65 @@ public class CierreSesionPantallaTests
         // Y dice que queda pendiente hasta que el paciente lo acepte.
         Assert.Contains("Queda pendiente hasta que la acepte.", sala);
     }
+
+    // ───────────── Borrador local ─────────────
+
+    [Fact]
+    public void El_borrador_vive_solo_en_el_equipo_nada_se_manda_al_servidor_mientras_se_escribe()
+    {
+        var sala = Sala;
+        var crudo = sala[sala.IndexOf("// ─── BORRADOR LOCAL DE LA NOTA", StringComparison.Ordinal)..sala.IndexOf("// ─── PRÓXIMO TURNO", StringComparison.Ordinal)];
+        var bloque = string.Join("\n", crudo.Split('\n').Where(l => !l.TrimStart().StartsWith("//")));   // el código, sin los comentarios que explican lo que NO hace
+
+        Assert.DoesNotContain("YS.api", bloque);
+        Assert.DoesNotContain("fetch(", bloque);
+        Assert.DoesNotContain("localStorage.setItem", bloque);                // el texto va cifrado a IndexedDB, nunca en claro a localStorage
+        Assert.Contains("YS.borrador.guardar(idUsuarioLocal(), claveBorrador,", bloque);
+        // Qué se guarda: nota, tipo, decisión y clave. No la transcripción ni las emociones.
+        Assert.Contains("{ notas, tipoCierre: tipoCierreSeleccionado, decision: decisionRealizo, claveCierre }", bloque);
+        Assert.DoesNotContain("transcripcion", bloque, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("emociones", bloque, StringComparison.OrdinalIgnoreCase);
+        // Un borrador no es una firma ni una evolución.
+        Assert.DoesNotContain("firm", bloque, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Todavía no está en la historia clínica", bloque);
+        Assert.Contains("<script src=\"../shared/borrador.js\"></script>", sala);
+    }
+
+    [Fact]
+    public void Un_borrador_anterior_se_ofrece_y_no_se_aplica_solo_y_el_guardado_lo_descarta()
+    {
+        var sala = Sala;
+        var iniciar = Funcion(sala, "async function iniciarBorrador() {");
+
+        // Hasta decidir, la caja de la nota queda bloqueada: no se pisa nada.
+        Assert.Contains("document.getElementById('notas-evolucion').disabled = true;", iniciar);
+        Assert.Contains("Recuperaste un borrador de esta sesión del", iniciar);
+        Assert.DoesNotContain(".value =", iniciar);                              // aplicarlo es una acción aparte (seguirConBorrador)
+        Assert.Contains("onclick=\"seguirConBorrador()\"", sala);
+        Assert.Contains("onclick=\"descartarBorrador()\"", sala);
+        // Sin almacenamiento cifrado no se finge: se dice.
+        Assert.Contains("No se pudo guardar el borrador en este equipo", iniciar);
+        // Un cierre guardado descarta el borrador.
+        Assert.Contains("descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');", Funcion(sala, "async function guardarEnHC() {"));
+        // El borrador se arranca al entrar a la sala, antes de abrirla.
+        Assert.Matches(@"analisis\.iniciar\(\);\s*// 2c\.[^\n]*\n\s*iniciarBorrador\(\);", sala);
+    }
+
+    [Fact]
+    public void Cerrar_sesion_pregunta_antes_de_descartar_borradores_y_vencer_por_inactividad_no_los_borra()
+    {
+        var ui = File.ReadAllText(Path.Combine(Raiz, "PANTALLAS", "shared", "ui.js"));
+        var borrador = File.ReadAllText(Path.Combine(Raiz, "PANTALLAS", "shared", "borrador.js"));
+        var sesionJs = File.ReadAllText(Path.Combine(Raiz, "PANTALLAS", "js", "sesion.js"));
+        var panel = File.ReadAllText(Path.Combine(Raiz, "PANTALLAS", "Pantalla_Profesional", "nuevo_dashboard.html"));
+
+        Assert.Contains("YS.borradorAlCerrarSesion && !await YS.borradorAlCerrarSesion(localStorage.getItem(\"idUsuario\"))", ui);
+        Assert.True(ui.IndexOf("borradorAlCerrarSesion", StringComparison.Ordinal) < ui.IndexOf("YS.sesion.limpiar();\n            location.href = YS.rutas.login;", StringComparison.Ordinal)
+                    || ui.Replace("\r\n", "\n").IndexOf("borradorAlCerrarSesion", StringComparison.Ordinal) < ui.Replace("\r\n", "\n").IndexOf("YS.sesion.limpiar();\n            location.href = YS.rutas.login;", StringComparison.Ordinal));
+        Assert.Contains("<script src=\"../shared/borrador.js\"></script>", panel);          // el panel principal también lo carga: ahí está el botón de cerrar sesión
+        // La expiración por inactividad solo limpia localStorage (YS.sesion.limpiar), que no toca IndexedDB: el borrador sobrevive.
+        Assert.DoesNotContain("indexedDB", sesionJs);
+        Assert.DoesNotContain("YS.borrador", sesionJs);
+        Assert.Contains("indexedDB", borrador);
+    }
 }
