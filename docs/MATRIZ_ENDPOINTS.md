@@ -143,6 +143,8 @@ cambiaron). Cómo se lee la columna "Ahora":
 | GET | `/reportes/profesional/{id}/sesiones-por-mes` | público | Profesional |
 | GET | `/sesion/yo` | — | con sesión |
 | POST | `/sesiones-clinicas` | Profesional, Configurador | Profesional |
+| GET | `/sesiones-clinicas/{id}/evoluciones-vinculables` | — | Profesional |
+| PUT | `/sesiones-clinicas/{id}/evolucion` | — | Profesional |
 | GET | `/turnos` | Configurador | CRM con Gestión de agendas |
 | POST | `/turnos/profesional-solicitar` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |
 | DELETE | `/turnos/{id}` | Configurador | CRM con Gestión de agendas |
@@ -318,7 +320,9 @@ la repita (a diferencia de chats, esta parte de la app no tiene actualización e
 | GET | `/eventoscrisis/{id}` | Profesional, Configurador | **Sí — 404** | |
 | GET | `/pacientes/{id}/eventoscrisis` | Profesional, Configurador | **Sí — 404** | **Auditada.** |
 | POST/PUT | `/eventoscrisis[/{id}]` | Profesional, Configurador | **Sí — 403/404** | |
-| POST | `/sesiones-clinicas` | Profesional, Configurador | **Sí — 403** | El `IdProfesional` sale del token si quien crea es Profesional (Paso 3, mismo criterio que turnos) — nunca del cuerpo. **PR 6:** las emociones llegan en `emociones` (ya no en `historialEmociones`, que se ignora) y solo se guardan, **cifradas**, con una aceptación vigente del paciente de esa sesión de video y si el servidor las valida; si no, la sesión se guarda igual sin emociones y la respuesta dice por qué (`emociones.estado`/`motivo`). Ver `docs/VIDEOLLAMADAS.md`. |
+| POST | `/sesiones-clinicas` | Profesional, Configurador | **Sí — 403** | El `IdProfesional` sale del token si quien crea es Profesional (Paso 3, mismo criterio que turnos) — nunca del cuerpo. **PR 6:** las emociones llegan en `emociones` (ya no en `historialEmociones`, que se ignora) y solo se guardan, **cifradas**, con una aceptación vigente del paciente de esa sesión de video y si el servidor las valida; si no, la sesión se guarda igual sin emociones y la respuesta dice por qué (`emociones.estado`/`motivo`). Ver `docs/VIDEOLLAMADAS.md`. **Cierre de sesión (migración 26):** con `claveCierre` o `confirmaRealizacion` guarda la sesión, pasa el turno de Confirmado a Realizado (solo con `confirmaRealizacion: true`, del profesional del turno) y el caso de Asignado a En atención (primera sesión) **en una sola transacción**, idempotente por clave, con auditoría; rechazos 400/403/404/409 con `{codigo, mensaje}`. Sin esos campos, igual que antes. Ver `docs/CIERRE_SESION.md`. |
+| GET | `/sesiones-clinicas/{id}/evoluciones-vinculables` | Profesional | **Solo el profesional de la sesión — 404** | **Auditada.** Evoluciones del mismo paciente, del mismo profesional y del mismo día que la sesión, sin vincular (id, fecha y los primeros 80 caracteres). 409 `falta-migracion-26` sin la migración. |
+| PUT | `/sesiones-clinicas/{id}/evolucion` | Profesional | **Solo el profesional de la sesión — 404** | Vincula la sesión con una evolución (`{ "idEvolucion": n }`), **no modifica ni crea** la evolución. Idempotente (`200`, `yaEstaba`). 409: `evolucion-no-coincide`, `sesion-ya-vinculada`, `evolucion-ya-vinculada`. Auditado. |
 | GET | `/pacientes/{id}/sesiones-clinicas` | Profesional, Configurador | **Sí — 404** | **Auditada.** **PR 6:** al profesional se le devuelven las emociones descifradas; **al Configurador no** (`historialEmociones` y `emociones` en `null`). |
 | GET | `/profesionales/{id}/sesiones-clinicas` | Profesional, Configurador | **Propio o Configurador — 403** | No es por paciente: es "mis propias sesiones". **PR 6:** igual que la anterior, el Configurador no recibe emociones. |
 | GET | `/interaccionesia` | Configurador | — | Volcado completo. Sin uso real (ver arriba). |
