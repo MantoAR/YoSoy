@@ -25,7 +25,10 @@ public static class VideoServiceCollectionExtensions
         services.AddSingleton<IAuditoriaEmociones, AuditoriaEmociones>();
         services.AddSingleton<IEmocionesCifrado, EmocionesCifradoService>();
         services.AddSingleton<ITextoConsentimientoVideo, TextoConsentimientoVideo>();
+        services.AddSingleton<IAceptacionVideollamadaRepositorio, AceptacionVideollamadaDAO>();
+        services.AddSingleton<IAuditoriaAceptacionVideo, AuditoriaAceptacionVideo>();
         services.AddSingleton<ConsentimientoVideoService>();
+        services.AddSingleton<AceptacionVideollamadaService>();
         services.AddSingleton<GuardiaEmocionesService>();
         services.AddSingleton<VistaSesionesClinicas>();
         services.AddSingleton<PurgaEmocionesBackgroundService>();

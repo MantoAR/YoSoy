@@ -25,6 +25,45 @@ public class FakeOrigenSala : IOrigenSalaRepositorio
     public AdmisionParaSala? ObtenerAdmision(int idInforme) => Admisiones.GetValueOrDefault(idInforme);
 }
 
+/// <summary>
+/// La aceptación de la videollamada en memoria. Por defecto NO se exige (Exigida = false: como una base sin la migración 28), así que las pruebas de la sala de antes siguen igual;
+/// las que prueban la aceptación la prenden con Exigida = true.
+/// </summary>
+public sealed class FakeAceptacionVideo : IAceptacionVideollamadaRepositorio
+{
+    public bool Exigida;
+    public readonly List<AceptacionVideoFila> Filas = new();
+    private int _siguiente = 1;
+
+    public bool Disponible() => Exigida;
+
+    public AceptacionVideoFila? Ultima(string origen, int idOrigen, int idPaciente)
+    {
+        lock (Filas) return Filas.Where(f => f.Origen == origen && f.IdOrigen == idOrigen && f.IdPaciente == idPaciente).OrderByDescending(f => f.IdAceptacion).FirstOrDefault();
+    }
+
+    public AceptacionVideoFila Insertar(int idUsuario, int idPaciente, string origen, int idOrigen, string versionTexto, string hashTexto, DateTime decididoUtc)
+    {
+        lock (Filas)
+        {
+            var f = new AceptacionVideoFila(_siguiente++, idUsuario, idPaciente, origen, idOrigen, versionTexto, decididoUtc, null);
+            Filas.Add(f);
+            return f;
+        }
+    }
+
+    public bool Revocar(int idAceptacion, DateTime revocadoUtc, int idUsuario)
+    {
+        lock (Filas)
+        {
+            var i = Filas.FindIndex(f => f.IdAceptacion == idAceptacion && f.RevocadoUtc is null);
+            if (i < 0) return false;
+            Filas[i] = Filas[i] with { RevocadoUtc = revocadoUtc };
+            return true;
+        }
+    }
+}
+
 public class FakeAuditoriaVideo : IAuditoriaVideo
 {
     public record Registro(int IdUsuario, string Origen, int IdOrigen, string Rol, ResultadoAcceso Resultado);
@@ -106,6 +145,7 @@ public sealed class VideoApp : IDisposable
 
     public readonly FakeOrigenSala Origen = new();
     public readonly FakeAuditoriaVideo Auditoria = new();
+    public readonly FakeAceptacionVideo Aceptaciones = new();
     public readonly LogsCapturados Logs = new();
     public readonly RelojFijo Reloj;
     public readonly WebApplicationFactory<Program> Factory;
@@ -146,6 +186,9 @@ public sealed class VideoApp : IDisposable
                     s.RemoveAll<IAuditoriaVideo>();
                     s.AddSingleton<IAuditoriaVideo>(Auditoria);
                 }
+                // La aceptación de la videollamada: en memoria y sin exigir (como una base sin la migración 28), salvo que la prueba la prenda.
+                s.RemoveAll<IAceptacionVideollamadaRepositorio>();
+                s.AddSingleton<IAceptacionVideollamadaRepositorio>(Aceptaciones);
                 s.RemoveAll<AccesoSalaService>();
                 s.AddSingleton(sp => new AccesoSalaService(sp.GetRequiredService<IOrigenSalaRepositorio>(), Reloj,
                     sp.GetRequiredService<IOptionsMonitor<VideoOptions>>(), sp.GetRequiredService<ILogger<AccesoSalaService>>()));

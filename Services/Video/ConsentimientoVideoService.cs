@@ -28,7 +28,9 @@ public record ResultadoConsentimiento(TipoResultado Tipo, string Codigo, string 
 
 /// <summary>Lo que la pantalla del profesional necesita para saber si puede analizar, y cuánto vale la respuesta.</summary>
 public record PermisoEmociones(bool Permitido, string Estado, string? Motivo, DateTime? DesdeUtc, DateTime? RevocadoUtc,
-    DateTime AhoraUtc, int ConsultarCadaSegundos, int VigenciaSegundos, string? Version);
+    DateTime AhoraUtc, int ConsultarCadaSegundos, int VigenciaSegundos, string? Version,
+    // Lo que el paciente aceptó de la videollamada de esta sesión (migración 28): lo muestra el indicador discreto del profesional y, si la revocó, su pantalla cierra el video.
+    bool VideoExigido = false, string VideoEstado = "acepta", DateTime? VideoRevocadoUtc = null);
 
 public record ResultadoPermiso(TipoResultado Tipo, string Codigo, string Mensaje, PermisoEmociones? Permiso = null)
 {
@@ -54,14 +56,25 @@ public class ConsentimientoVideoService
     private readonly IAuditoriaEmociones _auditoria;
     private readonly TimeProvider _reloj;
     private readonly IOptionsMonitor<VideoOptions> _opciones;
+    // La aceptación de la videollamada de la sesión (migración 28): sin ella no hay lectura de emociones. null (o sin la migración): no se exige, como antes.
+    private readonly IAceptacionVideollamadaRepositorio? _video;
 
     public ConsentimientoVideoService(IConsentimientoVideoRepositorio repo, IOrigenSalaRepositorio origen,
         AccesoSalaService acceso, ITextoConsentimientoVideo textos, IEmocionesCifrado cifrado,
-        IAuditoriaEmociones auditoria, TimeProvider reloj, IOptionsMonitor<VideoOptions> opciones)
+        IAuditoriaEmociones auditoria, TimeProvider reloj, IOptionsMonitor<VideoOptions> opciones,
+        IAceptacionVideollamadaRepositorio? video = null)
     {
         _repo = repo; _origen = origen; _acceso = acceso; _textos = textos; _cifrado = cifrado;
-        _auditoria = auditoria; _reloj = reloj; _opciones = opciones;
+        _auditoria = auditoria; _reloj = reloj; _opciones = opciones; _video = video;
     }
+
+    /// <summary>true si el paciente de esa sesión todavía no aceptó la videollamada (y la base la exige). Sin video no hay lectura de emociones.</summary>
+    public bool FaltaAceptarVideo(string origen, int idOrigen, int idPaciente) =>
+        _video is not null && _video.Disponible() && _video.Ultima(origen, idOrigen, idPaciente) is not { RevocadoUtc: null };
+
+    /// <summary>El paciente de ESA sesión y nadie más (misma regla que el consentimiento de emociones); la usa también la aceptación de la videollamada.</summary>
+    public ResultadoConsentimiento? ValidarPacienteDeLaSesion(Identidad yo, string origen, int id, bool exigirVentana, out SesionDeVideo? ses) =>
+        ValidarPaciente(yo, origen, id, exigirVentana, out ses);
 
     // ───────────────────────── Paciente ─────────────────────────
 
@@ -88,6 +101,10 @@ public class ConsentimientoVideoService
         var texto = _textos.Actual();
         var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto);
         if (!disponible) return Error(TipoResultado.Conflicto, motivo!, MensajeNoDisponible(motivo!));
+
+        // La lectura de emociones va encima del video: primero se acepta la videollamada de esta sesión.
+        if (d == Acepta && FaltaAceptarVideo(ses.Origen, ses.Id, ses.IdPaciente))
+            return Error(TipoResultado.Conflicto, "aceptacion-video-pendiente", "Para permitir la lectura de tus expresiones primero tenés que aceptar la videollamada.");
 
         // La persona tiene que haber leído ESTE texto: si cambió mientras tanto, vuelve a leerlo.
         if (!string.Equals(version, texto!.Version, StringComparison.Ordinal))
@@ -156,9 +173,13 @@ public class ConsentimientoVideoService
 
         var e = _opciones.CurrentValue.Emociones;
         var ahora = _reloj.GetUtcNow().UtcDateTime;
+        var videoExigido = _video is not null && _video.Disponible();
+        var videoFila = videoExigido ? _video!.Ultima(ses.Origen, ses.Id, ses.IdPaciente) : null;
+        var videoEstado = !videoExigido ? "acepta" : videoFila is null ? "pendiente" : videoFila.RevocadoUtc is null ? "acepta" : "revocada";
         PermisoEmociones Armar(bool permitido, string estado, string? motivo, ConsentimientoVideoFila? f) => new(
             permitido, estado, motivo, f?.DecididoUtc, f?.RevocadoUtc, ahora,
-            Math.Clamp(e.ConsultaCadaSegundos, 1, 60), Math.Clamp(e.VigenciaSegundos, 2, 300), f?.VersionTexto);
+            Math.Clamp(e.ConsultaCadaSegundos, 1, 60), Math.Clamp(e.VigenciaSegundos, 2, 300), f?.VersionTexto,
+            videoExigido, videoEstado, videoFila?.RevocadoUtc);
 
         var (disponible, motivoNoDisponible) = Disponibilidad(ses.IdPaciente, _textos.Actual());
         if (!disponible)
@@ -166,6 +187,8 @@ public class ConsentimientoVideoService
 
         var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
         var estado = EstadoDe(ultimo);
+        // Sin la videollamada aceptada (o con ella revocada) no se analiza nada, aunque las emociones hubieran quedado aceptadas.
+        if (videoEstado != "acepta") return Permitido(Armar(false, NoDisponible, "video-no-aceptado", ultimo));
         return Permitido(Armar(estado == Acepta, estado, estado == Acepta || estado == SinDecision ? null : estado, ultimo));
     }
 

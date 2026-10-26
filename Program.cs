@@ -2670,6 +2670,7 @@ app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapVideo();
 app.MapConsentimientoVideo();
+app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 

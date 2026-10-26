@@ -132,7 +132,7 @@ public class ConsentimientoVideoEndpointsTests
         var (rPermiso, permiso) = await Pedir(profesional, HttpMethod.Get, UrlPermiso);
         Assert.Equal(HttpStatusCode.OK, rPermiso.StatusCode);
         Assert.Equal("no-store", rPermiso.Headers.CacheControl?.ToString());
-        Assert.Equal(new[] { "ahoraUtc", "consultarCadaSegundos", "desdeUtc", "estado", "motivo", "permitido", "revocadoUtc", "version", "vigenciaSegundos" }, Nombres(permiso));
+        Assert.Equal(new[] { "ahoraUtc", "consultarCadaSegundos", "desdeUtc", "estado", "motivo", "permitido", "revocadoUtc", "version", "video", "vigenciaSegundos" }, Nombres(permiso));
         Assert.True(permiso.GetProperty("permitido").GetBoolean());
         Assert.Equal("acepta", permiso.GetProperty("estado").GetString());
         Assert.Equal(3, permiso.GetProperty("consultarCadaSegundos").GetInt32());

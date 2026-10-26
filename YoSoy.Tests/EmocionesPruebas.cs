@@ -74,6 +74,19 @@ public class FakeAuditoriaEmociones : IAuditoriaEmociones
 // Todo armado para probar las reglas sin base ni HTTP. Las mismas personas y el mismo turno que VideoApp: el turno 1
 // (paciente 301 / usuario 31, profesional 201 / usuario 21) empieza el martes 4/3/2031 10:00 UTC y dura 30 minutos, así
 // que la sala abre 09:50 y cierra 11:00; el informe de admisión 5 es del mismo paciente y a la misma hora.
+public class FakeNotificacionInterna : INotificacionInternaDAO
+{
+    public readonly List<NotificacionInterna> Enviadas = new();
+    public int Insertar(NotificacionInterna n) { Enviadas.Add(n); return Enviadas.Count; }
+}
+
+public class FakeAuditoriaAceptacion : IAuditoriaAceptacionVideo
+{
+    public readonly List<(int IdUsuario, string Origen, int IdOrigen, string Decision, string Version, int IdAceptacion)> Registros = new();
+    public void Registrar(int idUsuario, string origen, int idOrigen, string decision, string version, int idAceptacion) =>
+        Registros.Add((idUsuario, origen, idOrigen, decision, version, idAceptacion));
+}
+
 public sealed class EscenarioEmociones
 {
     public const int IdTurno = 1, IdInforme = 5;
@@ -100,6 +113,12 @@ public sealed class EscenarioEmociones
     public readonly AccesoSalaService Acceso;
     public readonly ConsentimientoVideoService Consentimiento;
     public readonly GuardiaEmocionesService Guardia;
+    // La aceptación de la videollamada (migración 28), en memoria: sin exigir por defecto, igual que una base sin la migración.
+    public readonly FakeAceptacionVideo Video = new();
+    public readonly FakeNotificacionInterna Avisos = new();
+    public readonly FakeAuditoriaAceptacion AuditoriaVideo = new();
+    public readonly OpcionesFijas<ConsentimientoOptions> OpcionesConsentimiento = new();
+    public readonly AceptacionVideollamadaService Aceptacion;
 
     public EscenarioEmociones(bool conClave = true)
     {
@@ -119,8 +138,9 @@ public sealed class EscenarioEmociones
         Cifrado = new EmocionesCifradoService(Opciones, Config);
         Textos = new TextoConsentimientoVideo(Opciones, NullLogger<TextoConsentimientoVideo>.Instance);
         Acceso = new AccesoSalaService(Origen, Reloj, Opciones, NullLogger<AccesoSalaService>.Instance);
-        Consentimiento = new ConsentimientoVideoService(Repo, Origen, Acceso, Textos, Cifrado, Auditoria, Reloj, Opciones);
+        Consentimiento = new ConsentimientoVideoService(Repo, Origen, Acceso, Textos, Cifrado, Auditoria, Reloj, Opciones, Video);
         Guardia = new GuardiaEmocionesService(Consentimiento, Repo, Origen, Textos, Auditoria, Reloj, Opciones);
+        Aceptacion = new AceptacionVideollamadaService(Video, Origen, Consentimiento, Avisos, AuditoriaVideo, Reloj, OpcionesConsentimiento);
     }
 
     public Identidad Paciente => new(UsuarioPaciente, Roles.Paciente, IdPaciente, null);
