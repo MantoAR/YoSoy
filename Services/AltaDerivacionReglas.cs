@@ -4,12 +4,17 @@ using System.Globalization;
 // nada de esto cambia un estado sin el campo «confirma» del pedido (el botón «Confirmar el alta» / «Confirmar la derivación» de la pantalla).
 public static class AltaDerivacionReglas
 {
+    // TODO-VALIDAR: los psicólogos tienen que confirmar (1) el nombre y el significado del estado «En alta» (alta clínica dada, plan de control guardado, el caso sigue abierto y a cargo del
+    // profesional, fuera de la carga de nuevas asignaciones); (2) los límites del plan de control (hasta 12 contactos, cada 7 a 365 días); y (3) qué debe contener el informe de alta y cuánto se
+    // conserva (legal). Se implementó de la forma más neutra: un texto libre y un plan numérico.
     // Estados del caso (Caso.Estado). 'En alta' es el único que agrega la migración 27: el alta clínica ya se dio y el plan de control quedó guardado.
     public const string CasoAsignado = "Asignado";
     public const string CasoEnAtencion = "En atención";
     public const string CasoEnAlta = "En alta";
     public const string CasoCerrado = "Cerrado";
 
+    // TODO-VALIDAR: quién decide qué hacer cuando el profesional de destino RECHAZA una derivación (hoy: Admisión/CRM recibe el aviso, el caso sigue con quien lo tenía y Admisión la da por
+    // resuelta cuando decidió cómo seguir) y si el origen debería poder retirar una derivación pendiente. Y quién es «Admisión» para el traspaso: hoy el rol CRM, que es el que ya puede reasignar casos.
     // Estados de la derivación interna (Derivacion.Estado, Origen 'Cierre'). Los de la solicitud de cambio de siempre ('Pendiente', 'Aceptada', 'Rechazada') no se tocan.
     public const string DerivacionPendienteDelDestino = "Pendiente del destino";
     public const string DerivacionAceptadaPorElDestino = "Aceptada por el destino";
