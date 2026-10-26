@@ -14,13 +14,29 @@ public class SesionClinicaDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         using var tx = con.BeginTransaction();
+        var insertada = InsertarEn(con, tx, s, cifrarEmociones);
+        tx.Commit();
+        return insertada;
+    }
 
+    // El mismo guardado, dentro de una transacción que abre y cierra quien llama (el cierre de sesión suma el turno, el caso y la auditoría
+    // a la misma transacción). Con ClaveCierre guarda también la clave y el momento en que se marcó el turno: columnas de la migración 26.
+    public SesionInsertada InsertarEn(SqlConnection con, SqlTransaction tx, SesionClinica s, Func<int, string?>? cifrarEmociones = null)
+    {
+        var conCierre = s.ClaveCierre is not null;
         var cmd = new SqlCommand(
             @"INSERT INTO SesionClinica
-                (IdTurno, IdPaciente, IdProfesional, FechaHora, Transcripcion, NotasEvolucion, TipoCierre)
+                (IdTurno, IdPaciente, IdProfesional, FechaHora, Transcripcion, NotasEvolucion, TipoCierre"
+              + (conCierre ? ", ClaveCierre, TurnoRealizadoUtc" : "") + @")
               VALUES
-                (@IdTurno, @IdPaciente, @IdProfesional, @FechaHora, @Transcripcion, @NotasEvolucion, @TipoCierre);
+                (@IdTurno, @IdPaciente, @IdProfesional, @FechaHora, @Transcripcion, @NotasEvolucion, @TipoCierre"
+              + (conCierre ? ", @ClaveCierre, @TurnoRealizadoUtc" : "") + @");
               SELECT CAST(SCOPE_IDENTITY() AS INT);", con, tx);
+        if (conCierre)
+        {
+            cmd.Parameters.AddWithValue("@ClaveCierre",       s.ClaveCierre!.Value);
+            cmd.Parameters.AddWithValue("@TurnoRealizadoUtc", (object?)s.TurnoRealizadoUtc ?? DBNull.Value);
+        }
         cmd.Parameters.AddWithValue("@IdTurno",            (object)s.IdTurno           ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@IdPaciente",         s.IdPaciente);
         cmd.Parameters.AddWithValue("@IdProfesional",      s.IdProfesional);
@@ -50,7 +66,6 @@ public class SesionClinicaDAO
             guardadas = upd.ExecuteNonQuery() == 1;
         }
 
-        tx.Commit();
         return new SesionInsertada(id, guardadas);
     }
 

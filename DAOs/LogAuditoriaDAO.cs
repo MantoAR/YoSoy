@@ -7,9 +7,16 @@ public class LogAuditoriaDAO
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
+        Insertar(l, con, null);
+    }
+
+    // Dentro de la transacción de quien llama: si el registro no se puede escribir, falla ella entera (a diferencia de la auditoría de lectura,
+    // que no debe tumbar un pedido). Lo usa el cierre de sesión: no se cambia el estado de un turno sin dejar quién lo cambió.
+    public void Insertar(LogAuditoria l, SqlConnection con, SqlTransaction? tx)
+    {
         var cmd = new SqlCommand(@"
             INSERT INTO LogAuditoria (IdUsuario, Accion, Entidad, IdEntidad, Detalle, Categoria, Espacio)
-            VALUES (@IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @Categoria, @Espacio)", con);
+            VALUES (@IdUsuario, @Accion, @Entidad, @IdEntidad, @Detalle, @Categoria, @Espacio)", con, tx);
         cmd.Parameters.AddWithValue("@IdUsuario", (object?)l.IdUsuario ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Accion",    l.Accion);
         cmd.Parameters.AddWithValue("@Entidad",   l.Entidad);

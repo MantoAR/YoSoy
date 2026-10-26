@@ -231,4 +231,16 @@ public class Migracion26Tests
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 26).Opcional);
         Assert.Equal(26, VerificadorEsquema.VersionRequerida);
     }
+
+    [Fact]
+    public void La_API_anda_sin_la_migracion_y_lo_dice_en_vez_de_fallar()
+    {
+        // Sin las columnas, un pedido con los campos nuevos responde 409 con su código, no un 500.
+        var endpoint = File.ReadAllText(Path.Combine(Raiz, "Endpoints", "CierreSesionEndpoints.cs"));
+        Assert.Contains("!dao.Migracion26Disponible()", endpoint);
+        Assert.Contains("CierreSesionReglas.FaltaMigracion26", endpoint);
+        Assert.Contains("\"falta-migracion-26\"", File.ReadAllText(Path.Combine(Raiz, "Services", "CierreSesionReglas.cs")));
+        // El pedido de siempre (sin los campos nuevos) no pasa por ese camino, así que sigue andando sin la migración.
+        Assert.Contains("if (CierreSesionEndpoints.EsPedidoDeCierre(req))", File.ReadAllText(Path.Combine(Raiz, "Program.cs")));
+    }
 }

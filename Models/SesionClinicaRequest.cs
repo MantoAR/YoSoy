@@ -20,4 +20,10 @@ public class SesionClinicaRequest
     // El campo de antes del PR 6 (un texto libre con el promedio por emoción). Ya no se guarda: llega acá solo para poder
     // avisarle a una pantalla vieja que lo mande de la forma nueva.
     public string? HistorialEmociones { get; set; }
+
+    // El cierre de sesión (migración 26). Los dos son opcionales: un pedido sin ellos se guarda como siempre.
+    // La clave identifica el cierre (un GUID que genera la sala): repetir el pedido con la misma clave no duplica nada.
+    public string? ClaveCierre { get; set; }
+    // El profesional confirmó, con un clic en «Sí, se realizó», que la sesión se hizo. Ausente o false: el turno no se toca.
+    public bool? ConfirmaRealizacion { get; set; }
 }
