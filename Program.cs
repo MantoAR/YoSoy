@@ -2175,6 +2175,7 @@ app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignaci
     var yo = identidad.Resolver(ctx)!;
     // Roles y permisos: la admisión asistida la hace Admisión (antes el Configurador).
     if (!yo.HaceAdmision) i.IdPaciente = yo.IdPaciente!.Value;
+    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
@@ -2223,7 +2224,7 @@ app.MapGet("/pacientes/{id}/informe-admision", (int id, HttpContext ctx, Identid
     using var con = Conexion.ObtenerConexion();
     con.Open();
     using var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
-        SELECT ia.FechaEntrevista, ia.CodigoSala,
+        SELECT ia.FechaEntrevista, ia.CodigoSala, ia.AclaracionRecepcion, ia.MotivoRechazo, ia.HorarioPreferido, ia.ProfesionalesPreferidos,
                LTRIM(RTRIM(ent.Nombre + ' ' + ISNULL(ent.Apellido, ''))) AS NombreProfesionalEntrevista,
                LTRIM(RTRIM(der.Nombre + ' ' + ISNULL(der.Apellido, ''))) AS NombreProfesionalDerivado
         FROM InformeAdmision ia
@@ -2242,6 +2243,11 @@ app.MapGet("/pacientes/{id}/informe-admision", (int id, HttpContext ctx, Identid
         fechaEntrevista = r["FechaEntrevista"] == DBNull.Value ? null : ((DateTime)r["FechaEntrevista"]).ToString("dd/MM/yyyy HH:mm"),
         // El código de su propia sala de entrevista (el mismo que le llega a la campanita).
         codigoSala = Texto("CodigoSala"),
+        // Primeros pasos: lo que la recepción aclaró al devolverlo, el motivo si cerró el ingreso y las preferencias que el paciente cargó.
+        aclaracionRecepcion = Texto("AclaracionRecepcion"),
+        motivoCierre = i.Estado == EstadoInforme.OtroRecurso ? Texto("MotivoRechazo") : null,
+        horarioPreferido = PreferenciasAdmision.Leer(Texto("HorarioPreferido")),
+        profesionalesPreferidos = PreferenciasAdmision.Leer(Texto("ProfesionalesPreferidos")),
         nombreProfesionalEntrevista = Texto("NombreProfesionalEntrevista"),
         nombreProfesionalDerivado = Texto("NombreProfesionalDerivado")
     });
@@ -2269,7 +2275,8 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
                ia.TipoEntrevista, ia.RedApoyo, ia.ObjetivosPaciente, ia.Estado, ia.FechaCreacion,
                ia.FechaEntrevista, ia.ObservacionesEntrevista, ia.IdProfesionalDerivado, ia.CodigoSala, ia.MotivoRechazo,
                prof.Nombre + ' ' + ISNULL(prof.Apellido, '') AS NombreProfesionalDerivado,
-               ent.Nombre + ' ' + ISNULL(ent.Apellido, '') AS NombreProfesionalEntrevista
+               ent.Nombre + ' ' + ISNULL(ent.Apellido, '') AS NombreProfesionalEntrevista,
+               ia.AclaracionRecepcion, ia.HorarioPreferido, ia.ProfesionalesPreferidos
         FROM InformeAdmision ia
         INNER JOIN Paciente p ON p.IdPaciente = ia.IdPaciente
         INNER JOIN Especialidad e ON e.IdEspecialidad = ia.IdEspecialidad
@@ -2281,6 +2288,7 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
     // Estado del consentimiento de tratamiento y telemedicina de cada paciente (la misma decisión que RN-02 y que el requisito de asignar), una consulta por paciente.
     var opConsentimiento = ctxConsentimiento.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<ConsentimientoOptions>>().CurrentValue;
     var consentimientoDe = new System.Collections.Generic.Dictionary<int, EstadoTratamiento>();
+    var nombresProfesionales = PreferenciasAdmision.ProfesionalesElegibles().ToDictionary(p => p.IdProfesional, p => p.Nombre + (string.IsNullOrWhiteSpace(p.Especialidad) ? "" : " · " + p.Especialidad));
     while (reader.Read())
     {
         var idPacienteFila = (int)reader["IdPaciente"];
@@ -2313,6 +2321,12 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
             codigoSala              = reader["CodigoSala"] == DBNull.Value ? "" : reader["CodigoSala"].ToString(),
             motivoRechazo           = reader["MotivoRechazo"] == DBNull.Value ? "" : reader["MotivoRechazo"].ToString(),
             nombreProfesionalDerivado = reader["NombreProfesionalDerivado"] == DBNull.Value ? "" : reader["NombreProfesionalDerivado"].ToString(),
+            // Primeros pasos (migración 31): lo que aclaró la recepción al devolverlo y las preferencias del paciente (solo se muestran; el cruce con las agendas es un trabajo siguiente).
+            aclaracionRecepcion     = reader["AclaracionRecepcion"] == DBNull.Value ? "" : reader["AclaracionRecepcion"].ToString(),
+            horarioPreferido        = PreferenciasAdmision.Leer(reader["HorarioPreferido"] as string),
+            profesionalesPreferidos = PreferenciasAdmision.Leer(reader["ProfesionalesPreferidos"] as string),
+            profesionalesPreferidosNombres = ((reader["ProfesionalesPreferidos"] as string) is { } pj && PreferenciasAdmision.Leer(pj) is { } pe && pe.TryGetProperty("ids", out var pids)
+                ? pids.EnumerateArray().Select(x => nombresProfesionales.TryGetValue(x.GetInt32(), out var n) ? n : "Profesional #" + x.GetInt32()).ToList() : new System.Collections.Generic.List<string>()),
             // Quién programó la entrevista (migración 26); "" en las de antes.
             nombreProfesionalEntrevista = reader["NombreProfesionalEntrevista"] == DBNull.Value ? "" : reader["NombreProfesionalEntrevista"].ToString()!.Trim()
         });
@@ -2539,7 +2553,10 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     cmdVinc.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmdVinc.ExecuteNonQuery();
 
-    // Primera evolucion en la HC a nombre del admisionista (se muestra en azul)
+    // Primera evolucion en la HC a nombre del admisionista (se muestra en azul). Solo en el camino viejo, con entrevista: un formulario aceptado (recorrido actual) no abre
+    // ni crea la historia clínica, y no hubo ninguna entrevista que registrar.
+    if (estado != EstadoInforme.Aprobado)
+    {
     var cmdEvo = new Microsoft.Data.SqlClient.SqlCommand(@"
         DECLARE @IdHistoria INT = (SELECT TOP 1 IdHistoria FROM HistoriaClinica WHERE IdPaciente = @IdPac);
         IF @IdHistoria IS NULL
@@ -2558,6 +2575,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     cmdEvo.Parameters.AddWithValue("@IdProf", req.IdProfesional);
     cmdEvo.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
     cmdEvo.ExecuteNonQuery();
+    }
 
     // Sincroniza el Caso de esta admisión (Fase 2, aditivo): no cambia nada de lo de
     // arriba ni la respuesta. Si había una derivación sugerida pendiente, la resuelve
@@ -2902,6 +2920,7 @@ app.MapConsentimientoVideo();
 app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
+app.MapPrimerosPasos();
 
 // ═══════════════════════════════════════════════════════
 // REPORTES DEL PROFESIONAL

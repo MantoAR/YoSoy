@@ -11,11 +11,11 @@ public class InformeAdmisionDAO
             @"INSERT INTO InformeAdmision
                 (IdPaciente, IdEspecialidad, MotivoConsulta, TratamientoAnterior, TratamientoAnteriorDetalle,
                  RecibeMedicacion, MedicacionDetalle, GustosIntereses, PreferenciasAtencion, TipoEntrevista,
-                 RedApoyo, ObjetivosPaciente, Estado)
+                 RedApoyo, ObjetivosPaciente, Estado, HorarioPreferido, ProfesionalesPreferidos)
               VALUES
                 (@IdPaciente, @IdEspecialidad, @MotivoConsulta, @TratamientoAnterior, @TratamientoAnteriorDetalle,
                  @RecibeMedicacion, @MedicacionDetalle, @GustosIntereses, @PreferenciasAtencion, @TipoEntrevista,
-                 @RedApoyo, @ObjetivosPaciente, @Estado);
+                 @RedApoyo, @ObjetivosPaciente, @Estado, @HorarioPreferido, @ProfesionalesPreferidos);
               SELECT SCOPE_IDENTITY();", con);
         cmd.Parameters.AddWithValue("@IdPaciente", i.IdPaciente);
         cmd.Parameters.AddWithValue("@IdEspecialidad", i.IdEspecialidad);
@@ -30,7 +30,43 @@ public class InformeAdmisionDAO
         cmd.Parameters.AddWithValue("@RedApoyo", (object)i.RedApoyo ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@ObjetivosPaciente", (object)i.ObjetivosPaciente ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Estado", (object)i.Estado ?? "Pendiente");
+        cmd.Parameters.AddWithValue("@HorarioPreferido", (object?)PreferenciasAdmision.Serializar(i.HorarioPreferido) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ProfesionalesPreferidos", (object?)PreferenciasAdmision.Serializar(i.ProfesionalesPreferidos) ?? DBNull.Value);
         return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    /// <summary>
+    /// El paciente completa de nuevo un formulario que la recepcionista le devolvió: reemplaza sus respuestas y vuelve a «Pendiente» para otra revisión. Solo si sigue «Devuelto»
+    /// (así reenviar dos veces no hace nada de más). Devuelve false si el formulario ya no estaba devuelto.
+    /// </summary>
+    public bool ReenviarDevuelto(InformeAdmision i)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(
+            @"UPDATE InformeAdmision
+              SET IdEspecialidad = @IdEspecialidad, MotivoConsulta = @MotivoConsulta, TratamientoAnterior = @TratamientoAnterior,
+                  TratamientoAnteriorDetalle = @TratamientoAnteriorDetalle, RecibeMedicacion = @RecibeMedicacion, MedicacionDetalle = @MedicacionDetalle,
+                  GustosIntereses = @GustosIntereses, PreferenciasAtencion = @PreferenciasAtencion, TipoEntrevista = @TipoEntrevista,
+                  RedApoyo = @RedApoyo, ObjetivosPaciente = @ObjetivosPaciente, HorarioPreferido = @HorarioPreferido,
+                  ProfesionalesPreferidos = @ProfesionalesPreferidos, Estado = N'Pendiente'
+              WHERE IdInforme = @IdInforme AND IdPaciente = @IdPaciente AND Estado = N'Devuelto'", con);
+        cmd.Parameters.AddWithValue("@IdInforme", i.IdInforme);
+        cmd.Parameters.AddWithValue("@IdPaciente", i.IdPaciente);
+        cmd.Parameters.AddWithValue("@IdEspecialidad", i.IdEspecialidad);
+        cmd.Parameters.AddWithValue("@MotivoConsulta", (object)i.MotivoConsulta ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@TratamientoAnterior", i.TratamientoAnterior);
+        cmd.Parameters.AddWithValue("@TratamientoAnteriorDetalle", (object)i.TratamientoAnteriorDetalle ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@RecibeMedicacion", i.RecibeMedicacion);
+        cmd.Parameters.AddWithValue("@MedicacionDetalle", (object)i.MedicacionDetalle ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@GustosIntereses", (object)i.GustosIntereses ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@PreferenciasAtencion", (object)i.PreferenciasAtencion ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@TipoEntrevista", (object)i.TipoEntrevista ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@RedApoyo", (object)i.RedApoyo ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ObjetivosPaciente", (object)i.ObjetivosPaciente ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@HorarioPreferido", (object?)PreferenciasAdmision.Serializar(i.HorarioPreferido) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ProfesionalesPreferidos", (object?)PreferenciasAdmision.Serializar(i.ProfesionalesPreferidos) ?? DBNull.Value);
+        return cmd.ExecuteNonQuery() == 1;
     }
 
     public List<InformeAdmision> ObtenerTodos(string estado = null)

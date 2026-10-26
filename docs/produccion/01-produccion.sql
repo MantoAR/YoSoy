@@ -1554,6 +1554,22 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 30)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (30, N'add_vigencia_agenda.sql', 'Script');
 GO
 
+-- ── Migración 31: primeros pasos del paciente (migrations/add_primeros_pasos.sql) ──
+IF COL_LENGTH('dbo.InformeAdmision', 'AclaracionRecepcion') IS NULL ALTER TABLE dbo.InformeAdmision ADD AclaracionRecepcion NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'IdUsuarioRevision') IS NULL ALTER TABLE dbo.InformeAdmision ADD IdUsuarioRevision INT NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'FechaRevision') IS NULL ALTER TABLE dbo.InformeAdmision ADD FechaRevision DATETIME NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'HorarioPreferido') IS NULL ALTER TABLE dbo.InformeAdmision ADD HorarioPreferido NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.InformeAdmision', 'ProfesionalesPreferidos') IS NULL ALTER TABLE dbo.InformeAdmision ADD ProfesionalesPreferidos NVARCHAR(500) NULL;
+IF COL_LENGTH('dbo.Consentimiento', 'FechaRevocacion') IS NULL ALTER TABLE dbo.Consentimiento ADD FechaRevocacion DATETIME NULL;
+IF COL_LENGTH('dbo.Consentimiento', 'IdUsuarioRevocacion') IS NULL ALTER TABLE dbo.Consentimiento ADD IdUsuarioRevocacion INT NULL;
+IF COL_LENGTH('dbo.Notificacion', 'Evento') IS NULL ALTER TABLE dbo.Notificacion ADD Evento NVARCHAR(100) NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Notificacion_Evento' AND object_id = OBJECT_ID('dbo.Notificacion'))
+    CREATE UNIQUE INDEX UX_Notificacion_Evento ON dbo.Notificacion (IdPaciente, Evento) WHERE Evento IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 31)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (31, N'add_primeros_pasos.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

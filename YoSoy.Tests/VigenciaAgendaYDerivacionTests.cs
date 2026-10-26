@@ -59,7 +59,12 @@ public class VigenciaAgendaYDerivacionTests
 
     [Fact]
     public void Sin_programar_no_se_puede_derivar()
-        => Assert.Equal("ENTREVISTA_SIN_PROGRAMAR", DerivacionAdmision.Validar("Pendiente", null, "x", Ahora)?.Codigo);
+        // Ya no hay entrevista que programar: un formulario «Pendiente» espera la revisión de la recepcionista (primeros pasos). La entrevista sin programar sigue igual para los estados viejos.
+        => Assert.Equal("FORMULARIO_SIN_ACEPTAR", DerivacionAdmision.Validar("Pendiente", null, "x", Ahora)?.Codigo);
+
+    [Fact]
+    public void Un_informe_viejo_en_entrevista_sin_fecha_sigue_pidiendo_programarla()
+        => Assert.Equal("ENTREVISTA_SIN_PROGRAMAR", DerivacionAdmision.Validar("En entrevista", null, "x", Ahora)?.Codigo);
 
     [Fact]
     public void Antes_del_horario_de_la_entrevista_no_se_puede_derivar()

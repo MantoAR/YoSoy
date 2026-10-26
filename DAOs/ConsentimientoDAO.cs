@@ -84,7 +84,7 @@ public class ConsentimientoDAO
     /// LA decisión de «consentimiento de tratamiento vigente» del sistema (RN-02 y el requisito de asignar un profesional): ver ConsentimientoTratamiento. Lee las firmas no dadas de
     /// baja del tipo, si la persona es menor (menos de 18 años o con un tutor cargado) y, con la migración 28, quién firmó.
     /// </summary>
-    public EstadoTratamiento EstadoDeTratamiento(int idPaciente, string descripcionTipo, string? versionRequerida, DateTime hoy)
+    public EstadoTratamiento EstadoDeTratamiento(int idPaciente, string descripcionTipo, string? versionRequerida, DateTime hoy, int vigenciaMeses = 0)
     {
         var conTutor = Migracion28.Disponible();
         var firmas = new List<FirmaTratamiento>();
@@ -112,7 +112,7 @@ public class ConsentimientoDAO
             cmd.Parameters.AddWithValue("@Hoy", hoy.Date);
             esMenor = (int)cmd.ExecuteScalar()! == 1;
         }
-        return ConsentimientoTratamiento.Decidir(firmas, versionRequerida, esMenor, conTutor);
+        return ConsentimientoTratamiento.Decidir(firmas, versionRequerida, esMenor, conTutor, hoy, vigenciaMeses);
     }
 
     /// <summary>Los tutores cargados de un paciente (para elegir quién firma por un menor).</summary>
@@ -152,7 +152,7 @@ public class ConsentimientoDAO
     /// van en una transacción con UPDLOCK/HOLDLOCK para que un doble clic no deje dos filas.
     /// Devuelve 1 si firmó, 0 si ya estaba firmado y -1 si el tipo no existe en la base.
     /// </summary>
-    public int FirmarSiNoExiste(int idPaciente, string descripcionTipo, string version, DateTime fechaHora, int? idTutorFirmante = null)
+    public int FirmarSiNoExiste(int idPaciente, string descripcionTipo, string version, DateTime fechaHora, int? idTutorFirmante = null, int vigenciaMeses = 0)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -170,6 +170,7 @@ public class ConsentimientoDAO
                            WHERE IdPaciente = @IdPac AND IdTipoConsentimiento = @IdTipo
                              AND ISNULL(Estado, 'Activo') <> 'Inactivo'
                              AND (Version IS NULL OR Version = '' OR Version = @Version)
+                             AND (@Meses <= 0 OR DATEADD(MONTH, @Meses, FechaFirma) > @Fecha)   -- una firma vencida no cuenta como «ya firmado»
                              {(conTutor ? "AND ISNULL(IdTutorFirmante, 0) = ISNULL(@Tutor, 0)" : "")})
                     SET @Resultado = 0;
                 ELSE
@@ -185,6 +186,7 @@ public class ConsentimientoDAO
         cmd.Parameters.AddWithValue("@Tipo",    descripcionTipo);
         cmd.Parameters.AddWithValue("@Version", version.Length > 20 ? version[..20] : version);
         cmd.Parameters.AddWithValue("@Fecha",   fechaHora);
+        cmd.Parameters.AddWithValue("@Meses",   vigenciaMeses);
         if (conTutor) cmd.Parameters.AddWithValue("@Tutor", (object?)idTutorFirmante ?? DBNull.Value);
         return (int)cmd.ExecuteScalar();
     }

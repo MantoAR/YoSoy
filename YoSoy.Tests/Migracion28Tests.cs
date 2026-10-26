@@ -13,9 +13,14 @@ public static class Migracion28Pruebas
     };
 
     /// <summary>Primero la 28 y después la 27 (la 28 es posterior).</summary>
-    /// <summary>Las migraciones 29 y 30 (agenda de admisión y vigencia de la agenda, de la rama de Mariana) son posteriores a la 28: se sacan primero, la 30 antes que la 29.</summary>
+    /// <summary>Las migraciones 29 y 30 (agenda de admisión y vigencia de la agenda, de la rama de Mariana) y la 31 (primeros pasos) son posteriores a la 28: se sacan primero, de la más nueva a la más vieja.</summary>
     public static readonly string[] QuitarLa29YLa30 =
     {
+        "DELETE FROM VersionEsquema WHERE Numero = 31",
+        "DROP INDEX UX_Notificacion_Evento ON Notificacion",
+        "ALTER TABLE Notificacion DROP COLUMN Evento",
+        "ALTER TABLE Consentimiento DROP COLUMN IdUsuarioRevocacion, FechaRevocacion",
+        "ALTER TABLE InformeAdmision DROP COLUMN AclaracionRecepcion, IdUsuarioRevision, FechaRevision, HorarioPreferido, ProfesionalesPreferidos",
         "DELETE FROM VersionEsquema WHERE Numero = 30",
         "ALTER TABLE Agenda DROP CONSTRAINT CK_Agenda_Vigencia",
         "ALTER TABLE Agenda DROP COLUMN FechaInicio, FechaFin",
@@ -255,6 +260,6 @@ public class Migracion28Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 28).Opcional);
-        Assert.Equal(30, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(31, VerificadorEsquema.VersionRequerida);
     }
 }

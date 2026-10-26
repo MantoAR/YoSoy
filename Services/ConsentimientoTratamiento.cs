@@ -19,17 +19,31 @@ public static class ConsentimientoTratamiento
     public const string SinFirma = "sin-firma";
     public const string VersionAnterior = "version-anterior";
     public const string FaltaTutor = "falta-tutor";
+    public const string Vencido = "vencido";
+
+    // Vigencia anual: una firma de hace más de este tiempo deja de valer y se pide firmar de nuevo (0 = no vence). Se configura en
+    // Consentimiento:VigenciaMeses. Los caminos que no reciben las opciones (RN-02 en TurnoRepositorioDAO) leen este valor, que la API fija al arrancar.
+    public const int VigenciaMesesPorDefecto = 12;
+    public static int VigenciaMeses { get; set; } = VigenciaMesesPorDefecto;
 
     public const string UrlFirmaPorDefecto = "/pantallas/Pantalla_Paciente/consentimiento.html";
     public const string TituloDelAviso = "Para continuar tenés que firmar el consentimiento";
 
     /// <summary>La decisión, sin base de datos (para probarla): las firmas no dadas de baja, de la más nueva a la más vieja.</summary>
-    public static EstadoTratamiento Decidir(IReadOnlyList<FirmaTratamiento> firmas, string? versionRequerida, bool esMenor, bool reglaDelTutor)
+    public static EstadoTratamiento Decidir(IReadOnlyList<FirmaTratamiento> firmas, string? versionRequerida, bool esMenor, bool reglaDelTutor, DateTime? hoy = null, int vigenciaMeses = 0)
     {
         if (firmas.Count == 0) return new(false, SinFirma, esMenor, null, null, null);
 
         var deLaVersion = firmas.Where(f => versionRequerida is null || string.IsNullOrEmpty(f.Version) || f.Version == versionRequerida).ToList();
         if (deLaVersion.Count == 0) return new(false, VersionAnterior, esMenor, firmas[0].FechaFirma, firmas[0].Version, firmas[0].IdTutorFirmante);
+
+        // Vigencia anual: de las firmas de esta versión solo valen las de los últimos N meses (la fecha de firma más reciente manda).
+        if (hoy is DateTime ahora && vigenciaMeses > 0)
+        {
+            var recientes = deLaVersion.Where(f => f.FechaFirma.AddMonths(vigenciaMeses) > ahora).ToList();
+            if (recientes.Count == 0) return new(false, Vencido, esMenor, deLaVersion[0].FechaFirma, deLaVersion[0].Version, deLaVersion[0].IdTutorFirmante);
+            deLaVersion = recientes;
+        }
 
         if (esMenor && reglaDelTutor)
         {
@@ -42,13 +56,14 @@ public static class ConsentimientoTratamiento
         return new(true, Ok, esMenor, f0.FechaFirma, f0.Version, f0.IdTutorFirmante);
     }
 
-    public static EstadoTratamiento Estado(int idPaciente, string tipo, string? version, DateTime? hoy = null) =>
-        new ConsentimientoDAO().EstadoDeTratamiento(idPaciente, tipo, version, hoy ?? DateTime.Today);
+    public static EstadoTratamiento Estado(int idPaciente, string tipo, string? version, DateTime? hoy = null, int? vigenciaMeses = null) =>
+        new ConsentimientoDAO().EstadoDeTratamiento(idPaciente, tipo, version, hoy ?? DateTime.Now, vigenciaMeses ?? VigenciaMeses);
 
-    public static EstadoTratamiento Estado(int idPaciente, ConsentimientoOptions op) => Estado(idPaciente, op.TipoRequerido, op.VersionTexto);
+    public static EstadoTratamiento Estado(int idPaciente, ConsentimientoOptions op, DateTime? hoy = null) => Estado(idPaciente, op.TipoRequerido, op.VersionTexto, hoy, op.VigenciaMeses);
 
     public static string MensajeParaAsignar(string nombrePaciente, EstadoTratamiento e) => e.Motivo switch
     {
+        Vencido => $"No se puede asignar profesional: el consentimiento de tratamiento de {nombrePaciente} venció (pasó más de un año desde que lo firmó) y tiene que volver a firmarlo. Pedile que lo firme y volvé a intentar.",
         VersionAnterior => $"No se puede asignar profesional: el texto del consentimiento de tratamiento cambió y {nombrePaciente} tiene que volver a firmarlo. Pedile que lo firme y volvé a intentar.",
         FaltaTutor => $"No se puede asignar profesional: {nombrePaciente} es menor de edad y todavía no tiene el consentimiento de tratamiento firmado por su tutor. Pedile al tutor que lo firme y volvé a intentar.",
         _ => $"No se puede asignar profesional: {nombrePaciente} todavía no firmó el consentimiento de tratamiento. Pedile que lo firme y volvé a intentar."

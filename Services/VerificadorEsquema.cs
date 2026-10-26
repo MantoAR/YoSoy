@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 30;   // la última migración que el código conoce (la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión)
+    public const int VersionRequerida = 31;   // la última migración que el código conoce (la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión; la 31 son los primeros pasos del paciente)
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -117,6 +117,8 @@ public class VerificadorEsquema
             "COL_LENGTH('dbo.Agenda', 'EsAdmision') IS NOT NULL AND COL_LENGTH('dbo.InformeAdmision', 'IdProfesionalEntrevista') IS NOT NULL"),
         new(30, "add_vigencia_agenda.sql",
             "COL_LENGTH('dbo.Agenda', 'FechaInicio') IS NOT NULL AND COL_LENGTH('dbo.Agenda', 'FechaFin') IS NOT NULL"),
+        new(31, "add_primeros_pasos.sql",
+            "COL_LENGTH('dbo.InformeAdmision', 'AclaracionRecepcion') IS NOT NULL AND COL_LENGTH('dbo.Consentimiento', 'FechaRevocacion') IS NOT NULL AND COL_LENGTH('dbo.Notificacion', 'Evento') IS NOT NULL"),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

@@ -15,4 +15,7 @@ public class InformeAdmision
     public string ObjetivosPaciente { get; set; }
     public string Estado { get; set; }
     public DateTime FechaCreacion { get; set; }
+    // «Sobre mí»: horario y profesionales preferidos (migración 31). Solo se guardan y se muestran; el cruce con las agendas es un trabajo siguiente.
+    public HorarioPreferidoAdmision? HorarioPreferido { get; set; }
+    public ProfesionalesPreferidosAdmision? ProfesionalesPreferidos { get; set; }
 }

@@ -30,7 +30,7 @@ public static class ConsentimientoEndpoints
                 versionFirmada = e.Version,
                 tipo           = op.TipoRequerido,
                 versionTexto   = op.VersionTexto,
-                // Por qué no está vigente: sin-firma, version-anterior (el texto cambió: hay que volver a firmar) o falta-tutor (un menor: lo firma su tutor).
+                // Por qué no está vigente: sin-firma, vencido (pasó la vigencia anual), version-anterior (el texto cambió: hay que volver a firmar) o falta-tutor (un menor: lo firma su tutor).
                 motivo         = e.Vigente ? null : e.Motivo,
                 esMenor        = e.EsMenor && Migracion28.Disponible(),
                 tutores        = e.EsMenor && Migracion28.Disponible() ? new ConsentimientoDAO().TutoresDe(id).Select(t => new { idTutor = t.IdTutor, nombre = t.Nombre, vinculo = t.Vinculo }) : null,
@@ -59,7 +59,7 @@ public static class ConsentimientoEndpoints
             // Una persona menor de edad (o con tutor) no firma sola: firma su tutor, y queda dicho quién. Provisorio: la regla exacta la tiene que validar el equipo legal.
             // TODO-VALIDAR: cómo se acredita al tutor (hoy: la sesión del menor elige a uno de los tutores cargados en su ficha).
             int? idTutorFirmante = null;
-            var estadoPrevio = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy);
+            var estadoPrevio = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy, op.VigenciaMeses);
             if (estadoPrevio.EsMenor && Migracion28.Disponible())
             {
                 var tutores = dao.TutoresDe(id);
@@ -67,12 +67,12 @@ public static class ConsentimientoEndpoints
                     return Results.BadRequest(new { codigo = "falta-tutor", mensaje = "Como sos menor de edad, el consentimiento lo firma tu madre, padre o tutor. Elegí quién firma y volvé a intentar." });
                 idTutorFirmante = elegido;
             }
-            var resultado = dao.FirmarSiNoExiste(id, op.TipoRequerido, op.VersionTexto, hoy, idTutorFirmante);
+            var resultado = dao.FirmarSiNoExiste(id, op.TipoRequerido, op.VersionTexto, hoy, idTutorFirmante, op.VigenciaMeses);
             if (resultado == -1)
                 return Results.Problem($"No existe el tipo de consentimiento \"{op.TipoRequerido}\". " +
                                        "Correr migrations/add_consentimiento_telemedicina.sql.");
 
-            var vigente = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy);
+            var vigente = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy, op.VigenciaMeses);
             if (resultado == 0)
                 return Results.Json(new { mensaje = "El consentimiento ya estaba firmado.", fechaFirma = vigente.FechaFirma }, statusCode: 409);
             return Results.Created($"/pacientes/{id}/consentimiento-telemedicina",

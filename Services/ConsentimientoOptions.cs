@@ -11,6 +11,10 @@ public class ConsentimientoOptions
     // cuando el texto validado reemplace al placeholder.
     public string VersionTexto { get; set; } = "sin-validar";
 
+    // Vigencia anual: una firma de hace más de estos meses deja de ser vigente y se pide firmar de nuevo. 0 = no vence. Documentado en
+    // docs/PRIMEROS_PASOS.md. TODO-VALIDAR: el plazo (12 meses) lo tiene que confirmar alguien de formación legal.
+    public int VigenciaMeses { get; set; } = 12;
+
     // Página donde el paciente lo firma. La usan el bot y los mensajes de error.
     public string UrlFirma { get; set; } = "";
 
