@@ -111,6 +111,37 @@
         #toast { position: fixed; bottom: 20px; right: 20px; background: #1F1D2B; color: #fff; padding: 10px 16px; border-radius: var(--r-lg); font-size: var(--fs-md); z-index: 999; box-shadow: var(--shadow-lg); }
         #toast:not(.visible) { display: none; }
 
+        /* Panel de cierre: lo que se decide al terminar la llamada */
+        .panel-cierre { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+        .panel-cierre .cierre-turno { margin: 0; font-size: var(--fs-md); color: var(--text-2); }
+        .cierre-paso { border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; margin: 0; }
+        .cierre-paso legend { font-size: var(--fs-sm); font-weight: 600; color: var(--text-label); padding: 0 6px; }
+        .cierre-opciones { display: flex; gap: 14px; flex-wrap: wrap; }
+        .cierre-opciones label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-md); cursor: pointer; }
+        .cierre-ayuda { margin: 8px 0 0; font-size: var(--fs-sm); color: var(--text-3); }
+        .cierre-aviso { margin: 8px 0 0; padding: 8px 10px; border-radius: var(--r-md); font-size: var(--fs-sm); background: var(--warn-bg, var(--surface-2)); border: 1px solid var(--warn-border, var(--border)); color: var(--text-2); }
+        .cierre-aviso a { color: var(--accent-strong); font-weight: 500; cursor: pointer; text-decoration: underline; }
+        .cierre-acciones, .cierre-guardar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .cierre-mensaje { font-size: var(--fs-sm); color: var(--danger); }
+        .cierre-resultado { border: 1px solid var(--ok-border, var(--border)); background: var(--ok-bg, var(--surface-2)); border-radius: var(--r-md); padding: 10px 12px; }
+        .cierre-resultado ul { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-md); color: var(--text-2); }
+        .cierre-vinculo { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+        .cierre-vinculo p { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--text-3); }
+        .vinculo-fila { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: var(--fs-sm); color: var(--text-2); }
+        .borrador-estado { font-size: var(--fs-xs); color: var(--text-3); margin: 2px 0 0; }
+        .borrador-estado.alerta { color: var(--danger); }
+        .borrador-recuperar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .proximo-turno { display: flex; flex-direction: column; gap: 10px; }
+        .proximo-dias { display: flex; flex-wrap: wrap; gap: 12px; }
+        .proximo-dia { min-width: 150px; }
+        .proximo-dia-titulo { font-size: var(--fs-sm); font-weight: 600; color: var(--text-label); margin-bottom: 4px; text-transform: capitalize; }
+        .proximo-horas { display: flex; flex-wrap: wrap; gap: 6px; }
+        .proximo-hora { padding: 4px 10px; border: 1px solid var(--accent-border); border-radius: var(--r-md); background: var(--surface); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); color: var(--accent-strong); }
+        .proximo-hora[aria-checked="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .proximo-motivo { max-width: 420px; }
+        .btn-gris.sugerido { border-color: var(--accent); color: var(--accent-strong); box-shadow: 0 0 0 3px var(--accent-ring); }
+        .evolucion-box textarea.resaltada { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+
         @media (max-width: 900px) { .main-grid, .bottom-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -212,30 +243,89 @@
             <div class="card">
                 <h3>Evolución clínica</h3>
                 <div class="evolucion-box">
-                    <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
-                    <div>
-                        <div class="etiqueta-cierre">Tipo de cierre</div>
-                        <div class="tipo-cierre">
-                            <button class="tipo-btn" onclick="seleccionarCierre('Seguimiento')">📋 Seguimiento</button>
-                            <button class="tipo-btn" onclick="seleccionarCierre('Alta')">✅ Alta</button>
-                            <button class="tipo-btn" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
-                        </div>
+                    <div id="borrador-recuperar" class="cierre-aviso borrador-recuperar oculto" role="alert">
+                        <span id="borrador-recuperar-texto"></span>
+                        <button type="button" class="btn-verde" onclick="seguirConBorrador()">Seguir con el borrador</button>
+                        <button type="button" class="btn-gris" onclick="descartarBorrador()">Descartar</button>
                     </div>
+                    <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
+                    <div id="borrador-estado" class="borrador-estado" role="status" aria-live="polite"></div>
                 </div>
             </div>
         </div>
 
         <div class="controles">
-            <button class="btn-rojo" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
-            <button class="btn-guardar-hc" id="btn-guardar-hc" onclick="guardarEnHC()" disabled>💾 Guardar en HC</button>
+            <button class="btn-rojo" id="btn-finalizar" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
             <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
             <span class="estado" id="estado-txt">Conectando...</span>
         </div>
+
+        <!-- PANEL DE CIERRE: aparece al finalizar la llamada. El sistema propone y el profesional confirma: nada cambia solo. -->
+        <section id="panel-cierre" class="card panel-cierre oculto" aria-labelledby="cierre-titulo">
+            <h3 id="cierre-titulo">Cerrar la sesión</h3>
+            <p id="cierre-turno" class="cierre-turno"></p>
+
+            <fieldset id="cierre-paso-realizo" class="cierre-paso">
+                <legend>¿Se realizó esta sesión?</legend>
+                <div class="cierre-opciones">
+                    <label><input type="radio" name="cierre-realizo" value="si" onchange="elegirRealizo('si')"> Sí, se realizó</label>
+                    <label><input type="radio" name="cierre-realizo" value="no" onchange="elegirRealizo('no')"> No se realizó</label>
+                    <label><input type="radio" name="cierre-realizo" value="despues" onchange="elegirRealizo('despues')"> Decidir después</label>
+                </div>
+                <p id="cierre-ayuda-realizo" class="cierre-ayuda">Tenés que elegir una opción: el sistema no da una sesión por realizada por su cuenta.</p>
+            </fieldset>
+
+            <fieldset class="cierre-paso">
+                <legend>¿Cómo sigue el paciente?</legend>
+                <div class="tipo-cierre" role="group" aria-label="Tipo de cierre">
+                    <button type="button" class="tipo-btn" data-tipo="Seguimiento" aria-pressed="false" onclick="seleccionarCierre('Seguimiento')">📋 Seguimiento</button>
+                    <button type="button" class="tipo-btn" data-tipo="Alta" aria-pressed="false" onclick="seleccionarCierre('Alta')">✅ Alta</button>
+                    <button type="button" class="tipo-btn" data-tipo="Derivación" aria-pressed="false" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
+                </div>
+                <div id="cierre-aviso-tipo" class="cierre-aviso oculto" role="status"></div>
+            </fieldset>
+
+            <div class="cierre-acciones">
+                <button type="button" class="btn-gris" id="btn-cierre-evolucion" onclick="anotarEvolucion()">📝 Anotar evolución</button>
+                <button type="button" class="btn-gris" id="btn-cierre-proximo" aria-pressed="false" aria-controls="cierre-proximo" onclick="alternarProximoTurno()">📅 Agendar próximo turno</button>
+            </div>
+
+            <!-- Selector del próximo turno: el paciente y el profesional ya vienen cargados y no se editan. Nada se reserva solo: es una PROPUESTA que el paciente acepta. -->
+            <fieldset id="cierre-proximo" class="cierre-paso proximo-turno oculto">
+                <legend>Próximo turno</legend>
+                <p id="proximo-quien" class="cierre-ayuda" style="margin:0"></p>
+                <div id="proximo-horarios" class="proximo-dias" role="radiogroup" aria-label="Horarios libres"></div>
+                <div class="campo-sesion proximo-motivo">
+                    <label for="proximo-motivo">Motivo (opcional)</label>
+                    <input type="text" id="proximo-motivo" class="ui-input" maxlength="200" placeholder="Por ejemplo: seguimiento semanal">
+                </div>
+                <div class="cierre-acciones">
+                    <button type="button" class="btn-verde" id="btn-proximo-enviar" onclick="enviarProximoTurno()" disabled>Enviar propuesta al paciente</button>
+                    <span id="proximo-mensaje" class="cierre-ayuda" role="status" aria-live="polite" style="margin:0"></span>
+                </div>
+            </fieldset>
+
+            <div class="cierre-guardar">
+                <button type="button" class="btn-guardar-hc" id="btn-cierre-guardar" onclick="guardarEnHC()" disabled>💾 Guardar cierre</button>
+                <span id="cierre-mensaje" class="cierre-mensaje" role="alert"></span>
+            </div>
+
+            <div id="cierre-resultado" class="cierre-resultado oculto" role="status" aria-live="polite"></div>
+
+            <!-- Vínculo MANUAL con una evolución de la historia clínica: el cierre no crea ninguna evolución. Solo del mismo paciente, el mismo profesional y el mismo día. -->
+            <div id="cierre-vinculo" class="cierre-vinculo oculto">
+                <p>¿Ya escribiste la evolución de hoy en la historia clínica? Podés vincularla con esta sesión: se enlazan, no se mezclan ni se modifica la evolución. Solo aparecen evoluciones tuyas, de este paciente y de hoy.</p>
+                <button type="button" class="btn-gris" id="btn-vincular" onclick="buscarEvolucionesVinculables()">🔗 Vincular con una evolución de hoy</button>
+                <div id="vinculo-lista"></div>
+                <div id="vinculo-mensaje" class="cierre-ayuda" role="status" aria-live="polite"></div>
+            </div>
+        </section>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="../shared/ui.js"></script>
+<script src="../shared/borrador.js"></script>
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
 <script src="../shared/emociones.js"></script>
@@ -348,6 +438,7 @@ function preseleccionarPaciente(idPaciente) {
 function sesionElegida() {
     const t = turnosConSala.find(x => x.idTurno === parseInt(document.getElementById('sel-sesion').value));
     sesionVideo = t ? { origen: 'turno', id: t.idTurno } : null;
+    datosTurno = t || null;
     if (t) preseleccionarPaciente(t.idPaciente);
 }
 
@@ -385,6 +476,7 @@ async function cargarSesiones() {
     if (deLaUrl) {
         sesionVideo = deLaUrl;
         const t = deLaUrl.origen === 'turno' ? lista.find(x => x.idTurno === deLaUrl.id) : null;
+        datosTurno = t || null;
         sel.replaceChildren(new Option(
             deLaUrl.origen === 'admision' ? `Entrevista de admisión (informe ${deLaUrl.id})`
                 : t ? etiquetaSesion(t) : `Turno ${deLaUrl.id}`,
@@ -458,6 +550,9 @@ async function entrarASala() {
     analisis?.detener();
     analisis = YS.emociones.analizar({ sesion: sesionVideo, alCambiar: alCambiarPermiso });
     analisis.iniciar();
+
+    // 2c. Borrador de la nota: se mira si quedó uno de esta sesión y desde acá se guarda lo que se escribe (cifrado, en este equipo).
+    iniciarBorrador();
 
     // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
     // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
@@ -758,11 +853,397 @@ function limpiarTranscripcion() {
         '<div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>';
 }
 
+// ─── PANEL DE CIERRE ──────────────────────────────────────
+// Al terminar la llamada el profesional decide, en este orden: si la sesión se realizó, cómo sigue el paciente y qué anota.
+// El sistema NO cambia nada solo: el turno pasa a Realizado únicamente si se elige «Sí, se realizó» y se toca «Guardar cierre»;
+// «Decidir después» no manda nada al servidor. Todo se guarda en UN solo pedido (POST /sesiones-clinicas) con una clave de
+// cierre que no cambia entre reintentos: si la conexión se corta y se vuelve a tocar «Guardar cierre», el servidor no duplica nada.
+let datosTurno = null;        // { idTurno, fecha, hora, nombrePaciente } del turno de la sala; null si la sala no es de un turno
+let decisionRealizo = null;   // 'si' | 'no' | 'despues'; nunca viene elegida
+let claveCierre = null;       // GUID de este cierre
+let cierreGuardado = false;
+
+const hayTurno = () => !!sesionVideo && sesionVideo.origen === 'turno';
+const nuevaClaveCierre = () => {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
+const nombreDelPaciente = () => {
+    const sel = document.getElementById('sel-paciente');
+    return sel.selectedIndex >= 0 && sel.value ? sel.options[sel.selectedIndex].text : '';
+};
+
+function abrirPanelDeCierre() {
+    panelDeCierreAbierto = true;
+    claveCierre = claveCierre || nuevaClaveCierre();
+    const panel = document.getElementById('panel-cierre');
+    panel.classList.remove('oculto');
+    const turno = document.getElementById('cierre-turno');
+    const paso = document.getElementById('cierre-paso-realizo');
+    if (hayTurno()) {
+        paso.classList.remove('oculto');
+        const quien = (datosTurno && datosTurno.nombrePaciente) || nombreDelPaciente();
+        turno.textContent = datosTurno && datosTurno.fecha
+            ? `Turno del ${datosTurno.fecha} a las ${datosTurno.hora} hs${quien ? ' · ' + quien : ''}`
+            : `Turno ${sesionVideo.id}${quien ? ' · ' + quien : ''}`;
+    } else {
+        paso.classList.add('oculto');
+        turno.textContent = 'Esta sala no es de un turno: se guarda la nota de la sesión sin tocar ningún turno.';
+    }
+    actualizarCierre();
+    const primero = panel.querySelector(hayTurno() ? 'input[name="cierre-realizo"]' : '.tipo-btn');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (primero) primero.focus({ preventScroll: true });
+}
+
+function elegirRealizo(valor) {
+    decisionRealizo = valor;
+    const ayuda = {
+        si: 'Al guardar, el turno pasa a Realizado. Si es la primera sesión con este paciente, su caso pasa a «En atención».',
+        no: 'Se guarda la nota y el turno NO cambia. Escribí en la evolución qué pasó.',
+        despues: 'No se guarda nada ni cambia ningún estado. Podés cerrar la sesión más tarde con lo que escribiste.'
+    };
+    document.getElementById('cierre-ayuda-realizo').textContent = ayuda[valor];
+    mensajeCierre('');
+    actualizarCierre();
+    programarBorrador();
+}
+
 // ─── TIPO DE CIERRE ───────────────────────────────────────
 function seleccionarCierre(tipo) {
     tipoCierreSeleccionado = tipo;
-    document.querySelectorAll('.tipo-btn').forEach(b => b.classList.remove('activo'));
-    event.target.classList.add('activo');
+    document.querySelectorAll('.tipo-btn').forEach(btn => {
+        const activo = btn.dataset.tipo === tipo;
+        btn.classList.toggle('activo', activo);
+        btn.setAttribute('aria-pressed', String(activo));
+    });
+    mostrarAvisoDelTipo();
+    resaltarProximoTurno();
+    actualizarCierre();
+    programarBorrador();
+}
+
+// Alta y derivación NO se hacen acá: solo queda registrado el tipo de cierre. Se avisa que falta completarlo y se da el acceso a la
+// pantalla que ya existe para cada cosa (el panel principal, que se abre en la sección indicada).
+const DESTINO_DEL_TIPO = { 'Alta': { cosa: 'el alta', seccion: 'pacientes', donde: 'Mis pacientes' }, 'Derivación': { cosa: 'la derivación', seccion: 'casos', donde: 'Casos' } };
+function mostrarAvisoDelTipo() {
+    const aviso = document.getElementById('cierre-aviso-tipo');
+    const d = DESTINO_DEL_TIPO[tipoCierreSeleccionado];
+    aviso.replaceChildren();
+    aviso.classList.toggle('oculto', !d);
+    if (!d) return;
+    const enlace = document.createElement('a');
+    enlace.textContent = d.donde;
+    enlace.setAttribute('role', 'link');
+    enlace.tabIndex = 0;
+    enlace.onclick = () => irAlPanel(d.seccion);
+    enlace.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); irAlPanel(d.seccion); } };
+    aviso.append(`Falta completar ${d.cosa} del paciente. Acá solo queda registrado el tipo de cierre de esta sesión; ${d.cosa} se gestiona desde `, enlace, '.');
+}
+
+// Abre una sección del panel principal. Cambiar de sección cierra esta sala: si quedan notas sin guardar, se pregunta antes.
+function irAlPanel(seccion) {
+    if (hayNotasSinGuardar() && !window.confirm('Tenés notas sin guardar. Si salís de la sala se pierden. ¿Salir igual?')) return;
+    guardadoEnHC = true;   // ya se preguntó: que el aviso del navegador no vuelva a preguntar
+    if (window.parent && window.parent !== window) window.parent.location.hash = '#' + seccion;
+    else window.location.href = 'nuevo_dashboard.html#' + seccion;
+}
+
+function mensajeCierre(texto) { document.getElementById('cierre-mensaje').textContent = texto; }
+
+// Qué se puede hacer ahora: guardar solo si ya se decidió (o no hay turno), no se está guardando y no se guardó ya.
+function actualizarCierre() {
+    const guardar = document.getElementById('btn-cierre-guardar');
+    if (!guardar || cierreGuardado) return;
+    const decidido = !hayTurno() || decisionRealizo !== null;
+    guardar.disabled = !decidido;
+    guardar.textContent = decisionRealizo === 'despues' ? '⏸ Decidir después' : '💾 Guardar cierre';
+}
+
+// «Anotar evolución»: lleva al editor de la nota (la misma caja donde se escribió durante la llamada).
+function anotarEvolucion() {
+    const nota = document.getElementById('notas-evolucion');
+    nota.classList.add('resaltada');
+    setTimeout(() => nota.classList.remove('resaltada'), 2500);
+    nota.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    nota.focus({ preventScroll: true });
+}
+
+// ─── VÍNCULO CON UNA EVOLUCIÓN ─────────────────────────────
+// Sesión y evolución se ENLAZAN, no se unifican, y el cierre no crea ninguna evolución. El profesional puede vincular a mano la evolución que
+// escribió en la historia clínica; el servidor solo lo acepta si es del mismo paciente, del mismo profesional y del mismo día, y no modifica la evolución.
+let idSesionGuardada = null;
+
+async function buscarEvolucionesVinculables() {
+    const msg = document.getElementById('vinculo-mensaje');
+    const lista = document.getElementById('vinculo-lista');
+    lista.replaceChildren();
+    msg.textContent = 'Buscando…';
+    let r;
+    try { r = await YS.api(`/sesiones-clinicas/${idSesionGuardada}/evoluciones-vinculables`, { sinRedireccion: true }); }
+    catch (err) { msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message; return; }
+    if (r.idEvolucion) { msg.textContent = `Esta sesión ya está vinculada con la evolución #${r.idEvolucion}.`; return; }
+    if (!r.evoluciones.length) {
+        msg.textContent = 'No encontramos una evolución tuya de hoy para este paciente que se pueda vincular. Cuando la escribas en la historia clínica, la vinculación queda para más adelante.';
+        return;
+    }
+    msg.textContent = 'Elegí la evolución que corresponde a esta sesión:';
+    r.evoluciones.forEach(e => {
+        const fila = document.createElement('div');
+        fila.className = 'vinculo-fila';
+        const texto = document.createElement('span');
+        texto.textContent = `Evolución #${e.idEvolucion}${e.resumen ? ' · ' + e.resumen : ''}`;
+        const boton = document.createElement('button');
+        boton.type = 'button'; boton.className = 'btn-gris'; boton.textContent = 'Vincular';
+        boton.onclick = () => vincularEvolucion(e.idEvolucion, boton);
+        fila.append(texto, boton);
+        lista.appendChild(fila);
+    });
+}
+
+async function vincularEvolucion(idEvolucion, boton) {
+    const msg = document.getElementById('vinculo-mensaje');
+    boton.disabled = true;
+    try {
+        await YS.api(`/sesiones-clinicas/${idSesionGuardada}/evolucion`, { method: 'PUT', json: { idEvolucion }, sinRedireccion: true });
+        document.getElementById('vinculo-lista').replaceChildren();
+        document.getElementById('btn-vincular').disabled = true;
+        msg.textContent = `✅ La sesión quedó vinculada con la evolución #${idEvolucion}.`;
+    } catch (err) {
+        boton.disabled = false;
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message;
+    }
+}
+
+// ─── BORRADOR LOCAL DE LA NOTA ────────────────────────────
+// Lo que se escribe se guarda en ESTE equipo, cifrado (shared/borrador.js), para que una recarga o un cierre de pestaña no lo pierdan.
+// Es un BORRADOR: no es una evolución ni una firma, no se manda al servidor durante la llamada y se descarta al guardar el cierre.
+// Se guardan la nota, el tipo de cierre, la respuesta de «¿se realizó?» y la clave del cierre; no la transcripción ni las emociones.
+let claveBorrador = null;      // cierre:{usuario}:{origen}:{id}: un borrador por usuario y por sesión
+let borradorOk = false;        // se pudo abrir el almacenamiento cifrado de este equipo
+let borradorTimer = null;
+let borradorPendiente = false; // hay un borrador anterior y todavía no se decidió qué hacer con él
+let borradorRecuperado = null;
+const idUsuarioLocal = () => localStorage.getItem('idUsuario');
+const horaDelBorrador = ms => new Date(ms).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+function estadoBorrador(texto, alerta = false) {
+    const el = document.getElementById('borrador-estado');
+    el.textContent = texto;
+    el.classList.toggle('alerta', alerta);
+}
+
+async function iniciarBorrador() {
+    if (!sesionVideo) return;
+    claveBorrador = `cierre:${idUsuarioLocal()}:${sesionVideo.origen}:${sesionVideo.id}`;
+    claveCierre = claveCierre || nuevaClaveCierre();
+    const B = window.YS && YS.borrador;
+    let ok = false;
+    try { ok = !!B && await B.disponible(); } catch { ok = false; }
+    if (!ok) {
+        // No se finge: sin almacenamiento cifrado no hay borrador, y el aviso del navegador al cerrar sigue siendo la única red.
+        estadoBorrador('No se pudo guardar el borrador en este equipo (el navegador no lo permite). Si cerrás o recargás la pestaña antes de guardar, lo que escribiste se pierde.', true);
+        return;
+    }
+    borradorOk = true;
+    try { await B.purgarVencidos(); } catch { /* una purga que falla no impide trabajar */ }
+    let previo = null;
+    try { previo = await B.leer(idUsuarioLocal(), claveBorrador); } catch { previo = null; }
+    if (previo && previo.datos) {
+        // No se aplica solo: se pregunta. Hasta decidir, la caja de la nota queda bloqueada para no pisar nada.
+        borradorRecuperado = previo;
+        borradorPendiente = true;
+        document.getElementById('notas-evolucion').disabled = true;
+        document.getElementById('borrador-recuperar-texto').textContent = `Recuperaste un borrador de esta sesión del ${horaDelBorrador(previo.guardadoEn)}.`;
+        document.getElementById('borrador-recuperar').classList.remove('oculto');
+        estadoBorrador('Elegí qué hacer con el borrador anterior para seguir escribiendo.');
+        return;
+    }
+    estadoBorrador('Borrador en este equipo: se guarda mientras escribís. Todavía no está en la historia clínica.');
+}
+
+function resolverBorradorPendiente() {
+    borradorPendiente = false;
+    borradorRecuperado = null;
+    document.getElementById('borrador-recuperar').classList.add('oculto');
+    const nota = document.getElementById('notas-evolucion');
+    nota.disabled = false;
+    nota.focus({ preventScroll: true });
+}
+
+function seguirConBorrador() {
+    const d = (borradorRecuperado && borradorRecuperado.datos) || {};
+    document.getElementById('notas-evolucion').value = d.notas || '';
+    if (d.claveCierre) claveCierre = d.claveCierre;
+    if (d.tipoCierre) seleccionarCierre(d.tipoCierre);
+    if (d.decision) {
+        const radio = document.querySelector(`input[name="cierre-realizo"][value="${d.decision}"]`);
+        if (radio) { radio.checked = true; elegirRealizo(d.decision); }
+    }
+    const cuando = borradorRecuperado ? horaDelBorrador(borradorRecuperado.guardadoEn) : '';
+    resolverBorradorPendiente();
+    estadoBorrador(`Seguís con el borrador del ${cuando}. Todavía no está en la historia clínica.`);
+    if (!salaFinalizada || salaSigueEnUso()) iniciarAvisoDeActividad();
+}
+
+async function descartarBorrador() {
+    try { await YS.borrador.borrar(idUsuarioLocal(), claveBorrador); } catch { /* si no se pudo borrar, igual deja de ofrecerse */ }
+    resolverBorradorPendiente();
+    estadoBorrador('Borrador descartado. Lo que escribas desde ahora se guarda como un borrador nuevo.');
+}
+
+// El guardado es diferido (2 s sin escribir) y también al salir de la caja: no se cifra en cada tecla.
+function programarBorrador() {
+    if (!borradorOk || cierreGuardado) return;
+    clearTimeout(borradorTimer);
+    borradorTimer = setTimeout(guardarBorrador, 2000);
+}
+
+async function guardarBorrador() {
+    clearTimeout(borradorTimer);
+    if (!borradorOk || borradorPendiente || cierreGuardado) return;
+    const notas = document.getElementById('notas-evolucion').value;
+    try {
+        if (!notas.trim() && !tipoCierreSeleccionado && !decisionRealizo) {
+            await YS.borrador.borrar(idUsuarioLocal(), claveBorrador);   // nada que conservar
+            estadoBorrador('Borrador en este equipo: se guarda mientras escribís. Todavía no está en la historia clínica.');
+            return;
+        }
+        const cuando = await YS.borrador.guardar(idUsuarioLocal(), claveBorrador,
+            { notas, tipoCierre: tipoCierreSeleccionado, decision: decisionRealizo, claveCierre });
+        estadoBorrador(`Borrador guardado en este equipo · ${new Date(cuando).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}. Todavía no está en la historia clínica.`);
+    } catch {
+        borradorOk = false;
+        estadoBorrador('No se pudo guardar el borrador en este equipo. Si cerrás o recargás la pestaña antes de guardar, lo que escribiste se pierde.', true);
+    }
+}
+
+// El cierre quedó en la historia clínica: el borrador ya no hace falta.
+async function descartarBorradorGuardado(texto) {
+    clearTimeout(borradorTimer);
+    const habia = borradorOk;
+    borradorOk = false;
+    if (habia) { try { await YS.borrador.borrar(idUsuarioLocal(), claveBorrador); } catch { /* si no se pudo, vence solo a las 72 horas */ } }
+    estadoBorrador(texto);
+}
+
+document.getElementById('notas-evolucion').addEventListener('input', programarBorrador);
+document.getElementById('notas-evolucion').addEventListener('blur', guardarBorrador);
+// Para quien aloja la sala en un iframe (el panel principal): ¿hay algo que se perdería al salir de la sala?
+window.ysCierrePendiente = () => !cierreGuardado && (hayNotasSinGuardar() || panelDeCierreAbierto);
+
+// ─── PRÓXIMO TURNO ────────────────────────────────────────
+// El selector abre con el paciente y el profesional ya cargados y muestra los horarios que el paciente vería al reservar (los mismos
+// de «Mis horarios»). «Enviar propuesta» crea un turno PENDIENTE a nombre del profesional y le avisa al paciente: el turno recién queda
+// confirmado cuando el paciente lo acepta (con el consentimiento de telemedicina y las demás reglas de siempre). Nada se reserva solo.
+let proximoTurnoEnviado = null;      // { idTurno, fecha, hora } cuando ya se envió la propuesta
+let proximoElegido = null;           // { fecha: 'YYYY-MM-DD', hora: 'HH:MM' }
+let proximoAbiertoAMano = false;     // el profesional lo abrió o lo cerró él: la sugerencia del Seguimiento ya no lo mueve
+
+const fechaISOLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const horaLocal = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+function alternarProximoTurno(abrir) {
+    const caja = document.getElementById('cierre-proximo');
+    const quiere = typeof abrir === 'boolean' ? abrir : caja.classList.contains('oculto');
+    if (typeof abrir !== 'boolean') proximoAbiertoAMano = true;
+    caja.classList.toggle('oculto', !quiere);
+    document.getElementById('btn-cierre-proximo').setAttribute('aria-pressed', String(quiere));
+    if (quiere && !proximoTurnoEnviado) cargarHorariosProximo();
+}
+
+// «Agendar próximo turno» se ofrece siempre; con Seguimiento viene sugerido (destacado y abierto), con Alta o Derivación queda a elección.
+function resaltarProximoTurno() {
+    const btn = document.getElementById('btn-cierre-proximo');
+    const sugerido = tipoCierreSeleccionado === 'Seguimiento' && !proximoTurnoEnviado;
+    btn.classList.toggle('sugerido', sugerido);
+    btn.title = sugerido ? 'Sugerido: el paciente sigue en seguimiento' : '';
+    if (sugerido && !proximoAbiertoAMano && !document.getElementById('panel-cierre').classList.contains('oculto')) alternarProximoTurno(true);
+}
+
+async function cargarHorariosProximo() {
+    const cont = document.getElementById('proximo-horarios');
+    const msg = document.getElementById('proximo-mensaje');
+    const paciente = nombreDelPaciente();
+    document.getElementById('proximo-quien').textContent = `Se le propone a ${paciente || 'el paciente'} un turno con vos. El paciente tiene que aceptarlo: hasta entonces queda pendiente.`;
+    proximoElegido = null;
+    document.getElementById('btn-proximo-enviar').disabled = true;
+    if (!idProfesional) { msg.textContent = 'No se pudo identificar tu usuario profesional.'; return; }
+    cont.replaceChildren();
+    msg.textContent = 'Buscando horarios libres…';
+    let libres;
+    try {
+        libres = await YS.api(`/profesionales/${idProfesional}/horarios-libres?dias=14`, { sinRedireccion: true });
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : 'No se pudieron cargar los horarios libres. ' + err.message;
+        return;
+    }
+    if (!libres.length) { msg.textContent = 'No queda ningún horario libre en los próximos 14 días. Revisá tu agenda en «Mis horarios».'; return; }
+    msg.textContent = '';
+    const porDia = new Map();
+    libres.forEach(iso => {
+        const d = new Date(iso);
+        const clave = fechaISOLocal(d);
+        if (!porDia.has(clave)) porDia.set(clave, { fecha: d, horas: [] });
+        porDia.get(clave).horas.push(horaLocal(d));
+    });
+    porDia.forEach((dia, clave) => {
+        const col = document.createElement('div');
+        col.className = 'proximo-dia';
+        const titulo = document.createElement('div');
+        titulo.className = 'proximo-dia-titulo';
+        titulo.textContent = dia.fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
+        const horas = document.createElement('div');
+        horas.className = 'proximo-horas';
+        dia.horas.forEach(h => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'proximo-hora'; b.textContent = h;
+            b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false');
+            b.onclick = () => elegirHorarioProximo(b, clave, h);
+            horas.appendChild(b);
+        });
+        col.append(titulo, horas);
+        cont.appendChild(col);
+    });
+}
+
+function elegirHorarioProximo(boton, fecha, hora) {
+    document.querySelectorAll('#proximo-horarios .proximo-hora').forEach(b => b.setAttribute('aria-checked', String(b === boton)));
+    proximoElegido = { fecha, hora };
+    document.getElementById('btn-proximo-enviar').disabled = false;
+    document.getElementById('proximo-mensaje').textContent = '';
+}
+
+async function enviarProximoTurno() {
+    const msg = document.getElementById('proximo-mensaje');
+    const idPaciente = parseInt(document.getElementById('sel-paciente').value);
+    if (!proximoElegido || !idPaciente || !idProfesional) { msg.textContent = 'Elegí un horario.'; return; }
+    const btn = document.getElementById('btn-proximo-enviar');
+    btn.disabled = true;   // un solo envío a la vez
+    try {
+        const r = await YS.api('/turnos/profesional-solicitar', {
+            method: 'POST', sinRedireccion: true,
+            json: { idPaciente, idProfesional, fecha: proximoElegido.fecha, hora: proximoElegido.hora + ':00', motivo: document.getElementById('proximo-motivo').value.trim() || null }
+        });
+        proximoTurnoEnviado = { idTurno: r && r.idTurno, fecha: proximoElegido.fecha, hora: proximoElegido.hora };
+        const [a, m, d] = proximoElegido.fecha.split('-');
+        msg.textContent = `✅ Le llegó la propuesta a ${nombreDelPaciente() || 'el paciente'} para el ${d}/${m}/${a} a las ${proximoElegido.hora} hs. Queda pendiente hasta que la acepte.`;
+        document.getElementById('proximo-horarios').replaceChildren();
+        document.getElementById('proximo-motivo').disabled = true;
+        btn.classList.add('oculto');
+        document.getElementById('btn-cierre-proximo').disabled = true;
+        resaltarProximoTurno();
+    } catch (err) {
+        // El mensaje es el de la API (horario ocupado, ya hay un turno ese día, etc.): se muestra y se recargan los horarios, sin perder el resto del cierre.
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
+            : err.status === 0 ? err.message + ' No se envió nada: podés volver a intentarlo.'
+            : err.message;
+        btn.disabled = false;
+        if (err.status === 409) cargarHorariosProximo().then(() => { document.getElementById('proximo-mensaje').textContent = err.message; });
+    }
 }
 
 // ─── FINALIZAR ────────────────────────────────────────────
@@ -781,12 +1262,13 @@ async function finalizarSesion() {
     control?.cerrar();
 
     document.getElementById('btn-exportar').disabled = false;
-    document.getElementById('btn-guardar-hc').disabled = false;
+    document.getElementById('btn-finalizar').disabled = true;
     document.getElementById('estado-txt').textContent = `Sesión finalizada. ${analisis ? analisis.cantidad() : 0} muestras registradas.`;
-    toast('Sesión finalizada. Podés guardar en HC o exportar el reporte.');
+    toast('Sesión finalizada. Completá el cierre más abajo.');
+    abrirPanelDeCierre();
 }
 
-// ─── GUARDAR EN HC ────────────────────────────────────────
+// ─── GUARDAR EL CIERRE ────────────────────────────────────
 // Por qué una emoción no se guarda, dicho para el profesional.
 function razonSinEmociones(motivo) {
     switch (motivo) {
@@ -808,16 +1290,34 @@ async function emocionesParaGuardar() {
 }
 
 async function guardarEnHC() {
+    if (cierreGuardado) return;
     const idPaciente = document.getElementById('sel-paciente').value;
-    if (!idPaciente) { toast('Seleccioná el paciente antes de guardar.'); return; }
-    if (!idProfesional) { toast('No se pudo identificar tu usuario profesional: ingresá de nuevo para guardar en la historia clínica.', 8000); return; }
+    if (!idPaciente) { mensajeCierre('Seleccioná el paciente antes de guardar.'); return; }
+    if (!idProfesional) { mensajeCierre('No se pudo identificar tu usuario profesional: ingresá de nuevo para guardar en la historia clínica.'); return; }
+    if (hayTurno() && decisionRealizo === null) { mensajeCierre('Elegí si la sesión se realizó, o «Decidir después».'); return; }
+
+    // «Decidir después»: no se manda NADA al servidor ni cambia ningún estado.
+    if (decisionRealizo === 'despues') {
+        mensajeCierre('');
+        document.getElementById('cierre-ayuda-realizo').textContent =
+            'No se guardó nada ni cambió ningún estado. Cuando quieras cerrar esta sesión, volvé a elegir una opción.';
+        toast('No se guardó nada. La sesión queda sin cerrar.');
+        return;
+    }
+
+    const notas = document.getElementById('notas-evolucion').value;
+    if (decisionRealizo === 'no' && !notas.trim()) {
+        mensajeCierre('Si la sesión no se realizó, escribí en la evolución qué pasó, o elegí «Decidir después».');
+        anotarEvolucion();
+        return;
+    }
+    mensajeCierre('');
 
     const transcripcionTexto = transcripcionLineas
         .map(l => `[${l.quien === 'medico' ? 'MÉDICO' : 'PACIENTE'}] ${l.texto}`)
         .join('\n');
 
-    const notas = document.getElementById('notas-evolucion').value;
-    const btn = document.getElementById('btn-guardar-hc');
+    const btn = document.getElementById('btn-cierre-guardar');
     btn.disabled = true;   // un solo guardado a la vez: el permiso se vuelve a consultar y eso tarda un instante
 
     const { emociones, motivo } = await emocionesParaGuardar();
@@ -825,34 +1325,67 @@ async function guardarEnHC() {
     const body = {
         idPaciente:         parseInt(idPaciente),
         idProfesional:      idProfesional,
-        idTurno:            sesionVideo && sesionVideo.origen === 'turno' ? sesionVideo.id : null,
+        idTurno:            hayTurno() ? sesionVideo.id : null,
         transcripcion:      transcripcionTexto || null,
         notasEvolucion:     notas || null,
         tipoCierre:         tipoCierreSeleccionado || null,
-        emociones:          emociones
+        emociones:          emociones,
+        claveCierre:        claveCierre,                          // la misma en cada reintento: el servidor no duplica
+        confirmaRealizacion: hayTurno() && decisionRealizo === 'si'   // solo un clic explícito en «Sí, se realizó»
     };
 
     try {
         const r = await YS.api('/sesiones-clinicas', { method: 'POST', json: body, sinRedireccion: true });
+        panelDeCierreAbierto = false;   // el cierre quedó guardado: la sala deja de retener la sesión del panel
         btn.textContent = '✅ Guardado en HC';
         guardadoEnHC = true;
         soltarAvisoSiNoHaceFalta();
-        const estado = r && r.emociones && r.emociones.estado;
-        if (estado === 'guardadas') {
-            toast('✅ Sesión guardada en la Historia Clínica del paciente, con las emociones (cifradas).');
-        } else if (estado === 'descartadas' && r.emociones.mensaje) {
-            toast('✅ Sesión guardada. ' + r.emociones.mensaje, 9000);
-        } else if (emociones === null && motivo !== 'sin-muestras' && motivo !== 'no-disponible') {
-            // Hubo (o pudo haber) análisis y no se mandó nada: se dice por qué, también cuando había muestras acumuladas.
-            toast('✅ Sesión guardada en la Historia Clínica, sin emociones: ' + razonSinEmociones(motivo) + '.', 8000);
-        } else {
-            toast('✅ Sesión guardada en la Historia Clínica del paciente.');
-        }
+        cierreGuardado = true;
+        idSesionGuardada = r.idSesion;
+        document.getElementById('cierre-vinculo').classList.remove('oculto');
+        descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');
+        mostrarResultadoDelCierre(r, motivo, emociones);
+        // HOOK: lo que sigue después del cierre (seguimiento, alta o derivación). La feature de alta / derivación se engancha a este evento.
+        document.dispatchEvent(new CustomEvent('ys:cierre-guardado', { detail: r.siguientePaso }));
     } catch (err) {
-        // El botón sigue habilitado: tras volver a ingresar en otra pestaña se puede reintentar.
+        // El botón sigue habilitado: se puede reintentar (con la misma clave) sin duplicar nada.
         btn.disabled = false;
-        toast(err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : '❌ No se pudo guardar en la HC. ' + err.message, 8000);
+        const m = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
+            : err.status === 0 ? 'No se pudo conectar con el servidor. ' + (borradorOk ? 'Tu borrador sigue en este equipo: ' : 'Lo que escribiste sigue en esta pantalla: ') + 'volvé a tocar «Guardar cierre» y no se duplica nada.'
+            : err.message;
+        mensajeCierre(m);
+        toast('❌ No se pudo guardar el cierre. ' + m, 8000);
     }
+}
+
+// Lo que quedó hecho, en lenguaje claro. Todo con textContent: nada del servidor se interpreta como HTML.
+function mostrarResultadoDelCierre(r, motivoSinEmociones, emociones) {
+    const lineas = [r.repetido ? 'Este cierre ya estaba guardado: no se duplicó nada.' : 'La sesión quedó guardada en la historia clínica del paciente.'];
+    if (r.turno) {
+        if (r.turno.cambio) lineas.push('El turno quedó como Realizado.');
+        else if (r.turno.motivo === 'no-confirmado') lineas.push('El turno no cambió: sigue como ' + (r.turno.estado || 'estaba') + '.');
+        else lineas.push('El turno figuraba como ' + (r.turno.estado || 'Realizado') + ': no se cambió.');
+    }
+    if (r.caso && r.caso.cambio) lineas.push('Era la primera sesión: el caso del paciente pasó a «En atención».');
+    if (proximoTurnoEnviado) {
+        const [a, m, d] = proximoTurnoEnviado.fecha.split('-');
+        lineas.push(`Propuesta de próximo turno enviada para el ${d}/${m}/${a} a las ${proximoTurnoEnviado.hora} hs: queda pendiente hasta que el paciente la acepte.`);
+    }
+    const estado = r.emociones && r.emociones.estado;
+    if (estado === 'guardadas') lineas.push('Se guardaron las emociones (cifradas).');
+    else if (estado === 'descartadas' && r.emociones.mensaje) lineas.push(r.emociones.mensaje);
+    else if (emociones === null && motivoSinEmociones !== 'sin-muestras' && motivoSinEmociones !== 'no-disponible') lineas.push('Sin emociones: ' + razonSinEmociones(motivoSinEmociones) + '.');
+
+    const cont = document.getElementById('cierre-resultado');
+    const ul = document.createElement('ul');
+    lineas.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); });
+    cont.replaceChildren(ul);
+    cont.classList.remove('oculto');
+
+    // Ya está guardado: no se vuelve a pedir ninguna decisión.
+    document.getElementById('btn-cierre-guardar').disabled = true;
+    document.querySelectorAll('#panel-cierre input[name="cierre-realizo"], #panel-cierre .tipo-btn').forEach(el => { el.disabled = true; });
+    toast('✅ Cierre guardado.');
 }
 
 // ─── EXPORTAR REPORTE ─────────────────────────────────────

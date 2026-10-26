@@ -355,6 +355,8 @@
             if (preguntar && !await YS.confirmar({
                 titulo: "Cerrar sesión", mensaje: "¿Querés cerrar la sesión en este equipo?", textoConfirmar: "Cerrar sesión"
             })) return;
+            // Borradores de notas sin guardar (shared/borrador.js, si la página lo cargó): se pregunta antes de descartarlos.
+            if (YS.borradorAlCerrarSesion && !await YS.borradorAlCerrarSesion(localStorage.getItem("idUsuario"))) return;
             YS.sesion.limpiar();
             location.href = YS.rutas.login;
         },

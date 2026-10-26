@@ -457,7 +457,7 @@ public class EmocionesBaseRealTests
         Assert.Equal(4, sesion.GetProperty("emociones").GetProperty("muestras").GetInt32());
         Assert.Equal("nota [TEST-PR6]", sesion.GetProperty("notasEvolucion").GetString());
         Assert.Equal("transcripción [TEST-PR6]", sesion.GetProperty("transcripcion").GetString());
-        Assert.Equal(new[] { "emociones", "fechaHora", "historialEmociones", "idPaciente", "idProfesional", "idSesion", "idTurno", "notasEvolucion", "tipoCierre", "transcripcion" },
+        Assert.Equal(new[] { "emociones", "fechaHora", "historialEmociones", "idEvolucion", "idPaciente", "idProfesional", "idSesion", "idTurno", "notasEvolucion", "tipoCierre", "transcripcion" },
             sesion.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
         var (_, porProfesional) = await Get(profesional, $"/profesionales/{d.IdProfesional}/sesiones-clinicas");

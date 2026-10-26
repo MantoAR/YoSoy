@@ -1984,7 +1984,7 @@ app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 // guardan con una aceptación vigente del paciente de esa sesión de video (GuardiaEmocionesService) y siempre cifradas; si no
 // pasan la guardia, la sesión se guarda igual (notas, tipo de cierre) y la respuesta dice que las emociones se descartaron.
 soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpContext ctx, IdentidadActualService identidad,
-    GuardiaEmocionesService guardia, IEmocionesCifrado cifrado) =>
+    GuardiaEmocionesService guardia, IEmocionesCifrado cifrado, TurnoReglasService reglas) =>
 {
     // Mismo criterio que turnos (Paso 3): si quien crea es profesional, la sesión queda a
     // su propio nombre, nunca al de otro id enviado en el cuerpo.
@@ -1996,6 +1996,10 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
     var idProfesional = esAdmin ? req.IdProfesional ?? 0 : idPropio!.Value;
     if (idProfesional <= 0)
         return Results.BadRequest(new { mensaje = "Indicá el profesional de la sesión." });
+
+    // Cierre de sesión (Endpoints/CierreSesionEndpoints.cs): con claveCierre o confirmaRealizacion, todo en una transacción.
+    if (CierreSesionEndpoints.EsPedidoDeCierre(req))
+        return CierreSesionEndpoints.Guardar(req, ctx, identidad, guardia, cifrado, reglas, idProfesional, esAdmin);
 
     var s = new SesionClinica
     {
@@ -2635,6 +2639,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 app.MapMensajeria();
 app.MapConsentimiento();
 app.MapCasos();
+app.MapCierreSesion();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapConsentimientoWhatsApp();

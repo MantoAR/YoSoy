@@ -36,6 +36,13 @@ public class Migracion25Tests
             }
             // La forma de producción ANTES de la 25: sin la tabla de la migración 16 (54 tablas) y sin la columna ni su versión.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
+            // El esquema consolidado ya trae la 26 (cierre de sesión), que es posterior: se saca para que la última versión sea la 24.
+            Ejecutar("DROP INDEX UX_SesionClinica_Clave ON SesionClinica");
+            Ejecutar("DROP INDEX UX_SesionClinica_Evolucion ON SesionClinica");
+            Ejecutar("DROP INDEX IX_SesionClinica_Turno ON SesionClinica");
+            Ejecutar("ALTER TABLE SesionClinica DROP CONSTRAINT FK_SesionClinica_Evolucion");
+            Ejecutar("ALTER TABLE SesionClinica DROP COLUMN ClaveCierre, TurnoRealizadoUtc, IdEvolucion");
+            Ejecutar("DELETE FROM VersionEsquema WHERE Numero = 26");
             Ejecutar("ALTER TABLE Conversacion DROP CONSTRAINT DF_Conversacion_IaActiva");
             Ejecutar("ALTER TABLE Conversacion DROP COLUMN IaActiva");
             Ejecutar("DELETE FROM VersionEsquema WHERE Numero = 25");
