@@ -440,4 +440,121 @@ public class CierreSesionBaseRealTests
         Assert.Equal(HttpStatusCode.Created, r2.StatusCode);
         Assert.Equal("Realizado", c.EstadoDelTurno(c.IdTurno));
     }
+
+    // ───────────── La primera sesión mueve el caso a En atención ─────────────
+
+    [FactConBaseDeCierre]
+    public async Task La_primera_sesión_realizada_pasa_el_caso_de_Asignado_a_En_atención_y_es_idempotente()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+        var idCaso = c.IdCaso("Asignado");
+        var clave = Guid.NewGuid();
+
+        var (r, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, clave));
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        Assert.True(j.GetProperty("caso").GetProperty("cambio").GetBoolean());
+        Assert.Equal(idCaso, j.GetProperty("caso").GetProperty("idCaso").GetInt32());
+        Assert.Equal("En atención", j.GetProperty("caso").GetProperty("estado").GetString());
+        Assert.Equal("En atención", c.EstadoDelCaso(idCaso));
+        var rastro = Assert.Single(c.Auditoria("Caso pasa a En atención"));
+        Assert.Contains($"Caso #{idCaso}: Asignado -> En atención", rastro.Detalle);
+
+        // Repetir el cierre: ni cambia ni vuelve a auditar.
+        var (r2, j2) = await Cerrar(Profesional(app, c.D), Cuerpo(c, clave));
+        Assert.Equal(HttpStatusCode.OK, r2.StatusCode);
+        Assert.False(j2.GetProperty("caso").GetProperty("cambio").GetBoolean());
+        Assert.Single(c.Auditoria("Caso pasa a En atención"));
+
+        // Una segunda sesión realizada ya no es la primera: el caso sigue En atención y no se audita otra transición.
+        var otro = c.NuevoTurno("Confirmado", DatosCierre.Ayer, hora: 12);
+        var (r3, j3) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid(), idTurno: otro));
+        Assert.Equal(HttpStatusCode.Created, r3.StatusCode);
+        Assert.False(j3.GetProperty("caso").GetProperty("cambio").GetBoolean());
+        Assert.Equal("En atención", c.EstadoDelCaso(idCaso));
+        Assert.Single(c.Auditoria("Caso pasa a En atención"));
+    }
+
+    [FactConBaseDeCierre]
+    public async Task El_caso_no_cambia_si_la_sesión_no_se_realizó_si_no_está_Asignado_o_si_es_de_otro_profesional()
+    {
+        using var app = App();
+
+        // No se realizó: el caso queda como estaba.
+        using (var c = new DatosCierre(_salida))
+        {
+            var idCaso = c.IdCaso("Asignado");
+            var (_, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid(), confirma: false));
+            Assert.False(j.GetProperty("caso").GetProperty("cambio").GetBoolean());
+            Assert.Equal("Asignado", c.EstadoDelCaso(idCaso));
+        }
+
+        // En cualquier otro estado, tampoco (Nuevo, Derivado, En atención, Cerrado).
+        foreach (var estado in new[] { "Nuevo", "Derivado", "En atención", "Cerrado" })
+        {
+            using var c = new DatosCierre(_salida);
+            var idCaso = c.IdCaso(estado);
+            var (r, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid()));
+            Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+            Assert.False(j.GetProperty("caso").GetProperty("cambio").GetBoolean(), estado);
+            Assert.Equal(estado, c.EstadoDelCaso(idCaso));
+            Assert.Equal("Realizado", c.EstadoDelTurno(c.IdTurno));
+        }
+
+        // Un caso asignado a OTRO profesional no lo mueve este cierre.
+        using (var c = new DatosCierre(_salida))
+        using (var otroProf = new DatosCierre(_salida))
+        {
+            var idCaso = c.IdCaso("Asignado", idProfesional: otroProf.IdProfesional);
+            var (_, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid()));
+            Assert.False(j.GetProperty("caso").GetProperty("cambio").GetBoolean());
+            Assert.Equal("Asignado", c.EstadoDelCaso(idCaso));
+        }
+
+        // Un paciente sin caso: el cierre anda igual.
+        using (var c = new DatosCierre(_salida))
+        {
+            var (r, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid()));
+            Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+            Assert.False(j.GetProperty("caso").GetProperty("cambio").GetBoolean());
+        }
+    }
+
+    [FactConBaseDeCierre]
+    public async Task Si_ya_hubo_otra_sesión_realizada_con_ese_profesional_el_caso_Asignado_no_se_mueve()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+        c.NuevoTurno("Realizado", DatosCierre.Ayer.AddDays(-7), hora: 9);          // una sesión anterior (por ejemplo, de antes de este circuito)
+        var idCaso = c.IdCaso("Asignado");
+
+        var (_, j) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid()));
+
+        Assert.True(j.GetProperty("turno").GetProperty("cambio").GetBoolean());       // el turno sí pasa a Realizado: lo confirmó el profesional
+        Assert.False(j.GetProperty("caso").GetProperty("cambio").GetBoolean());      // pero esta no es la primera: el caso no se toca solo
+        Assert.Equal("Asignado", c.EstadoDelCaso(idCaso));
+    }
+
+    [FactConBaseDeCierre]
+    public async Task Si_falla_el_cambio_del_caso_no_queda_ni_la_sesión_ni_el_turno_realizado()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+        var idCaso = c.IdCaso("Asignado");
+        var trigger = "TR_prueba_cierre_caso_" + Guid.NewGuid().ToString("N")[..8];
+        DatosEmociones.Ejecutar($"CREATE TRIGGER {trigger} ON Caso AFTER UPDATE AS IF EXISTS (SELECT 1 FROM inserted WHERE IdCaso = {idCaso}) THROW 51000, 'falla provocada por la prueba', 1;");
+        try
+        {
+            var (r, _) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid()));
+
+            Assert.Equal(HttpStatusCode.InternalServerError, r.StatusCode);
+            Assert.Equal(0, c.Sesiones());
+            Assert.Equal("Confirmado", c.EstadoDelTurno(c.IdTurno));       // el turno ya se había actualizado dentro de la transacción: se deshizo
+            Assert.Equal("Asignado", c.EstadoDelCaso(idCaso));
+            Assert.Empty(c.Auditoria("Turno marcado como Realizado"));
+            Assert.Empty(c.Auditoria("Cierre de sesión clínica"));
+        }
+        finally { DatosEmociones.Ejecutar($"DROP TRIGGER {trigger}"); }
+    }
 }

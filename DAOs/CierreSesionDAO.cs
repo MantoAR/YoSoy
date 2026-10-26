@@ -26,6 +26,9 @@ public class ResultadoCierre
     public string? EstadoActual { get; init; }
     public string? MotivoTurno { get; init; }          // "ya-estaba" | "no-confirmado" (el profesional no lo pidió) | null
 
+    // El caso del paciente: solo cambia con la primera sesión realizada (Asignado -> En atención). null = no cambió.
+    public int? IdCasoEnAtencion { get; init; }
+
     public static ResultadoCierre Rechazar(string codigo, string? estado = null, int? idSesion = null) =>
         new() { Rechazo = codigo, EstadoDelTurno = estado, IdSesionExistente = idSesion };
 }
@@ -98,6 +101,7 @@ public class CierreSesionDAO
 
         // 4) ¿Se puede pasar el turno a Realizado? Solo si el profesional lo confirmó, solo desde Confirmado y solo si el turno ya ocurrió (o es de hoy).
         var cambia = false;
+        int? idCaso = null;
         string? motivo = null;
         if (turno is not null && !confirma) motivo = "no-confirmado";
         if (turno is not null && confirma)
@@ -136,6 +140,12 @@ public class CierreSesionDAO
 
             Auditar(audit, con, tx, autor, "Turno marcado como Realizado", "Turno", s.IdTurno.Value,
                 $"Turno #{s.IdTurno}: {turno.Estado} -> {CierreSesionReglas.EstadoRealizado}, sesión #{insertada.IdSesion}, paciente #{s.IdPaciente}, confirmado por el profesional en el cierre");
+
+            // La primera sesión realizada con el profesional que tiene el caso asignado lo pasa a En atención. Es la única transición automática del caso.
+            idCaso = PasarCasoAEnAtencion(con, tx, s.IdPaciente, s.IdProfesional, s.IdTurno.Value);
+            if (idCaso is int c)
+                Auditar(audit, con, tx, autor, "Caso pasa a En atención", "Caso", c,
+                    $"Caso #{c}: Asignado -> En atención, primera sesión realizada #{insertada.IdSesion}, paciente #{s.IdPaciente}, turno #{s.IdTurno}");
         }
 
         tx.Commit();
@@ -143,8 +153,41 @@ public class CierreSesionDAO
         {
             IdSesion = insertada.IdSesion, FechaHora = s.FechaHora, TipoCierre = s.TipoCierre, EmocionesGuardadas = insertada.EmocionesGuardadas,
             HayTurno = turno is not null, TurnoCambio = cambia, EstadoAnterior = turno?.Estado,
-            EstadoActual = cambia ? CierreSesionReglas.EstadoRealizado : turno?.Estado, MotivoTurno = motivo
+            EstadoActual = cambia ? CierreSesionReglas.EstadoRealizado : turno?.Estado, MotivoTurno = motivo, IdCasoEnAtencion = idCaso
         };
+    }
+
+    // El caso abierto más reciente del paciente pasa de Asignado a En atención si está asignado a ESTE profesional y esta es la primera sesión realizada entre ellos. El UPDATE lleva
+    // la condición de partida en el WHERE: repetirlo (o dos cierres a la vez) no lo vuelve a cambiar. Devuelve el id del caso si lo cambió, o null.
+    private static int? PasarCasoAEnAtencion(SqlConnection con, SqlTransaction tx, int idPaciente, int idProfesional, int idTurnoActual)
+    {
+        int idCaso;
+        using (var sel = new SqlCommand(@"
+            SELECT TOP 1 IdCaso, Estado, IdProfesionalAsignado FROM Caso WITH (UPDLOCK, ROWLOCK)
+            WHERE IdPaciente = @P AND Estado <> 'Cerrado' ORDER BY FechaCreacion DESC, IdCaso DESC", con, tx))
+        {
+            sel.Parameters.AddWithValue("@P", idPaciente);
+            using var r = sel.ExecuteReader();
+            if (!r.Read()) return null;
+            if ((string)r["Estado"] != "Asignado" || r["IdProfesionalAsignado"] as int? != idProfesional) return null;
+            idCaso = (int)r["IdCaso"];
+        }
+
+        // Primera sesión: ningún OTRO turno de este paciente con este profesional figura como Realizado (el de ahora ya se actualizó en esta transacción).
+        using (var otra = new SqlCommand(@"
+            SELECT COUNT(*) FROM Turno t JOIN EstadoTurno e ON e.IdEstadoTurno = t.IdEstadoTurno
+            WHERE t.IdPaciente = @P AND t.IdProfesional = @M AND e.Descripcion = @Real AND t.IdTurno <> @T", con, tx))
+        {
+            otra.Parameters.AddWithValue("@P", idPaciente);
+            otra.Parameters.AddWithValue("@M", idProfesional);
+            otra.Parameters.AddWithValue("@Real", CierreSesionReglas.EstadoRealizado);
+            otra.Parameters.AddWithValue("@T", idTurnoActual);
+            if ((int)otra.ExecuteScalar()! > 0) return null;
+        }
+
+        using var upd = new SqlCommand("UPDATE Caso SET Estado = 'En atención' WHERE IdCaso = @C AND Estado = 'Asignado'", con, tx);
+        upd.Parameters.AddWithValue("@C", idCaso);
+        return upd.ExecuteNonQuery() == 1 ? idCaso : null;
     }
 
     private static void Auditar(LogAuditoriaDAO dao, SqlConnection con, SqlTransaction tx, AutorDelCierre autor, string accion, string entidad, int idEntidad, string detalle) =>

@@ -80,6 +80,10 @@ public static class CierreSesionEndpoints
             tipoCierre = r.TipoCierre,
             repetido = r.Repetido,
             turno = r.HayTurno ? new { cambio = r.TurnoCambio, estadoAnterior = r.EstadoAnterior, estado = r.EstadoActual, motivo = r.MotivoTurno } : null,
+            // El caso solo cambia con la primera sesión realizada (Asignado -> En atención); en cualquier otro cierre, cambio = false.
+            caso = r.IdCasoEnAtencion is int idCaso
+                ? new { cambio = true, idCaso = (int?)idCaso, estadoAnterior = (string?)"Asignado", estado = (string?)"En atención" }
+                : new { cambio = false, idCaso = (int?)null, estadoAnterior = (string?)null, estado = (string?)null },
             emociones,
             // HOOK: lo que sigue después del cierre. El panel de la sala lo despacha como el evento ys:cierre-guardado; la feature de alta / derivación se engancha ahí.
             siguientePaso = new { tipo = CierreSesionReglas.SiguientePaso(r.TipoCierre), idPaciente = req.IdPaciente, idProfesional, idSesion = r.IdSesion, idTurno = req.IdTurno }
