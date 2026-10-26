@@ -18,6 +18,33 @@ public sealed class FactConBaseDeCierreAttribute : FactAttribute
     }
 }
 
+public static class BaseDeAltaDerivacion
+{
+    private static readonly Lazy<string?> Motivo = new(Calcular);
+    public static string? NoDisponible() => Motivo.Value;
+
+    private static string? Calcular()
+    {
+        try
+        {
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            using var cmd = new SqlCommand("SELECT CASE WHEN OBJECT_ID('dbo.AltaClinica', 'U') IS NOT NULL AND COL_LENGTH('dbo.Derivacion', 'Origen') IS NOT NULL THEN 1 ELSE 0 END", con);
+            return (int)cmd.ExecuteScalar()! == 1 ? null : "La base no tiene la migración migrations/add_alta_derivacion_cierre.sql (aplicala con sqlcmd para correr estas pruebas).";
+        }
+        catch (Exception e) { return $"No hay una base disponible ({e.GetType().Name}): falta ConnectionStrings__YoSoy."; }
+    }
+}
+
+public sealed class FactConBaseDeAltaDerivacionAttribute : FactAttribute
+{
+    public FactConBaseDeAltaDerivacionAttribute()
+    {
+        var motivo = BaseDeConsentimiento.NoDisponible() ?? BaseDeCierre.NoDisponible() ?? BaseDeAltaDerivacion.NoDisponible();
+        if (motivo is not null) Skip = motivo;
+    }
+}
+
 public static class BaseDeCierre
 {
     private static readonly Lazy<string?> Motivo = new(Calcular);
@@ -106,13 +133,35 @@ public sealed class DatosCierre : IDisposable
     public int Historias() => Convert.ToInt32(DatosEmociones.Escalar("SELECT COUNT(*) FROM HistoriaClinica WHERE IdPaciente = @P", ("@P", IdPaciente)));
     public int? EvolucionDeLaSesion(int idSesion) => (int?)DatosEmociones.Escalar("SELECT IdEvolucion FROM SesionClinica WHERE IdSesion = @S", ("@S", idSesion));
 
+    private readonly List<int> _grupos = new();
+
+    /// <summary>Le pone un grupo al caso (la reasignación de casos de siempre lo exige).</summary>
+    public int ConGrupo(int idCaso)
+    {
+        var g = DatosEmociones.Insertar("INSERT INTO Grupo (Nombre, Activo) OUTPUT INSERTED.IdGrupo VALUES (@N, 1)", ("@N", DatosEmociones.Marca + " grupo " + Guid.NewGuid().ToString("N")[..6]));
+        _grupos.Add(g);
+        DatosEmociones.Ejecutar("UPDATE Caso SET IdGrupoActual = @G WHERE IdCaso = @C", ("@G", g), ("@C", idCaso));
+        return g;
+    }
+
     public void Dispose()
     {
+        // Alta y derivación (migración 27): apuntan a la sesión, al caso y a los profesionales; los avisos, a los profesionales (los de Admisión se reconocen por la marca del paciente).
+        if (BaseDeAltaDerivacion.NoDisponible() is null)
+        {
+            D.Intentar("DELETE FROM AltaClinica WHERE IdPaciente = @P OR IdProfesional = @M OR IdCaso IN (SELECT IdCaso FROM Caso WHERE IdPaciente = @P OR IdProfesionalAsignado = @M)", ("@P", IdPaciente), ("@M", IdProfesional));
+            D.Intentar("DELETE FROM Derivacion WHERE IdPaciente = @P OR IdProfesionalOrigen = @M OR IdProfesionalDestino = @M OR IdCaso IN (SELECT IdCaso FROM Caso WHERE IdPaciente = @P OR IdProfesionalAsignado = @M)", ("@P", IdPaciente), ("@M", IdProfesional));
+        }
+        D.Intentar("DELETE FROM NotificacionInterna WHERE IdProfesional = @M OR Mensaje LIKE N'%[[]TEST-PR6]%'", ("@M", IdProfesional));
+        D.Intentar("DELETE FROM HistorialAsignacion WHERE IdCaso IN (SELECT IdCaso FROM Caso WHERE IdPaciente = @P) OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
+        D.Intentar("DELETE FROM CasoDerivacion WHERE IdCaso IN (SELECT IdCaso FROM Caso WHERE IdPaciente = @P) OR IdProfesionalAsignado = @M OR IdProfesionalSugerido = @M", ("@P", IdPaciente), ("@M", IdProfesional));
         // Las sesiones apuntan a la evolución (IdEvolucion) y la evolución al turno y a la historia: de adentro hacia afuera.
         D.Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
         D.Intentar("DELETE FROM Evolucion WHERE IdHistoria IN (SELECT IdHistoria FROM HistoriaClinica WHERE IdPaciente = @P) OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
         D.Intentar("DELETE FROM HistoriaClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
         D.Intentar("DELETE FROM Caso WHERE IdPaciente = @P OR IdProfesionalAsignado = @M", ("@P", IdPaciente), ("@M", IdProfesional));   // también el caso de OTRO paciente asignado a este profesional
+        D.Intentar("DELETE FROM ProfesionalGrupo WHERE IdProfesional = @M", ("@M", IdProfesional));
+        foreach (var g in _grupos) D.Intentar("DELETE FROM Grupo WHERE IdGrupo = @G", ("@G", g));
         D.Dispose();
         foreach (var e in _estados) EstadosCompartidos.Soltar(e);
     }
