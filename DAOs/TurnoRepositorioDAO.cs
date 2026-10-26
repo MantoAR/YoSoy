@@ -7,6 +7,8 @@ public interface ITurnoRepositorio
 {
     List<Agenda> AgendaDe(int idProfesional);
     List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha);
+    // Horas de las entrevistas de admisión que ese profesional ya programó ese día (migración 26).
+    List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha);
     int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha);
     bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null);
     Turno? ObtenerTurno(int idTurno);
@@ -40,6 +42,23 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
         using var r = cmd.ExecuteReader();
         while (r.Read()) lista.Add((TimeSpan)r["Hora"]);
+        return lista;
+    }
+
+    public List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha)
+    {
+        var lista = new List<TimeSpan>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT FechaEntrevista
+            FROM InformeAdmision
+            WHERE IdProfesionalEntrevista = @IdProf AND Estado = 'En entrevista'
+              AND FechaEntrevista >= @Fecha AND FechaEntrevista < DATEADD(DAY, 1, @Fecha)", con);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(((DateTime)r["FechaEntrevista"]).TimeOfDay);
         return lista;
     }
 

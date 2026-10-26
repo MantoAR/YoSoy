@@ -58,16 +58,17 @@
         paciente: {
             etiqueta: "Mi espacio",
             items: [
+                // En el orden en que lo recorre un paciente nuevo (la guía de primeros pasos de Inicio).
                 { id: "inicio", texto: "Inicio" },
+                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
+                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" },
                 {
                     texto: "Turnos", items: [
                         { id: "agenda", texto: "Mis turnos", icono: "agenda", desc: "Pedir, cancelar o reprogramar" },
                         { id: "profesionales", texto: "Mis profesionales", icono: "pacientes", desc: "Tu equipo y cambio de profesional" }
                     ]
                 },
-                { id: "sesion", texto: "Sala de video" },
-                { id: "admision", texto: "Admisión", titulo: "Informe de admisión" },
-                { id: "consentimiento", texto: "Consentimiento", titulo: "Consentimiento informado", href: "/pantallas/Pantalla_Paciente/consentimiento.html" }
+                { id: "sesion", texto: "Sala de video" }
             ],
             usuario: [{ id: "perfil", texto: "Mis datos", icono: "usuario" }]
         },
@@ -171,7 +172,8 @@
         if (rol === "profesional") {
             const pagina = it => it.items ? { ...it, items: it.items.map(s => ({ pagina: "profesional", ...s })) } : { pagina: "profesional", ...it };
             const propios = items.map(pagina);
-            if (YS.sesion.tienePrivilegio("admision")) propios.push(GRUPO_ADMISION);
+            // Con Admisión, va segundo, después de Inicio: Inicio, Admisión, Agenda, Pacientes, Mis casos, Sala de video, Reportes.
+            if (YS.sesion.tienePrivilegio("admision")) propios.splice(1, 0, GRUPO_ADMISION);
             if (YS.sesion.tienePermiso("auditor")) propios.push(GRUPO_AUDITOR);
             return { ...base, items: propios };
         }
@@ -499,9 +501,20 @@
         profesional: {
             titulo: "Avisos",
             async cargar() {
-                const lista = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`);
+                // Con el privilegio Admisión, primero las admisiones pendientes: hay que programar la entrevista
+                // dentro de las 24 horas de recibida la solicitud. Quedan en la campana mientras sigan pendientes.
+                const conAdmision = YS.sesion.tienePrivilegio("admision");
+                const [lista, informes] = await Promise.all([
+                    YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`),
+                    conAdmision ? YS.api("/informes-admision-detalle").catch(() => []) : []
+                ]);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
+                const pendientes = informes.filter(a => a.estado === "Pendiente");
+                const irAAdmisiones = () => {
+                    if (cfg.pagina === "gestion") { location.hash = "#admisiones"; campana.ctrl.cerrar?.(); }
+                    else location.href = YS.rutas.gestion + "#admisiones";
+                };
                 // Derivaciones internas: lo que me toca responder y los avisos de derivación / traspaso (si la API todavía no los tiene, la campanita sigue como siempre).
                 const clinicos = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/avisos-clinicos`).catch(() => ({ avisos: [], porResponder: [] }));
                 const porResponder = (clinicos.porResponder || []).map(d => ({
@@ -519,10 +532,15 @@
                     accion: a.leida === false ? { texto: "Entendido", alClick: () => marcarAvisoClinico(a.idAviso) } : null
                 }));
                 return {
-                    noLeidos: sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
+                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
                     items: [
                         ...porResponder,
                         ...avisos,
+                        ...pendientes.map(a => ({
+                            id: "adm-" + a.idInforme, titulo: "Admisión pendiente", noLeido: true,
+                            texto: `${a.nombrePaciente} · ${plazoEntrevista(a.fechaCreacion)}`,
+                            accion: { texto: "Ver admisiones", tipo: "primary", alClick: irAAdmisiones }
+                        })),
                         ...sinSala.map(t => ({
                             id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
                             texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
@@ -541,6 +559,17 @@
     async function abrirAviso(ruta, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
         location.href = ruta;
+    }
+
+    // "Recibida el 23/10 09:30 · programar antes del 24/10 09:30" (o "fuera de plazo"): las 24 horas de la primera
+    // entrevista de admisión (Services/PlazoEntrevistaAdmision.cs). fechaCreacion viene como "dd/MM/yyyy HH:mm".
+    function plazoEntrevista(fechaCreacion) {
+        const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(fechaCreacion || "");
+        if (!m) return "Recibida " + (fechaCreacion || "");
+        const recibida = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+        const limite = new Date(recibida.getTime() + 24 * 60 * 60 * 1000);
+        const corta = d => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        return `Recibida el ${corta(recibida)} · ` + (Date.now() > limite.getTime() ? "fuera de plazo" : `programar antes del ${corta(limite)}`);
     }
 
     async function unirseSala(codigo, idNotif) {

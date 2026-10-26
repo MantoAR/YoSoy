@@ -10,7 +10,10 @@
     <link rel="stylesheet" href="../shared/tema.css">
     <style>
         /* Propio de esta página; colores, tipografía y botones salen de ../shared/tema.css */
-        .sala-espera { max-width: 560px; }
+        /* La espera queda alineada con el resto del panel (el mismo contenedor centrado de 1240 px que Admisión y Turnos)
+           y la tarjeta con el ancho de la de Admisión; la videollamada sí usa todo el ancho. */
+        .sala-espera { max-width: 1192px; margin: 0 auto; }
+        .sala-espera > .card { max-width: 720px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 12px; }
         .card h3 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 6px; }
         .texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0; }
@@ -380,9 +383,9 @@ $('btn-emo-sesion-permitir').addEventListener('click', aceptarEmociones);
     }
     // Si la sesión viene en la URL como turno / admisión no hace falta ningún código.
     if (!codigo) document.getElementById('input-sala').classList.add('oculto');
-    estado.textContent = codigo
-        ? 'El código de tu sala ya está cargado. Tocá "Conectarme" cuando estés listo.'
-        : 'Tu sesión ya está lista. Tocá "Conectarme" cuando estés listo.';
+    // El código (o la sesión) ya viaja en el link: no hace falta pedírselo al profesional.
+    document.querySelector('#pantalla-espera .texto-ayuda').textContent = 'Tocá "Conectarme" cuando estés listo.';
+    estado.textContent = '';
     estado.className = 'estado-box';
     document.getElementById('btn-conectar').focus();
     // Con la sesión conocida, el texto del consentimiento se puede leer con calma antes de conectarse.

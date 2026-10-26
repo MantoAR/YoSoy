@@ -61,6 +61,11 @@ public class FakeTurnoRepositorio : ITurnoRepositorio
 
     public List<Agenda> AgendaDe(int idProfesional) => _db.Agenda.Where(a => a.IdProfesional == idProfesional).ToList();
 
+    // Entrevistas de admisión ya programadas: (profesional, momento).
+    public List<(int IdProfesional, DateTime Momento)> Entrevistas { get; } = new();
+    public List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha) => Entrevistas
+        .Where(e => e.IdProfesional == idProfesional && e.Momento.Date == fecha.Date).Select(e => e.Momento.TimeOfDay).ToList();
+
     public List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha) => _db.Turnos
         .Where(t => t.IdProfesional == idProfesional && t.Fecha == fecha.Date
                     && _db.Estados[t.IdEstadoTurno] is not ("Cancelado" or "Rechazado"))

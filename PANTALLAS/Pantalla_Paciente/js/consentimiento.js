@@ -33,10 +33,20 @@ function mostrarMarca(texto) {
     ["marcaProvisoria", "marcaProvisoriaFirmado"].forEach(id => { $(id).textContent = texto || ""; $(id).classList.toggle("oculto", !texto); });
 }
 
-function mostrarFirmado(fechaFirma, version) {
+// recienFirmado: la persona acaba de firmar en esta pantalla. Se le confirma con un título propio y lo que le habilita, y
+// el foco va al botón para volver (sin redirección automática: la confirmación tiene que poder leerse).
+function mostrarFirmado(fechaFirma, version, recienFirmado = false) {
     $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
+    $("tituloFirmado").textContent = recienFirmado ? "Consentimiento firmado" : "Ya firmaste este consentimiento";
     $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (versionEsReal(version) ? ` (versión del texto: ${version}).` : ".");
+    $("ayudaFirmado").textContent = recienFirmado
+        ? "Listo: ya podés confirmar tus turnos. Guardamos la fecha y la hora de tu firma."
+        : "No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.";
     mostrar("yaFirmado");
+    if (recienFirmado) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        $("btnVolver").focus({ preventScroll: true });
+    }
 }
 
 async function cargar() {
@@ -84,7 +94,7 @@ async function firmar() {
             body: JSON.stringify({ acepto: true, version: versionTexto, idTutor: $("bloqueTutor").classList.contains("oculto") ? null : Number($("selTutor").value) })
         });
         const data = await r.json().catch(() => ({}));
-        if (r.status === 201) { mostrarFirmado(data.fechaFirma, data.versionFirmada); return; }
+        if (r.status === 201) { mostrarFirmado(data.fechaFirma, data.versionFirmada, true); return; }
         if (r.status === 409 && data.fechaFirma) { mostrarFirmado(data.fechaFirma); return; }   // ya estaba firmado
         if (r.status === 409) { error(data.mensaje); await cargar(); return; }                // cambió el texto
         error(data.mensaje || "No se pudo registrar la firma. Probá de nuevo.");

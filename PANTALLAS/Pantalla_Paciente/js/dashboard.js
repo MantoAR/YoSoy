@@ -59,17 +59,23 @@ async function renderInicio(c) {
     });
     c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3);
     try {
-        const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
-        const [res, turnos, consentimiento] = await Promise.all([
+        const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
+        const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
+        const [res, turnos, consentimiento, perfil, informe, profesionales, whatsapp] = await Promise.all([
             YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
-            pedir(`/pacientes/${idPaciente}/turnos-detalle`, []),
-            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null)
+            pedir(`/pacientes/${idPaciente}/turnos-detalle`, FALLA),
+            pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null),
+            pedir(`/pacientes/${idPaciente}`, FALLA),
+            pedir(`/pacientes/${idPaciente}/informe-admision`, FALLA, { permitir404: true }),   // null = todavía no lo mandó
+            pedir(`/pacientes/${idPaciente}/mis-profesionales`, FALLA),
+            pedir("/consentimiento-whatsapp", null)
         ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
         const t = res.status === 404 ? null : await res.json();
 
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const proximos = turnos
+        const listaTurnos = turnos === FALLA ? [] : turnos;
+        const proximos = listaTurnos
             .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
             .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
         const porConfirmar = proximos.filter(propuestoPorProfesional);
@@ -79,77 +85,274 @@ async function renderInicio(c) {
             : consentimiento.firmado
                 ? `<a class="ui-stat ui-stat--ok" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Firmado</span><span class="ui-stat-pie">El ${YS.esc(YS.fecha.corta(consentimiento.fechaFirma))}</span></a>`
                 : `<a class="ui-stat ui-stat--warn" href="consentimiento.html"><span class="ui-stat-etiqueta">${YS.icono("firma")}Consentimiento</span><span class="ui-stat-valor">Sin firmar</span><span class="ui-stat-pie">Hace falta para confirmar tus turnos</span></a>`;
+        const tarjetaProximo = `
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono("video")}Próximo turno</span>
+                <span class="ui-stat-valor">${t ? YS.esc(String(t.hora).substring(0, 5)) : "—"}</span>
+                <span class="ui-stat-pie">${t ? `${YS.esc(YS.capitalizar(YS.fecha.larga(t.fecha)))} · ${YS.esc(t.nombreProfesional)}` : "Todavía no tenés turnos"}</span>
+            </a>`;
 
-        const proximoHtml = !t
-            ? `<div class="card">${YS.vacio({ icono: "agenda", titulo: "No tenés turnos próximos", texto: "Podés pedir uno desde Mis turnos eligiendo un día en el calendario.", accion: { texto: "Ir a Mis turnos", onclick: "location.hash = '#agenda'" } })}</div>`
-            : `
-            <div class="card proximo-turno">
-                <p class="proximo-etiqueta">Próximo turno</p>
-                <div class="proximo-fecha">${YS.esc(YS.fecha.larga(t.fecha, true))}</div>
-                <div class="proximo-hora">${YS.esc(t.hora.substring(0, 5))} hs</div>
-                <div class="proximo-datos">
-                    <div>
-                        <div class="etiqueta">Profesional</div>
-                        <div class="valor">${YS.esc(t.nombreProfesional)}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Especialidad</div>
-                        <div class="valor">${YS.esc(t.especialidad)}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Modalidad</div>
-                        <div class="valor">${YS.esc(t.modalidad ?? "-")}</div>
-                    </div>
-                    <div>
-                        <div class="etiqueta">Estado</div>
-                        <div class="valor"><span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span></div>
-                    </div>
-                </div>
-                ${propuestoPorProfesional(t) ? `
-                <div class="proximo-propuesta">
-                    <span>Tu profesional te propuso este turno. Confirmalo para que quede agendado.</span>
-                    <button class="btn-accion btn-guardar" onclick="confirmarTurnoPaciente(${t.idTurno})">Confirmar turno</button>
-                </div>` : ""}
-            </div>`;
-
-        const listaHtml = proximos.length
-            ? `<ul class="inicio-turnos">${proximos.slice(0, 5).map(x => `
-                <li>
-                    <div class="inicio-turno-fecha"><span>${YS.fecha.parse(x.fecha).getDate()}</span>${YS.esc(YS.fecha.parse(x.fecha).toLocaleString("es-AR", { month: "short" }))}</div>
-                    <div class="inicio-turno-datos">
-                        <div class="texto-fuerte">${YS.esc(x.hora.substring(0, 5))} hs · ${YS.esc(x.nombreProfesional)}</div>
-                        <div class="texto-suave texto-chico">${YS.esc(x.especialidad)}${x.modalidad ? " · " + YS.esc(x.modalidad) : ""}</div>
-                    </div>
-                    ${propuestoPorProfesional(x)
-                        ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
-                        : `<span class="panel-estado-badge estado-${YS.esc(x.estadoDescripcion)}">${YS.esc(x.estadoDescripcion)}</span>`}
-                </li>`).join("")}</ul>`
-            : YS.vacio({ icono: "agenda", texto: "Todavía no tenés turnos agendados." });
-
-        c.innerHTML = `
-            <div class="ui-stats">
-                <a class="ui-stat" href="#agenda">
-                    <span class="ui-stat-etiqueta">${YS.icono("agenda")}Turnos próximos</span>
-                    <span class="ui-stat-valor">${proximos.length}</span>
-                    <span class="ui-stat-pie">Ver el calendario</span>
-                </a>
-                <a class="ui-stat${porConfirmar.length ? " ui-stat--marca" : ""}" href="#agenda">
-                    <span class="ui-stat-etiqueta">${YS.icono("check")}Por confirmar</span>
-                    <span class="ui-stat-valor">${porConfirmar.length}</span>
-                    <span class="ui-stat-pie">${porConfirmar.length ? "Te los propuso tu profesional" : "Nada pendiente de tu parte"}</span>
-                </a>
-                ${tarjetaConsentimiento}
-            </div>
-            <div class="inicio-columnas">
-                ${proximoHtml}
-                <div class="card">
-                    <div class="titulo-tarjeta">Tus próximos turnos</div>
-                    ${listaHtml}
-                </div>
-            </div>`;
+        // Hasta su primera sesión el Inicio lo guía con los primeros pasos (también con profesional asignado: confirmar el
+        // primer turno y entrar a la sala son pasos de la guía); con los siete hechos, sus turnos al frente.
+        // Si algo no se pudo consultar, no se adivina: queda el Inicio con los turnos.
+        const guia = [turnos, perfil, informe, profesionales].includes(FALLA) || consentimiento == null ? null
+            : armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos: listaTurnos, whatsapp });
+        c.innerHTML = guia
+            ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo, profesionales)
+            : inicioPacienteEnAtencion({ proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
+                                         tarjetaConsentimiento, profesionales: profesionales === FALLA ? [] : profesionales });
     } catch {
         c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
+}
+
+// ── INICIO: paciente recién registrado ─────────────────────
+// Las mismas cuatro tarjetas de resumen que el resto de las pantallas y, debajo, la tarea del momento al lado de la
+// lista compacta de los siete pasos.
+function inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo, profesionales) {
+    const actual = guia.pasos[guia.indiceActual];
+    const ir = destino => destino.startsWith("#") ? `location.hash='${destino}'` : `location.href='${destino}'`;
+    const conProfesional = profesionales.length > 0;
+    const check = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>`;
+    const reloj = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+
+    const filas = guia.pasos.map((p, i) => {
+        const n = i + 1;
+        if (p.hecho) return `
+            <li class="pp-fila pp-fila--hecha">
+                <span class="pp-num pp-num--hecho">${check}</span>
+                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
+                <span class="pp-fila-estado pp-fila-estado--ok">Hecho</span>
+            </li>`;
+        if (i === guia.indiceActual) return `
+            <li class="pp-fila pp-fila--actual" aria-current="step">
+                <span class="pp-num pp-num--actual">${n}</span>
+                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
+                <span class="pp-fila-estado pp-fila-estado--actual">Ahora</span>
+            </li>`;
+        // Sin un requisito pendiente se puede hacer ya, en cualquier orden; si no, dice de qué depende.
+        const accion = p.requiere
+            ? `<span class="pp-fila-estado">${YS.esc(p.requiereCorto || p.requiere)}</span>`
+            : p.espera ? `<span class="pp-fila-estado">En revisión</span>`
+            : `<a href="${p.destino}" class="pp-fila-ir" aria-label="${YS.esc(p.boton)}">Ir</a>`;
+        return `
+            <li class="pp-fila${p.requiere ? " pp-fila--bloqueada" : ""}">
+                <span class="pp-num">${n}</span>
+                <span class="pp-fila-titulo">${YS.esc(p.titulo)}</span>
+                ${accion}
+            </li>`;
+    }).join("");
+
+    return `
+        <div class="ui-stats">
+            <button type="button" class="ui-stat ui-stat--marca" onclick="document.getElementById('pp-proximo').scrollIntoView({ behavior: 'smooth' })">
+                <span class="ui-stat-etiqueta">${YS.icono("check")}Tu proceso</span>
+                <span class="ui-stat-valor">Paso ${guia.paso} de ${guia.pasos.length}</span>
+                <span class="ui-stat-pie">${YS.esc(actual.titulo)}</span>
+            </button>
+            ${tarjetaConsentimiento}
+            <a class="ui-stat" href="#profesionales">
+                <span class="ui-stat-etiqueta">${YS.icono("pacientes")}Tu profesional</span>
+                <span class="ui-stat-valor">${conProfesional ? YS.esc(profesionales[0].nombre) : "—"}</span>
+                <span class="ui-stat-pie">${conProfesional ? YS.esc(profesionales[0].especialidad || "") : "Se asigna después de la admisión"}</span>
+            </a>
+            ${tarjetaProximo}
+        </div>
+        <div class="inicio-columnas inicio-columnas--parejas">
+            <section class="card" id="pp-proximo" aria-labelledby="pp-proximo-titulo">
+                <div class="titulo-tarjeta" id="pp-proximo-titulo">Tu próximo paso</div>
+                <div class="pp-actual">
+                    <span class="pp-num pp-num--actual pp-num--grande">${guia.paso}</span>
+                    <div class="pp-cuerpo">
+                        <span class="pp-titulo-grande">${YS.esc(actual.titulo)}</span>
+                        <span class="pp-texto">${YS.esc(actual.texto)}</span>
+                        ${actual.espera
+                            ? `<div class="pp-aviso">${reloj}<span>${YS.esc(actual.aviso)}</span></div>
+                               ${actual.codigo ? `<div class="pp-codigo">
+                                   <span class="texto-suave texto-chico">Código de la entrevista</span>
+                                   <strong class="pp-codigo-valor">${YS.esc(actual.codigo)}</strong>
+                                   <a class="ui-btn ui-btn--sm" href="sesion_video.html?sala=${encodeURIComponent(actual.codigo)}&idPaciente=${idPaciente}">Entrar a la entrevista</a>
+                               </div>` : ""}`
+                            : `<div class="pp-acciones">
+                                   <button type="button" class="ui-btn ui-btn--primary pp-boton" onclick="${actual.accion || ir(actual.destino)}">${YS.esc(actual.boton)}</button>
+                                   ${actual.nota ? `<span class="texto-suave texto-chico">${YS.esc(actual.nota)}</span>` : ""}
+                               </div>`}
+                    </div>
+                </div>
+            </section>
+            <section class="card" aria-labelledby="pp-lista-titulo">
+                <div class="pp-lista-cabecera">
+                    <div class="titulo-tarjeta" id="pp-lista-titulo">Tus primeros pasos</div>
+                    <span class="texto-suave texto-chico">${guia.hechos} de ${guia.pasos.length} hechos</span>
+                </div>
+                <div class="pp-barra" role="progressbar" aria-label="Avance de los primeros pasos" aria-valuemin="0" aria-valuemax="${guia.pasos.length}" aria-valuenow="${guia.hechos}">
+                    <div style="width: ${Math.round(guia.hechos / guia.pasos.length * 100)}%"></div>
+                </div>
+                <ol class="pp-filas">${filas}</ol>
+            </section>
+        </div>`;
+}
+
+// ── INICIO: paciente en atención ───────────────────────────
+// Ya tiene profesional. Cada turno aparece una sola vez: el próximo en su tarjeta (o, si se lo propuso el profesional,
+// en el aviso para confirmarlo) y los siguientes en "Más adelante". Al lado, lo que necesita para entrar a la sesión.
+function inicioPacienteEnAtencion({ proximos, porConfirmar, realizados, tarjetaConsentimiento, profesionales }) {
+    const hora = x => String(x.hora).substring(0, 5);
+    const cuando = x => `${YS.capitalizar(YS.fecha.larga(x.fecha))} a las ${hora(x)} hs`;
+    const proximo = proximos[0];
+    const propuesto = porConfirmar[0];
+    const masAdelante = proximos.filter(x => x !== proximo && x !== propuesto);
+
+    const etiquetaEstado = x => propuestoPorProfesional(x)
+        ? `<span class="panel-estado-badge estado-propuesto">A confirmar</span>`
+        : `<span class="panel-estado-badge estado-${YS.esc(x.estadoDescripcion)}">${YS.esc(x.estadoDescripcion)}</span>`;
+    const listaHtml = masAdelante.length
+        ? `<ul class="inicio-turnos">${masAdelante.slice(0, 4).map(x => `
+            <li>
+                <div class="inicio-turno-fecha"><span>${YS.fecha.parse(x.fecha).getDate()}</span>${YS.esc(YS.fecha.parse(x.fecha).toLocaleString("es-AR", { month: "short" }))}</div>
+                <div class="inicio-turno-datos">
+                    <div class="texto-fuerte">${YS.esc(hora(x))} hs · ${YS.esc(x.nombreProfesional)}</div>
+                    <div class="texto-suave texto-chico">${YS.esc(x.especialidad)}${x.modalidad ? " · " + YS.esc(x.modalidad) : ""}</div>
+                </div>
+                ${etiquetaEstado(x)}
+            </li>`).join("")}</ul>
+            ${masAdelante.length > 4 ? `<p class="texto-suave texto-chico mt-8 mb-0">Y ${masAdelante.length - 4} más en Turnos.</p>` : ""}`
+        : YS.vacio({ icono: "agenda", texto: proximo ? "No tenés otros turnos agendados." : "Todavía no tenés turnos agendados.",
+                     accion: { texto: "Pedir un turno", onclick: "location.hash = '#agenda'" } });
+
+    const avisoPropuesto = propuesto ? `
+        <section class="card inicio-propuesta" aria-labelledby="inicio-propuesta-titulo">
+            <div class="inicio-propuesta-texto">
+                <span class="inicio-propuesta-etiqueta" id="inicio-propuesta-titulo">Turno a confirmar${porConfirmar.length > 1 ? ` (1 de ${porConfirmar.length})` : ""}</span>
+                <span class="texto-fuerte">${YS.esc(cuando(propuesto))} con ${YS.esc(propuesto.nombreProfesional)}</span>
+                <span class="texto-suave texto-chico">Confirmalo para que quede agendado, o reprogramalo si no te queda bien.</span>
+            </div>
+            <div class="inicio-propuesta-acciones">
+                <button type="button" class="ui-btn ui-btn--primary pp-boton" onclick="confirmarTurnoPaciente(${propuesto.idTurno})">Confirmar turno</button>
+                <button type="button" class="ui-btn pp-boton" onclick="irAlTurno('${YS.esc(propuesto.fecha)}')">Reprogramar</button>
+            </div>
+        </section>` : "";
+
+    // Si el próximo turno es el que está para confirmar, la tarjeta lleva al aviso en vez de repetirlo.
+    const proximoEsPropuesto = proximo && proximo === propuesto;
+    const tarjetaProximo = `
+            <a class="ui-stat${proximoEsPropuesto ? " ui-stat--warn" : ""}" href="#agenda"${proximo ? ` onclick="irAlTurno('${YS.esc(proximo.fecha)}'); return false;"` : ""}>
+                <span class="ui-stat-etiqueta">${YS.icono("video")}Próximo turno</span>
+                <span class="ui-stat-valor">${proximo ? YS.esc(hora(proximo)) : "—"}</span>
+                <span class="ui-stat-pie">${proximo
+                    ? `${YS.esc(YS.capitalizar(YS.fecha.larga(proximo.fecha)))}${proximoEsPropuesto ? " · A confirmar" : ` · ${YS.esc(proximo.nombreProfesional)}`}`
+                    : "Todavía no tenés turnos"}</span>
+            </a>`;
+
+    const prof = profesionales[0];
+    const tarjetaProfesional = `
+            <a class="ui-stat" href="#profesionales">
+                <span class="ui-stat-etiqueta">${YS.icono("pacientes")}Tu profesional</span>
+                <span class="ui-stat-valor">${prof ? YS.esc(prof.nombre) : "—"}</span>
+                <span class="ui-stat-pie">${prof ? YS.esc(prof.especialidad || "") + (profesionales.length > 1 ? ` · y ${profesionales.length - 1} más` : "") : "Sin profesional asignado"}</span>
+            </a>`;
+
+    const tarjetaSesion = `
+        <section class="card" aria-labelledby="inicio-sesion-titulo">
+            <div class="titulo-tarjeta" id="inicio-sesion-titulo">Tu sesión por video</div>
+            <p class="inicio-prof-nota">La sala de video abre 10 minutos antes de cada turno. Entrá desde la Sala de video con tu turno confirmado.</p>
+            <div class="inicio-prof-enlaces">
+                <a href="#sesion">Ir a la Sala de video</a>
+                <a href="#agenda">Ver el calendario de turnos</a>
+                <a href="#profesionales">Ver Mis profesionales</a>
+            </div>
+        </section>`;
+
+    return `
+        <div class="ui-stats">
+            ${tarjetaProximo}
+            ${tarjetaProfesional}
+            <a class="ui-stat" href="#agenda">
+                <span class="ui-stat-etiqueta">${YS.icono("check")}Sesiones realizadas</span>
+                <span class="ui-stat-valor">${realizados}</span>
+                <span class="ui-stat-pie">${realizados ? "Desde que empezaste" : "Todavía ninguna"}</span>
+            </a>
+            ${tarjetaConsentimiento}
+        </div>
+        ${avisoPropuesto}
+        <div class="inicio-columnas inicio-columnas--parejas">
+            <section class="card" aria-labelledby="inicio-turnos-titulo">
+                <div class="titulo-tarjeta" id="inicio-turnos-titulo">Más adelante</div>
+                ${listaHtml}
+            </section>
+            ${tarjetaSesion}
+        </div>`;
+}
+
+// "Reprogramar" desde Inicio: abre Turnos en el mes del turno, con el día ya elegido (ahí está el botón Reprogramar).
+let _diaAlEntrarAgenda = null;
+function irAlTurno(fecha) {
+    const d = YS.fecha.parse(fecha);
+    if (d) { calAnio = d.getFullYear(); calMes = d.getMonth(); _diaAlEntrarAgenda = d.getDate(); }
+    location.hash = "#agenda";
+}
+
+// ── PRIMEROS PASOS (paciente nuevo) ────────────────────────
+// El orden que sigue alguien recién dado de alta, con lo que la API ya devuelve: nada nuevo en el servidor. Un paso está
+// hecho por lo que hay en la base, no porque se lo haya visitado. Quien ya tiene profesional asignado (por ejemplo, llegó
+// por el link público de su profesional) no necesita la admisión: los pasos 3 a 5 cuentan como hechos. Con los siete
+// hechos devuelve null. Devuelve los pasos; los dibuja inicioPacienteNuevo.
+function armarPrimerosPasos({ perfil, consentimiento, informe, profesionales, turnos, whatsapp }) {
+    const conProfesional = profesionales.length > 0;
+    const conWhatsApp = !!whatsapp && !YS.whatsapp.apagado(whatsapp);
+    const enEntrevista = !!informe && /entrevista/i.test(String(informe.estado || ""));
+    // El primer turno: el que propuso el profesional (para confirmar), uno que pidió el paciente (espera la confirmación
+    // del profesional) o uno ya confirmado. Confirmado o realizado = paso 6 hecho.
+    const cuando = x => `${YS.fecha.larga(x.fecha, true)} a las ${String(x.hora).substring(0, 5)} hs`;
+    const porFecha = (a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora));
+    const confirmado = turnos.filter(x => x.estadoDescripcion === "Confirmado" || x.estadoDescripcion === "Realizado").sort(porFecha)[0];
+    const propuesto = turnos.filter(propuestoPorProfesional).sort(porFecha)[0];
+    const pedido = turnos.filter(x => x.estadoDescripcion === "Pendiente" && !propuestoPorProfesional(x)).sort(porFecha)[0];
+
+    const pasos = [
+        { titulo: "Completá tus datos", hecho: !!(perfil.fechaNacimiento && perfil.telefono), destino: "#perfil",
+          texto: "Cargá tu fecha de nacimiento y tu teléfono." + (conWhatsApp ? " Ahí también podés activar, si querés, los avisos por WhatsApp." : ""),
+          boton: "Ir a Mis datos", nota: "Podés cambiarlos cuando quieras." },
+        { titulo: "Firmá el consentimiento de telemedicina", hecho: !!consentimiento.firmado, destino: "consentimiento.html",
+          texto: "Es el permiso para atenderte por video. Lo necesitás para confirmar cualquier turno, así que conviene firmarlo ahora.",
+          boton: "Leer y firmar", nota: "Lo podés volver a leer en Consentimiento." },
+        { titulo: "Contanos sobre vos", hecho: !!informe || conProfesional, destino: "#admision",
+          texto: "Completá el informe de admisión. Con lo que nos cuentes, el equipo elige el profesional adecuado para vos.",
+          boton: "Completar el informe de admisión", nota: "Los campos con * son obligatorios." },
+        { titulo: "Entrevista de admisión", hecho: conProfesional, destino: "#admision", espera: true,
+          requiere: informe ? null : "Se habilita cuando envíes tu informe de admisión.", requiereCorto: "Después del informe",
+          texto: "Una charla corta por video con el equipo de admisión, para conocerte antes de asignarte un profesional.",
+          aviso: enEntrevista
+              ? `Tu entrevista ya está programada${informe.fechaEntrevista ? ` para el ${informe.fechaEntrevista} hs` : ""}. También te llegó el aviso a la campanita con el día, la hora y el botón para entrar.`
+              : "Tu informe está en revisión. No tenés que hacer nada por ahora: cuando tengamos la fecha de la entrevista te avisamos por la campanita y por mail.",
+          // El código de la sala de la entrevista, el mismo que trae el aviso de la campanita.
+          codigo: enEntrevista ? informe.codigoSala || null : null },
+        { titulo: "Conocé a tu profesional", hecho: conProfesional, destino: "#profesionales",
+          requiere: "Te lo asignamos después de la entrevista de admisión.", requiereCorto: "Después de la entrevista",
+          texto: "Ya tenés profesional asignado. Podés ver su especialidad y, si alguna vez lo necesitás, pedir un cambio.",
+          boton: "Ver Mis profesionales", nota: "" },
+        { titulo: "Confirmá tu primer turno", hecho: !!confirmado, destino: "#agenda",
+          requiere: conProfesional ? null : "Se habilita cuando tengas profesional asignado.", requiereCorto: "Con profesional asignado",
+          ...(propuesto ? {
+              texto: `Tu profesional te propuso el primer turno para el ${cuando(propuesto)}. Confirmalo para que quede agendado.`,
+              boton: "Confirmar turno", accion: `confirmarTurnoPaciente(${propuesto.idTurno})`,
+              nota: "Si no te queda bien, reprogramalo desde Turnos." }
+            : pedido ? {
+              texto: `Pediste tu primer turno para el ${cuando(pedido)}.`, espera: true,
+              aviso: "Tu profesional lo tiene que confirmar. No tenés que hacer nada: te avisamos por la campanita." }
+            : {
+              texto: "Tu profesional te va a proponer el primer turno y te avisamos por la campanita. Si preferís, pedilo vos en un horario libre.",
+              boton: "Ir a Turnos", nota: "" }) },
+        { titulo: "Tu primera sesión", hecho: turnos.some(x => x.estadoDescripcion === "Realizado"), destino: "#sesion",
+          requiere: confirmado ? null : "Se habilita cuando confirmes tu primer turno.", requiereCorto: "Con el turno confirmado",
+          texto: "Ya tenés tu turno confirmado. Ese día entrá a la Sala de video (desde el menú o desde el aviso de la campanita), elegí si aceptás o no la lectura de tus expresiones y tocá \"Conectarme\".",
+          boton: "Ir a la Sala de video",
+          nota: confirmado ? `Tu turno: ${cuando(confirmado)}. La sala abre 10 minutos antes.` : "La sala abre 10 minutos antes del horario." }
+    ];
+
+    const indiceActual = pasos.findIndex(p => !p.hecho);
+    if (indiceActual === -1) return null;
+    return { pasos, indiceActual, paso: indiceActual + 1, hechos: pasos.filter(p => p.hecho).length };
 }
 
 // ── AGENDA / CALENDARIO ────────────────────────────────────
@@ -189,8 +392,10 @@ async function renderAgenda(c) {
             </div>
             <div class="cal-grid" id="calGrid"></div>
             <div class="cal-leyenda">
+                <span class="ui-chip ui-chip--warn">Turno a confirmar</span>
                 <span class="ui-chip ui-chip--ok">Turno confirmado</span>
-                <span class="ui-chip ui-chip--warn">Pendiente</span>
+                <span class="ui-chip ui-chip--info">Turno realizado</span>
+                <span class="ui-chip ui-chip--neutral">Turno cancelado</span>
                 <span class="ui-chip ui-chip--marca">Días que atiende el profesional</span>
                 <span class="ui-chip ui-chip--neutral">Sin disponibilidad</span>
             </div>
@@ -199,6 +404,7 @@ async function renderAgenda(c) {
     `;
 
     dibujarCalendario();
+    if (_diaAlEntrarAgenda) { const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null; mostrarPanelDia(dia); }   // vino de Reprogramar en Inicio
 }
 
 async function cambiarProfCalendario() {
@@ -308,9 +514,13 @@ function dibujarCalendario() {
             onclick = !esPasado ? `onclick="mostrarPanelDia(${dia})"` : "";
         }
 
+        // En el día se escribe cada turno con su hora y su estado, con el color de la leyenda.
+        const etiquetas = !_modoReprogramar && tieneT ? turnosPorDia[dia]
+            .slice().sort((a, b) => (a.hora || "").localeCompare(b.hora || ""))
+            .map(t => { const e = estadoCalendario(t); return `<span class="cal-turno ${e.clase}" title="${YS.esc(e.texto)}">${YS.esc((t.hora || "").substring(0, 5))} · ${YS.esc(e.texto)}</span>`; })
+            .join("") : "";
 
-
-        html += `<div class="${clases}" ${onclick}>${dia}</div>`;
+        html += `<div class="${clases}" data-dia="${dia}" ${onclick}><span class="cal-num">${dia}</span>${etiquetas}</div>`;
     }
 
     grid.innerHTML = html;
@@ -322,7 +532,7 @@ async function mostrarPanelDia(dia) {
     _diaSeleccionado = dia;
     document.querySelectorAll(".cal-dia").forEach(el => el.classList.remove("seleccionado"));
     document.querySelectorAll(".cal-dia").forEach(el => {
-        if (el.textContent.trim() === String(dia)) el.classList.add("seleccionado");
+        if (el.dataset.dia === String(dia)) el.classList.add("seleccionado");
     });
     const turnosDia = turnosCalendario.filter(t => {
         const f = new Date(t.fecha);
@@ -352,7 +562,7 @@ async function mostrarPanelDia(dia) {
                     <div class="panel-especialidad">${YS.esc(t.especialidad)}</div>
                 </div>
                 ${propuestoPorProfesional(t)
-                    ? `<span class="panel-estado-badge estado-propuesto">Por confirmar</span>`
+                    ? `<span class="panel-estado-badge estado-propuesto">A confirmar</span>`
                     : `<span class="panel-estado-badge estado-${YS.esc(t.estadoDescripcion)}">${YS.esc(t.estadoDescripcion)}</span>`}
             </div>
             <div class="panel-chips">
@@ -754,6 +964,7 @@ async function renderPerfil(c) {
                     ${campo("pDomicilio", "Domicilio", p.domicilio, ' autocomplete="street-address" maxlength="150"', true)}
                 </div>
                 <div class="ui-form-acciones">
+                    <a class="ui-btn" href="#inicio">Volver al inicio</a>
                     <button type="submit" class="ui-btn ui-btn--primary" id="btnGuardarPerfil">Guardar cambios</button>
                 </div>
             </form>
@@ -948,21 +1159,53 @@ function entrarSesion() {
     window.location.href = 'sesion_video.html?sala=' + encodeURIComponent(codigo) + '&idPaciente=' + idPaciente;
 }
 
+// El informe ya enviado: en qué etapa está y, una vez hecha la entrevista, con quién y cuándo fue y a qué profesional
+// lo derivaron. Abajo, "Volver al inicio" como en Consentimiento.
+function htmlAdmisionEnviada(inf) {
+    const dato = (etiqueta, valor) => valor ? `
+        <div class="admision-dato"><span class="admision-dato-etiqueta">${etiqueta}</span><span class="admision-dato-valor">${YS.esc(valor)}</span></div>` : "";
+    const entrevista = inf.fechaEntrevista ? `${inf.fechaEntrevista} hs` : null;
+    let titulo, texto, estado = inf.estado;
+    if (inf.estado === "Derivado") {
+        titulo = "Ya realizaste tu admisión";
+        texto = inf.nombreProfesionalDerivado
+            ? `Fuiste derivado/a con el profesional <strong>${YS.esc(inf.nombreProfesionalDerivado)}</strong>. Ya podés pedir tu primer turno en Turnos o esperar su propuesta.`
+            : "Fuiste derivado/a con un profesional. Ya podés ver tus turnos en Turnos.";
+    } else if (inf.estado === "En entrevista" || inf.estado === "Rechazado") {
+        // "Rechazado": el profesional elegido no lo tomó y vuelve a admisión; para el paciente sigue en curso.
+        estado = "En entrevista";
+        titulo = "Tu entrevista de admisión está programada";
+        texto = "Entrá a la Sala de video a la hora de la entrevista. Después, el equipo de admisión te deriva con el profesional que te va a atender.";
+    } else {
+        titulo = "Tu informe de admisión ya fue enviado";
+        texto = "Cuando el equipo de admisión revise tu informe, te vamos a avisar el día y la hora de la primera entrevista.";
+    }
+    const realizada = inf.estado === "Derivado";
+    return `
+        <div class="card card--angosta${realizada ? " admision-realizada" : ""}">
+            ${realizada ? `<div class="admision-realizada-icono" aria-hidden="true">${YS.icono("check")}</div>` : ""}
+            <div class="admision-cuerpo">
+            <div class="titulo-tarjeta${realizada ? " admision-realizada-titulo" : ""}">${titulo}</div>
+            <p class="mb-12">Estado actual: <span class="panel-estado-badge estado-${YS.esc(String(estado).replace(/\s+/g, "-"))}">${YS.esc(estado)}</span></p>
+            <p class="mb-12">${texto}</p>
+            ${entrevista || inf.nombreProfesionalEntrevista || inf.nombreProfesionalDerivado ? `
+            <div class="admision-datos">
+                ${dato("Profesional de admisión", inf.nombreProfesionalEntrevista)}
+                ${dato(inf.estado === "Derivado" ? "Fecha y hora de la admisión" : "Fecha y hora de la entrevista", entrevista)}
+                ${inf.estado === "Derivado" ? dato("Profesional asignado", inf.nombreProfesionalDerivado) : ""}
+            </div>` : ""}
+            <a class="ui-btn ui-btn--primary ui-btn--lg mt-16" href="#inicio">Volver al inicio</a>
+            </div>
+        </div>`;
+}
+
 async function renderAdmision(c) {
     // ¿Ya mandó el informe? (404 = todavía no)
     let inf;
     try { inf = await YS.api(`/pacientes/${idPaciente}/informe-admision`, { permitir404: true }); }
     catch (e) { c.innerHTML = YS.errorCarga({ texto: e.message, reintentar: "mostrarSeccion('admision')" }); return; }
     if (YS.shell.actual !== "admision") return;
-    if (inf) {
-        c.innerHTML = `
-            <div class="card card--angosta">
-                <div class="titulo-tarjeta">Tu informe de admisión ya fue enviado</div>
-                <p class="mb-12">Estado actual: <span class="panel-estado-badge estado-${YS.esc(String(inf.estado).replace(/\s+/g, "-"))}">${YS.esc(inf.estado)}</span></p>
-                <p class="texto-suave">Cuando el equipo de admisión revise tu informe, te vamos a contactar para coordinar la primera entrevista.</p>
-            </div>`;
-        return;
-    }
+    if (inf) { c.innerHTML = htmlAdmisionEnviada(inf); return; }
 
     const especialidades = await YS.api("/especialidades").catch(() => []);
     if (YS.shell.actual !== "admision") return;
@@ -1124,6 +1367,17 @@ cargarNotificaciones();
 // Turno pendiente que propuso el profesional y el paciente todavía no confirmó.
 function propuestoPorProfesional(t) {
     return t.estadoDescripcion === "Pendiente" && t.creadoPor === "profesional" && !t.confirmadoPaciente;
+}
+
+// Texto y color de un turno en el almanaque (los mismos de la leyenda).
+function estadoCalendario(t) {
+    if (propuestoPorProfesional(t)) return { texto: "A confirmar", clase: "estado-Pendiente" };
+    return {
+        Pendiente:  { texto: "Pendiente",  clase: "estado-Pendiente" },
+        Confirmado: { texto: "Confirmado", clase: "estado-Confirmado" },
+        Realizado:  { texto: "Realizado",  clase: "estado-Realizado" },
+        Cancelado:  { texto: "Cancelado",  clase: "estado-Cancelado" }
+    }[t.estadoDescripcion] || { texto: t.estadoDescripcion || "Turno", clase: "estado-Cancelado" };
 }
 
 async function confirmarTurnoPaciente(idTurno) {

@@ -127,6 +127,7 @@ public class ConsentimientoAsignacionTests : IDisposable
     {
         var (pac, prof) = Escenario();
         var informe = _d.InformeAdmision(pac, "En entrevista", DateTime.Now, "SALA" + _d.Marca[^6..]);
+        _d.Agenda(prof, "Lunes");   // derivar exige que el profesional tenga horarios de atención (rama de Mariana): sin eso responde SIN_AGENDA antes de mirar el consentimiento
         var admision = Admision(_d.Profesional());
 
         var r = await admision.PutAsJsonAsync($"/informes-admision/{informe}/derivar", new { idProfesional = prof, observaciones = "ficticia" });

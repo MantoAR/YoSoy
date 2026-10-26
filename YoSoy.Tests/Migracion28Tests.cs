@@ -13,7 +13,20 @@ public static class Migracion28Pruebas
     };
 
     /// <summary>Primero la 28 y después la 27 (la 28 es posterior).</summary>
-    public static readonly string[] QuitarDesdeLa28 = SentenciasParaQuitar.Concat(Migracion27Pruebas.SentenciasParaQuitar).ToArray();
+    /// <summary>Las migraciones 29 y 30 (agenda de admisión y vigencia de la agenda, de la rama de Mariana) son posteriores a la 28: se sacan primero, la 30 antes que la 29.</summary>
+    public static readonly string[] QuitarLa29YLa30 =
+    {
+        "DELETE FROM VersionEsquema WHERE Numero = 30",
+        "ALTER TABLE Agenda DROP CONSTRAINT CK_Agenda_Vigencia",
+        "ALTER TABLE Agenda DROP COLUMN FechaInicio, FechaFin",
+        "DELETE FROM VersionEsquema WHERE Numero = 29",
+        "ALTER TABLE InformeAdmision DROP CONSTRAINT FK_InformeAdmision_ProfesionalEntrevista",
+        "ALTER TABLE InformeAdmision DROP COLUMN IdProfesionalEntrevista",
+        "ALTER TABLE Agenda DROP CONSTRAINT DF_Agenda_EsAdmision",
+        "ALTER TABLE Agenda DROP COLUMN EsAdmision"
+    };
+
+    public static readonly string[] QuitarDesdeLa28 = QuitarLa29YLa30.Concat(SentenciasParaQuitar).Concat(Migracion27Pruebas.SentenciasParaQuitar).ToArray();
 }
 
 // Migración 28 (add_consentimientos_circuito.sql: Consentimiento.IdTutorFirmante y la tabla AceptacionVideollamada) ensayada en una base DESCARTABLE con la forma de producción: 55 tablas (sin la de la
@@ -49,7 +62,7 @@ public class Migracion28Tests
                 cmd.ExecuteNonQuery();
             }
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
-            foreach (var sentencia in Migracion28Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
+            foreach (var sentencia in Migracion28Pruebas.QuitarLa29YLa30.Concat(Migracion28Pruebas.SentenciasParaQuitar)) Ejecutar(sentencia);
         }
 
         public SqlConnection Abrir() { var c = new SqlConnection(_cadena); c.Open(); return c; }
@@ -242,6 +255,6 @@ public class Migracion28Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 28).Opcional);
-        Assert.Equal(28, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(30, VerificadorEsquema.VersionRequerida);
     }
 }
