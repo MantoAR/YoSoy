@@ -52,6 +52,11 @@ public sealed class FakeAceptacionVideo : IAceptacionVideollamadaRepositorio
         }
     }
 
+    public IReadOnlyList<AceptacionVideoFila> VigentesDelPaciente(int idPaciente, DateTime desdeUtc)
+    {
+        lock (Filas) return Filas.Where(f => f.IdPaciente == idPaciente && f.RevocadoUtc is null && f.DecididoUtc >= desdeUtc).OrderByDescending(f => f.DecididoUtc).ToList();
+    }
+
     public bool Revocar(int idAceptacion, DateTime revocadoUtc, int idUsuario)
     {
         lock (Filas)

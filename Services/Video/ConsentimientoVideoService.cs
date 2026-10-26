@@ -68,6 +68,10 @@ public class ConsentimientoVideoService
         _auditoria = auditoria; _reloj = reloj; _opciones = opciones; _video = video;
     }
 
+    /// <summary>¿Tiene el paciente aceptada (y sin revocar) la lectura de emociones de esa sesión?</summary>
+    public bool EmocionesAceptadas(string origen, int idOrigen, int idPaciente) =>
+        EstadoDe(_repo.Ultimo(origen, idOrigen, idPaciente)) == Acepta;
+
     /// <summary>true si el paciente de esa sesión todavía no aceptó la videollamada (y la base la exige). Sin video no hay lectura de emociones.</summary>
     public bool FaltaAceptarVideo(string origen, int idOrigen, int idPaciente) =>
         _video is not null && _video.Disponible() && _video.Ultima(origen, idOrigen, idPaciente) is not { RevocadoUtc: null };

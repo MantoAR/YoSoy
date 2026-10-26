@@ -70,12 +70,21 @@
                 <p class="ayuda">Al aceptar se guarda la fecha y la hora de tu firma. Es necesario para que se confirmen tus turnos.</p>
             </section>
 
+            <!-- Mis sesiones: revocar la videollamada o la lectura de emociones de una sesión sin esperar a entrar a la sala (también se puede desde la sala). -->
+            <section id="misSesiones" class="tarjeta oculto" aria-labelledby="misSesionesTitulo">
+                <h2 id="misSesionesTitulo">Mis sesiones: video y emociones</h2>
+                <p class="ayuda">Acá ves las sesiones recientes en las que aceptaste usar la videollamada. Podés dejar de usar el video o de compartir tus expresiones cuando quieras.</p>
+                <ul id="listaSesiones" class="lista-sesiones"></ul>
+                <p id="errorSesiones" class="ui-alerta ui-alerta--danger oculto" role="alert"></p>
+            </section>
+
             <p id="error" class="ui-alerta ui-alerta--danger mt-16 oculto" role="alert"></p>
         </div>
     </main>
 
     <script src="../shared/ui.js"></script>
     <script src="../shared/shell.js"></script>
+    <script src="../shared/emociones.js"></script>
     <script>
         YS.shell.iniciar({ rol: "paciente", activo: "consentimiento", opcional: true,
                            titulo: "Consentimiento informado", subtitulo: "Atención psicológica por telemedicina" });

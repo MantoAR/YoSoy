@@ -28,3 +28,6 @@
 
 .ayuda { color: var(--text-3); font-size: var(--fs-sm); margin-top: 10px; }
 
+/* Mis sesiones: video y emociones */
+.lista-sesiones { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.sesion-aceptada { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); }

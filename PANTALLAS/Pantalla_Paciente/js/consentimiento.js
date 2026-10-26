@@ -95,6 +95,47 @@ async function firmar() {
     }
 }
 
+// ─── Mis sesiones: revocar la videollamada o las emociones desde el perfil ───
+// La API es la autoridad: acá solo se la pide y se la pinta. Revocar el video corta también las emociones y avisa al profesional (igual que desde la sala).
+async function cargarSesiones() {
+    const seccion = $("misSesiones");
+    let lista = [];
+    try { lista = await YS.api("/video/aceptaciones-vigentes", { sinRedireccion: true }); } catch { lista = []; }
+    seccion.classList.toggle("oculto", !Array.isArray(lista) || lista.length === 0);
+    $("errorSesiones").classList.add("oculto");
+    const ul = $("listaSesiones");
+    ul.replaceChildren(...(Array.isArray(lista) ? lista : []).map(s => {
+        const li = document.createElement("li");
+        li.className = "sesion-aceptada";
+        const nombre = s.origen === "admision" ? "Entrevista de admisión" : "Sesión";
+        const t = document.createElement("span");
+        t.textContent = `${nombre} #${s.id} · aceptaste la videollamada el ${fechaHora(s.desdeUtc)} · análisis de emociones: ${s.emocionesAceptadas ? "aceptado" : "no aceptado"}`;
+        li.appendChild(t);
+        const botones = document.createElement("span");
+        botones.className = "acciones";
+        const sesion = { origen: s.origen, id: s.id };
+        const video = document.createElement("button");
+        video.type = "button"; video.className = "ui-btn ui-btn--danger ui-btn--sm"; video.textContent = "Dejar de usar el video";
+        video.addEventListener("click", () => revocarSesion(() => YS.emociones.revocarVideo(sesion), "Dejar de usar el video", "Se va a cortar el video de esa sesión y tu profesional va a recibir el aviso."));
+        botones.appendChild(video);
+        if (s.emocionesAceptadas) {
+            const emo = document.createElement("button");
+            emo.type = "button"; emo.className = "ui-btn ui-btn--sm"; emo.textContent = "Dejar de compartir mis expresiones";
+            emo.addEventListener("click", () => revocarSesion(() => YS.emociones.revocar(sesion), "Dejar de compartir mis expresiones", "Se deja de analizar y se elimina lo que se hubiera guardado de esa sesión."));
+            botones.appendChild(emo);
+        }
+        li.appendChild(botones);
+        return li;
+    }));
+}
+
+async function revocarSesion(operacion, titulo, mensaje) {
+    if (!await YS.confirmar({ titulo, mensaje, textoConfirmar: titulo, peligro: true })) return;
+    try { await operacion(); } catch (err) { const e = $("errorSesiones"); e.textContent = err.message; e.classList.remove("oculto"); return; }
+    await cargarSesiones();
+}
+
 $("btnFirmar").addEventListener("click", firmar);
 $("btnReintentar").addEventListener("click", cargar);
 cargar();
+cargarSesiones();

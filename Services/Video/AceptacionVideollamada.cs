@@ -25,6 +25,9 @@ public interface IAceptacionVideollamadaRepositorio
 
     /// <summary>Marca la aceptación como revocada. false si ya estaba revocada.</summary>
     bool Revocar(int idAceptacion, DateTime revocadoUtc, int idUsuario);
+
+    /// <summary>Las aceptaciones vigentes (sin revocar) de ese paciente desde esa fecha, de la más nueva a la más vieja. Para «Mis consentimientos» del paciente.</summary>
+    IReadOnlyList<AceptacionVideoFila> VigentesDelPaciente(int idPaciente, DateTime desdeUtc);
 }
 
 public interface IAuditoriaAceptacionVideo
@@ -76,6 +79,8 @@ Para entrar tenés que aceptar usar la videollamada. Si no querés, no pasa nada
 
     public static TextoConsentimiento Actual() => TextoConsentimientoVideo.Interpretar(Version, Contenido);
 }
+
+public record AceptacionVigente(string Origen, int IdOrigen, DateTime DesdeUtc, bool EmocionesAceptadas);
 
 public record EstadoAceptacion(bool Exigida, string Estado, string Version, string Titulo, IReadOnlyList<string> Texto, string? MarcaProvisoria, DateTime? DecididoUtc, DateTime? RevocadoUtc);
 
@@ -166,6 +171,19 @@ public class AceptacionVideollamadaService
             ultima = _repo.Ultima(ses.Origen, ses.Id, ses.IdPaciente);
         }
         return Ok(Vista(ultima));
+    }
+
+    /// <summary>
+    /// Para el perfil del paciente («Mis consentimientos»): las sesiones de los últimos días en las que tiene la videollamada aceptada y, de cada una, si también aceptó la lectura de
+    /// emociones, para poder revocar cualquiera de las dos sin esperar a entrar a la sala. Solo las del propio paciente.
+    /// </summary>
+    public IReadOnlyList<AceptacionVigente> VigentesDe(Identidad yo, int dias = 30)
+    {
+        if (!yo.EsPaciente || yo.IdPaciente is not int idPaciente || !Exigida) return Array.Empty<AceptacionVigente>();
+        var desde = _reloj.GetUtcNow().UtcDateTime.AddDays(-Math.Clamp(dias, 1, 90));
+        return _repo.VigentesDelPaciente(idPaciente, desde).Take(20)
+            .Select(f => new AceptacionVigente(f.Origen, f.IdOrigen, f.DecididoUtc, _emociones.EmocionesAceptadas(f.Origen, f.IdOrigen, idPaciente)))
+            .ToList();
     }
 
     // ───────────────────────── Avisos ─────────────────────────

@@ -60,6 +60,23 @@ public class AceptacionVideollamadaDAO : IAceptacionVideollamadaRepositorio
         return cmd.ExecuteNonQuery() == 1;
     }
 
+    public IReadOnlyList<AceptacionVideoFila> VigentesDelPaciente(int idPaciente, DateTime desdeUtc)
+    {
+        var lista = new List<AceptacionVideoFila>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var cmd = new SqlCommand(@"
+            SELECT IdAceptacion, IdUsuario, IdPaciente, Origen, IdOrigen, VersionTexto, DecididoUtc, RevocadoUtc
+            FROM AceptacionVideollamada
+            WHERE IdPaciente = @P AND RevocadoUtc IS NULL AND DecididoUtc >= @D
+            ORDER BY DecididoUtc DESC", con);
+        cmd.Parameters.AddWithValue("@P", idPaciente);
+        cmd.Parameters.AddWithValue("@D", desdeUtc);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(Mapear(r));
+        return lista;
+    }
+
     private static AceptacionVideoFila Mapear(SqlDataReader r) => new(
         (int)r["IdAceptacion"], r["IdUsuario"] as int?, (int)r["IdPaciente"], (string)r["Origen"], (int)r["IdOrigen"], (string)r["VersionTexto"],
         DateTime.SpecifyKind((DateTime)r["DecididoUtc"], DateTimeKind.Utc),

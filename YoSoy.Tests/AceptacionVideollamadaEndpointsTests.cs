@@ -195,6 +195,29 @@ public class AceptacionVideollamadaEndpointsTests
     }
 
     [Fact]
+    public async Task Mis_consentimientos_lo_ve_solo_el_paciente_y_lista_lo_propio()
+    {
+        using var app = new App();
+        var paciente = app.Video.Paciente();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.Video.SinSesion().GetAsync("/video/aceptaciones-vigentes")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await app.Video.Profesional().GetAsync("/video/aceptaciones-vigentes")).StatusCode);
+
+        await Aceptar(paciente);
+        var (r, j) = await Pedir(paciente, HttpMethod.Get, "/video/aceptaciones-vigentes");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("no-store", r.Headers.CacheControl?.ToString());
+        var fila = Assert.Single(j.EnumerateArray());
+        Assert.Equal(("turno", 1, false), (fila.GetProperty("origen").GetString(), fila.GetProperty("id").GetInt32(), fila.GetProperty("emocionesAceptadas").GetBoolean()));
+
+        // Lo del otro paciente no aparece.
+        var (_, otro) = await Pedir(app.Video.OtroPaciente(), HttpMethod.Get, "/video/aceptaciones-vigentes");
+        Assert.Empty(otro.EnumerateArray());
+
+        await Pedir(paciente, HttpMethod.Post, "/video/aceptacion/revocar", new { origen = "turno", id = 1 });
+        Assert.Empty((await Pedir(paciente, HttpMethod.Get, "/video/aceptaciones-vigentes")).J.EnumerateArray());
+    }
+
+    [Fact]
     public async Task Quien_hace_la_admision_no_necesita_aceptar_y_el_paciente_si_en_una_admision()
     {
         using var app = new App();

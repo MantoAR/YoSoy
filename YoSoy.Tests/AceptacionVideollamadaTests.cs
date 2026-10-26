@@ -225,6 +225,38 @@ public class AceptacionVideollamadaTests
     }
 
     [Fact]
+    public void Mis_consentimientos_lista_las_sesiones_con_video_aceptado_y_si_tambien_hay_emociones()
+    {
+        var e = Exigiendo();
+        Assert.Empty(e.Aceptacion.VigentesDe(e.Paciente));
+
+        e.Aceptacion.Aceptar(e.Paciente, "turno", 1, Version);
+        var soloVideo = Assert.Single(e.Aceptacion.VigentesDe(e.Paciente));
+        Assert.Equal(("turno", 1, false), (soloVideo.Origen, soloVideo.IdOrigen, soloVideo.EmocionesAceptadas));
+
+        e.Consentimiento.Decidir(e.Paciente, "turno", 1, "acepta", e.Texto.Version);
+        Assert.True(Assert.Single(e.Aceptacion.VigentesDe(e.Paciente)).EmocionesAceptadas);
+
+        // Solo las del propio paciente; el resto de las personas no ve nada.
+        Assert.Empty(e.Aceptacion.VigentesDe(e.OtroPaciente));
+        Assert.Empty(e.Aceptacion.VigentesDe(e.Profesional));
+
+        // Revocar desde el perfil usa lo mismo que desde la sala.
+        e.Aceptacion.Revocar(e.Paciente, "turno", 1);
+        Assert.Empty(e.Aceptacion.VigentesDe(e.Paciente));
+    }
+
+    [Fact]
+    public void Las_aceptaciones_viejas_no_aparecen_en_Mis_consentimientos()
+    {
+        var e = Exigiendo();
+        e.Aceptacion.Aceptar(e.Paciente, "turno", 1, Version);
+        e.Reloj.Avanzar(TimeSpan.FromDays(31));
+        Assert.Empty(e.Aceptacion.VigentesDe(e.Paciente));
+        Assert.Single(e.Aceptacion.VigentesDe(e.Paciente, dias: 60));
+    }
+
+    [Fact]
     public void La_guardia_descarta_las_emociones_de_una_sesion_sin_video_aceptado()
     {
         var e = Exigiendo();
