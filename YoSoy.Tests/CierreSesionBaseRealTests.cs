@@ -112,7 +112,7 @@ public sealed class DatosCierre : IDisposable
         D.Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
         D.Intentar("DELETE FROM Evolucion WHERE IdHistoria IN (SELECT IdHistoria FROM HistoriaClinica WHERE IdPaciente = @P) OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
         D.Intentar("DELETE FROM HistoriaClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
-        D.Intentar("DELETE FROM Caso WHERE IdPaciente = @P", ("@P", IdPaciente));
+        D.Intentar("DELETE FROM Caso WHERE IdPaciente = @P OR IdProfesionalAsignado = @M", ("@P", IdPaciente), ("@M", IdProfesional));   // también el caso de OTRO paciente asignado a este profesional
         D.Dispose();
         foreach (var e in _estados) EstadosCompartidos.Soltar(e);
     }
