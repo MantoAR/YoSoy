@@ -250,6 +250,71 @@ tbody tr:hover td { background: #FAFAFB; }
 .form-horario .campo, .form-horario .ui-campo { margin-bottom: 0; flex: 1; min-width: 130px; }
 #panel-urgente .ui-campo { flex: 1; min-width: 220px; }
 
+/* Mis horarios de trabajo: "Tu semana" al lado del calendario del mes (horarios() en js/nuevo_dashboard.js) */
+.horario-stat-unidad { font-size: var(--fs-md); font-weight: 500; color: var(--text-3); }
+.horario-stat-texto { font-size: var(--fs-lg); }
+.horarios-columnas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.horarios-columnas .card { margin-bottom: 0; }
+.horarios-lateral { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 900px) { .horarios-columnas { grid-template-columns: minmax(0, 1fr); } }
+
+.horarios-semana-lista { list-style: none; margin: 0; padding: 0; }
+.horarios-semana-dia { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.horarios-semana-nombre { width: 84px; flex-shrink: 0; font-weight: 600; color: var(--text); }
+.horarios-semana-dia--libre .horarios-semana-nombre { font-weight: 400; color: var(--text-3); }
+.horarios-semana-franjas { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.horarios-semana-mas { flex-shrink: 0; min-width: 32px; font-size: var(--fs-lg); color: var(--text-3); }
+.horario-franja {
+    min-height: 32px; padding: 4px 10px; border: 1px solid; border-radius: var(--r-md); font: inherit; font-size: var(--fs-sm);
+    text-align: left; cursor: pointer; max-width: 100%;
+}
+.horario-franja--turnos { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.horario-franja--admision { background: var(--info-bg); border-color: var(--info-solid); color: var(--info); }
+.horario-franja--fuera { background: var(--surface); border-style: dashed; color: var(--text-2); }
+.horario-franja:hover, .horario-franja:focus-visible { box-shadow: var(--shadow-md); }
+.horario-franja--elegida { box-shadow: 0 0 0 2px var(--accent); }
+.horarios-leyenda { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: var(--fs-sm); color: var(--text-2); }
+.horarios-leyenda > span { display: flex; align-items: center; gap: 6px; }
+.horario-muestra { width: 12px; height: 12px; border-radius: 3px; border: 1px solid; }
+.horario-muestra--turnos { background: var(--accent-soft); border-color: var(--accent); }
+.horario-muestra--admision { background: var(--info-bg); border-color: var(--info-solid); }
+.horario-muestra--fuera { background: var(--surface); border: 1px dashed var(--text-3); }
+.horarios-lista { margin-top: 12px; }
+.horarios-lista summary { cursor: pointer; font-size: var(--fs-md); color: var(--accent-strong); padding: 6px 0; }
+
+.horarios-cal-cabecera { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.horarios-cal-nav { display: flex; align-items: center; gap: 4px; font-size: var(--fs-md); font-weight: 500; }
+.horarios-cal-nav span { min-width: 120px; text-align: center; }
+.horarios-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.horarios-cal-encabezado { text-align: center; font-size: var(--fs-xs); font-weight: 600; color: var(--text-3); padding: 2px 0; }
+.horarios-cal-dia {
+    min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    border: 1px solid transparent; border-radius: var(--r-md); font: inherit; font-size: var(--fs-sm); color: var(--text-2); background: none;
+}
+button.horarios-cal-dia { cursor: pointer; }
+.horarios-cal-dia--pasado { color: var(--text-4); }
+.horarios-cal-dia--turnos { background: var(--accent-soft); color: var(--accent-strong); }
+.horarios-cal-dia--admision { background: var(--info-bg); color: var(--info); }
+.horarios-cal-dia--hoy { border-color: var(--accent); }
+.horarios-cal-dia--elegido { box-shadow: 0 0 0 2px var(--accent); }
+.horarios-cal-num { font-weight: 600; }
+.horarios-cal-pie { font-size: 11px; white-space: nowrap; }
+.horarios-cal-detalle { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-2); }
+.horarios-horas-dia { display: flex; flex-wrap: wrap; gap: 4px; }
+.horarios-hora { padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.horarios-hora--tomada { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.horarios-hora--pasada { color: var(--text-4); background: none; }
+
+.horario-panel .form-horario { margin-top: 0; padding-top: 0; border-top: none; max-width: none; }
+.horario-panel .form-fila { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.horario-panel .form-horario .ui-campo { min-width: 0; }
+.horario-panel .form-acciones { flex-wrap: wrap; }
+@media (max-width: 480px) {
+    .horario-panel .form-fila { grid-template-columns: minmax(0, 1fr); }
+    .horarios-semana-nombre { width: 72px; }
+    .horarios-cal-pie { font-size: 10px; }
+}
+
 /* Vista previa "así te ven los pacientes" (Fase 3a, Paso 2) */
 .vista-previa-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
 .vista-previa-dia { border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2); padding: 10px; }
@@ -314,3 +379,9 @@ tbody tr:hover td { background: #FAFAFB; }
 .modal-historia .ui-tabs { margin-top: -4px; }
 .hc-panel > .ui-vacio-estado { padding: 32px 12px; }
 .reporte-card { max-width: 640px; }
+
+/* Propuesta del primer turno (confirmarNuevoPaciente): el calendario del mes de Mis horarios con el turno propuesto */
+.horarios-propuesta { max-width: 560px; }
+.horarios-cal-dia--propuesta { background: var(--ok-solid); color: #fff; }
+.horarios-hora--propuesta { background: var(--ok-solid); border-color: var(--ok-solid); color: #fff; font-weight: 600; }
+.horario-muestra--propuesta { background: var(--ok-solid); border-color: var(--ok-solid); }

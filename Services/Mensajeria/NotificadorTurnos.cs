@@ -92,8 +92,9 @@ public class NotificadorTurnos : INotificadorTurnos
                 "Tu profesional te propuso un turno",
                 textoChat: t => PlantillasWhatsApp.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
                 mail: t => PlantillasMail.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
+                // La campanita se lee ya dentro del panel: se indica la pestaña, no el link de ingreso.
                 textoApp: t => $"{t.NombreProfesional} te propuso un turno para el {Formato.FechaHora(t.Momento)}. " +
-                               $"Para confirmarlo, ingresá a tu panel en la web: {Op.UrlIngresoTurno}");
+                               "Para confirmarlo, ingresá a la pestaña Turnos.");
         });
 
     public void TurnoConfirmado(int idTurno) => Seguro(nameof(TurnoConfirmado), () =>

@@ -217,7 +217,7 @@ public class ConsentimientoWhatsAppBaseRealTests
         var campos = new Dictionary<string, object?>
         {
             ["nombre"] = "Prueba " + marca, ["dni"] = marca, ["mail"] = marca.ToLowerInvariant() + "@example.com", ["usuario"] = marca,
-            ["contrasena"] = "ClaveDePrueba123", ["fechaNacimiento"] = "1990-05-05"
+            ["contrasena"] = "ClaveDePrueba123", ["fechaNacimiento"] = "1990-05-05", ["telefono"] = "11 5555-0001"
         };
         ajustes?.Invoke(campos);
         return campos;

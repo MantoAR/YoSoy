@@ -11,7 +11,7 @@ using Microsoft.Data.SqlClient;
 public class RegistroPacienteConAccesoTests
 {
     private static object Pedido(string dni, string usuario, string mail, string contrasena = "ClaveDePrueba123") =>
-        new { nombre = "Prueba", dni, mail, usuario, contrasena };
+        new { nombre = "Prueba", dni, mail, usuario, contrasena, telefono = "11 5555-0001" };
 
     private static async Task BorrarPrueba(params string[] marcas)
     {

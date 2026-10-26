@@ -1424,6 +1424,33 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 25)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (25, N'add_conversacion_ia.sql', 'Script');
 GO
 
+-- ── Migración 26: franjas de admisión y quién programó la entrevista (migrations/add_admision_agenda_entrevista.sql) ──
+IF COL_LENGTH('dbo.Agenda', 'EsAdmision') IS NULL
+    ALTER TABLE dbo.Agenda ADD EsAdmision BIT NOT NULL
+        CONSTRAINT DF_Agenda_EsAdmision DEFAULT (0);
+IF COL_LENGTH('dbo.InformeAdmision', 'IdProfesionalEntrevista') IS NULL
+    ALTER TABLE dbo.InformeAdmision ADD IdProfesionalEntrevista INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_InformeAdmision_ProfesionalEntrevista')
+    ALTER TABLE dbo.InformeAdmision ADD CONSTRAINT FK_InformeAdmision_ProfesionalEntrevista
+        FOREIGN KEY (IdProfesionalEntrevista) REFERENCES dbo.Profesional (IdProfesional);
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 26)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (26, N'add_admision_agenda_entrevista.sql', 'Script');
+GO
+
+-- ── Migración 27: fecha de inicio y de fin de cada franja de la agenda (migrations/add_vigencia_agenda.sql) ──
+IF COL_LENGTH('dbo.Agenda', 'FechaInicio') IS NULL
+    ALTER TABLE dbo.Agenda ADD FechaInicio DATE NULL;
+IF COL_LENGTH('dbo.Agenda', 'FechaFin') IS NULL
+    ALTER TABLE dbo.Agenda ADD FechaFin DATE NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Agenda_Vigencia')
+    ALTER TABLE dbo.Agenda ADD CONSTRAINT CK_Agenda_Vigencia
+        CHECK (FechaInicio IS NULL OR FechaFin IS NULL OR FechaFin >= FechaInicio);
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 27)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (27, N'add_vigencia_agenda.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

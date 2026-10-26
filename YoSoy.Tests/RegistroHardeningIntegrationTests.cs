@@ -54,18 +54,18 @@ public class RegistroHardeningIntegrationTests
         try
         {
             var primero = await cliente.PostAsJsonAsync("/pacientes",
-                new { nombre = "Prueba", dni = a, mail = a + "@example.com", usuario = a, contrasena = "ClaveDePrueba123" });
+                new { nombre = "Prueba", dni = a, mail = a + "@example.com", usuario = a, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
             Assert.Equal(HttpStatusCode.Created, primero.StatusCode);
 
             // mismo mail, DNI y usuario nuevos
             var porMail = await cliente.PostAsJsonAsync("/pacientes",
-                new { nombre = "Prueba", dni = b, mail = a + "@example.com", usuario = b, contrasena = "ClaveDePrueba123" });
+                new { nombre = "Prueba", dni = b, mail = a + "@example.com", usuario = b, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
             // mismo DNI, mail y usuario nuevos
             var porDni = await cliente.PostAsJsonAsync("/pacientes",
-                new { nombre = "Prueba", dni = a, mail = c + "@example.com", usuario = c, contrasena = "ClaveDePrueba123" });
+                new { nombre = "Prueba", dni = a, mail = c + "@example.com", usuario = c, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
             // mismo usuario, DNI y mail nuevos
             var porUsuario = await cliente.PostAsJsonAsync("/pacientes",
-                new { nombre = "Prueba", dni = d, mail = d + "@example.com", usuario = a, contrasena = "ClaveDePrueba123" });
+                new { nombre = "Prueba", dni = d, mail = d + "@example.com", usuario = a, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
 
             Assert.Equal(HttpStatusCode.Conflict, porMail.StatusCode);
             Assert.Equal(HttpStatusCode.Conflict, porDni.StatusCode);

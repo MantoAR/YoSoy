@@ -498,24 +498,53 @@
         profesional: {
             titulo: "Avisos",
             async cargar() {
-                const lista = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`);
+                // Con el privilegio Admisión, primero las admisiones pendientes: hay que programar la entrevista
+                // dentro de las 24 horas de recibida la solicitud. Quedan en la campana mientras sigan pendientes.
+                const conAdmision = YS.sesion.tienePrivilegio("admision");
+                const [lista, informes] = await Promise.all([
+                    YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`),
+                    conAdmision ? YS.api("/informes-admision-detalle").catch(() => []) : []
+                ]);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
+                const pendientes = informes.filter(a => a.estado === "Pendiente");
+                const irAAdmisiones = () => {
+                    if (cfg.pagina === "gestion") { location.hash = "#admisiones"; campana.ctrl.cerrar?.(); }
+                    else location.href = YS.rutas.gestion + "#admisiones";
+                };
                 return {
-                    noLeidos: sinSala.length,
-                    items: sinSala.map(t => ({
-                        id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
-                        texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
-                        accion: { texto: "Generar sala", tipo: "primary", alClick: () => generarSala(t.idTurno) }
-                    }))
+                    noLeidos: pendientes.length + sinSala.length,
+                    items: [
+                        ...pendientes.map(a => ({
+                            id: "adm-" + a.idInforme, titulo: "Admisión pendiente", noLeido: true,
+                            texto: `${a.nombrePaciente} · ${plazoEntrevista(a.fechaCreacion)}`,
+                            accion: { texto: "Ver admisiones", tipo: "primary", alClick: irAAdmisiones }
+                        })),
+                        ...sinSala.map(t => ({
+                            id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
+                            texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
+                            accion: { texto: "Generar sala", tipo: "primary", alClick: () => generarSala(t.idTurno) }
+                        }))
+                    ]
                 };
             },
-            vacio: "No hay turnos confirmados esperando sala.",
-            recordatorio: n => `Tenés ${n} turno${n === 1 ? "" : "s"} confirmado${n === 1 ? "" : "s"} sin sala de video.`
+            vacio: "No hay admisiones pendientes ni turnos confirmados esperando sala.",
+            recordatorio: n => `Tenés ${n} aviso${n === 1 ? "" : "s"} pendiente${n === 1 ? "" : "s"}.`
         }
     };
 
     const fechaDMY = s => { const [d, m, a] = String(s).split("/").map(Number); return new Date(a, m - 1, d); };
+
+    // "Recibida el 23/10 09:30 · programar antes del 24/10 09:30" (o "fuera de plazo"): las 24 horas de la primera
+    // entrevista de admisión (Services/PlazoEntrevistaAdmision.cs). fechaCreacion viene como "dd/MM/yyyy HH:mm".
+    function plazoEntrevista(fechaCreacion) {
+        const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(fechaCreacion || "");
+        if (!m) return "Recibida " + (fechaCreacion || "");
+        const recibida = new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]);
+        const limite = new Date(recibida.getTime() + 24 * 60 * 60 * 1000);
+        const corta = d => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+        return `Recibida el ${corta(recibida)} · ` + (Date.now() > limite.getTime() ? "fuera de plazo" : `programar antes del ${corta(limite)}`);
+    }
 
     async function unirseSala(codigo, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }

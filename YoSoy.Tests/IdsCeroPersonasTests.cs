@@ -66,7 +66,7 @@ public class IdsCeroPersonasTests
         using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient(); // POST /pacientes es público (registro), sin token.
 
-        var respuesta = await client.PostAsJsonAsync("/pacientes", new { nombre = "Prueba", dni = marca, mail, usuario = marca, contrasena = "ClaveDePrueba123" });
+        var respuesta = await client.PostAsJsonAsync("/pacientes", new { nombre = "Prueba", dni = marca, mail, usuario = marca, contrasena = "ClaveDePrueba123", telefono = "11 5555-0001" });
         try
         {
             Assert.True(respuesta.IsSuccessStatusCode, $"esperaba 2xx, llegó {(int)respuesta.StatusCode}");

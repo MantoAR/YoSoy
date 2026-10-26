@@ -196,7 +196,7 @@ async function mostrarTab(tab, params = {}) {
 
     if (tab === 'inicio') { MODULO === "crm" ? inicioCrm() : inicioConfigurador(); return; }
     if (tab === 'reportesgenerales') { reportes(); return; }
-    if (tab === 'admisiones') { admisiones(); return; }
+    if (tab === 'admisiones') { admisiones(params.filtro); return; }
     tabActual = tab;
 
     const contenido = document.getElementById("contenido");
@@ -1286,7 +1286,9 @@ async function descargarReporteHtml() {
 
 let _admisionesCache = [];
 
-async function admisiones() {
+// filtro: la solapa que queda a la vista. Sin indicarla, "Pendientes"; si no queda ninguna pendiente y hay entrevistas
+// por derivar, "En entrevista". Después de programar o derivar se vuelve a "En entrevista" mientras queden pacientes ahí.
+async function admisiones(filtro) {
     const c = document.getElementById("contenido");
     c.innerHTML = YS.cargando();
     try {
@@ -1299,17 +1301,20 @@ async function admisiones() {
     YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => mostrarTab("admisiones") }]);
 
     const tono = { "Pendiente": "warn", "En entrevista": "info", "Derivado": "ok", "Rechazado": "danger" };
+    const hay = estado => _admisionesCache.some(a => a.estado === estado);
+    if (filtro === "entrevista" && !hay("En entrevista")) filtro = null;
+    if (!filtro) filtro = !hay("Pendiente") && hay("En entrevista") ? "entrevista" : "pendientes";
     c.innerHTML = '<div id="tablaAdmisiones"></div><div id="detalleAdmision" class="mt-16"></div>';
     YS.tabla(document.getElementById("tablaAdmisiones"), {
-        filas: _admisionesCache, unidad: ["informe", "informes"], placeholder: "Buscar por paciente, DNI o especialidad",
+        filas: _admisionesCache, filtro, unidad: ["informe", "informes"], placeholder: "Buscar por paciente, DNI o especialidad",
         buscar: a => [a.nombrePaciente, a.dni, a.especialidad].join(" "),
+        // En el orden del trabajo de Admisión: primero lo que hay que programar (dentro de las 24 horas), después
+        // las entrevistas en curso, después lo resuelto.
         filtros: [
-            { id: "abiertas", texto: "Por resolver", pasa: a => a.estado !== "Derivado" },
-            { id: "todas", texto: "Todas", pasa: () => true },
             { id: "pendientes", texto: "Pendientes", pasa: a => a.estado === "Pendiente" },
             { id: "entrevista", texto: "En entrevista", pasa: a => a.estado === "En entrevista" },
-            { id: "derivadas", texto: "Derivadas", pasa: a => a.estado === "Derivado" },
-            { id: "rechazadas", texto: "Rechazadas", pasa: a => a.estado === "Rechazado" }
+            { id: "resueltas", texto: "Derivados y rechazados", pasa: a => a.estado === "Derivado" || a.estado === "Rechazado" },
+            { id: "todas", texto: "Todas", pasa: () => true }
         ],
         vacio: { icono: "portapapeles", titulo: "No hay informes de admisión", texto: "Los completan los pacientes desde su panel." },
         columnas: [
@@ -1317,11 +1322,43 @@ async function admisiones() {
               html: a => `<span class="ui-flex">${YS.avatar(a.nombrePaciente, a.idPaciente, "sm")}<span class="principal">${YS.esc(a.nombrePaciente)}</span></span>` },
             { titulo: "DNI", html: a => celda(a.dni) },
             { titulo: "Especialidad", html: a => celda(a.especialidad), orden: a => a.especialidad || "" },
-            { titulo: "Fecha", html: a => celda(a.fechaCreacion) },
+            { titulo: "Recibida", html: a => celda(a.fechaCreacion), orden: a => fechaHoraDMY(a.fechaCreacion)?.getTime() ?? 0 },
+            { titulo: "Entrevista", html: a => a.estado === "Pendiente" ? plazoAdmisionHtml(a) : celda(a.fechaEntrevista),
+              orden: a => fechaHoraDMY(a.fechaEntrevista)?.getTime() ?? 0 },
+            { titulo: "Programada por", html: a => celda(a.nombreProfesionalEntrevista), orden: a => YS.normalizar(a.nombreProfesionalEntrevista || "") },
             { titulo: "Estado", html: a => `<span class="ui-chip ui-chip--${tono[a.estado] || "neutral"}">${YS.esc(a.estado)}</span>`, orden: a => a.estado },
             { titulo: "", clase: "acciones", html: a => `<button class="ui-btn ui-btn--sm" onclick="verAdmision(${a.idInforme})">Ver informe</button>` }
         ]
     });
+}
+
+// ── Plazo de la primera entrevista: dentro de las 24 horas de recibida la solicitud ──
+// Misma regla que la API (Services/PlazoEntrevistaAdmision.cs), que es la que decide: esto solo la muestra y
+// acota el calendario. Con el plazo vencido se programa cuanto antes, como máximo dentro de las 24 horas siguientes.
+const PLAZO_ENTREVISTA_MS = 24 * 60 * 60 * 1000;
+
+// "dd/MM/yyyy HH:mm" (como lo devuelve la API) → Date en la hora local, o null.
+function fechaHoraDMY(texto) {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})(?: (\d{2}):(\d{2}))?/.exec(texto || "");
+    return m ? new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0)) : null;
+}
+
+function plazoAdmision(a) {
+    const recibida = fechaHoraDMY(a.fechaCreacion);
+    if (!recibida) return null;
+    const ahora = new Date();
+    const vencido = ahora.getTime() > recibida.getTime() + PLAZO_ENTREVISTA_MS;
+    const limite = new Date((vencido ? ahora.getTime() : recibida.getTime()) + PLAZO_ENTREVISTA_MS);
+    return { vencido, limite, horasRestantes: Math.max(0, Math.floor((recibida.getTime() + PLAZO_ENTREVISTA_MS - ahora.getTime()) / 3600000)) };
+}
+
+const fechaHoraCorta = d => `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+function plazoAdmisionHtml(a) {
+    const p = plazoAdmision(a);
+    if (!p) return celda("");
+    if (p.vencido) return `<span class="ui-chip ui-chip--danger">Fuera de plazo</span>`;
+    return `<span class="ui-chip ui-chip--${p.horasRestantes < 6 ? "warn" : "neutral"}">Programar antes del ${YS.esc(fechaHoraCorta(p.limite))}</span>`;
 }
 
 function verAdmision(idInforme) {
@@ -1339,26 +1376,36 @@ function verAdmision(idInforme) {
 
     let acciones = "";
     if (esPendiente) {
+        // La fecha y la hora no se eligen: la API toma el primer horario libre de tus franjas de admisión (Mis horarios de
+        // trabajo), dentro de las 24 horas de recibida la solicitud, y le avisa al paciente.
+        const plazo = plazoAdmision(a);
         acciones = '<div class="caja-accion">' +
             '<h4>Programar primera entrevista</h4>' +
-            '<div class="fila-form">' +
-            '<div class="campo-form ui-campo"><label for="entFecha">Fecha</label><input type="date" id="entFecha" class="ui-input"></div>' +
-            '<div class="campo-form ui-campo"><label for="entHora">Hora</label><input type="time" id="entHora" class="ui-input"></div>' +
-            '<button class="ui-btn ui-btn--primary" onclick="programarEntrevista(' + a.idInforme + ')">Programar</button>' +
-            '</div></div>';
+            (plazo ? '<p class="ui-alerta ui-alerta--' + (plazo.vencido ? 'danger' : 'info') + ' mb-12"><span>' + (plazo.vencido
+                ? 'Ya pasaron las 24 horas desde que llegó la solicitud: se programa cuanto antes, como máximo el ' + YS.esc(fechaHoraCorta(plazo.limite)) + ' hs.'
+                : 'Se programa dentro de las 24 horas de recibida la solicitud: como máximo el ' + YS.esc(fechaHoraCorta(plazo.limite)) + ' hs.') + '</span></p>' : '') +
+            '<p class="texto-suave mb-12">Se asigna sola en el primer horario libre de tus franjas de admisión (Mis horarios de trabajo), después de las entrevistas que ya tenés, y al paciente le llega el aviso con el día y la hora.</p>' +
+            '<p id="entError" class="ui-alerta ui-alerta--danger mb-12 oculto" role="alert"></p>' +
+            '<button id="btnProgramar" class="ui-btn ui-btn--primary" onclick="programarEntrevista(' + a.idInforme + ')">Programar en el primer horario libre</button>' +
+            '</div>';
     }
     if (esEntrevista) {
+        // Se deriva recién con la entrevista hecha: su horario ya llegó y las observaciones están cargadas (la API lo vuelve a controlar).
+        const fechaEnt = fechaHoraDMY(a.fechaEntrevista);
+        const realizada = a.estado === "Rechazado" || (fechaEnt && fechaEnt <= new Date());
         acciones = '<div class="caja-accion">' +
-            '<h4>Derivar al profesional</h4>' +
+            '<h4>Datos de entrevista</h4>' +
             (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
-            '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
+            '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + (a.nombreProfesionalEntrevista ? ' · por ' + YS.esc(a.nombreProfesionalEntrevista) : '') + '</p>' +
             '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +
-            '<div class="campo-form ui-campo mb-12"><label for="derObs">Observaciones de la entrevista</label>' +
+            (realizada ? '' : '<p class="ui-alerta ui-alerta--info mb-12"><span>Se puede derivar después de realizar la entrevista' + (fechaEnt ? ' (' + YS.esc(fechaHoraCorta(fechaEnt)) + ' hs)' : '') + ', con las observaciones cargadas.</span></p>') +
+            '<div class="campo-form ui-campo mb-12"><label for="derObs">Observaciones de la entrevista <span class="ui-muted">(obligatorias para derivar)</span></label>' +
             '<textarea id="derObs" rows="3" class="ui-textarea">' + YS.esc(a.observacionesEntrevista || "") + '</textarea></div>' +
             '<div class="fila-form">' +
-            '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Profesional asignado</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
-            '<button class="ui-btn ui-btn--primary" onclick="derivarAdmision(' + a.idInforme + ')">Derivar</button>' +
-            '</div></div>';
+            '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Derivar al profesional</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
+            '<button class="ui-btn ui-btn--primary" onclick="derivarAdmision(' + a.idInforme + ')"' + (realizada ? '' : ' disabled title="Disponible después de la entrevista"') + '>Derivar</button>' +
+            '</div><p class="texto-suave texto-chico mt-8 mb-0">Solo aparecen los profesionales con horarios de atención configurados.</p>' +
+            '</div>';
     }
     if (esDerivado) {
         acciones = '<div class="ui-alerta ui-alerta--ok ui-alerta--bloque mt-16">' +
@@ -1391,42 +1438,62 @@ function verAdmision(idInforme) {
     document.getElementById("detalleAdmision").scrollIntoView({ behavior: "smooth" });
 }
 
+// Solo profesionales activos con horarios de atención configurados: si no, el paciente queda asignado sin dónde pedir
+// su primer turno (la API lo vuelve a controlar al derivar).
 async function cargarProfesionalesDerivacion() {
-    let profs = [];
-    try { profs = await (await YS.fetch("/profesionales")).json(); } catch(e) {}
+    let profs = null;
+    try { profs = await YS.api("/informes-admision/profesionales-derivables"); } catch(e) {}
     const sel = document.getElementById("derProf");
     if (sel === null) return;
+    if (profs === null) { sel.innerHTML = '<option value="">No se pudo cargar la lista</option>'; return; }
+    if (!profs.length) { sel.innerHTML = '<option value="">Ningún profesional tiene horarios de atención configurados</option>'; return; }
     sel.innerHTML = '<option value="">Elegí un profesional</option>' + profs
-        .filter(function(p) { return p.estado === "Activo"; })
-        .map(function(p) { return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + '</option>'; })
+        .map(function(p) {
+            return '<option value="' + p.idProfesional + '">' + YS.esc(YS.nombreCompleto(p)) + (p.especialidad ? ' · ' + YS.esc(p.especialidad) : '') + '</option>';
+        })
         .join("");
 }
 
 async function programarEntrevista(idInforme) {
-    const fecha = document.getElementById("entFecha").value;
-    const hora  = document.getElementById("entHora").value;
-    if (!fecha) YS.form.marcar("entFecha", "Elegí la fecha.");
-    if (!hora) YS.form.marcar("entHora", "Elegí la hora.");
-    if (!fecha || !hora) return;
-    const r = await YS.fetch("/informes-admision/" + idInforme + "/entrevista", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha: fecha + "T" + hora + ":00", observaciones: null })
-    });
-    if (r.ok) { const resp = await r.json(); toast("Entrevista programada. Código de sala: " + resp.codigoSala + ". Se le avisó al paciente."); admisiones(); }
-    else toast(await YS.leerMensaje(r, "No se pudo programar la entrevista."), "error");
+    const boton = document.getElementById("btnProgramar");
+    const error = document.getElementById("entError");
+    boton.disabled = true;
+    error.classList.add("oculto");
+    try {
+        const r = await YS.fetch("/informes-admision/" + idInforme + "/entrevista", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ observaciones: null })
+        });
+        if (r.ok) {
+            const resp = await r.json();
+            toast("Entrevista programada para el " + resp.fecha + " hs. Se le avisó al paciente.");
+            admisiones("entrevista");
+            return;
+        }
+        // Sin franjas de admisión o sin horario libre en el plazo: el mensaje queda a la vista, no solo en un aviso que se va.
+        error.textContent = await YS.leerMensaje(r, "No se pudo programar la entrevista.");
+        error.classList.remove("oculto");
+    } catch {
+        error.textContent = "No se pudo conectar con el servidor.";
+        error.classList.remove("oculto");
+    } finally {
+        boton.disabled = false;
+    }
 }
 
 async function derivarAdmision(idInforme) {
     const idProf = parseInt(document.getElementById("derProf").value);
-    const obs    = document.getElementById("derObs").value || null;
-    if (isNaN(idProf)) { YS.form.marcar("derProf", "Elegí el profesional."); return; }
+    const obs    = document.getElementById("derObs").value.trim() || null;
+    if (!obs) YS.form.marcar("derObs", "Cargá las observaciones de la entrevista.");
+    if (isNaN(idProf)) YS.form.marcar("derProf", "Elegí el profesional.");
+    if (!obs || isNaN(idProf)) return;
     const r = await YS.fetch("/informes-admision/" + idInforme + "/derivar", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idProfesional: idProf, observaciones: obs })
     });
-    if (r.ok) { toast("Paciente derivado. Ya aparece en Mis pacientes del profesional."); admisiones(); }
+    if (r.ok) { toast("Paciente derivado. Ya aparece en Mis pacientes del profesional."); admisiones("entrevista"); }
     else toast(await YS.leerMensaje(r, "No se pudo derivar al paciente."), "error");
 }
 

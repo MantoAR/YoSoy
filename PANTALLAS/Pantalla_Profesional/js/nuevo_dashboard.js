@@ -42,11 +42,13 @@ async function inicio() {
     const c = document.getElementById('contenido');
     c.innerHTML = YS.esqueleto.bloques(4) + YS.esqueleto.lista(3);
     const pedir = (ruta, porDefecto) => YS.api(ruta).catch(() => porDefecto);
-    const [prof, confirmados, turnos, asignados] = await Promise.all([
+    const conAdmision = YS.sesion.tienePrivilegio('admision');
+    const [prof, confirmados, turnos, asignados, admisiones] = await Promise.all([
         pedir(`/profesionales/${idProfesional}`, null),
         pedir(`/profesionales/${idProfesional}/turnos-confirmados`, []),
         pedir(`/profesionales/${idProfesional}/turnos`, []),
-        pedir(`/profesionales/${idProfesional}/pacientes-detalle`, [])
+        pedir(`/profesionales/${idProfesional}/pacientes-detalle`, []),
+        conAdmision ? pedir('/informes-admision-detalle', []) : []
     ]);
     const ahora = new Date();
     const deHoy      = turnos.filter(t => YS.fecha.esHoy(t.fecha) && t.idEstadoTurno !== 3);
@@ -63,8 +65,23 @@ async function inicio() {
     YS.shell.acciones([{ texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
 
     const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+    // Quien hace admisión ve primero cuántos pacientes esperan su entrevista y cuántos están en entrevista para derivar
+    // (las admisiones están en la página de gestión; cada tarjeta abre su solapa).
+    const admPendientes = admisiones.filter(a => a.estado === 'Pendiente').length;
+    const admEnEntrevista = admisiones.filter(a => a.estado === 'En entrevista').length;
+    const tarjetaAdmision = conAdmision ? `
+            <a class="ui-stat${admPendientes ? ' ui-stat--warn' : ''}" href="${YS.rutas.gestion}#admisiones?filtro=pendientes">
+                <span class="ui-stat-etiqueta">${YS.icono('portapapeles')}Admisión</span>
+                <span class="ui-stat-valor">${admPendientes}</span>
+                <span class="ui-stat-pie">${admPendientes ? plural(admPendientes, 'paciente para admisionar', 'pacientes para admisionar') : 'Sin pacientes para admisionar'}</span>
+            </a>
+            <a class="ui-stat${admEnEntrevista ? ' ui-stat--marca' : ''}" href="${YS.rutas.gestion}#admisiones?filtro=entrevista">
+                <span class="ui-stat-etiqueta">${YS.icono('video')}Pacientes en entrevista</span>
+                <span class="ui-stat-valor">${admEnEntrevista}</span>
+                <span class="ui-stat-pie">${admEnEntrevista ? 'Para derivar después de la entrevista' : 'Ninguno para derivar'}</span>
+            </a>` : '';
     c.innerHTML = `
-        <div class="ui-stats">
+        <div class="ui-stats">${tarjetaAdmision}
             <a class="ui-stat" href="#agenda">
                 <span class="ui-stat-etiqueta">${YS.icono('agenda')}Turnos de hoy</span>
                 <span class="ui-stat-valor">${deHoy.length}</span>
@@ -415,11 +432,40 @@ async function agenda() {
 }
 
 // Mis horarios de trabajo (antes, la segunda tarjeta de la agenda)
+// ── Mis horarios de trabajo ─────────────────────────────────
+// Resumen arriba; a la izquierda "Tu semana" (las franjas de cada día, que se tocan para editar) y a la derecha el
+// calendario del mes con los horarios libres de cada día. Al editar o agregar, el formulario ocupa el lugar del calendario.
+const HORARIOS_DIAS_CALENDARIO = 90;   // lo que devuelve como máximo /profesionales/{id}/horarios-libres
+
+const minutosDe = h => { const [hh, mm] = fmtHora(h).split(':').map(Number); return (hh || 0) * 60 + (mm || 0); };
+const horasTexto = min => { const h = min / 60; return (Number.isInteger(h) ? h : h.toFixed(1).replace('.', ',')) + ' h'; };
+const ddmm = v => { const [a, m, d] = fechaISO(v).split('-'); return `${d}/${m}`; };
+const horaDeMinutos = min => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+
+// ¿Vale la franja ese día? (fechas de inicio y de fin inclusive; vacías = sin límite), igual que TurnoReglasService.VigenteEl.
+function franjaVigenteEl(s, iso) {
+    const desde = fechaISO(s.fechaInicio), hasta = fechaISO(s.fechaFin);
+    return (!desde || iso >= desde) && (!hasta || iso <= hasta);
+}
+
+// Los horarios de una franja (cada IntervaloMinutos, mientras el turno entero entre antes de la hora de fin), en "HH:mm".
+function horariosDeFranja(s) {
+    const intervalo = s.intervaloMinutos > 0 ? s.intervaloMinutos : 30;
+    const lista = [];
+    for (let m = minutosDe(s.horaInicio); m + intervalo <= minutosDe(s.horaFin); m += intervalo) lista.push(horaDeMinutos(m));
+    return lista;
+}
+
+let _horCal = null;   // estado del calendario: mes a la vista, libres por día y día elegido
+
 async function horarios() {
     const c = document.getElementById('contenido');
 
-    let slots = [];
-    try { const r = await YS.fetch(`/profesionales/${idProfesional}/agenda`); slots = await r.json(); } catch {}
+    let slots = [], libres = [];
+    await Promise.all([
+        YS.fetch(`/profesionales/${idProfesional}/agenda`).then(r => r.json()).then(x => { slots = x; }).catch(() => {}),
+        YS.fetch(`/profesionales/${idProfesional}/horarios-libres?dias=${HORARIOS_DIAS_CALENDARIO}`).then(r => r.json()).then(x => { libres = x; }).catch(() => {})
+    ]);
 
     // La base guarda el día con distintas formas ('lunes', 'Lunes', 'miercoles'):
     // se ordena por el número de día, no por el texto.
@@ -427,157 +473,371 @@ async function horarios() {
     _agendaSlotsProf = slots;
     if (YS.shell.actual !== 'horarios') return;
 
-    YS.shell.acciones([{ texto: 'Agregar horario', icono: 'mas', tipo: 'primary', alClick: abrirFormNuevoHorario }]);
+    YS.shell.acciones([{ texto: 'Agregar horario', icono: 'mas', tipo: 'primary', alClick: () => abrirFormNuevoHorario() }]);
+
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const hoyISO = YS.fecha.aISO(hoy);
+    const conAdmision = YS.sesion.tienePrivilegio('admision') || slots.some(s => s.esAdmision);
+    const validas = slots.filter(s => s.horaInicio && s.horaFin && YS.dias.orden(s.dia) < 7);
+    const activas = validas.filter(s => s.disponible && (!fechaISO(s.fechaFin) || fechaISO(s.fechaFin) >= hoyISO));
+    const suma = lista => lista.reduce((t, s) => ({ min: t.min + minutosDe(s.horaFin) - minutosDe(s.horaInicio), n: t.n + (calcularTurnos(s) || 0) }), { min: 0, n: 0 });
+    const turnos = suma(activas.filter(s => !s.esAdmision));
+    const admision = suma(activas.filter(s => s.esAdmision));
+
+    // Libres por día ("HH:mm" de cada uno), para el resumen de 14 días y para el calendario.
+    const libresPorDia = new Map();
+    libres.forEach(iso => {
+        const d = new Date(iso), k = YS.fecha.aISO(d);
+        if (!libresPorDia.has(k)) libresPorDia.set(k, new Set());
+        libresPorDia.get(k).add(YS.fecha.hora(d));
+    });
+    _horCal = { anio: hoy.getFullYear(), mes: hoy.getMonth(), validas, libresPorDia, elegido: null };
+
+    let total14 = 0, libres14 = 0;
+    for (let i = 0; i < 14; i++) {
+        const d = new Date(hoy); d.setDate(d.getDate() + i);
+        const dia = diaDelCalendario(d);
+        total14 += dia.total; libres14 += dia.libres;
+    }
+
+    // El próximo cambio de la agenda: una franja que empieza o que termina.
+    const cambio = validas.flatMap(s => [
+        fechaISO(s.fechaInicio) > hoyISO ? { iso: fechaISO(s.fechaInicio), s, texto: `Empieza el ${ddmm(s.fechaInicio)}` } : null,
+        fechaISO(s.fechaFin) >= hoyISO ? { iso: fechaISO(s.fechaFin), s, texto: `Termina el ${ddmm(s.fechaFin)}` } : null
+    ]).filter(Boolean).sort((a, b) => a.iso.localeCompare(b.iso))[0];
+
+    const tarjeta = (etiqueta, valor, pie, tono = '') => `
+        <div class="ui-stat${tono ? ' ui-stat--' + tono : ''}">
+            <span class="ui-stat-etiqueta">${etiqueta}</span>
+            <span class="ui-stat-valor">${valor}</span>
+            <span class="ui-stat-pie">${pie}</span>
+        </div>`;
 
     c.innerHTML = `
-        <div class="card">
-            <div id="slots-lista">
-                ${!slots.length ? YS.vacio({ icono: 'reloj', titulo: 'Todavía no cargaste horarios', texto: 'Agregá los días y las franjas en que atendés para que se puedan pedir turnos.', accion: { texto: 'Agregar horario', onclick: 'abrirFormNuevoHorario()' } }) : `
-                <div class="tabla-wrapper">
-                    <table>
-                        <thead><tr><th>Día</th><th>Desde</th><th>Hasta</th><th>Intervalo</th><th>Turnos/día</th><th>Disponible</th><th></th></tr></thead>
-                        <tbody>
-                            ${slots.map(s => `
-                            <tr id="slot-row-${s.idAgenda}">
-                                <td>${YS.esc(YS.dias.nombre(s.dia))}</td>
-                                <td>${fmtHora(s.horaInicio)}</td>
-                                <td>${fmtHora(s.horaFin)}</td>
-                                <td>${s.intervaloMinutos ?? 30} min</td>
-                                <td>${calcularTurnos(s)}</td>
-                                <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}">${s.disponible ? 'Sí' : 'No'}</span></td>
-                                <td class="celda-acciones">
-                                    <button class="btn-ver" onclick="editarHorario(${s.idAgenda},'${s.dia}','${fmtHora(s.horaInicio)}','${fmtHora(s.horaFin)}',${s.disponible},${s.intervaloMinutos ?? 30})">Editar</button>
-                                    <button class="btn-peligro" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
-                                </td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>`}
-            </div>
-
-            <div id="form-horario" class="form-horario oculto">
-                <div class="form-horario-titulo" id="form-horario-titulo">Agregar horario</div>
-                <input type="hidden" id="fh-id">
-                <div class="form-fila">
-                    <div class="ui-campo">
-                        <label for="fh-dia">Día</label>
-                        <select id="fh-dia" class="ui-select">
-                            <option>Lunes</option><option>Martes</option><option>Miércoles</option>
-                            <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
-                        </select>
-                    </div>
-                    <div class="ui-campo">
-                        <label for="fh-inicio">Hora inicio</label>
-                        <input type="time" id="fh-inicio" class="ui-input">
-                    </div>
-                    <div class="ui-campo">
-                        <label for="fh-fin">Hora fin</label>
-                        <input type="time" id="fh-fin" class="ui-input">
-                    </div>
-                    <div class="ui-campo">
-                        <label for="fh-disponible">Disponible</label>
-                        <select id="fh-disponible" class="ui-select">
-                            <option value="true">Sí</option>
-                            <option value="false">No</option>
-                        </select>
-                    </div>
-                    <div class="ui-campo">
-                        <label for="fh-intervalo">Intervalo de atención</label>
-                        <select id="fh-intervalo" class="ui-select">
-                            <option value="15">15 minutos</option>
-                            <option value="20">20 minutos</option>
-                            <option value="30" selected>30 minutos</option>
-                            <option value="45">45 minutos</option>
-                            <option value="60">60 minutos</option>
-                            <option value="90">90 minutos</option>
-                        </select>
-                    </div>
-                </div>
-                <div id="fh-preview" class="form-preview" aria-live="polite"></div>
-                <div class="form-acciones">
-                    <button class="ui-btn ui-btn--primary" id="fh-guardar" onclick="guardarHorario()">Guardar</button>
-                    <button class="ui-btn" onclick="cerrarFormHorario()">Cancelar</button>
-                </div>
-            </div>
-        </div>
-        ${slots.length ? `<div class="card mt-16">
-            <h3>Así te ven los pacientes</h3>
-            <p class="texto-suave mb-12">Los próximos 14 días con los horarios que les quedan libres para pedir turno — el mismo cálculo que usa la reserva real.</p>
-            <div id="vista-previa-horarios">${YS.cargando()}</div>
+        ${slots.length ? `<div class="ui-stats">
+            ${tarjeta(`${YS.icono('pacientes')}Atención de pacientes`, `${horasTexto(turnos.min)} <span class="horario-stat-unidad">por semana</span>`, `${turnos.n} turno${turnos.n === 1 ? '' : 's'}`)}
+            ${conAdmision ? tarjeta(`${YS.icono('portapapeles')}Entrevistas de admisión`, `${horasTexto(admision.min)} <span class="horario-stat-unidad">por semana</span>`, `${admision.n} entrevista${admision.n === 1 ? '' : 's'}`) : ''}
+            ${tarjeta(`${YS.icono('agenda')}Libres en los próximos 14 días`, libres14, total14 ? `de ${total14} turnos · ${Math.round(libres14 / total14 * 100)} % libre` : 'Sin turnos en esos días')}
+            ${cambio
+                ? tarjeta(`${YS.icono('reloj')}Próximo cambio`, `<span class="horario-stat-texto">${YS.esc(YS.dias.nombre(cambio.s.dia))} ${fmtHora(cambio.s.horaInicio)} a ${fmtHora(cambio.s.horaFin)}</span>`, YS.esc(cambio.texto), 'warn')
+                : tarjeta(`${YS.icono('reloj')}Próximo cambio`, '—', 'Ninguna franja empieza ni termina')}
         </div>` : ''}
-    `;
+
+        <div class="horarios-columnas">
+            <section class="card" aria-labelledby="horarios-semana-titulo">
+                <div class="titulo-seccion titulo-seccion--tarjeta" id="horarios-semana-titulo">Tu semana</div>
+                ${slots.length ? '' : '<p class="texto-suave mb-12">Todavía no cargaste horarios. Tocá el + de un día para agregar en qué horario atendés.</p>'}
+                ${htmlSemanaLista(validas, hoyISO)}
+                <div class="horarios-leyenda">
+                    <span><span class="horario-muestra horario-muestra--turnos"></span>Turnos de pacientes</span>
+                    ${conAdmision ? '<span><span class="horario-muestra horario-muestra--admision"></span>Admisión</span>' : ''}
+                    <span><span class="horario-muestra horario-muestra--fuera"></span>Todavía no empieza, vencido o no disponible</span>
+                </div>
+                ${slots.length ? `<details class="horarios-lista">
+                    <summary>Ver los horarios como tabla</summary>
+                    ${htmlListaHorarios(slots)}
+                </details>` : ''}
+            </section>
+
+            <div class="horarios-lateral">
+                <section class="card horario-panel oculto" id="horario-panel" aria-label="Franja elegida">${htmlFormHorario()}</section>
+                <section class="card" id="horarios-calendario" aria-labelledby="horarios-cal-titulo">
+                    <div class="horarios-cal-cabecera">
+                        <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen" id="horarios-cal-titulo">Así te ven los pacientes</div>
+                        <div class="horarios-cal-nav">
+                            <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" id="horarios-cal-anterior" onclick="moverMesHorarios(-1)" aria-label="Mes anterior">&#8249;</button>
+                            <span id="horarios-cal-mes" aria-live="polite"></span>
+                            <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" id="horarios-cal-siguiente" onclick="moverMesHorarios(1)" aria-label="Mes siguiente">&#8250;</button>
+                        </div>
+                    </div>
+                    <div class="horarios-cal" id="horarios-cal-grilla"></div>
+                    <div id="horarios-cal-detalle" class="horarios-cal-detalle" aria-live="polite"></div>
+                </section>
+            </div>
+        </div>`;
 
     ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', actualizarPreviewNuevo);
     });
-
-    if (slots.length) cargarVistaPreviaHorarios();
+    dibujarCalendarioHorarios();
+    if (!slots.length) abrirFormNuevoHorario();
 }
 
-async function cargarVistaPreviaHorarios() {
-    const cont = document.getElementById('vista-previa-horarios');
-    if (!cont) return;
-    let libres = [];
-    try { libres = await YS.fetch(`/profesionales/${idProfesional}/horarios-libres?dias=14`).then(r => r.json()); }
-    catch { cont.innerHTML = YS.errorCarga({ texto: 'No se pudo calcular la vista previa.', reintentar: 'cargarVistaPreviaHorarios()' }); return; }
-    if (YS.shell.actual !== 'horarios' || !document.getElementById('vista-previa-horarios')) return;
+// "Tu semana": una fila por día con sus franjas como botones; un día sin franjas tiene + para agregar una ese día.
+function htmlSemanaLista(validas, hoyISO) {
+    return `<ul class="horarios-semana-lista">${YS.dias.nombres.map((_, i) => (i + 1) % 7).map(numDia => {
+        const nombre = YS.dias.nombres[numDia];
+        const delDia = validas.filter(s => YS.dias.numero(s.dia) === numDia);
+        const franjas = delDia.map(s => {
+            const desdeF = fechaISO(s.fechaInicio), hastaF = fechaISO(s.fechaFin);
+            const fuera = !s.disponible || (desdeF && desdeF > hoyISO) || (hastaF && hastaF < hoyISO);
+            const vig = !s.disponible ? 'no disponible'
+                      : hastaF && hastaF < hoyISO ? `venció el ${ddmm(hastaF)}`
+                      : desdeF && desdeF > hoyISO ? `desde el ${ddmm(desdeF)}`
+                      : hastaF ? `hasta el ${ddmm(hastaF)}` : '';
+            const cant = calcularTurnos(s);
+            const detalle = s.esAdmision ? 'admisión' : `${cant} turno${cant === 1 ? '' : 's'}`;
+            const clase = ['horario-franja', s.esAdmision ? 'horario-franja--admision' : 'horario-franja--turnos', fuera ? 'horario-franja--fuera' : ''].join(' ').trim();
+            return `<button type="button" class="${clase}" data-id="${s.idAgenda}" onclick="editarHorarioPorId(${s.idAgenda})"
+                        aria-label="Editar ${YS.esc(nombre)} de ${fmtHora(s.horaInicio)} a ${fmtHora(s.horaFin)}, ${YS.esc(detalle)}${vig ? ', ' + YS.esc(vig) : ''}">
+                        ${fmtHora(s.horaInicio)}–${fmtHora(s.horaFin)} · ${YS.esc(detalle)}${vig ? ` · ${YS.esc(vig)}` : ''}
+                    </button>`;
+        }).join('');
+        return `<li class="horarios-semana-dia${delDia.length ? '' : ' horarios-semana-dia--libre'}">
+            <span class="horarios-semana-nombre">${YS.esc(nombre)}</span>
+            <span class="horarios-semana-franjas">${franjas || '<span class="texto-suave">No atendés</span>'}</span>
+            <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost horarios-semana-mas" onclick="abrirFormNuevoHorario('${nombre}')" aria-label="Agregar un horario el ${YS.esc(nombre.toLowerCase())}">+</button>
+        </li>`;
+    }).join('')}</ul>`;
+}
 
-    if (!libres.length) {
-        cont.innerHTML = YS.vacio({ icono: 'reloj', texto: 'No queda ningún horario libre en los próximos 14 días.' });
-        return;
+// Un día del calendario: sus horarios de turnos (de las franjas que valen ese día), cuántos siguen libres y si atiende admisión.
+function diaDelCalendario(d) {
+    const iso = YS.fecha.aISO(d);
+    const franjas = _horCal.validas.filter(s => s.disponible && YS.dias.numero(s.dia) === d.getDay() && franjaVigenteEl(s, iso));
+    const horas = [...new Set(franjas.filter(s => !s.esAdmision).flatMap(horariosDeFranja))].sort();
+    const libres = _horCal.libresPorDia.get(iso) || new Set();
+    return { iso, horas, total: horas.length, libres: horas.filter(h => libres.has(h)).length, libresSet: libres, admision: franjas.some(s => s.esAdmision) };
+}
+
+function dibujarCalendarioHorarios() {
+    const grilla = document.getElementById('horarios-cal-grilla');
+    if (!grilla || !_horCal) return;
+    const { anio, mes } = _horCal;
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const limite = new Date(hoy); limite.setDate(limite.getDate() + (_horCal.dias || HORARIOS_DIAS_CALENDARIO) - 1);
+    const diaPropuesto = _horCal.propuesto ? YS.fecha.aISO(_horCal.propuesto) : null;
+
+    document.getElementById('horarios-cal-mes').textContent = YS.capitalizar(new Date(anio, mes, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }));
+    document.getElementById('horarios-cal-anterior').disabled = anio === hoy.getFullYear() && mes === hoy.getMonth();
+    document.getElementById('horarios-cal-siguiente').disabled = anio === limite.getFullYear() && mes === limite.getMonth();
+
+    const primero = new Date(anio, mes, 1);
+    const enMes = new Date(anio, mes + 1, 0).getDate();
+    let html = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<span class="horarios-cal-encabezado" aria-hidden="true">${x}</span>`).join('');
+    for (let i = 0; i < (primero.getDay() + 6) % 7; i++) html += '<span></span>';
+    for (let n = 1; n <= enMes; n++) {
+        const d = new Date(anio, mes, n);
+        const dia = diaDelCalendario(d);
+        const pasado = d < hoy, fuera = d > limite;
+        const clases = ['horarios-cal-dia',
+            pasado || fuera ? 'horarios-cal-dia--pasado' : dia.total ? 'horarios-cal-dia--turnos' : dia.admision ? 'horarios-cal-dia--admision' : '',
+            d.getTime() === hoy.getTime() ? 'horarios-cal-dia--hoy' : '',
+            diaPropuesto === dia.iso ? 'horarios-cal-dia--propuesta' : '',
+            _horCal.elegido === dia.iso ? 'horarios-cal-dia--elegido' : ''].filter(Boolean).join(' ');
+        const pie = pasado || fuera ? '' : diaPropuesto === dia.iso ? 'propuesto'
+                  : dia.total ? `${dia.libres} libre${dia.libres === 1 ? '' : 's'}` : dia.admision ? 'adm' : '';
+        const etiqueta = `${n}${pie ? ', ' + (pie === 'adm' ? 'admisión' : pie) : ''}`;
+        html += pasado || fuera || (!dia.total && !dia.admision)
+            ? `<span class="${clases}"><span class="horarios-cal-num">${n}</span></span>`
+            : `<button type="button" class="${clases}" onclick="elegirDiaHorarios('${dia.iso}')" aria-label="${YS.esc(etiqueta)}"><span class="horarios-cal-num">${n}</span><span class="horarios-cal-pie">${pie}</span></button>`;
     }
-
-    const porDia = new Map();
-    libres.forEach(iso => {
-        const d = new Date(iso);
-        const clave = YS.fecha.aISO(d);
-        if (!porDia.has(clave)) porDia.set(clave, { fecha: d, horas: [] });
-        porDia.get(clave).horas.push(YS.fecha.hora(d));
-    });
-
-    cont.innerHTML = `<div class="vista-previa-grilla">${[...porDia.values()].map(dia => `
-        <div class="vista-previa-dia">
-            <div class="vista-previa-fecha">${YS.esc(YS.fecha.separador(dia.fecha))}</div>
-            <div class="vista-previa-horas">${dia.horas.map(h => `<span class="ui-chip ui-chip--neutral">${YS.esc(h)}</span>`).join('')}</div>
-        </div>`).join('')}</div>`;
+    grilla.innerHTML = html;
+    dibujarDetalleDiaHorarios();
 }
 
-function abrirFormNuevoHorario() {
+function moverMesHorarios(delta) {
+    const d = new Date(_horCal.anio, _horCal.mes + delta, 1);
+    _horCal.anio = d.getFullYear(); _horCal.mes = d.getMonth(); _horCal.elegido = null;
+    dibujarCalendarioHorarios();
+}
+
+function elegirDiaHorarios(iso) {
+    _horCal.elegido = _horCal.elegido === iso ? null : iso;
+    dibujarCalendarioHorarios();
+}
+
+// Debajo del calendario: los horarios del día elegido, con los tomados marcados.
+function dibujarDetalleDiaHorarios() {
+    const cont = document.getElementById('horarios-cal-detalle');
+    if (!cont) return;
+    if (!_horCal.elegido) { cont.innerHTML = '<p class="texto-suave texto-chico mb-0">Tocá un día para ver sus horarios.</p>'; return; }
+    const d = YS.fecha.parse(_horCal.elegido);
+    const dia = diaDelCalendario(d);
+    const ahora = new Date();
+    const propuesta = _horCal.propuesto && YS.fecha.aISO(_horCal.propuesto) === dia.iso ? YS.fecha.hora(_horCal.propuesto) : null;
+    const chips = dia.horas.map(h => {
+        const [hh, mm] = h.split(':').map(Number);
+        const paso = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm) <= ahora;
+        return h === propuesta ? `<span class="horarios-hora horarios-hora--propuesta" title="El horario que se le propone al paciente">${h} · propuesto</span>`
+             : paso ? `<span class="horarios-hora horarios-hora--pasada">${h}</span>`
+             : dia.libresSet.has(h) ? `<span class="horarios-hora">${h}</span>`
+             : `<span class="horarios-hora horarios-hora--tomada">${h} tomado</span>`;
+    }).join('');
+    const tomados = dia.horas.length - dia.libres;
+    cont.innerHTML = `
+        <div class="texto-fuerte mb-4">${YS.esc(YS.capitalizar(YS.fecha.larga(d)))}</div>
+        ${dia.total ? `<div class="texto-suave texto-chico mb-8">${dia.libres} libre${dia.libres === 1 ? '' : 's'} de ${dia.total}${tomados ? ` · ${tomados} ocupado${tomados === 1 ? '' : 's'} o ya pasado${tomados === 1 ? '' : 's'}` : ''}</div>
+        <div class="horarios-horas-dia">${chips}</div>` : ''}
+        ${dia.admision ? `<p class="texto-suave texto-chico ${dia.total ? 'mt-8 ' : ''}mb-0">Ese día tenés franjas de admisión: ahí se programan solas las entrevistas, no se ofrecen turnos.</p>` : ''}`;
+}
+
+function htmlListaHorarios(slots) {
+    return `<div class="tabla-wrapper mt-8">
+        <table>
+            <thead><tr><th>Día</th><th>Hora inicio</th><th>Hora fin</th><th>Vigencia</th><th>Intervalo</th><th>Turnos/día</th><th>Uso</th><th>Disponible</th><th></th></tr></thead>
+            <tbody>
+                ${slots.map(s => `
+                <tr id="slot-row-${s.idAgenda}">
+                    <td>${YS.esc(YS.dias.nombre(s.dia))}</td>
+                    <td>${fmtHora(s.horaInicio)}</td>
+                    <td>${fmtHora(s.horaFin)}</td>
+                    <td>${vigenciaHtml(s)}</td>
+                    <td>${s.intervaloMinutos ?? 30} min</td>
+                    <td>${calcularTurnos(s)}</td>
+                    <td>${s.esAdmision ? '<span class="ui-chip ui-chip--info">Admisión</span>' : '<span class="ui-chip ui-chip--neutral">Turnos</span>'}</td>
+                    <td><span class="badge-disponible ${s.disponible ? 'si' : 'no'}">${s.disponible ? 'Sí' : 'No'}</span></td>
+                    <td class="celda-acciones">
+                        <button class="btn-ver" onclick="editarHorarioPorId(${s.idAgenda})">Editar</button>
+                        <button class="btn-peligro" onclick="eliminarHorario(${s.idAgenda})">Eliminar</button>
+                    </td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+    </div>`;
+}
+
+// El formulario de la franja: ocupa el lugar del calendario mientras se edita o se agrega (mostrarFormHorario).
+function htmlFormHorario() {
+    return `
+        <div id="form-horario" class="form-horario oculto">
+            <div class="form-horario-titulo" id="form-horario-titulo">Agregar horario</div>
+            <input type="hidden" id="fh-id">
+            <div class="form-fila">
+                <div class="ui-campo">
+                    <label for="fh-dia">Día</label>
+                    <select id="fh-dia" class="ui-select">
+                        <option>Lunes</option><option>Martes</option><option>Miércoles</option>
+                        <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
+                    </select>
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-disponible">Disponible</label>
+                    <select id="fh-disponible" class="ui-select">
+                        <option value="true">Sí</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-inicio">Hora inicio</label>
+                    <input type="time" id="fh-inicio" class="ui-input">
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-fin">Hora fin</label>
+                    <input type="time" id="fh-fin" class="ui-input">
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-fecha-inicio">Fecha de inicio</label>
+                    <input type="date" id="fh-fecha-inicio" class="ui-input" aria-describedby="fh-vigencia-ayuda">
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-fecha-fin">Fecha de fin</label>
+                    <input type="date" id="fh-fecha-fin" class="ui-input" aria-describedby="fh-vigencia-ayuda">
+                </div>
+                <!-- Solo con el privilegio Admisión: una franja de admisión no se ofrece a los pacientes; ahí se programan
+                     solas, una detrás de otra, las primeras entrevistas que agendás. -->
+                <div class="ui-campo${YS.sesion.tienePrivilegio('admision') ? '' : ' oculto'}">
+                    <label for="fh-uso">Uso</label>
+                    <select id="fh-uso" class="ui-select">
+                        <option value="turnos">Turnos de pacientes</option>
+                        <option value="admision">Entrevistas de admisión</option>
+                    </select>
+                </div>
+                <div class="ui-campo">
+                    <label for="fh-intervalo">Intervalo de atención</label>
+                    <select id="fh-intervalo" class="ui-select">
+                        <option value="15">15 minutos</option>
+                        <option value="20">20 minutos</option>
+                        <option value="30" selected>30 minutos</option>
+                        <option value="45">45 minutos</option>
+                        <option value="60">60 minutos</option>
+                        <option value="90">90 minutos</option>
+                    </select>
+                </div>
+            </div>
+            <p id="fh-vigencia-ayuda" class="texto-suave texto-chico mt-8 mb-0">Fechas de inicio y fin: desde y hasta qué día vale este horario. Si las dejás vacías, vale siempre.</p>
+            <div id="fh-preview" class="form-preview" aria-live="polite"></div>
+            <div class="form-acciones">
+                <button class="ui-btn ui-btn--primary" id="fh-guardar" onclick="guardarHorario()">Guardar</button>
+                <button class="ui-btn oculto" id="fh-duplicar" onclick="duplicarHorario()">Duplicar a otro día</button>
+                <button class="ui-btn ui-btn--danger oculto" id="fh-eliminar" onclick="eliminarHorario(document.getElementById('fh-id').value)">Eliminar</button>
+                <button class="ui-btn" onclick="cerrarFormHorario()">Cancelar</button>
+            </div>
+        </div>`;
+}
+
+function editarHorarioPorId(id) {
+    const s = (_agendaSlotsProf || []).find(x => x.idAgenda === id);
+    if (s) editarHorario(s.idAgenda, s.dia, fmtHora(s.horaInicio), fmtHora(s.horaFin), s.disponible, s.intervaloMinutos ?? 30, !!s.esAdmision);
+}
+
+// La franja que se está editando pasa a ser una nueva, con los mismos datos: solo falta elegir el día.
+function duplicarHorario() {
     document.getElementById('fh-id').value = '';
-    document.getElementById('fh-dia').value = 'Lunes';
+    document.getElementById('form-horario-titulo').textContent = 'Agregar horario (copia)';
+    document.getElementById('fh-duplicar').classList.add('oculto');
+    document.getElementById('fh-eliminar').classList.add('oculto');
+    document.querySelectorAll('.horario-franja--elegida').forEach(b => b.classList.remove('horario-franja--elegida'));
+    document.getElementById('fh-dia').focus();
+    toast('Elegí el día de la copia y guardá.', 'info');
+}
+
+// dia: el del + de "Tu semana" ('Miércoles'); sin él, lunes.
+function abrirFormNuevoHorario(dia = 'Lunes') {
+    document.getElementById('fh-id').value = '';
+    document.getElementById('fh-dia').value = dia;
     document.getElementById('fh-inicio').value = '';
     document.getElementById('fh-fin').value = '';
+    document.getElementById('fh-fecha-inicio').value = YS.fecha.aISO(new Date());
+    document.getElementById('fh-fecha-fin').value = '';
     document.getElementById('fh-intervalo').value = '30';
     document.getElementById('fh-disponible').value = 'true';
+    document.getElementById('fh-uso').value = 'turnos';
     document.getElementById('form-horario-titulo').textContent = 'Agregar horario';
     document.getElementById('fh-preview').textContent = '';
     mostrarFormHorario();
+    document.getElementById('fh-inicio').focus();
 }
 
-function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30) {
+function editarHorario(id, dia, inicio, fin, disponible, intervalo = 30, esAdmision = false) {
     document.getElementById('fh-id').value = id;
     // Las opciones del select son 'Lunes'…'Domingo'; si la base guardó 'miercoles', sin
     // esto el select quedaba en la primera opción y al guardar el horario pasaba a lunes.
     document.getElementById('fh-dia').value = YS.dias.nombre(dia);
     document.getElementById('fh-inicio').value = inicio;
     document.getElementById('fh-fin').value = fin;
+    const slot = (_agendaSlotsProf || []).find(x => x.idAgenda === id);
+    document.getElementById('fh-fecha-inicio').value = fechaISO(slot?.fechaInicio);
+    document.getElementById('fh-fecha-fin').value = fechaISO(slot?.fechaFin);
     document.getElementById('fh-disponible').value = disponible ? 'true' : 'false';
     document.getElementById('fh-intervalo').value = intervalo;
+    document.getElementById('fh-uso').value = esAdmision ? 'admision' : 'turnos';
     document.getElementById('form-horario-titulo').textContent = 'Editar horario';
     mostrarFormHorario();
     actualizarPreviewNuevo();
 }
 
+// El formulario ocupa el lugar del calendario; Guardar o Cancelar lo devuelven.
 function mostrarFormHorario() {
     const form = document.getElementById('form-horario');
     YS.form.limpiarTodo(form);
     form.classList.remove('oculto');
-    form.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('horario-panel')?.classList.remove('oculto');
+    document.getElementById('horarios-calendario')?.classList.add('oculto');
+    // Duplicar y Eliminar son de una franja que ya existe.
+    const id = document.getElementById('fh-id').value;
+    document.getElementById('fh-duplicar').classList.toggle('oculto', !id);
+    document.getElementById('fh-eliminar').classList.toggle('oculto', !id);
+    document.querySelectorAll('.horario-franja').forEach(b => b.classList.toggle('horario-franja--elegida', !!id && b.dataset.id === id));
+    document.getElementById('horario-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     document.getElementById('fh-dia').focus();
 }
 
 function cerrarFormHorario() {
     document.getElementById('form-horario').classList.add('oculto');
+    document.getElementById('horario-panel')?.classList.add('oculto');
+    document.getElementById('horarios-calendario')?.classList.remove('oculto');
+    document.querySelectorAll('.horario-franja--elegida').forEach(b => b.classList.remove('horario-franja--elegida'));
 }
 
 async function guardarHorario() {
@@ -587,10 +847,13 @@ async function guardarHorario() {
     const fin      = document.getElementById('fh-fin').value;
     const disp     = document.getElementById('fh-disponible').value === 'true';
     const intervalo = parseInt(document.getElementById('fh-intervalo')?.value ?? 30);
+    const desde    = document.getElementById('fh-fecha-inicio').value;
+    const hasta    = document.getElementById('fh-fecha-fin').value;
 
     const valido = YS.form.validar([
         { id: 'fh-inicio', requerido: 'Elegí la hora de inicio.' },
-        { id: 'fh-fin', requerido: 'Elegí la hora de fin.', validar: v => inicio && v && v <= inicio ? 'Tiene que ser después de la hora de inicio.' : null }
+        { id: 'fh-fin', requerido: 'Elegí la hora de fin.', validar: v => inicio && v && v <= inicio ? 'Tiene que ser después de la hora de inicio.' : null },
+        { id: 'fh-fecha-fin', validar: v => desde && v && v < desde ? 'No puede ser anterior a la fecha de inicio.' : null }
     ]);
     if (!valido) return;
 
@@ -601,7 +864,10 @@ async function guardarHorario() {
         horaInicio: inicio + ':00',
         horaFin: fin + ':00',
         disponible: disp,
-        intervaloMinutos: intervalo
+        intervaloMinutos: intervalo,
+        esAdmision: document.getElementById('fh-uso').value === 'admision',
+        fechaInicio: desde || null,
+        fechaFin: hasta || null
     };
 
     const url    = id ? `${API}/agendas/${id}` : `${API}/agendas`;
@@ -625,6 +891,19 @@ async function eliminarHorario(id) {
         if (r.ok) { toast('Horario eliminado', 'warn'); activarTab('horarios'); }
         else toast(await YS.leerMensaje(r, 'No se pudo eliminar el horario.'), 'error');
     } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+// Vigencia de una franja (migración 27): "Siempre", "Desde 01/11/2026", "Hasta 31/12/2026" o las dos; vencida si ya terminó.
+const fechaISO = v => v ? String(v).substring(0, 10) : '';
+function vigenciaHtml(s) {
+    const dmy = v => { const [a, m, d] = fechaISO(v).split('-'); return `${d}/${m}/${a}`; };
+    const desde = fechaISO(s.fechaInicio), hasta = fechaISO(s.fechaFin);
+    if (!desde && !hasta) return '<span class="ui-muted">Siempre</span>';
+    const texto = desde && hasta ? `${dmy(desde)} al ${dmy(hasta)}` : desde ? `Desde ${dmy(desde)}` : `Hasta ${dmy(hasta)}`;
+    const hoy = YS.fecha.aISO(new Date());
+    const chip = hasta && hasta < hoy ? ' <span class="ui-chip ui-chip--neutral">Vencido</span>'
+               : desde && desde > hoy ? ' <span class="ui-chip ui-chip--info">Todavía no empieza</span>' : '';
+    return `<span class="ui-num">${YS.esc(texto)}</span>${chip}`;
 }
 
 function fmtHora(h) {
@@ -1715,47 +1994,87 @@ async function verEvolucionAdmision(idPaciente) {
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function confirmarNuevoPaciente(idPaciente) {
+// El primer turno no se elige: la API toma el primer horario libre de tu agenda (así no quedan huecos entre turnos).
+// Se muestra con el calendario del mes de Mis horarios de trabajo ("Así te ven los pacientes"), con ese día ya elegido.
+const DIAS_PRIMER_TURNO = 60;   // TurnoReglasService.DiasPrimerTurno: los días que trae "libres"
+const fechaHoraPropuesta = d => YS.fecha.separador(d) + ' a las ' + YS.fecha.hora(d) + ' hs';
+
+async function confirmarNuevoPaciente(idPaciente) {
     const panel = document.getElementById('panelNuevoPaciente');
     const nombre = nombreDeMiPaciente(idPaciente);
-    panel.innerHTML = `<div class="card card--acento-ok mt-16">
-        ${cabeceraPanelNuevo('Proponer el primer turno' + (nombre ? ' · ' + nombre : ''))}
-        <p class="texto-suave mb-12">Elegí una fecha estimativa. Al paciente le llega como turno pendiente y puede confirmarlo o reprogramarlo según tu agenda.</p>
-        <div class="form-fila form-fila--abajo">
-            <div class="ui-campo"><label for="npFecha">Fecha</label><input type="date" id="npFecha" class="ui-input" min="${YS.fecha.aISO(new Date())}"></div>
-            <div class="ui-campo"><label for="npHora">Hora</label><input type="time" id="npHora" class="ui-input"></div>
-            <button class="ui-btn ui-btn--primary" id="npEnviar" onclick="enviarPrimerTurno(${idPaciente})">Enviar propuesta</button>
-        </div>
-    </div>`;
+    const cabecera = cabeceraPanelNuevo('Proponer el primer turno' + (nombre ? ' · ' + nombre : ''));
+    panel.innerHTML = `<div class="card card--acento-ok mt-16">${cabecera}${YS.cargando()}</div>`;
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    document.getElementById('npFecha').focus();
+
+    let datos, franjas;
+    try {
+        [datos, franjas] = await Promise.all([
+            YS.api(`/asignaciones/${idPaciente}/primer-turno`),
+            YS.api(`/profesionales/${idProfesional}/agenda`).catch(() => [])
+        ]);
+    } catch (e) {
+        panel.innerHTML = `<div class="card mt-16">${cabecera}${YS.errorCarga({ texto: e.message, reintentar: `confirmarNuevoPaciente(${idPaciente})` })}</div>`;
+        return;
+    }
+    if (!document.getElementById('panelNuevoPaciente')) return;
+
+    if (!datos.propuesto) {
+        panel.innerHTML = `<div class="card card--acento-info mt-16">${cabecera}
+            ${YS.vacio({ icono: 'reloj', texto: 'No tenés horarios libres en tu agenda. Agregá horarios en Mis horarios de trabajo para poder proponer el primer turno.' })}
+            <div class="ui-flex mt-12"><button class="ui-btn ui-btn--primary" onclick="activarTab('horarios')">Ir a Mis horarios de trabajo</button></div>
+        </div>`;
+        return;
+    }
+
+    const propuesto = new Date(datos.propuesto);
+    const libresPorDia = new Map();
+    datos.libres.forEach(iso => {
+        const d = new Date(iso), k = YS.fecha.aISO(d);
+        if (!libresPorDia.has(k)) libresPorDia.set(k, new Set());
+        libresPorDia.get(k).add(YS.fecha.hora(d));
+    });
+    const validas = franjas.filter(s => s.horaInicio && s.horaFin && YS.dias.orden(s.dia) < 7);
+    // El mes y el día del turno propuesto quedan a la vista; se recorren los días en que se busca el primer turno.
+    _horCal = { anio: propuesto.getFullYear(), mes: propuesto.getMonth(), validas, libresPorDia, elegido: YS.fecha.aISO(propuesto),
+                propuesto, dias: DIAS_PRIMER_TURNO };
+
+    panel.innerHTML = `<div class="card card--acento-ok mt-16">${cabecera}
+        <p class="ui-alerta ui-alerta--info mb-12"><span>Se le propone el <strong>${YS.esc(fechaHoraPropuesta(propuesto))}</strong>: tu primer horario libre. Los primeros turnos se asignan solos, uno detrás de otro, para no dejar huecos en tu agenda.</span></p>
+        <section class="horarios-propuesta" id="horarios-calendario" aria-labelledby="horarios-cal-titulo">
+            <div class="horarios-cal-cabecera">
+                <div class="titulo-seccion titulo-seccion--tarjeta titulo-seccion--sin-margen" id="horarios-cal-titulo">Así te ven los pacientes</div>
+                <div class="horarios-cal-nav">
+                    <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" id="horarios-cal-anterior" onclick="moverMesHorarios(-1)" aria-label="Mes anterior">&#8249;</button>
+                    <span id="horarios-cal-mes" aria-live="polite"></span>
+                    <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost" id="horarios-cal-siguiente" onclick="moverMesHorarios(1)" aria-label="Mes siguiente">&#8250;</button>
+                </div>
+            </div>
+            <div class="horarios-cal" id="horarios-cal-grilla"></div>
+            <div class="horarios-leyenda">
+                <span><span class="horario-muestra horario-muestra--propuesta"></span>Turno propuesto</span>
+                <span><span class="horario-muestra horario-muestra--turnos"></span>Días con turnos</span>
+            </div>
+            <div id="horarios-cal-detalle" class="horarios-cal-detalle mb-12" aria-live="polite"></div>
+        </section>
+        <p class="texto-suave mb-12">Al paciente le llega como turno pendiente y puede confirmarlo o reprogramarlo según tu agenda.</p>
+        <button class="ui-btn ui-btn--primary" id="npEnviar" onclick="enviarPrimerTurno(${idPaciente})">Enviar propuesta</button>
+    </div>`;
+    dibujarCalendarioHorarios();
+    document.getElementById('npEnviar').focus();
 }
 
 async function enviarPrimerTurno(idPaciente) {
-    const fecha = document.getElementById('npFecha').value;
-    const hora  = document.getElementById('npHora').value;
-    const hoy = YS.fecha.aISO(new Date());
-    if (!fecha) YS.form.marcar('npFecha', 'Elegí la fecha.');
-    else if (fecha < hoy) YS.form.marcar('npFecha', 'Elegí una fecha de hoy en adelante.');
-    if (!hora) YS.form.marcar('npHora', 'Elegí la hora.');
-    if (!fecha || fecha < hoy || !hora) return;
-
     const boton = document.getElementById('npEnviar');
     boton.disabled = true;
     try {
-        const r = await YS.fetch("/turnos/profesional-solicitar", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, fecha: fecha, hora: hora + ":00", motivo: "Primer turno - derivacion de admision" })
-        });
-        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo crear el turno.'), 'error'); return; }
-        const rAsignacion = await YS.fetch("/asignaciones/estado", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ idPaciente: idPaciente, idProfesional: idProfesional, estado: "Confirmada" })
-        });
-        if (rAsignacion.ok) toast('Propuesta enviada. El paciente puede confirmar o reprogramar el turno.');
-        else toast('La propuesta se envió, pero la asignación sigue figurando como nueva.', 'warn');
+        const r = await YS.fetch(`/asignaciones/${idPaciente}/primer-turno`, { method: 'POST' });
+        if (!r.ok) {
+            toast(await YS.leerMensaje(r, 'No se pudo crear el turno.'), 'error');
+            if (r.status === 409) confirmarNuevoPaciente(idPaciente);   // el horario pudo ocuparse: se recalcula la grilla
+            return;
+        }
+        const d = await r.json();
+        toast(`Propuesta enviada para el ${fechaHoraPropuesta(new Date(d.fecha))}. El paciente puede confirmar o reprogramar el turno.`);
         pacientes();
     } catch {
         toast('No se pudo conectar con el servidor.', 'error');

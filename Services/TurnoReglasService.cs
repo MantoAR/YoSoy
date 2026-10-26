@@ -81,16 +81,28 @@ public class TurnoReglasService
     public List<DateTime> HorariosLibresDelProfesional(int idProfesional, int dias, int maximo) =>
         CalcularHorariosLibres(idProfesional, dias, maximo, _ => true);
 
+    /// <summary>Días hacia adelante en los que se busca el primer turno de una asignación nueva.</summary>
+    public const int DiasPrimerTurno = 60;
+
+    /// <summary>
+    /// Primer turno de una asignación nueva (Mis pacientes › Confirmar): el primer horario libre de la agenda del
+    /// profesional para ese paciente, sin elegir. Como siempre se toma el más temprano, los primeros turnos quedan uno
+    /// detrás de otro y no quedan huecos libres entre ellos. null si no hay ninguno en <see cref="DiasPrimerTurno"/> días.
+    /// </summary>
+    public DateTime? PrimerHorarioLibre(int idPaciente, int idProfesional) =>
+        HorariosLibres(idPaciente, idProfesional, DiasPrimerTurno, 1) is [var primero, ..] ? primero : null;
+
     private List<DateTime> CalcularHorariosLibres(int idProfesional, int dias, int maximo, Func<DateTime, bool> pasaRN07)
     {
         var ahora   = Ahora;
-        var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible).ToList();
+        // Las franjas de admisión (migración 26) no se ofrecen a los pacientes: ahí van las entrevistas.
+        var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible && !a.EsAdmision).ToList();
         var result  = new List<DateTime>();
 
         for (var d = 0; d < dias && result.Count < maximo; d++)
         {
             var fecha  = ahora.Date.AddDays(d);
-            var franjas = agenda.Where(a => DiaDeLaSemana(a.Dia) == fecha.DayOfWeek).ToList();
+            var franjas = agenda.Where(a => DiaDeLaSemana(a.Dia) == fecha.DayOfWeek && VigenteEl(a, fecha)).ToList();
             if (franjas.Count == 0) continue;
             if (!pasaRN07(fecha)) continue;
 
@@ -106,6 +118,42 @@ public class TurnoReglasService
         return result;
     }
 
+    /// <summary>
+    /// ¿Tiene ese profesional horarios de atención (franjas disponibles de turnos, no de admisión)? Sin ellos no se le
+    /// puede derivar un paciente: no tendría dónde darle el primer turno.
+    /// </summary>
+    public bool TieneAgendaDeTurnos(int idProfesional) =>
+        _repo.AgendaDe(idProfesional).Any(a => a.Disponible && !a.EsAdmision && a.HoraInicio.HasValue && a.HoraFin.HasValue && DiaDeLaSemana(a.Dia) is not null && NoVencida(a));
+
+    /// <summary>¿Tiene ese profesional alguna franja disponible marcada para entrevistas de admisión?</summary>
+    public bool TieneAgendaDeAdmision(int idProfesional) =>
+        _repo.AgendaDe(idProfesional).Any(a => a.Disponible && a.EsAdmision && a.HoraInicio.HasValue && a.HoraFin.HasValue && DiaDeLaSemana(a.Dia) is not null && NoVencida(a));
+
+    /// <summary>
+    /// El primer horario libre de las franjas de admisión del profesional, posterior a ahora y no después de
+    /// <paramref name="limite"/> (el plazo de 24 horas: PlazoEntrevistaAdmision). Libre = sin un turno activo ni otra
+    /// entrevista de admisión de ese profesional a esa hora; así las entrevistas quedan una detrás de otra. null si no hay.
+    /// </summary>
+    public DateTime? PrimerHorarioDeAdmision(int idProfesional, DateTime limite)
+    {
+        var ahora = Ahora;
+        var agenda = _repo.AgendaDe(idProfesional).Where(a => a.Disponible && a.EsAdmision).ToList();
+        for (var fecha = ahora.Date; fecha <= limite.Date; fecha = fecha.AddDays(1))
+        {
+            var franjas = agenda.Where(a => DiaDeLaSemana(a.Dia) == fecha.DayOfWeek && VigenteEl(a, fecha)).ToList();
+            if (franjas.Count == 0) continue;
+            var ocupadas = _repo.HorasOcupadas(idProfesional, fecha).Concat(_repo.EntrevistasDeAdmision(idProfesional, fecha)).ToHashSet();
+            foreach (var slot in Slots(franjas).Distinct().OrderBy(s => s))
+            {
+                var momento = fecha + slot;
+                if (momento <= ahora || ocupadas.Contains(slot)) continue;
+                if (momento > limite) return null;
+                return momento;
+            }
+        }
+        return null;
+    }
+
     public ResultadoRegla ValidarSolicitud(int idPaciente, int idProfesional, DateTime momento)
     {
         var ahora = Ahora;
@@ -114,7 +162,7 @@ public class TurnoReglasService
         if (momento <= ahora)
             return ResultadoRegla.Falla("RN-01", "Ese horario ya pasó.");
         var franjas = _repo.AgendaDe(idProfesional)
-            .Where(a => a.Disponible && DiaDeLaSemana(a.Dia) == momento.DayOfWeek).ToList();
+            .Where(a => a.Disponible && !a.EsAdmision && DiaDeLaSemana(a.Dia) == momento.DayOfWeek && VigenteEl(a, momento)).ToList();
         if (!Slots(franjas).Contains(momento.TimeOfDay))
             return ResultadoRegla.Falla("RN-01", "Ese horario no está dentro de la agenda del profesional.");
 
@@ -239,6 +287,13 @@ public class TurnoReglasService
         _repo.CambiarEstado(idTurno, idCancelado);
         return ResultadoRegla.Valido;
     }
+
+    // Vigencia de la franja (migración 27): FechaInicio y FechaFin inclusive; null = sin límite de ese lado.
+    public static bool VigenteEl(Agenda a, DateTime fecha) =>
+        (a.FechaInicio is null || fecha.Date >= a.FechaInicio.Value.Date) && (a.FechaFin is null || fecha.Date <= a.FechaFin.Value.Date);
+
+    // Una franja que ya terminó no cuenta como agenda (para derivar o programar entrevistas).
+    private bool NoVencida(Agenda a) => a.FechaFin is null || a.FechaFin.Value.Date >= Ahora.Date;
 
     // Slots de todas las franjas: desde HoraInicio, cada IntervaloMinutos, mientras
     // el turno completo entre antes de HoraFin (misma cuenta que cargarHorasSolicitud en la web).

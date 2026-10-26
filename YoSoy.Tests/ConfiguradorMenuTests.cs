@@ -120,20 +120,21 @@ public class ConfiguradorMenuTests
         Assert.Equal(new[] { "inicio", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes" }, Resumen(m["profesional"]));
         Assert.Equal(Resumen(m["profesional"]), Resumen(m["profesional+chats"]));   // ni los chats (D2)
 
+        // El paciente, en el orden de la guía de primeros pasos de Inicio.
         var p = Menus(new[] { "paciente" });
-        Assert.Equal(new[] { "inicio", "Turnos[agenda,profesionales]", "sesion", "admision", "consentimiento" }, Resumen(p["paciente"]));
+        Assert.Equal(new[] { "inicio", "admision", "consentimiento", "Turnos[agenda,profesionales]", "sesion" }, Resumen(p["paciente"]));
         Assert.Equal(Resumen(p["paciente"]), Resumen(p["paciente+chats"]));
     }
 
     [FactConNodeDelServicioDeWhatsApp]
-    public void El_menu_del_Profesional_con_Admision_y_auditor_es_el_de_siempre()
+    public void El_menu_del_Profesional_con_Admision_lleva_Admision_despues_de_Inicio()
     {
         var m = Menus(new[] { "profesional", "auditor" }, new[] { "admision" }, new[] { "profesional" })["profesional"];
 
         Assert.Equal(new[]
         {
-            "inicio", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes",
-            "Admisión[admisiones,derivaciones,asignaciones]", "Auditoría[reportesgenerales,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
+            "inicio", "Admisión[admisiones,derivaciones,asignaciones]", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes",
+            "Auditoría[reportesgenerales,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
         }, Resumen(m));
     }
 
