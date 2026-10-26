@@ -1424,6 +1424,27 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 25)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (25, N'add_conversacion_ia.sql', 'Script');
 GO
 
+-- ── Migración 26: cierre de sesión (migrations/add_cierre_sesion.sql). Opcional ──
+IF COL_LENGTH('dbo.SesionClinica', 'ClaveCierre') IS NULL
+    ALTER TABLE dbo.SesionClinica ADD ClaveCierre UNIQUEIDENTIFIER NULL;
+IF COL_LENGTH('dbo.SesionClinica', 'TurnoRealizadoUtc') IS NULL
+    ALTER TABLE dbo.SesionClinica ADD TurnoRealizadoUtc DATETIME2(3) NULL;
+IF COL_LENGTH('dbo.SesionClinica', 'IdEvolucion') IS NULL
+    ALTER TABLE dbo.SesionClinica ADD IdEvolucion INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_SesionClinica_Evolucion')
+    ALTER TABLE dbo.SesionClinica ADD CONSTRAINT FK_SesionClinica_Evolucion FOREIGN KEY (IdEvolucion) REFERENCES dbo.Evolucion(IdEvolucion);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SesionClinica_Clave' AND object_id = OBJECT_ID('dbo.SesionClinica'))
+    CREATE UNIQUE INDEX UX_SesionClinica_Clave ON dbo.SesionClinica (IdProfesional, ClaveCierre) WHERE ClaveCierre IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_SesionClinica_Evolucion' AND object_id = OBJECT_ID('dbo.SesionClinica'))
+    CREATE UNIQUE INDEX UX_SesionClinica_Evolucion ON dbo.SesionClinica (IdEvolucion) WHERE IdEvolucion IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_SesionClinica_Turno' AND object_id = OBJECT_ID('dbo.SesionClinica'))
+    CREATE INDEX IX_SesionClinica_Turno ON dbo.SesionClinica (IdTurno) WHERE IdTurno IS NOT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 26)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (26, N'add_cierre_sesion.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de
