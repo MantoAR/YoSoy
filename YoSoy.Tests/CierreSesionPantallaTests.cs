@@ -198,4 +198,30 @@ public class CierreSesionPantallaTests
         Assert.DoesNotContain("YS.borrador", sesionJs);
         Assert.Contains("indexedDB", borrador);
     }
+
+    // ───────────── Vínculo con una evolución ─────────────
+
+    [Fact]
+    public void El_vinculo_con_una_evolucion_es_manual_solo_despues_de_guardar_y_el_cierre_no_crea_evoluciones()
+    {
+        var sala = Sala;
+        var guardar = Funcion(sala, "async function guardarEnHC() {");
+        var buscar = Funcion(sala, "async function buscarEvolucionesVinculables() {");
+        var vincular = Funcion(sala, "async function vincularEvolucion(idEvolucion, boton) {");
+
+        // La sala nunca escribe una evolución: ni en el cierre ni en el vínculo.
+        Assert.DoesNotContain("/evoluciones'", sala);
+        Assert.DoesNotContain("'/evoluciones", sala);
+        Assert.DoesNotContain("/historiasclinicas", sala);
+        // El bloque del vínculo nace oculto y aparece recién cuando el cierre quedó guardado.
+        Assert.Matches(@"id=""cierre-vinculo"" class=""cierre-vinculo oculto""", sala);
+        Assert.Contains("document.getElementById('cierre-vinculo').classList.remove('oculto');", guardar);
+        // Listar no vincula: el PUT sale solo del botón «Vincular» de una fila.
+        Assert.DoesNotContain("method: 'PUT'", buscar);
+        Assert.Contains("evoluciones-vinculables", buscar);
+        Assert.Contains("method: 'PUT', json: { idEvolucion }", vincular);
+        Assert.Contains("boton.onclick = () => vincularEvolucion(e.idEvolucion, boton);", buscar);
+        // Lo que viene del servidor se muestra como texto.
+        Assert.DoesNotContain("innerHTML", buscar);
+    }
 }

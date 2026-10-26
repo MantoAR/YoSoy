@@ -125,6 +125,9 @@
         .cierre-mensaje { font-size: var(--fs-sm); color: var(--danger); }
         .cierre-resultado { border: 1px solid var(--ok-border, var(--border)); background: var(--ok-bg, var(--surface-2)); border-radius: var(--r-md); padding: 10px 12px; }
         .cierre-resultado ul { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-md); color: var(--text-2); }
+        .cierre-vinculo { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+        .cierre-vinculo p { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--text-3); }
+        .vinculo-fila { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: var(--fs-sm); color: var(--text-2); }
         .borrador-estado { font-size: var(--fs-xs); color: var(--text-3); margin: 2px 0 0; }
         .borrador-estado.alerta { color: var(--danger); }
         .borrador-recuperar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -308,6 +311,14 @@
             </div>
 
             <div id="cierre-resultado" class="cierre-resultado oculto" role="status" aria-live="polite"></div>
+
+            <!-- Vínculo MANUAL con una evolución de la historia clínica: el cierre no crea ninguna evolución. Solo del mismo paciente, el mismo profesional y el mismo día. -->
+            <div id="cierre-vinculo" class="cierre-vinculo oculto">
+                <p>¿Ya escribiste la evolución de hoy en la historia clínica? Podés vincularla con esta sesión: se enlazan, no se mezclan ni se modifica la evolución. Solo aparecen evoluciones tuyas, de este paciente y de hoy.</p>
+                <button type="button" class="btn-gris" id="btn-vincular" onclick="buscarEvolucionesVinculables()">🔗 Vincular con una evolución de hoy</button>
+                <div id="vinculo-lista"></div>
+                <div id="vinculo-mensaje" class="cierre-ayuda" role="status" aria-live="polite"></div>
+            </div>
         </section>
     </div>
 
@@ -961,6 +972,52 @@ function anotarEvolucion() {
     nota.focus({ preventScroll: true });
 }
 
+// ─── VÍNCULO CON UNA EVOLUCIÓN ─────────────────────────────
+// Sesión y evolución se ENLAZAN, no se unifican, y el cierre no crea ninguna evolución. El profesional puede vincular a mano la evolución que
+// escribió en la historia clínica; el servidor solo lo acepta si es del mismo paciente, del mismo profesional y del mismo día, y no modifica la evolución.
+let idSesionGuardada = null;
+
+async function buscarEvolucionesVinculables() {
+    const msg = document.getElementById('vinculo-mensaje');
+    const lista = document.getElementById('vinculo-lista');
+    lista.replaceChildren();
+    msg.textContent = 'Buscando…';
+    let r;
+    try { r = await YS.api(`/sesiones-clinicas/${idSesionGuardada}/evoluciones-vinculables`, { sinRedireccion: true }); }
+    catch (err) { msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message; return; }
+    if (r.idEvolucion) { msg.textContent = `Esta sesión ya está vinculada con la evolución #${r.idEvolucion}.`; return; }
+    if (!r.evoluciones.length) {
+        msg.textContent = 'No encontramos una evolución tuya de hoy para este paciente que se pueda vincular. Cuando la escribas en la historia clínica, la vinculación queda para más adelante.';
+        return;
+    }
+    msg.textContent = 'Elegí la evolución que corresponde a esta sesión:';
+    r.evoluciones.forEach(e => {
+        const fila = document.createElement('div');
+        fila.className = 'vinculo-fila';
+        const texto = document.createElement('span');
+        texto.textContent = `Evolución #${e.idEvolucion}${e.resumen ? ' · ' + e.resumen : ''}`;
+        const boton = document.createElement('button');
+        boton.type = 'button'; boton.className = 'btn-gris'; boton.textContent = 'Vincular';
+        boton.onclick = () => vincularEvolucion(e.idEvolucion, boton);
+        fila.append(texto, boton);
+        lista.appendChild(fila);
+    });
+}
+
+async function vincularEvolucion(idEvolucion, boton) {
+    const msg = document.getElementById('vinculo-mensaje');
+    boton.disabled = true;
+    try {
+        await YS.api(`/sesiones-clinicas/${idSesionGuardada}/evolucion`, { method: 'PUT', json: { idEvolucion }, sinRedireccion: true });
+        document.getElementById('vinculo-lista').replaceChildren();
+        document.getElementById('btn-vincular').disabled = true;
+        msg.textContent = `✅ La sesión quedó vinculada con la evolución #${idEvolucion}.`;
+    } catch (err) {
+        boton.disabled = false;
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message;
+    }
+}
+
 // ─── BORRADOR LOCAL DE LA NOTA ────────────────────────────
 // Lo que se escribe se guarda en ESTE equipo, cifrado (shared/borrador.js), para que una recarga o un cierre de pestaña no lo pierdan.
 // Es un BORRADOR: no es una evolución ni una firma, no se manda al servidor durante la llamada y se descarta al guardar el cierre.
@@ -1284,6 +1341,8 @@ async function guardarEnHC() {
         guardadoEnHC = true;
         soltarAvisoSiNoHaceFalta();
         cierreGuardado = true;
+        idSesionGuardada = r.idSesion;
+        document.getElementById('cierre-vinculo').classList.remove('oculto');
         descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');
         mostrarResultadoDelCierre(r, motivo, emociones);
         // HOOK: lo que sigue después del cierre (seguimiento, alta o derivación). La feature de alta / derivación se engancha a este evento.
