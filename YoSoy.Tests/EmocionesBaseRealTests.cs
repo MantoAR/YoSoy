@@ -492,12 +492,15 @@ public class EmocionesBaseRealTests
         using var app = App();
         await Aceptar(app, d);
 
-        var (r, j) = await Guardar(app, d, transcripcion: "transcripción [TEST-PR6]");
+        var (r, j) = await Guardar(app, d);
 
         Assert.Equal(HttpStatusCode.Created, r.StatusCode);
         var idSesion = j.GetProperty("idSesion").GetInt32();
         Assert.Equal("guardadas", j.GetProperty("emociones").GetProperty("estado").GetString());
         Assert.Equal(JsonValueKind.Null, j.GetProperty("emociones").GetProperty("motivo").ValueKind);
+
+        // La transcripción la escribe el worker de la fase 3 directo en la base, nunca el pedido de guardado.
+        DatosEmociones.Ejecutar("UPDATE SesionClinica SET Transcripcion = @T WHERE IdSesion = @I", ("@T", "transcripción [TEST-PR6]"), ("@I", idSesion));
 
         // En la base: cifrado, atado a la fila y al consentimiento; las notas, en claro como siempre.
         var fila = d.Sesion(idSesion);
@@ -527,7 +530,7 @@ public class EmocionesBaseRealTests
         Assert.Equal(4, sesion.GetProperty("emociones").GetProperty("muestras").GetInt32());
         Assert.Equal("nota [TEST-PR6]", sesion.GetProperty("notasEvolucion").GetString());
         Assert.Equal("transcripción [TEST-PR6]", sesion.GetProperty("transcripcion").GetString());
-        Assert.Equal(new[] { "emociones", "fechaHora", "historialEmociones", "idEvolucion", "idPaciente", "idProfesional", "idSesion", "idTurno", "notasEvolucion", "tipoCierre", "transcripcion" },
+        Assert.Equal(new[] { "emociones", "estadoTranscripcion", "fechaHora", "historialEmociones", "idEvolucion", "idPaciente", "idProfesional", "idSesion", "idTurno", "notasEvolucion", "tipoCierre", "transcripcion" },
             sesion.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
 
         var (_, porProfesional) = await Get(profesional, $"/profesionales/{d.IdProfesional}/sesiones-clinicas");
@@ -552,6 +555,37 @@ public class EmocionesBaseRealTests
 
         var cuerpoCfg2 = await (await auditor.GetAsync($"/profesionales/{d.IdProfesional}/sesiones-clinicas")).Content.ReadAsStringAsync();
         foreach (var rastro in new[] { "ys1.", "Neutral", "Felicidad", "Tristeza", "promedios" }) Assert.DoesNotContain(rastro, cuerpoCfg2);
+    }
+
+    [FactConBaseDeConsentimiento]
+    public async Task El_guardado_directo_ignora_la_transcripcion_que_manda_el_pedido()
+    {
+        using var d = new DatosEmociones(salida: _salida);
+        using var app = App();
+        await Aceptar(app, d);
+
+        var (r, j) = await Guardar(app, d, transcripcion: "intento [TEST-PR6]");
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        Assert.Null(d.Sesion(j.GetProperty("idSesion").GetInt32()).Transcripcion);
+    }
+
+    [FactConBaseDeConsentimiento]
+    public async Task El_cierre_de_sesion_ignora_la_transcripcion_que_manda_el_pedido()
+    {
+        using var d = new DatosEmociones(salida: _salida);
+        using var app = App();
+        var profesional = app.Cliente(d.IdUsuarioProfesional, Roles.Profesional, idProfesional: d.IdProfesional);
+
+        var r = await profesional.PostAsJsonAsync("/sesiones-clinicas", new
+        {
+            idPaciente = d.IdPaciente, idTurno = d.IdTurno, notasEvolucion = "nota [TEST-PR6]",
+            transcripcion = "intento [TEST-PR6]", claveCierre = Guid.NewGuid().ToString(), confirmaRealizacion = false
+        });
+        var j = await VideoApp.Json(r);
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        Assert.Null(d.Sesion(j.GetProperty("idSesion").GetInt32()).Transcripcion);
     }
 
     [FactConBaseDeConsentimiento]
@@ -602,9 +636,12 @@ public class EmocionesBaseRealTests
         using var d = new DatosEmociones(salida: _salida);
         using var app = App();
         await Aceptar(app, d);
-        var (_, guardada) = await Guardar(app, d, notas: "nota clínica [TEST-PR6]", transcripcion: "transcripción [TEST-PR6]");
+        var (_, guardada) = await Guardar(app, d, notas: "nota clínica [TEST-PR6]");
         var idSesion = guardada.GetProperty("idSesion").GetInt32();
         Assert.NotNull(d.Sesion(idSesion).Emociones);
+
+        // La transcripción la escribe el worker de la fase 3 directo en la base, nunca el pedido de guardado.
+        DatosEmociones.Ejecutar("UPDATE SesionClinica SET Transcripcion = @T WHERE IdSesion = @I", ("@T", "transcripción [TEST-PR6]"), ("@I", idSesion));
 
         var paciente = app.Cliente(d.IdUsuarioPaciente, Roles.Paciente, idPaciente: d.IdPaciente);
         var r = await paciente.PostAsJsonAsync("/video/consentimiento/revocar", new { origen = "turno", id = d.IdTurno });

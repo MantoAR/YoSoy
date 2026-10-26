@@ -145,7 +145,7 @@ public class UsuariosAdminUnidadTests
         var esquema = Leer("docs", "produccion", "01-produccion.sql");
         Assert.Contains("DebeCambiarPassword", esquema);
         Assert.Contains("(24, N'add_debe_cambiar_password.sql', 'Script')", esquema);
-        Assert.Equal(28, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión) y la 27 (alta y derivación asistidas) son opcionales; la 24 sigue siendo la última que el código EXIGE desde el ingreso
+        Assert.Equal(29, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión) y la 27 (alta y derivación asistidas) son opcionales; la 24 sigue siendo la última que el código EXIGE desde el ingreso
         var m = VerificadorEsquema.Migraciones.Single(x => x.Numero == 24);
         Assert.Equal("add_debe_cambiar_password.sql", m.Archivo);
         Assert.Contains("DebeCambiarPassword", m.Marcador);
