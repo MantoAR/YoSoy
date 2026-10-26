@@ -125,6 +125,15 @@
         .cierre-mensaje { font-size: var(--fs-sm); color: var(--danger); }
         .cierre-resultado { border: 1px solid var(--ok-border, var(--border)); background: var(--ok-bg, var(--surface-2)); border-radius: var(--r-md); padding: 10px 12px; }
         .cierre-resultado ul { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-md); color: var(--text-2); }
+        .proximo-turno { display: flex; flex-direction: column; gap: 10px; }
+        .proximo-dias { display: flex; flex-wrap: wrap; gap: 12px; }
+        .proximo-dia { min-width: 150px; }
+        .proximo-dia-titulo { font-size: var(--fs-sm); font-weight: 600; color: var(--text-label); margin-bottom: 4px; text-transform: capitalize; }
+        .proximo-horas { display: flex; flex-wrap: wrap; gap: 6px; }
+        .proximo-hora { padding: 4px 10px; border: 1px solid var(--accent-border); border-radius: var(--r-md); background: var(--surface); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); color: var(--accent-strong); }
+        .proximo-hora[aria-checked="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .proximo-motivo { max-width: 420px; }
+        .btn-gris.sugerido { border-color: var(--accent); color: var(--accent-strong); box-shadow: 0 0 0 3px var(--accent-ring); }
         .evolucion-box textarea.resaltada { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
         @media (max-width: 900px) { .main-grid, .bottom-grid { grid-template-columns: 1fr; } }
@@ -266,7 +275,23 @@
 
             <div class="cierre-acciones">
                 <button type="button" class="btn-gris" id="btn-cierre-evolucion" onclick="anotarEvolucion()">📝 Anotar evolución</button>
+                <button type="button" class="btn-gris" id="btn-cierre-proximo" aria-pressed="false" aria-controls="cierre-proximo" onclick="alternarProximoTurno()">📅 Agendar próximo turno</button>
             </div>
+
+            <!-- Selector del próximo turno: el paciente y el profesional ya vienen cargados y no se editan. Nada se reserva solo: es una PROPUESTA que el paciente acepta. -->
+            <fieldset id="cierre-proximo" class="cierre-paso proximo-turno oculto">
+                <legend>Próximo turno</legend>
+                <p id="proximo-quien" class="cierre-ayuda" style="margin:0"></p>
+                <div id="proximo-horarios" class="proximo-dias" role="radiogroup" aria-label="Horarios libres"></div>
+                <div class="campo-sesion proximo-motivo">
+                    <label for="proximo-motivo">Motivo (opcional)</label>
+                    <input type="text" id="proximo-motivo" class="ui-input" maxlength="200" placeholder="Por ejemplo: seguimiento semanal">
+                </div>
+                <div class="cierre-acciones">
+                    <button type="button" class="btn-verde" id="btn-proximo-enviar" onclick="enviarProximoTurno()" disabled>Enviar propuesta al paciente</button>
+                    <span id="proximo-mensaje" class="cierre-ayuda" role="status" aria-live="polite" style="margin:0"></span>
+                </div>
+            </fieldset>
 
             <div class="cierre-guardar">
                 <button type="button" class="btn-guardar-hc" id="btn-cierre-guardar" onclick="guardarEnHC()" disabled>💾 Guardar cierre</button>
@@ -871,6 +896,7 @@ function seleccionarCierre(tipo) {
         btn.setAttribute('aria-pressed', String(activo));
     });
     mostrarAvisoDelTipo();
+    resaltarProximoTurno();
     actualizarCierre();
 }
 
@@ -918,6 +944,117 @@ function anotarEvolucion() {
     setTimeout(() => nota.classList.remove('resaltada'), 2500);
     nota.scrollIntoView({ behavior: 'smooth', block: 'center' });
     nota.focus({ preventScroll: true });
+}
+
+// ─── PRÓXIMO TURNO ────────────────────────────────────────
+// El selector abre con el paciente y el profesional ya cargados y muestra los horarios que el paciente vería al reservar (los mismos
+// de «Mis horarios»). «Enviar propuesta» crea un turno PENDIENTE a nombre del profesional y le avisa al paciente: el turno recién queda
+// confirmado cuando el paciente lo acepta (con el consentimiento de telemedicina y las demás reglas de siempre). Nada se reserva solo.
+let proximoTurnoEnviado = null;      // { idTurno, fecha, hora } cuando ya se envió la propuesta
+let proximoElegido = null;           // { fecha: 'YYYY-MM-DD', hora: 'HH:MM' }
+let proximoAbiertoAMano = false;     // el profesional lo abrió o lo cerró él: la sugerencia del Seguimiento ya no lo mueve
+
+const fechaISOLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const horaLocal = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+function alternarProximoTurno(abrir) {
+    const caja = document.getElementById('cierre-proximo');
+    const quiere = typeof abrir === 'boolean' ? abrir : caja.classList.contains('oculto');
+    if (typeof abrir !== 'boolean') proximoAbiertoAMano = true;
+    caja.classList.toggle('oculto', !quiere);
+    document.getElementById('btn-cierre-proximo').setAttribute('aria-pressed', String(quiere));
+    if (quiere && !proximoTurnoEnviado) cargarHorariosProximo();
+}
+
+// «Agendar próximo turno» se ofrece siempre; con Seguimiento viene sugerido (destacado y abierto), con Alta o Derivación queda a elección.
+function resaltarProximoTurno() {
+    const btn = document.getElementById('btn-cierre-proximo');
+    const sugerido = tipoCierreSeleccionado === 'Seguimiento' && !proximoTurnoEnviado;
+    btn.classList.toggle('sugerido', sugerido);
+    btn.title = sugerido ? 'Sugerido: el paciente sigue en seguimiento' : '';
+    if (sugerido && !proximoAbiertoAMano) alternarProximoTurno(true);
+}
+
+async function cargarHorariosProximo() {
+    const cont = document.getElementById('proximo-horarios');
+    const msg = document.getElementById('proximo-mensaje');
+    const paciente = nombreDelPaciente();
+    document.getElementById('proximo-quien').textContent = `Se le propone a ${paciente || 'el paciente'} un turno con vos. El paciente tiene que aceptarlo: hasta entonces queda pendiente.`;
+    proximoElegido = null;
+    document.getElementById('btn-proximo-enviar').disabled = true;
+    if (!idProfesional) { msg.textContent = 'No se pudo identificar tu usuario profesional.'; return; }
+    cont.replaceChildren();
+    msg.textContent = 'Buscando horarios libres…';
+    let libres;
+    try {
+        libres = await YS.api(`/profesionales/${idProfesional}/horarios-libres?dias=14`, { sinRedireccion: true });
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : 'No se pudieron cargar los horarios libres. ' + err.message;
+        return;
+    }
+    if (!libres.length) { msg.textContent = 'No queda ningún horario libre en los próximos 14 días. Revisá tu agenda en «Mis horarios».'; return; }
+    msg.textContent = '';
+    const porDia = new Map();
+    libres.forEach(iso => {
+        const d = new Date(iso);
+        const clave = fechaISOLocal(d);
+        if (!porDia.has(clave)) porDia.set(clave, { fecha: d, horas: [] });
+        porDia.get(clave).horas.push(horaLocal(d));
+    });
+    porDia.forEach((dia, clave) => {
+        const col = document.createElement('div');
+        col.className = 'proximo-dia';
+        const titulo = document.createElement('div');
+        titulo.className = 'proximo-dia-titulo';
+        titulo.textContent = dia.fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' });
+        const horas = document.createElement('div');
+        horas.className = 'proximo-horas';
+        dia.horas.forEach(h => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'proximo-hora'; b.textContent = h;
+            b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false');
+            b.onclick = () => elegirHorarioProximo(b, clave, h);
+            horas.appendChild(b);
+        });
+        col.append(titulo, horas);
+        cont.appendChild(col);
+    });
+}
+
+function elegirHorarioProximo(boton, fecha, hora) {
+    document.querySelectorAll('#proximo-horarios .proximo-hora').forEach(b => b.setAttribute('aria-checked', String(b === boton)));
+    proximoElegido = { fecha, hora };
+    document.getElementById('btn-proximo-enviar').disabled = false;
+    document.getElementById('proximo-mensaje').textContent = '';
+}
+
+async function enviarProximoTurno() {
+    const msg = document.getElementById('proximo-mensaje');
+    const idPaciente = parseInt(document.getElementById('sel-paciente').value);
+    if (!proximoElegido || !idPaciente || !idProfesional) { msg.textContent = 'Elegí un horario.'; return; }
+    const btn = document.getElementById('btn-proximo-enviar');
+    btn.disabled = true;   // un solo envío a la vez
+    try {
+        const r = await YS.api('/turnos/profesional-solicitar', {
+            method: 'POST', sinRedireccion: true,
+            json: { idPaciente, idProfesional, fecha: proximoElegido.fecha, hora: proximoElegido.hora + ':00', motivo: document.getElementById('proximo-motivo').value.trim() || null }
+        });
+        proximoTurnoEnviado = { idTurno: r && r.idTurno, fecha: proximoElegido.fecha, hora: proximoElegido.hora };
+        const [a, m, d] = proximoElegido.fecha.split('-');
+        msg.textContent = `✅ Le llegó la propuesta a ${nombreDelPaciente() || 'el paciente'} para el ${d}/${m}/${a} a las ${proximoElegido.hora} hs. Queda pendiente hasta que la acepte.`;
+        document.getElementById('proximo-horarios').replaceChildren();
+        document.getElementById('proximo-motivo').disabled = true;
+        btn.classList.add('oculto');
+        document.getElementById('btn-cierre-proximo').disabled = true;
+        resaltarProximoTurno();
+    } catch (err) {
+        // El mensaje es el de la API (horario ocupado, ya hay un turno ese día, etc.): se muestra y se recargan los horarios, sin perder el resto del cierre.
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
+            : err.status === 0 ? err.message + ' No se envió nada: podés volver a intentarlo.'
+            : err.message;
+        btn.disabled = false;
+        if (err.status === 409) cargarHorariosProximo().then(() => { document.getElementById('proximo-mensaje').textContent = err.message; });
+    }
 }
 
 // ─── FINALIZAR ────────────────────────────────────────────
@@ -1038,6 +1175,10 @@ function mostrarResultadoDelCierre(r, motivoSinEmociones, emociones) {
         else lineas.push('El turno figuraba como ' + (r.turno.estado || 'Realizado') + ': no se cambió.');
     }
     if (r.caso && r.caso.cambio) lineas.push('Era la primera sesión: el caso del paciente pasó a «En atención».');
+    if (proximoTurnoEnviado) {
+        const [a, m, d] = proximoTurnoEnviado.fecha.split('-');
+        lineas.push(`Propuesta de próximo turno enviada para el ${d}/${m}/${a} a las ${proximoTurnoEnviado.hora} hs: queda pendiente hasta que el paciente la acepte.`);
+    }
     const estado = r.emociones && r.emociones.estado;
     if (estado === 'guardadas') lineas.push('Se guardaron las emociones (cifradas).');
     else if (estado === 'descartadas' && r.emociones.mensaje) lineas.push(r.emociones.mensaje);

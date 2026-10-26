@@ -107,4 +107,34 @@ public class CierreSesionPantallaTests
         // Todo lo anterior se hace antes de mostrar el panel.
         Assert.True(finalizar.IndexOf("control?.cerrar();", StringComparison.Ordinal) < finalizar.IndexOf("abrirPanelDeCierre();", StringComparison.Ordinal));
     }
+
+    // ───────────── Próximo turno ─────────────
+
+    [Fact]
+    public void Agendar_el_proximo_turno_se_ofrece_siempre_y_solo_propone_nunca_reserva_ni_es_urgente()
+    {
+        var sala = Sala;
+        var enviar = Funcion(sala, "async function enviarProximoTurno() {");
+        var abrir = Funcion(sala, "function alternarProximoTurno(abrir) {");
+        var cargar = Funcion(sala, "async function cargarHorariosProximo() {");
+
+        // Siempre disponible: el botón está en el panel para cualquier tipo de cierre.
+        Assert.Matches(@"id=""btn-cierre-proximo""[^>]*onclick=""alternarProximoTurno\(\)""", sala);
+        // Los horarios son los de la reserva real; la propuesta usa el endpoint de siempre, sin cita urgente.
+        Assert.Contains("/horarios-libres?dias=14", cargar);
+        Assert.Contains("'/turnos/profesional-solicitar'", enviar);
+        Assert.DoesNotContain("esUrgente", sala);
+        // Paciente y profesional salen de la sala (no se eligen en el selector) y la hora la elige una persona.
+        Assert.Contains("document.getElementById('sel-paciente').value", enviar);
+        Assert.Contains("idProfesional", enviar);
+        Assert.Contains("if (!proximoElegido", enviar);
+        // Abrir el selector (o sugerirlo con Seguimiento) nunca envía nada: el envío solo sale del botón «Enviar propuesta».
+        Assert.DoesNotContain("enviarProximoTurno", abrir);
+        Assert.DoesNotContain("enviarProximoTurno", Funcion(sala, "function resaltarProximoTurno() {"));
+        Assert.Matches(@"id=""btn-proximo-enviar"" onclick=""enviarProximoTurno\(\)"" disabled", sala);
+        // Con Seguimiento viene sugerido; con Alta o Derivación no se abre solo.
+        Assert.Contains("tipoCierreSeleccionado === 'Seguimiento' && !proximoTurnoEnviado", sala);
+        // Y dice que queda pendiente hasta que el paciente lo acepte.
+        Assert.Contains("Queda pendiente hasta que la acepte.", sala);
+    }
 }
