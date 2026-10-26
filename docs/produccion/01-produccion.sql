@@ -1498,6 +1498,36 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 27)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (27, N'add_alta_derivacion_cierre.sql', 'Script');
 GO
 
+-- ── Migración 28: consentimientos dentro del circuito (migrations/add_consentimientos_circuito.sql). Opcional ──
+IF COL_LENGTH('dbo.Consentimiento', 'IdTutorFirmante') IS NULL
+    ALTER TABLE dbo.Consentimiento ADD IdTutorFirmante INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Consentimiento_TutorFirmante')
+    ALTER TABLE dbo.Consentimiento ADD CONSTRAINT FK_Consentimiento_TutorFirmante FOREIGN KEY (IdTutorFirmante) REFERENCES dbo.Tutor(IdTutor);
+GO
+IF OBJECT_ID('dbo.AceptacionVideollamada', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AceptacionVideollamada (
+        IdAceptacion    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_AceptacionVideollamada PRIMARY KEY,
+        IdUsuario       INT NULL CONSTRAINT FK_AceptacionVideollamada_Usuario REFERENCES dbo.Usuario(IdUsuario),
+        IdPaciente      INT NOT NULL CONSTRAINT FK_AceptacionVideollamada_Paciente REFERENCES dbo.Paciente(IdPaciente),
+        Origen          NVARCHAR(10) NOT NULL,
+        IdOrigen        INT NOT NULL,
+        VersionTexto    NVARCHAR(40) NOT NULL,
+        HashTexto       CHAR(64) NOT NULL,
+        DecididoUtc     DATETIME2(3) NOT NULL CONSTRAINT DF_AceptacionVideollamada_Decidido DEFAULT (SYSUTCDATETIME()),
+        RevocadoUtc     DATETIME2(3) NULL,
+        IdUsuarioRevoca INT NULL CONSTRAINT FK_AceptacionVideollamada_UsuarioRevoca REFERENCES dbo.Usuario(IdUsuario),
+        CONSTRAINT CK_AceptacionVideollamada_Origen CHECK (Origen IN (N'turno', N'admision'))
+    );
+    CREATE UNIQUE INDEX UX_AceptacionVideollamada_Vigente ON dbo.AceptacionVideollamada (Origen, IdOrigen, IdPaciente) WHERE RevocadoUtc IS NULL;
+    CREATE INDEX IX_AceptacionVideollamada_Paciente ON dbo.AceptacionVideollamada (IdPaciente, DecididoUtc);
+END
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 28)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (28, N'add_consentimientos_circuito.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

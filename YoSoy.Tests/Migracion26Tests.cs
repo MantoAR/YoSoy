@@ -37,7 +37,7 @@ public class Migracion26Tests
             // La forma de producción ANTES de la 26: sin la tabla de la migración 16 (54 tablas) y sin las columnas, índices ni la versión de la 26.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
             // El esquema consolidado ya trae la 27 (alta clínica y derivación asistidas), que es posterior: se saca primero (la 27 necesita la 26).
-            foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
+            foreach (var sentencia in Migracion28Pruebas.QuitarDesdeLa28) Ejecutar(sentencia);
             Ejecutar("DROP INDEX UX_SesionClinica_Clave ON SesionClinica");
             Ejecutar("DROP INDEX UX_SesionClinica_Evolucion ON SesionClinica");
             Ejecutar("DROP INDEX IX_SesionClinica_Turno ON SesionClinica");
@@ -231,7 +231,7 @@ public class Migracion26Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 26).Opcional);
-        Assert.Equal(27, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(28, VerificadorEsquema.VersionRequerida);
     }
 
     [Fact]
