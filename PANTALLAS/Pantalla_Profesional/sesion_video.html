@@ -125,6 +125,13 @@
         .cierre-mensaje { font-size: var(--fs-sm); color: var(--danger); }
         .cierre-resultado { border: 1px solid var(--ok-border, var(--border)); background: var(--ok-bg, var(--surface-2)); border-radius: var(--r-md); padding: 10px 12px; }
         .cierre-resultado ul { margin: 0 0 8px; padding-left: 18px; font-size: var(--fs-md); color: var(--text-2); }
+        .alta-plan { display: flex; gap: 12px; flex-wrap: wrap; }
+        .alta-plan .campo-sesion { max-width: 180px; }
+        .deriv-destinos { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-md); padding: 4px; display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+        .deriv-destino { text-align: left; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--r-md); background: var(--surface); cursor: pointer; font-family: var(--font); font-size: var(--fs-md); color: var(--text-2); }
+        .deriv-destino:hover { background: var(--surface-2); }
+        .deriv-destino[aria-checked="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .deriv-destino small { opacity: .8; margin-left: 6px; }
         .cierre-vinculo { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
         .cierre-vinculo p { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--text-3); }
         .vinculo-fila { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: var(--fs-sm); color: var(--text-2); }
@@ -303,6 +310,69 @@
                     <button type="button" class="btn-verde" id="btn-proximo-enviar" onclick="enviarProximoTurno()" disabled>Enviar propuesta al paciente</button>
                     <span id="proximo-mensaje" class="cierre-ayuda" role="status" aria-live="polite" style="margin:0"></span>
                 </div>
+            </fieldset>
+
+            <!-- Asistente de ALTA clínica (con tipo de cierre «Alta»). El sistema precarga; el profesional revisa y confirma. El plan de control se GUARDA, no se programa. -->
+            <fieldset id="cierre-alta" class="cierre-paso oculto">
+                <legend>Alta clínica</legend>
+                <p id="alta-quien" class="cierre-ayuda" style="margin:0 0 8px"></p>
+                <div id="alta-formulario">
+                    <div class="campo-sesion">
+                        <label for="alta-informe">Informe de alta</label>
+                        <textarea id="alta-informe" class="ui-textarea" rows="5" maxlength="8000" placeholder="Motivo de consulta, evolución, estado al momento del alta, recomendaciones…"></textarea>
+                    </div>
+                    <div class="campo-sesion">
+                        <label for="alta-fecha">Fecha de alta</label>
+                        <input type="date" id="alta-fecha" class="ui-input">
+                    </div>
+                    <div class="alta-plan">
+                        <div class="campo-sesion"><label for="alta-controles">Contactos de control</label><input type="number" id="alta-controles" class="ui-input" min="0" max="12" value="3"></div>
+                        <div class="campo-sesion"><label for="alta-cada">Cada cuántos días</label><input type="number" id="alta-cada" class="ui-input" min="7" max="365" value="30"></div>
+                        <div class="campo-sesion"><label for="alta-primero">Fecha del primero</label><input type="date" id="alta-primero" class="ui-input"></div>
+                    </div>
+                    <p class="cierre-ayuda">El plan de control queda guardado. Todavía no se agendan solos los contactos ni se avisa si el paciente no responde: eso viene en una etapa posterior.</p>
+                    <button type="button" class="btn-gris" id="btn-alta-revisar" onclick="revisarAlta()">Revisar el alta</button>
+                </div>
+                <div id="alta-confirmacion" class="cierre-resultado oculto">
+                    <ul id="alta-resumen"></ul>
+                    <p id="alta-aviso-cierre" class="cierre-ayuda"></p>
+                    <div class="cierre-acciones">
+                        <button type="button" class="btn-guardar-hc" id="btn-alta-confirmar" onclick="confirmarAlta()" disabled>Confirmar el alta</button>
+                        <button type="button" class="btn-gris" onclick="volverDelAsistente('alta')">Volver y editar</button>
+                    </div>
+                </div>
+                <div id="alta-mensaje" class="cierre-ayuda" role="status" aria-live="polite"></div>
+            </fieldset>
+
+            <!-- Derivación INTERNA asistida (con tipo de cierre «Derivación»). Nada cambia de manos acá: el destino acepta y Admisión confirma el traspaso. -->
+            <fieldset id="cierre-derivacion" class="cierre-paso oculto">
+                <legend>Derivación a otro profesional</legend>
+                <p id="deriv-quien" class="cierre-ayuda" style="margin:0 0 8px"></p>
+                <div id="deriv-formulario">
+                    <div class="campo-sesion">
+                        <label for="deriv-filtro">Profesional de destino (buscá por nombre o especialidad)</label>
+                        <input type="search" id="deriv-filtro" class="ui-input" oninput="filtrarDestinos()" placeholder="Escribí para filtrar">
+                    </div>
+                    <div id="deriv-destinos" class="deriv-destinos" role="radiogroup" aria-label="Profesional de destino"></div>
+                    <div class="campo-sesion">
+                        <label for="deriv-motivo">Motivo de la derivación</label>
+                        <textarea id="deriv-motivo" class="ui-textarea" rows="3" maxlength="500"></textarea>
+                    </div>
+                    <div class="campo-sesion">
+                        <label for="deriv-obs">Observaciones (opcional)</label>
+                        <textarea id="deriv-obs" class="ui-textarea" rows="3" maxlength="1000"></textarea>
+                    </div>
+                    <button type="button" class="btn-gris" id="btn-deriv-revisar" onclick="revisarDerivacion()">Revisar la derivación</button>
+                </div>
+                <div id="deriv-confirmacion" class="cierre-resultado oculto">
+                    <ul id="deriv-resumen"></ul>
+                    <p id="deriv-aviso-cierre" class="cierre-ayuda"></p>
+                    <div class="cierre-acciones">
+                        <button type="button" class="btn-guardar-hc" id="btn-deriv-confirmar" onclick="confirmarDerivacion()" disabled>Confirmar la derivación</button>
+                        <button type="button" class="btn-gris" onclick="volverDelAsistente('derivacion')">Volver y editar</button>
+                    </div>
+                </div>
+                <div id="deriv-mensaje" class="cierre-ayuda" role="status" aria-live="polite"></div>
             </fieldset>
 
             <div class="cierre-guardar">
@@ -926,30 +996,24 @@ function seleccionarCierre(tipo) {
     programarBorrador();
 }
 
-// Alta y derivación NO se hacen acá: solo queda registrado el tipo de cierre. Se avisa que falta completarlo y se da el acceso a la
-// pantalla que ya existe para cada cosa (el panel principal, que se abre en la sección indicada).
-const DESTINO_DEL_TIPO = { 'Alta': { cosa: 'el alta', seccion: 'pacientes', donde: 'Mis pacientes' }, 'Derivación': { cosa: 'la derivación', seccion: 'casos', donde: 'Casos' } };
+// Alta y derivación son ASISTIDAS: elegir el tipo solo lo registra y avisa que falta completar la acción; el botón abre el asistente (alta clínica o derivación interna), que
+// precarga lo que el sistema ya sabe, y el profesional revisa y CONFIRMA. Sin esa confirmación no cambia ningún estado.
+const ASISTENTE_DEL_TIPO = {
+    'Alta': { cosa: 'el alta', boton: 'Completar el alta', cual: 'alta', hecho: () => altaRegistrada },
+    'Derivación': { cosa: 'la derivación', boton: 'Completar la derivación', cual: 'derivacion', hecho: () => derivacionEnviada }
+};
 function mostrarAvisoDelTipo() {
     const aviso = document.getElementById('cierre-aviso-tipo');
-    const d = DESTINO_DEL_TIPO[tipoCierreSeleccionado];
+    const d = ASISTENTE_DEL_TIPO[tipoCierreSeleccionado];
     aviso.replaceChildren();
-    aviso.classList.toggle('oculto', !d);
-    if (!d) return;
-    const enlace = document.createElement('a');
-    enlace.textContent = d.donde;
-    enlace.setAttribute('role', 'link');
-    enlace.tabIndex = 0;
-    enlace.onclick = () => irAlPanel(d.seccion);
-    enlace.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); irAlPanel(d.seccion); } };
-    aviso.append(`Falta completar ${d.cosa} del paciente. Acá solo queda registrado el tipo de cierre de esta sesión; ${d.cosa} se gestiona desde `, enlace, '.');
-}
-
-// Abre una sección del panel principal. Cambiar de sección cierra esta sala: si quedan notas sin guardar, se pregunta antes.
-function irAlPanel(seccion) {
-    if (hayNotasSinGuardar() && !window.confirm('Tenés notas sin guardar. Si salís de la sala se pierden. ¿Salir igual?')) return;
-    guardadoEnHC = true;   // ya se preguntó: que el aviso del navegador no vuelva a preguntar
-    if (window.parent && window.parent !== window) window.parent.location.hash = '#' + seccion;
-    else window.location.href = 'nuevo_dashboard.html#' + seccion;
+    // Si se cambia de tipo antes de terminar, el asistente que no corresponde se cierra.
+    for (const [tipo, x] of Object.entries(ASISTENTE_DEL_TIPO)) if (tipo !== tipoCierreSeleccionado) document.getElementById(x.cual === 'alta' ? 'cierre-alta' : 'cierre-derivacion').classList.add('oculto');
+    aviso.classList.toggle('oculto', !d || d.hecho());
+    if (!d || d.hecho()) return;
+    const boton = document.createElement('button');
+    boton.type = 'button'; boton.className = 'btn-gris'; boton.textContent = d.boton;
+    boton.onclick = () => abrirAsistente(d.cual);
+    aviso.append(`Falta completar ${d.cosa} del paciente. El sistema te guía y precarga lo que ya sabe; vos revisás y confirmás al final. `, boton);
 }
 
 function mensajeCierre(texto) { document.getElementById('cierre-mensaje').textContent = texto; }
@@ -970,6 +1034,235 @@ function anotarEvolucion() {
     setTimeout(() => nota.classList.remove('resaltada'), 2500);
     nota.scrollIntoView({ behavior: 'smooth', block: 'center' });
     nota.focus({ preventScroll: true });
+}
+
+// ─── ALTA Y DERIVACIÓN ASISTIDAS ───────────────────────────
+// Los dos asistentes trabajan sobre el CASO abierto del paciente, que tiene que estar a cargo de este profesional (el servidor lo vuelve a exigir). Se enlazan con la sesión del
+// cierre, así que el botón de confirmar se habilita recién cuando el cierre ya está guardado (con el tipo de cierre que corresponde).
+let casoDelCierre = null;
+let altaRegistrada = false, derivacionEnviada = false;
+let destinosDeDerivacion = [], destinoElegido = null;
+
+const ID_DE = { alta: { caja: 'cierre-alta', msg: 'alta-mensaje', quien: 'alta-quien', form: 'alta-formulario', conf: 'alta-confirmacion' },
+                derivacion: { caja: 'cierre-derivacion', msg: 'deriv-mensaje', quien: 'deriv-quien', form: 'deriv-formulario', conf: 'deriv-confirmacion' } };
+const hoyISO = () => fechaISOLocal(new Date());
+const sumarDias = (iso, dias) => { const [a, m, d] = iso.split('-').map(Number); return fechaISOLocal(new Date(a, m - 1, d + dias)); };
+const fechaCorta = iso => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}`; };
+const textoLinea = (ul, texto) => { const li = document.createElement('li'); li.textContent = texto; ul.appendChild(li); };
+
+async function cargarCasoDelCierre() {
+    if (casoDelCierre) return casoDelCierre;
+    const idPaciente = parseInt(document.getElementById('sel-paciente').value);
+    let caso;
+    try { caso = await YS.api(`/pacientes/${idPaciente}/caso`, { permitir404: true, sinRedireccion: true }); }
+    catch (err) { throw new Error(err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message); }
+    if (!caso || caso.idProfesionalAsignado !== idProfesional) return null;
+    return casoDelCierre = caso;
+}
+
+async function abrirAsistente(cual) {
+    const ids = ID_DE[cual];
+    for (const otro of Object.values(ID_DE)) if (otro !== ids) document.getElementById(otro.caja).classList.add('oculto');
+    document.getElementById(ids.caja).classList.remove('oculto');
+    document.getElementById(ids.caja).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const msg = document.getElementById(ids.msg);
+    msg.textContent = 'Buscando el caso del paciente…';
+    let caso;
+    try { caso = await cargarCasoDelCierre(); } catch (err) { msg.textContent = err.message; return; }
+    const nombre = nombreDelPaciente() || 'el paciente';
+    if (!caso) {
+        msg.textContent = 'Este paciente no tiene un caso abierto asignado a vos, así que no se puede hacer desde acá. Pedile a Admisión que revise el caso.';
+        document.getElementById(ids.form).classList.add('oculto');
+        return;
+    }
+    if (caso.estado !== 'Asignado' && caso.estado !== 'En atención') {
+        msg.textContent = `El caso está «${caso.estado}»: solo se puede ${cual === 'alta' ? 'dar el alta' : 'derivar'} un caso asignado o en atención. No se cambió nada.`;
+        document.getElementById(ids.form).classList.add('oculto');
+        return;
+    }
+    msg.textContent = '';
+    document.getElementById(ids.form).classList.remove('oculto');
+    document.getElementById(ids.conf).classList.add('oculto');
+    document.getElementById(ids.quien).textContent = cual === 'alta'
+        ? `Paciente: ${nombre} · Caso #${caso.idCaso} (${caso.estado}) · A cargo de vos`
+        : `Paciente: ${nombre} · Caso #${caso.idCaso} (${caso.estado}) · Origen: vos · Fecha: ${fechaCorta(hoyISO())}`;
+    if (cual === 'alta') {
+        const fecha = document.getElementById('alta-fecha');
+        if (!fecha.value) fecha.value = hoyISO();
+        const primero = document.getElementById('alta-primero');
+        if (!primero.value) primero.value = sumarDias(fecha.value, parseInt(document.getElementById('alta-cada').value) || 30);
+        document.getElementById('alta-informe').focus({ preventScroll: true });
+    } else {
+        await cargarDestinos(caso);
+    }
+    actualizarAsistentes();
+}
+
+function volverDelAsistente(cual) {
+    const ids = ID_DE[cual];
+    document.getElementById(ids.conf).classList.add('oculto');
+    document.getElementById(ids.form).classList.remove('oculto');
+}
+
+// El botón de confirmar solo se habilita con el cierre ya guardado y con el tipo que corresponde: así el alta o la derivación se enlazan con esa sesión.
+function actualizarAsistentes() {
+    const listo = (tipo) => cierreGuardado && !!idSesionGuardada && tipoCierreSeleccionado === tipo;
+    const nombre = nombreDelPaciente() || 'el paciente';
+    const alta = document.getElementById('btn-alta-confirmar'), deriv = document.getElementById('btn-deriv-confirmar');
+    if (alta) {
+        alta.disabled = altaRegistrada || !listo('Alta');
+        alta.textContent = `Confirmar el alta de ${nombre}`;
+        document.getElementById('alta-aviso-cierre').textContent = listo('Alta') ? '' : 'Primero guardá el cierre (botón «Guardar cierre», más arriba): el alta se enlaza con esa sesión.';
+    }
+    if (deriv) {
+        deriv.disabled = derivacionEnviada || !listo('Derivación') || !destinoElegido;
+        deriv.textContent = destinoElegido ? `Confirmar la derivación de ${nombre} a ${destinoElegido.nombre}` : 'Confirmar la derivación';
+        document.getElementById('deriv-aviso-cierre').textContent = listo('Derivación') ? '' : 'Primero guardá el cierre (botón «Guardar cierre», más arriba): la derivación se enlaza con esa sesión.';
+    }
+}
+
+// ── Alta ──
+function revisarAlta() {
+    const msg = document.getElementById('alta-mensaje');
+    const informe = document.getElementById('alta-informe').value.trim();
+    const fecha = document.getElementById('alta-fecha').value;
+    const controles = parseInt(document.getElementById('alta-controles').value);
+    const cada = parseInt(document.getElementById('alta-cada').value);
+    const primero = document.getElementById('alta-primero').value;
+    const mal = t => { msg.textContent = t; return false; };
+    if (!informe) return mal('Escribí el informe de alta.');
+    if (!fecha) return mal('Indicá la fecha de alta.');
+    if (fecha > hoyISO()) return mal('La fecha de alta no puede ser posterior a hoy.');
+    if (!(controles >= 0 && controles <= 12)) return mal('Los contactos de control tienen que estar entre 0 y 12.');
+    if (controles > 0) {
+        if (!(cada >= 7 && cada <= 365)) return mal('Indicá cada cuántos días se hace el control (entre 7 y 365).');
+        if (!primero) return mal('Indicá la fecha del primer contacto de control.');
+        if (primero < fecha) return mal('El primer control no puede ser anterior a la fecha de alta.');
+    }
+    msg.textContent = '';
+    const ul = document.getElementById('alta-resumen');
+    ul.replaceChildren();
+    textoLinea(ul, `Paciente: ${nombreDelPaciente()} · Caso #${casoDelCierre.idCaso}`);
+    textoLinea(ul, `Fecha de alta: ${fechaCorta(fecha)}`);
+    textoLinea(ul, controles > 0 ? `Plan de control: ${controles} contacto${controles === 1 ? '' : 's'}, cada ${cada} días, el primero el ${fechaCorta(primero)}` : 'Plan de control: sin contactos de control');
+    textoLinea(ul, `El caso pasa de «${casoDelCierre.estado}» a «En alta». El paciente y su usuario siguen activos.`);
+    document.getElementById('alta-formulario').classList.add('oculto');
+    document.getElementById('alta-confirmacion').classList.remove('oculto');
+    actualizarAsistentes();
+    return true;
+}
+
+async function confirmarAlta() {
+    const btn = document.getElementById('btn-alta-confirmar');
+    const msg = document.getElementById('alta-mensaje');
+    if (altaRegistrada || !casoDelCierre) return;
+    btn.disabled = true;   // un solo envío a la vez
+    const controles = parseInt(document.getElementById('alta-controles').value);
+    try {
+        const r = await YS.api(`/casos/${casoDelCierre.idCaso}/alta-clinica`, {
+            method: 'POST', sinRedireccion: true,
+            json: {
+                confirma: true,
+                informe: document.getElementById('alta-informe').value.trim(),
+                fechaAlta: document.getElementById('alta-fecha').value,
+                controlesPrevistos: controles,
+                controlCadaDias: controles > 0 ? parseInt(document.getElementById('alta-cada').value) : null,
+                primerControl: controles > 0 ? document.getElementById('alta-primero').value : null,
+                idSesion: idSesionGuardada,
+                claveCierre: claveCierre
+            }
+        });
+        altaRegistrada = true;
+        document.getElementById('alta-confirmacion').classList.add('oculto');
+        msg.textContent = `✅ ${r.repetido ? 'El alta ya estaba registrada' : 'El alta quedó registrada'}: el caso pasó a «En alta» y el plan de control quedó guardado. El paciente sigue activo.`;
+        mostrarAvisoDelTipo();
+        actualizarAsistentes();
+        document.dispatchEvent(new CustomEvent('ys:alta-registrada', { detail: { idCaso: casoDelCierre.idCaso, idAltaClinica: r.idAltaClinica } }));
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
+            : err.status === 0 ? err.message + ' No se registró nada: podés volver a confirmar y no se duplica.'
+            : err.message;
+        actualizarAsistentes();
+    }
+}
+
+// ── Derivación ──
+async function cargarDestinos(caso) {
+    const cont = document.getElementById('deriv-destinos');
+    const msg = document.getElementById('deriv-mensaje');
+    if (destinosDeDerivacion.length) { filtrarDestinos(); return; }
+    msg.textContent = 'Cargando profesionales…';
+    try { destinosDeDerivacion = await YS.api(`/casos/${caso.idCaso}/destinos-derivacion`, { sinRedireccion: true }); }
+    catch (err) { msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : err.message; return; }
+    msg.textContent = destinosDeDerivacion.length ? '' : 'No hay otros profesionales activos a quienes derivar.';
+    filtrarDestinos();
+}
+
+function filtrarDestinos() {
+    const cont = document.getElementById('deriv-destinos');
+    const q = YS.normalizar ? YS.normalizar(document.getElementById('deriv-filtro').value) : document.getElementById('deriv-filtro').value.toLowerCase();
+    cont.replaceChildren();
+    destinosDeDerivacion.filter(d => !q || (YS.normalizar ? YS.normalizar(d.nombre + ' ' + d.especialidad) : (d.nombre + ' ' + d.especialidad).toLowerCase()).includes(q)).forEach(d => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'deriv-destino';
+        b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(!!destinoElegido && destinoElegido.idProfesional === d.idProfesional));
+        b.textContent = d.nombre;
+        const chico = document.createElement('small');
+        chico.textContent = `${d.especialidad} · ${d.casosActivos} caso${d.casosActivos === 1 ? '' : 's'} activo${d.casosActivos === 1 ? '' : 's'}`;
+        b.appendChild(chico);
+        b.onclick = () => { destinoElegido = d; filtrarDestinos(); actualizarAsistentes(); };
+        cont.appendChild(b);
+    });
+}
+
+function revisarDerivacion() {
+    const msg = document.getElementById('deriv-mensaje');
+    const motivo = document.getElementById('deriv-motivo').value.trim();
+    const obs = document.getElementById('deriv-obs').value.trim();
+    if (!destinoElegido) { msg.textContent = 'Elegí el profesional de destino.'; return; }
+    if (!motivo) { msg.textContent = 'Escribí el motivo de la derivación.'; return; }
+    msg.textContent = '';
+    const ul = document.getElementById('deriv-resumen');
+    ul.replaceChildren();
+    textoLinea(ul, `Paciente: ${nombreDelPaciente()} · Caso #${casoDelCierre.idCaso}`);
+    textoLinea(ul, `De: vos  →  A: ${destinoElegido.nombre} (${destinoElegido.especialidad})`);
+    textoLinea(ul, `Motivo: ${motivo}`);
+    if (obs) textoLinea(ul, `Observaciones: ${obs}`);
+    textoLinea(ul, 'Se avisa a ' + destinoElegido.nombre + ', a vos (constancia) y a Admisión. El caso sigue a tu cargo hasta que el profesional acepte y Admisión confirme el traspaso.');
+    document.getElementById('deriv-formulario').classList.add('oculto');
+    document.getElementById('deriv-confirmacion').classList.remove('oculto');
+    actualizarAsistentes();
+}
+
+async function confirmarDerivacion() {
+    const btn = document.getElementById('btn-deriv-confirmar');
+    const msg = document.getElementById('deriv-mensaje');
+    if (derivacionEnviada || !casoDelCierre || !destinoElegido) return;
+    btn.disabled = true;
+    try {
+        const r = await YS.api(`/casos/${casoDelCierre.idCaso}/derivar`, {
+            method: 'POST', sinRedireccion: true,
+            json: {
+                confirma: true,
+                idProfesionalDestino: destinoElegido.idProfesional,
+                motivo: document.getElementById('deriv-motivo').value.trim(),
+                observaciones: document.getElementById('deriv-obs').value.trim() || null,
+                idSesion: idSesionGuardada,
+                claveCierre: claveCierre
+            }
+        });
+        derivacionEnviada = true;
+        document.getElementById('deriv-confirmacion').classList.add('oculto');
+        msg.textContent = `✅ ${r.repetido ? 'La derivación ya estaba enviada' : 'Derivación enviada'} a ${destinoElegido.nombre}: le llegó un aviso, y también a vos y a Admisión. El caso sigue a tu cargo hasta que acepte y Admisión confirme el traspaso.`;
+        mostrarAvisoDelTipo();
+        actualizarAsistentes();
+        document.dispatchEvent(new CustomEvent('ys:derivacion-enviada', { detail: { idCaso: casoDelCierre.idCaso, idDerivacion: r.idDerivacion } }));
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR
+            : err.status === 0 ? err.message + ' No se envió nada: podés volver a confirmar y no se duplica.'
+            : err.message;
+        actualizarAsistentes();
+    }
 }
 
 // ─── VÍNCULO CON UNA EVOLUCIÓN ─────────────────────────────
@@ -1342,6 +1635,7 @@ async function guardarEnHC() {
         soltarAvisoSiNoHaceFalta();
         cierreGuardado = true;
         idSesionGuardada = r.idSesion;
+        actualizarAsistentes();
         document.getElementById('cierre-vinculo').classList.remove('oculto');
         descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');
         mostrarResultadoDelCierre(r, motivo, emociones);

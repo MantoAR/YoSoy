@@ -764,6 +764,8 @@ app.MapDelete("/pacientes/{id}", (int id, HttpContext ctx) =>
     return Results.NoContent();
 }).RequireAuthorization(p => p.RequireRole(Roles.Configurador));
 
+// ALTA ADMINISTRATIVA: solo reactiva la ficha de un paciente dado de baja. No es el alta CLÍNICA (informe de alta y plan de control, el caso pasa a «En alta»), que es
+// POST /casos/{id}/alta-clinica en Endpoints/AltaDerivacionEndpoints.cs.
 app.MapPut("/pacientes/{id}/alta", (int id, HttpContext ctx) =>
 {
     var yo = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx);
@@ -1409,6 +1411,10 @@ app.MapPost("/derivaciones", (Derivacion d) =>
 
 app.MapPut("/derivaciones/{id}", (int id, Derivacion d) =>
 {
+    // Una derivación nacida del cierre de una sesión (Origen 'Cierre') se resuelve por su propio camino (el destino responde y Admisión confirma el traspaso): esta acción
+    // de la «solicitud de cambio» de siempre la cambiaría de vínculo sin pasar por ahí.
+    if (DerivacionCierreDAO.EsDelCierre(id))
+        return Results.Json(new { mensaje = "Esta derivación nació del cierre de una sesión: se resuelve desde «Traspasos por confirmar» (CRM › Derivaciones), no desde acá." }, statusCode: 409);
     d.IdDerivacion = id;
     new DerivacionDAO().Modificar(d);
     return Results.Ok(d);
@@ -1419,6 +1425,10 @@ app.MapPut("/derivaciones/{id}/aceptar", (int id, AceptarDerivacionRequest req, 
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
+    // Una derivación nacida del cierre de una sesión (Origen 'Cierre') se resuelve por su propio camino (el destino responde y Admisión confirma el traspaso): esta acción
+    // de la «solicitud de cambio» de siempre la cambiaría de vínculo sin pasar por ahí.
+    if (DerivacionCierreDAO.EsDelCierre(id))
+        return Results.Json(new { mensaje = "Esta derivación nació del cierre de una sesión: se resuelve desde «Traspasos por confirmar» (CRM › Derivaciones), no desde acá." }, statusCode: 409);
     d.IdProfesionalDestino = req.IdProfesionalDestino;
     d.Estado = "Aceptada";
     new DerivacionDAO().Modificar(d);
@@ -1437,6 +1447,10 @@ app.MapPut("/derivaciones/{id}/rechazar", (int id, HttpContext ctx) =>
     int? auditor = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
     var d = new DerivacionDAO().ObtenerPorId(id);
     if (d is null) return Results.NotFound();
+    // Una derivación nacida del cierre de una sesión (Origen 'Cierre') se resuelve por su propio camino (el destino responde y Admisión confirma el traspaso): esta acción
+    // de la «solicitud de cambio» de siempre la cambiaría de vínculo sin pasar por ahí.
+    if (DerivacionCierreDAO.EsDelCierre(id))
+        return Results.Json(new { mensaje = "Esta derivación nació del cierre de una sesión: se resuelve desde «Traspasos por confirmar» (CRM › Derivaciones), no desde acá." }, statusCode: 409);
     d.Estado = "Rechazada";
     new DerivacionDAO().Modificar(d);
     new LogAuditoriaDAO().Insertar(new LogAuditoria { IdUsuario = auditor, Accion = "Rechazo Derivación", Entidad = "Derivacion", IdEntidad = id , Categoria = CategoriaAuditoria.Clinica, Espacio = "profesional" });
@@ -2640,6 +2654,7 @@ app.MapMensajeria();
 app.MapConsentimiento();
 app.MapCasos();
 app.MapCierreSesion();
+app.MapAltaDerivacion();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapConsentimientoWhatsApp();

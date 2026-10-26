@@ -1445,6 +1445,59 @@ IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 26)
     INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (26, N'add_cierre_sesion.sql', 'Script');
 GO
 
+-- ── Migración 27: alta clínica y derivación interna asistidas desde el cierre de sesión (migrations/add_alta_derivacion_cierre.sql). Opcional ──
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Caso_Estado' AND parent_object_id = OBJECT_ID('dbo.Caso') AND definition NOT LIKE N'%En alta%')
+    ALTER TABLE dbo.Caso DROP CONSTRAINT CK_Caso_Estado;
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Caso_Estado' AND parent_object_id = OBJECT_ID('dbo.Caso'))
+    ALTER TABLE dbo.Caso ADD CONSTRAINT CK_Caso_Estado CHECK (Estado IN (N'Nuevo', N'Derivado', N'Asignado', N'En atención', N'En alta', N'Cerrado'));
+GO
+IF OBJECT_ID('dbo.AltaClinica', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.AltaClinica (
+        IdAltaClinica      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_AltaClinica PRIMARY KEY,
+        IdCaso             INT NOT NULL CONSTRAINT FK_AltaClinica_Caso REFERENCES dbo.Caso(IdCaso),
+        IdPaciente         INT NOT NULL CONSTRAINT FK_AltaClinica_Paciente REFERENCES dbo.Paciente(IdPaciente),
+        IdProfesional      INT NOT NULL CONSTRAINT FK_AltaClinica_Profesional REFERENCES dbo.Profesional(IdProfesional),
+        IdSesion           INT NULL CONSTRAINT FK_AltaClinica_Sesion REFERENCES dbo.SesionClinica(IdSesion),
+        FechaAlta          DATE NOT NULL,
+        Informe            NVARCHAR(MAX) NOT NULL,
+        ControlesPrevistos INT NOT NULL CONSTRAINT DF_AltaClinica_Controles DEFAULT (0),
+        ControlCadaDias    INT NULL,
+        PrimerControl      DATE NULL,
+        EstadoCasoAnterior NVARCHAR(20) NOT NULL,
+        IdUsuario          INT NULL CONSTRAINT FK_AltaClinica_Usuario REFERENCES dbo.Usuario(IdUsuario),
+        CreadaUtc          DATETIME2(3) NOT NULL CONSTRAINT DF_AltaClinica_CreadaUtc DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_AltaClinica_Plan CHECK (
+            (ControlesPrevistos = 0 AND ControlCadaDias IS NULL AND PrimerControl IS NULL)
+            OR (ControlesPrevistos BETWEEN 1 AND 12 AND ControlCadaDias IS NOT NULL AND ControlCadaDias BETWEEN 7 AND 365 AND PrimerControl IS NOT NULL))
+    );
+    CREATE UNIQUE INDEX UX_AltaClinica_Caso ON dbo.AltaClinica (IdCaso);
+    CREATE INDEX IX_AltaClinica_Sesion ON dbo.AltaClinica (IdSesion) WHERE IdSesion IS NOT NULL;
+END
+GO
+IF COL_LENGTH('dbo.Derivacion', 'Origen') IS NULL
+    ALTER TABLE dbo.Derivacion ADD Origen NVARCHAR(20) NOT NULL CONSTRAINT DF_Derivacion_Origen DEFAULT (N'Solicitud');
+IF COL_LENGTH('dbo.Derivacion', 'IdCaso') IS NULL ALTER TABLE dbo.Derivacion ADD IdCaso INT NULL;
+IF COL_LENGTH('dbo.Derivacion', 'Observaciones') IS NULL ALTER TABLE dbo.Derivacion ADD Observaciones NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.Derivacion', 'IdSesion') IS NULL ALTER TABLE dbo.Derivacion ADD IdSesion INT NULL;
+IF COL_LENGTH('dbo.Derivacion', 'RespuestaUtc') IS NULL ALTER TABLE dbo.Derivacion ADD RespuestaUtc DATETIME2(3) NULL;
+IF COL_LENGTH('dbo.Derivacion', 'IdUsuarioRespuesta') IS NULL ALTER TABLE dbo.Derivacion ADD IdUsuarioRespuesta INT NULL;
+IF COL_LENGTH('dbo.Derivacion', 'ResolucionUtc') IS NULL ALTER TABLE dbo.Derivacion ADD ResolucionUtc DATETIME2(3) NULL;
+IF COL_LENGTH('dbo.Derivacion', 'IdUsuarioResolucion') IS NULL ALTER TABLE dbo.Derivacion ADD IdUsuarioResolucion INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_Derivacion_Origen')
+    ALTER TABLE dbo.Derivacion ADD CONSTRAINT CK_Derivacion_Origen CHECK (Origen IN (N'Solicitud', N'Cierre'));
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Derivacion_Caso')
+    ALTER TABLE dbo.Derivacion ADD CONSTRAINT FK_Derivacion_Caso FOREIGN KEY (IdCaso) REFERENCES dbo.Caso(IdCaso);
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_Derivacion_Sesion')
+    ALTER TABLE dbo.Derivacion ADD CONSTRAINT FK_Derivacion_Sesion FOREIGN KEY (IdSesion) REFERENCES dbo.SesionClinica(IdSesion);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Derivacion_CasoEnCurso' AND object_id = OBJECT_ID('dbo.Derivacion'))
+    CREATE UNIQUE INDEX UX_Derivacion_CasoEnCurso ON dbo.Derivacion (IdCaso) WHERE Origen = N'Cierre' AND IdCaso IS NOT NULL AND Estado IN (N'Pendiente del destino', N'Aceptada por el destino');
+GO
+IF NOT EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 27)
+    INSERT INTO VersionEsquema (Numero, Archivo, Origen) VALUES (27, N'add_alta_derivacion_cierre.sql', 'Script');
+GO
+
 -- ── 8) Dato obligatorio — RN-02, consentimiento de telemedicina ─────────────
 -- El código lo busca por Descripcion exacta (Consentimiento:TipoRequerido en
 -- appsettings.json). Sin esta fila, nadie puede firmar el consentimiento de

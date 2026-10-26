@@ -144,6 +144,17 @@ cambiaron). Cómo se lee la columna "Ahora":
 | GET | `/sesion/yo` | — | con sesión |
 | POST | `/sesiones-clinicas` | Profesional, Configurador | Profesional |
 | GET | `/sesiones-clinicas/{id}/evoluciones-vinculables` | — | Profesional |
+| POST | `/casos/{id}/alta-clinica` | — | Profesional (a cargo del caso) |
+| GET | `/casos/{id}/alta-clinica` | — | Profesional (a cargo) y auditor |
+| GET | `/casos/{id}/destinos-derivacion` | — | Profesional (a cargo del caso) |
+| POST | `/casos/{id}/derivar` | — | Profesional (a cargo del caso) |
+| PUT | `/derivaciones/{id}/responder` | — | Profesional (el de destino) |
+| GET | `/derivaciones/{id}/informe` | — | Profesional (origen o destino) |
+| GET | `/derivaciones/traspasos-pendientes` | — | CRM |
+| POST | `/derivaciones/{id}/traspasar` | — | CRM |
+| POST | `/derivaciones/{id}/resolver` | — | CRM |
+| GET | `/profesionales/{id}/avisos-clinicos` | — | Profesional (los propios) |
+| PUT | `/avisos-clinicos/{id}/leida` | — | Profesional (los propios) |
 | PUT | `/sesiones-clinicas/{id}/evolucion` | — | Profesional |
 | GET | `/turnos` | Configurador | CRM con Gestión de agendas |
 | POST | `/turnos/profesional-solicitar` | Profesional, Configurador | Profesional, CRM con Gestión de agendas |

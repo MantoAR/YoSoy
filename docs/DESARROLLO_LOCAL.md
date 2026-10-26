@@ -92,7 +92,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 
 ### Qué necesitan
 
-- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 55 tablas, con
+- Una **base SQL Server local, nueva y sin datos propios**, con el esquema de `docs/produccion/01-produccion.sql`: 56 tablas, con
   el resultado de las 24 migraciones de `migrations/` (no se corren aparte). Autenticación de Windows. El esquema solo siembra
   el tipo de consentimiento y el contenido de arranque del chat.
 - **Nada más sembrado:** cada test crea las filas que necesita (`YoSoy.Tests/DatosDePrueba.cs`) y las borra al terminar. No hace
@@ -109,7 +109,7 @@ ConnectionStrings__YoSoy` o con `Cannot open database "..." requested by the log
 ```
 
 El script arma una copia temporal de `01-produccion.sql` con el nombre de la base cambiado, la ejecuta con `sqlcmd` (autenticación
-de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 55 tablas. El original no se toca: dice
+de Windows: no hay contraseñas que guardar ni imprimir) y comprueba que la base tenga 56 tablas. El original no se toca: dice
 `[yosoy]` fijo en tres lugares y, corrido tal cual en una instancia donde `yosoy` ya existe, apuntaría a la base de desarrollo.
 Se niega a usar la base `yosoy` y a seguir si la base ya existe. Si PowerShell no te deja ejecutar scripts:
 `powershell -NoProfile -ExecutionPolicy Bypass -File .\Scripts\crear-base-de-pruebas.ps1`.
@@ -144,7 +144,7 @@ Producción tampoco tiene la migración 17 (las columnas `MensajeChat.IdExterno`
 toca; para comprobarlo con la suite entera, armá una base **sin** ellas y corré todo lo que no sea de la migración misma (los tests marcados `[Trait("Migracion", "17")]`):
 
 ```powershell
-.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17                         # 55 tablas, sin las columnas de la 17
+.\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_16 -SinMigracion17                         # 56 tablas, sin las columnas de la 17
 .\Scripts\correr-tests.ps1 -Base yosoy_test_16 -Filtro 'Migracion!=17'
 
 # lo más parecido a producción hoy: sin la 16 (54 tablas: las 44 de producción más las 10 de las migraciones 18 a 22) y sin la 17
