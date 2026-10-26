@@ -61,14 +61,17 @@ public static class ConsentimientoTratamiento
     public static IResult? BloquearSiNoFirmo(HttpContext ctx, int idPaciente)
     {
         var servicios = ctx.RequestServices;
+        // Un paciente que no existe no es asunto del consentimiento: lo responde (404) el endpoint que llama.
+        var paciente = new PacienteDAO().ObtenerPorId(idPaciente);
+        if (paciente is null) return null;
         var op = servicios.GetRequiredService<IOptionsMonitor<ConsentimientoOptions>>().CurrentValue;
         var estado = Estado(idPaciente, op);
         if (estado.Vigente) return null;
 
-        var paciente = new PacienteDAO().ObtenerPorId(idPaciente);
-        var nombre = paciente?.Nombre ?? $"el paciente #{idPaciente}";
-        var link = string.IsNullOrWhiteSpace(op.UrlFirma) ? UrlFirmaPorDefecto : op.UrlFirma;
-        try { AvisoParaFirmar.Pedir(idPaciente, link, servicios.GetService<EmailService>(), servicios.GetService<ILoggerFactory>()?.CreateLogger("Consentimiento")); }
+        var nombre = string.IsNullOrWhiteSpace(paciente.Nombre) ? $"el paciente #{idPaciente}" : paciente.Nombre;
+        // La campanita lleva a la pantalla de firma por su ruta propia; el mail, a la dirección completa si está configurada (Consentimiento:UrlFirma).
+        var link = UrlFirmaPorDefecto;
+        try { AvisoParaFirmar.Pedir(idPaciente, link, string.IsNullOrWhiteSpace(op.UrlFirma) ? null : op.UrlFirma, servicios.GetService<EmailService>(), servicios.GetService<ILoggerFactory>()?.CreateLogger("Consentimiento")); }
         catch (Exception) { /* el aviso no puede tapar el rechazo */ }
         return Results.Json(new { codigo = "consentimiento-pendiente", mensaje = MensajeParaAsignar(nombre, estado), motivo = estado.Motivo, urlConsentimiento = link }, statusCode: 409);
     }
@@ -82,7 +85,7 @@ public static class AvisoParaFirmar
 {
     public const int HorasSinRepetir = 24;
 
-    public static bool Pedir(int idPaciente, string link, EmailService? email, ILogger? log)
+    public static bool Pedir(int idPaciente, string link, string? linkParaElMail, EmailService? email, ILogger? log)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -107,7 +110,8 @@ public static class AvisoParaFirmar
             try
             {
                 email.EnviarAviso(mail, "YoSoy: falta tu firma del consentimiento",
-                    "Para seguir con tu atención en YoSoy necesitamos que firmes el consentimiento informado de tratamiento y telemedicina.\n\nIngresá a tu panel de YoSoy y abrí «Consentimiento».");
+                    "Para seguir con tu atención en YoSoy necesitamos que firmes el consentimiento informado de tratamiento y telemedicina.\n\n"
+                    + (linkParaElMail is null ? "Ingresá a tu panel de YoSoy y abrí «Consentimiento»." : $"Firmalo acá: {linkParaElMail}"));
             }
             catch (Exception) { log?.LogWarning("No se pudo enviar el mail para pedir la firma del consentimiento."); }
         }

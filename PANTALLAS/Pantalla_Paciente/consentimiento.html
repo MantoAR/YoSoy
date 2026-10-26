@@ -40,6 +40,7 @@
                     <h2>Ya firmaste este consentimiento</h2>
                     <p id="detalleFirma"></p>
                     <p class="ayuda">No hace falta volver a firmarlo. Si necesitás revocarlo o tenés dudas, hablalo con tu profesional.</p>
+                    <p id="marcaProvisoriaFirmado" class="nota-borrador oculto" role="note"></p>
                 </div>
             </section>
 
@@ -53,7 +54,14 @@
                         validado por el equipo antes de usar la plataforma con pacientes reales.
                     </p>
                 </div>
+                <p id="marcaProvisoria" class="nota-borrador oculto" role="note"></p>
                 <p id="lineaVersion" class="version oculto">Versión del texto: <span id="versionTexto"></span></p>
+
+                <!-- Una persona menor de edad no firma sola: firma su madre, padre o tutor (se elige quién). -->
+                <div id="bloqueTutor" class="campo-form ui-campo oculto">
+                    <label for="selTutor">Como sos menor de edad, lo firma tu madre, padre o tutor. ¿Quién firma?</label>
+                    <select id="selTutor" class="ui-select"></select>
+                </div>
 
                 <div class="acciones">
                     <button id="btnFirmar" class="ui-btn ui-btn--primary ui-btn--lg" type="button">Leí el consentimiento y lo acepto</button>

@@ -734,6 +734,7 @@ public class UsuariosAdminBaseRealTests : IDisposable
     private (int IdPaciente, int IdProfesional1, int IdProfesional2) PacienteYDosProfesionales()
     {
         var pac = _d.Paciente();
+        _d.ConsentimientoFirmado(pac);   // sin el consentimiento de tratamiento firmado no se asigna profesional
         var esp = _d.Especialidad();
         return (pac, _d.Profesional(esp), _d.Profesional(esp));
     }
@@ -789,6 +790,7 @@ public class UsuariosAdminBaseRealTests : IDisposable
     public async Task Si_ya_habia_una_fila_con_otro_estado_la_asignacion_del_Configurador_la_confirma()
     {
         var pac = _d.Paciente();
+        _d.ConsentimientoFirmado(pac);   // sin el consentimiento de tratamiento firmado no se asigna profesional
         var esp = _d.Especialidad();
         var (pVacio, pNueva, pRechazada, pConfirmada) = (_d.Profesional(esp), _d.Profesional(esp), _d.Profesional(esp), _d.Profesional(esp));
         _d.AlLimpiar("PacienteProfesional", "IdPaciente", pac);
@@ -809,6 +811,7 @@ public class UsuariosAdminBaseRealTests : IDisposable
     public async Task El_KPI_de_pacientes_activos_y_la_lista_de_reportes_cuentan_al_paciente_asignado_por_el_Configurador()
     {
         var pac = _d.Paciente();
+        _d.ConsentimientoFirmado(pac);   // sin el consentimiento de tratamiento firmado no se asigna profesional
         var pacAdmision = _d.Paciente();
         var idProf = _d.Profesional();
         var uProf = _d.UsuarioDeProfesional(idProf);

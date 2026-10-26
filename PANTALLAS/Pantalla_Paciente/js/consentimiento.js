@@ -28,6 +28,11 @@ function fechaHora(valor) {
     return `${fecha} a las ${hora}`;
 }
 
+// El texto legal todavía no está validado por el equipo legal: la marca viene de la API (Consentimiento:MarcaProvisoria) y se quita dejándola vacía.
+function mostrarMarca(texto) {
+    ["marcaProvisoria", "marcaProvisoriaFirmado"].forEach(id => { $(id).textContent = texto || ""; $(id).classList.toggle("oculto", !texto); });
+}
+
 function mostrarFirmado(fechaFirma, version) {
     $("yaFirmado").querySelector(".firmado-icono").innerHTML = YS.icono("check");
     $("detalleFirma").textContent = `Lo firmaste el ${fechaHora(fechaFirma)}` + (versionEsReal(version) ? ` (versión del texto: ${version}).` : ".");
@@ -51,8 +56,15 @@ async function cargar() {
         const estado = await rEstado.json();
         $("paciente").textContent = `Paciente: ${p.nombre} · DNI ${p.dni}`;
 
+        mostrarMarca(estado.marcaProvisoria);
         if (estado.firmado) { mostrarFirmado(estado.fechaFirma, estado.versionFirmada); return; }
         versionTexto = estado.versionTexto;
+        // Menor de edad: lo firma un tutor. Si el texto cambió de versión, hay que volver a firmarlo.
+        const tutores = estado.esMenor ? (estado.tutores || []) : [];
+        $("bloqueTutor").classList.toggle("oculto", tutores.length === 0);
+        $("selTutor").innerHTML = tutores.map(t => `<option value="${t.idTutor}">${YS.esc(t.nombre)}${t.vinculo ? " (" + YS.esc(t.vinculo) + ")" : ""}</option>`).join("");
+        if (estado.motivo === "version-anterior") error("El texto del consentimiento cambió desde la última vez que lo firmaste. Leelo y volvé a firmarlo para seguir.");
+        else if (estado.esMenor && tutores.length === 0) error("Tu ficha no tiene cargado a ningún tutor. Pedile a Admisión que lo cargue para poder firmar.");
         $("versionTexto").textContent = versionTexto;
         $("lineaVersion").classList.toggle("oculto", !versionEsReal(versionTexto));
         mostrar("paraFirmar");
@@ -69,7 +81,7 @@ async function firmar() {
         const r = await YS.fetch(`/pacientes/${idPaciente}/consentimiento-telemedicina`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ acepto: true, version: versionTexto })
+            body: JSON.stringify({ acepto: true, version: versionTexto, idTutor: $("bloqueTutor").classList.contains("oculto") ? null : Number($("selTutor").value) })
         });
         const data = await r.json().catch(() => ({}));
         if (r.status === 201) { mostrarFirmado(data.fechaFirma, data.versionFirmada); return; }

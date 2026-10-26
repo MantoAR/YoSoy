@@ -1130,6 +1130,8 @@ app.MapGet("/profesionales/{id}/pacientes", (int id, HttpContext ctx, IdentidadA
 // clínica, así que queda en la auditoría clínica.
 app.MapPost("/pacientes/{id}/profesionales", (int id, PacienteProfesional pp, HttpContext ctx) =>
 {
+    // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se asigna profesional (ConsentimientoTratamiento; la misma decisión que RN-02).
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, id) is { } sinConsentimiento) return sinConsentimiento;
     new PacienteProfesionalDAO().Asignar(id, pp.IdProfesional);
     AuditoriaIds.Registrar(ctx, "Asignación de profesional", "PacienteProfesional", pp.IdProfesional, id);
     return Results.Ok();
@@ -2210,7 +2212,7 @@ app.MapPut("/informes-admision/{id}/estado", (int id, string estado) =>
 
 
 // ── Admision: endpoints de Admisión (roles y permisos; antes del configurador) ──
-app.MapGet("/informes-admision-detalle", () =>
+app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
 {
     // (Admisión y auditor: ver .Solo() al final de este endpoint.)
     using var con = Conexion.ObtenerConexion();
@@ -2229,11 +2231,19 @@ app.MapGet("/informes-admision-detalle", () =>
         ORDER BY ia.FechaCreacion DESC", con);
     var reader = cmd.ExecuteReader();
     var lista = new System.Collections.Generic.List<object>();
+    // Estado del consentimiento de tratamiento y telemedicina de cada paciente (la misma decisión que RN-02 y que el requisito de asignar), una consulta por paciente.
+    var opConsentimiento = ctxConsentimiento.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<ConsentimientoOptions>>().CurrentValue;
+    var consentimientoDe = new System.Collections.Generic.Dictionary<int, EstadoTratamiento>();
     while (reader.Read())
     {
+        var idPacienteFila = (int)reader["IdPaciente"];
+        if (!consentimientoDe.TryGetValue(idPacienteFila, out var estadoConsentimiento))
+            consentimientoDe[idPacienteFila] = estadoConsentimiento = ConsentimientoTratamiento.Estado(idPacienteFila, opConsentimiento);
         lista.Add(new {
             idInforme               = (int)reader["IdInforme"],
             idPaciente              = (int)reader["IdPaciente"],
+            consentimientoFirmado   = estadoConsentimiento.Vigente,
+            consentimientoMotivo    = estadoConsentimiento.Vigente ? null : estadoConsentimiento.Motivo,
             nombrePaciente          = reader["NombrePaciente"].ToString(),
             dni                     = reader["Dni"].ToString(),
             fechaNacimiento         = reader["FechaNacimiento"] == DBNull.Value ? null : ((DateTime)reader["FechaNacimiento"]).ToString("dd/MM/yyyy"),
@@ -2360,6 +2370,9 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     var idPacObj = cmdGet.ExecuteScalar();
     if (idPacObj == null) return Results.NotFound();
     int idPac = (int)idPacObj;
+
+    // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se deriva (no se asigna profesional): se rechaza ANTES de tocar el informe y se le avisa al paciente.
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, idPac) is { } sinConsentimiento) return sinConsentimiento;
 
     // Actualizar el informe
     var cmdUpd = new Microsoft.Data.SqlClient.SqlCommand(@"

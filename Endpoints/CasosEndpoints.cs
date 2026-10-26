@@ -233,6 +233,8 @@ public static class CasosEndpoints
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede confirmar una derivación." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+            // Confirmar la derivación asigna al paciente: sin consentimiento de tratamiento vigente no se hace.
+            if (SinConsentimientoDeLaDerivacion(ctx, id, conProfesional: true) is { } sinConsentimiento) return sinConsentimiento;
             try { asignacion.ConfirmarDerivacion(id, idUsuario); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
@@ -242,6 +244,7 @@ public static class CasosEndpoints
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede corregir una derivación." }, statusCode: 403);
             int? idUsuario = ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario;
+            if (SinConsentimientoDeLaDerivacion(ctx, id, conProfesional: req.IdProfesional is not null) is { } sinConsentimiento) return sinConsentimiento;
             try { asignacion.CorregirDerivacion(id, idUsuario, req.IdGrupo, req.IdProfesional); return Results.NoContent(); }
             catch (InvalidOperationException ex) { return Results.Json(new { mensaje = ex.Message }, statusCode: 409); }
         });
@@ -256,6 +259,15 @@ public static class CasosEndpoints
         });
 
         return app;
+    }
+
+    // Confirmar o corregir una derivación de caso asigna al paciente a un profesional. Si la corrección no elige profesional y no había uno sugerido, solo cambia el grupo (no asigna a nadie).
+    private static IResult? SinConsentimientoDeLaDerivacion(HttpContext ctx, int idCasoDerivacion, bool conProfesional)
+    {
+        var d = new CasoDerivacionDAO().ObtenerPorId(idCasoDerivacion);
+        if (!conProfesional && d?.IdProfesionalSugerido is null) return null;   // corregir sin profesional elegido ni sugerido: solo cambia el grupo
+        var caso = d is null ? null : new CasoDAO().ObtenerPorId(d.IdCaso);
+        return caso is null ? null : ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, caso.IdPaciente);
     }
 }
 

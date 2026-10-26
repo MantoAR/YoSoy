@@ -97,6 +97,9 @@ public static class UsuariosAdminEndpoints
             var propio = new UsuarioProfesionalDAO().ObtenerPorUsuario(yo.IdUsuario)?.IdProfesional;
             if (propio is int p && ids.Contains(p))
                 return Results.Json(new { codigo = "AUTO_ASIGNACION", mensaje = "No podés asignarte a vos mismo como profesional de un paciente." }, statusCode: 403);
+            // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se asigna profesional.
+            // (A un paciente inactivo no se le asigna por otra razón, que responde el DAO: acá el rechazo es el de «inactivo».)
+            if (new PacienteDAO().ObtenerPorId(id) is { Estado: "Activo" } && ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, id) is { } sinConsentimiento) return sinConsentimiento;
             return Responder(new AsignacionAdminDAO().Asignar(id, ids, yo.IdUsuario, yo.Modulo ?? yo.Rol), "asignados");
         }).Solo(Quien.Configurador).RequireRateLimiting(UsuariosAdminServiceCollectionExtensions.PoliticaAsignar);
 

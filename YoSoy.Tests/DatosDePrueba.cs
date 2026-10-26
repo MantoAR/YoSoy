@@ -183,6 +183,13 @@ public sealed class DatosDePrueba : IDisposable
             "INSERT INTO Paciente (Nombre, Dni, Estado, Mail) VALUES (@n, @d, @e, @m); SELECT CAST(SCOPE_IDENTITY() AS INT);",
             ("@n", nombre ?? "Paciente " + Marca), ("@d", Unico()), ("@e", estado), ("@m", mail));
 
+    /// <summary>Deja firmado y vigente el consentimiento de tratamiento y telemedicina (el que se exige para asignar un profesional) con la configuración por defecto. Se borra con el paciente.</summary>
+    public void ConsentimientoFirmado(int idPaciente)
+    {
+        var op = new ConsentimientoOptions();
+        new ConsentimientoDAO().FirmarSiNoExiste(idPaciente, op.TipoRequerido, op.VersionTexto, DateTime.Now);
+    }
+
     public int Profesional(int? idEspecialidad = null, string estado = "Activo", string? nombre = null) =>
         Insertar("Profesional", "IdProfesional",
             @"INSERT INTO Profesional (Nombre, Apellido, Matricula, IdEspecialidad, Estado, Mail)

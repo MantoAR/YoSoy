@@ -1319,6 +1319,7 @@ async function admisiones() {
             { titulo: "Especialidad", html: a => celda(a.especialidad), orden: a => a.especialidad || "" },
             { titulo: "Fecha", html: a => celda(a.fechaCreacion) },
             { titulo: "Estado", html: a => `<span class="ui-chip ui-chip--${tono[a.estado] || "neutral"}">${YS.esc(a.estado)}</span>`, orden: a => a.estado },
+            { titulo: "Consentimiento", html: a => a.consentimientoFirmado ? '<span class="ui-chip ui-chip--ok">Firmado</span>' : '<span class="ui-chip ui-chip--warn">Pendiente</span>', orden: a => a.consentimientoFirmado ? 1 : 0 },
             { titulo: "", clase: "acciones", html: a => `<button class="ui-btn ui-btn--sm" onclick="verAdmision(${a.idInforme})">Ver informe</button>` }
         ]
     });
@@ -1350,6 +1351,7 @@ function verAdmision(idInforme) {
     if (esEntrevista) {
         acciones = '<div class="caja-accion">' +
             '<h4>Derivar al profesional</h4>' +
+            (a.consentimientoFirmado ? '' : '<p class="ui-alerta ui-alerta--warn mb-12"><span><strong>Consentimiento de tratamiento pendiente:</strong> el paciente todavía no lo firmó. No se puede derivar hasta que lo firme; al intentar derivar se le avisa en su panel.</span></p>') +
             (a.estado === "Rechazado" ? '<p class="ui-alerta ui-alerta--danger mb-12"><span><strong>Rechazado por el profesional anterior:</strong> ' + YS.esc(a.motivoRechazo || "Sin motivo") + '</span></p>' : '') +
             '<p class="texto-chico mb-4">Entrevista programada: ' + YS.esc(a.fechaEntrevista || "-") + '</p>' +
             '<p class="mb-12">Código de sala: <strong class="codigo-sala">' + YS.esc(a.codigoSala || "-") + '</strong> <button onclick="iniciarEntrevistaVideo(\'' + a.codigoSala + '\')" class="ui-btn ui-btn--sm ui-btn--suave">Iniciar entrevista</button></p>' +

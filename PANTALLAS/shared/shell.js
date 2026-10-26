@@ -479,7 +479,10 @@
                     noLeidos: lista.filter(n => n.leida === false).length,
                     items: lista.map(n => ({
                         id: n.idNotificacion, titulo: n.titulo, texto: n.mensaje, fecha: n.fecha, noLeido: n.leida === false,
-                        accion: n.link ? { texto: "Unirse / Ver sala", alClick: () => unirseSala(n.link, n.idNotificacion) } : null
+                        // Un link que es una página (el aviso de firmar el consentimiento) se abre tal cual; el resto es el código de una sala.
+                        accion: !n.link ? null : n.link.startsWith("/")
+                            ? { texto: "Firmar consentimiento", alClick: () => abrirAviso(n.link, n.idNotificacion) }
+                            : { texto: "Unirse / Ver sala", alClick: () => unirseSala(n.link, n.idNotificacion) }
                     }))
                 };
             },
@@ -534,6 +537,11 @@
     };
 
     const fechaDMY = s => { const [d, m, a] = String(s).split("/").map(Number); return new Date(a, m - 1, d); };
+
+    async function abrirAviso(ruta, idNotif) {
+        try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
+        location.href = ruta;
+    }
 
     async function unirseSala(codigo, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
