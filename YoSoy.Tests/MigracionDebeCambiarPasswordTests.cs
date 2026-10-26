@@ -2,7 +2,7 @@ using System.Data;
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 
-// Migración 24 (add_debe_cambiar_password.sql) ensayada en una base DESCARTABLE con la forma de producción: 54 tablas (sin la de la migración 16), con la
+// Migración 24 (add_debe_cambiar_password.sql) ensayada en una base DESCARTABLE con la forma de producción: 55 tablas (sin la de la migración 16), con la
 // 17, y sin la 24 (la prueba desregistra lo que el esquema consolidado ya trae). Se crea con docs/produccion/01-produccion.sql con otro nombre y se borra al
 // terminar: no toca yosoy_test, donde corre el resto de la suite en paralelo.
 [Trait("Categoria", "Integracion")]
@@ -34,9 +34,9 @@ public class MigracionDebeCambiarPasswordTests
                 using var cmd = new SqlCommand(lote, con) { CommandTimeout = 120 };
                 cmd.ExecuteNonQuery();
             }
-            // La forma de producción ANTES de la 24: sin la tabla de la migración 16 (54 tablas) y sin la columna ni su versión.
+            // La forma de producción ANTES de la 24: sin la tabla de la migración 16 (55 tablas) y sin la columna ni su versión.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
-            // El esquema consolidado ya trae la 27 (tabla AltaClinica), posterior a la 24: se saca para que la forma de producción siga siendo de 54 tablas.
+            // El esquema consolidado ya trae la 27 (tabla AltaClinica), posterior a la 24: se saca para que la forma de producción siga siendo de 55 tablas.
             foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
             Ejecutar("ALTER TABLE Usuario DROP CONSTRAINT DF_Usuario_DebeCambiarPassword");
             Ejecutar("ALTER TABLE Usuario DROP COLUMN DebeCambiarPassword");
@@ -99,7 +99,7 @@ public class MigracionDebeCambiarPasswordTests
     {
         using var b = new BaseDeProduccion();
         ConUsuarios(b);
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.False(b.ExisteColumna());
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 24"));
         var marcador = VerificadorEsquema.Migraciones.Single(m => m.Numero == 24).Marcador;
@@ -108,7 +108,7 @@ public class MigracionDebeCambiarPasswordTests
         b.Correr("migrations/add_debe_cambiar_password.sql");
 
         Assert.True(b.ExisteColumna());
-        Assert.Equal(54, b.Tablas());                                                              // solo una columna: ninguna tabla nueva
+        Assert.Equal(55, b.Tablas());                                                              // solo una columna: ninguna tabla nueva
         Assert.Equal(1, b.Escalar<int>($"SELECT CASE WHEN {marcador} THEN 1 ELSE 0 END"));       // y ahora el verificador la da por aplicada
         // BIT NOT NULL, con la restricción por defecto en cero.
         Assert.Equal(0, b.Escalar<int>("SELECT is_nullable FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Usuario') AND name = 'DebeCambiarPassword'"));
@@ -138,7 +138,7 @@ public class MigracionDebeCambiarPasswordTests
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 24"));
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Usuario') AND name = 'DebeCambiarPassword'"));
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM Usuario WHERE DebeCambiarPassword = 1"));   // no pisa lo que ya estaba
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class MigracionDebeCambiarPasswordTests
         Assert.False(b.ExisteColumna());
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM sys.default_constraints WHERE name = 'DF_Usuario_DebeCambiarPassword'"));
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 24"));
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(3, b.Escalar<int>("SELECT COUNT(*) FROM Usuario WHERE PasswordHash LIKE 'HASH-%'"));   // ningún dato de las cuentas se perdió
 
         b.Correr("docs/produccion/deshacer-migracion-24.sql");           // también idempotente

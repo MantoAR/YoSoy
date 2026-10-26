@@ -271,13 +271,6 @@ ver y escuchar en vivo; mientras dura la sesión queda un recordatorio. **El tex
 provisorio"): no es el consentimiento informado de la atención ni el de la lectura de emociones. Este último es un panel
 aparte, con su propio texto (también provisorio): ver "Lectura de emociones: consentimiento y datos sensibles".
 
-### Transcripción (apagada)
-
-`YS.video.FLAGS.transcripcion` es `false` y no se prende desde la URL ni desde el navegador: se cambia en el código, en
-una revisión. Con la bandera apagada la pantalla del profesional ni muestra la tarjeta de transcripción (el
-reconocimiento de voz del navegador manda el audio a servidores externos en Chrome; la decisión sigue pendiente: no se
-trató en el PR 6). La lectura de emociones, en cambio, ahora pide consentimiento: ver la sección siguiente.
-
 ### Probar en una máquina
 
 ```powershell
@@ -572,7 +565,6 @@ normas ni una afirmación de que alguna se cumpla; las referencias son las que s
     publicado no se edita**.
 11. **El texto del registro de cuenta.** El consentimiento de `crear_cuenta.html` menciona **"grabaciones"**, que no
     existen (la videollamada no se graba). **No se editó**: queda como pendiente para el abogado.
-12. **La transcripción.** Sigue apagada (ver arriba). Si algún día se prende, necesita su propio consentimiento.
 
 ### Límites que conviene tener presentes
 
@@ -734,7 +726,7 @@ fijas, porque la cámara falsa no tiene rostro.
 - **Consentimiento, cifrado y retención** (PR 6): implementado. **Falta la validación legal** del texto, del plazo de
   conservación y del trato de los menores (lista en "Qué hay que verificar con el equipo legal"), y completar las tres
   marcas del texto. Antes de desplegar la API hay que aplicar la migración y generar la clave de cifrado (ver
-  [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md), "Paso f0"). La transcripción sigue apagada y sin decisión.
+  [`DESPLIEGUE_VIDEO.md`](DESPLIEGUE_VIDEO.md), "Paso f0").
 - **Sin verificar con un despliegue real.** La sala se probó en `http://localhost` con Chromium y Firefox, una máquina y
   cámara y micrófono falsos, con la API y la señalización reales. Falta: cámaras y micrófonos físicos, TURN y el relay
   (la configuración de coturn está escrita pero no se corrió con un coturn real), redes y NAT distintos, Safari y celulares,

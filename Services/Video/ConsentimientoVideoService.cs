@@ -72,7 +72,7 @@ public class ConsentimientoVideoService
 
         var texto = _textos.Actual();
         var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto);
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
         return Ok(Vista(ultimo, disponible, motivo, texto, conTexto: disponible));
     }
 
@@ -93,7 +93,7 @@ public class ConsentimientoVideoService
         if (!string.Equals(version, texto!.Version, StringComparison.Ordinal))
             return Error(TipoResultado.Conflicto, "version-desactualizada", "El texto del consentimiento cambió. Volvé a leerlo antes de decidir.");
 
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
 
         // Para dejar de compartir hay una operación propia, que además anula lo ya guardado.
         if (d == Rechaza && ultimo is { EsAceptacionVigente: true })
@@ -104,7 +104,7 @@ public class ConsentimientoVideoService
             return Ok(Vista(ultimo, true, null, texto, conTexto: false));
 
         var ahora = _reloj.GetUtcNow().UtcDateTime;
-        var fila = _repo.Insertar(yo.IdUsuario, ses.IdPaciente, ses.Origen, ses.Id, texto.Version, texto.Hash, d, ahora);
+        var fila = _repo.Insertar(yo.IdUsuario, ses.IdPaciente, ses.Origen, ses.Id, texto.Version, texto.Hash, d, ahora, ConsentimientoVideoFila.Emociones);
         _auditoria.Consentimiento(yo.IdUsuario, ses.Origen, ses.Id, d, texto.Version, fila.IdConsentimientoVideo);
         return Ok(Vista(fila, true, null, texto, conTexto: false));
     }
@@ -118,7 +118,7 @@ public class ConsentimientoVideoService
         if (ValidarPaciente(yo, origen, id, exigirVentana: false, out var ses) is { } rechazo) return rechazo;
 
         var texto = _textos.Actual();
-        var ultimo = _repo.Ultimo(ses!.Origen, ses.Id, ses.IdPaciente);
+        var ultimo = _repo.Ultimo(ses!.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
         var ahora = _reloj.GetUtcNow().UtcDateTime;
 
         if (ultimo is { EsAceptacionVigente: true })
@@ -127,7 +127,7 @@ public class ConsentimientoVideoService
             {
                 var anuladas = _repo.AnularEmocionesDeLaSesion(ses.Origen, ses.Id, ses.IdPaciente, "revocacion", ahora);
                 _auditoria.Consentimiento(yo.IdUsuario, ses.Origen, ses.Id, "revoca", ultimo.VersionTexto, ultimo.IdConsentimientoVideo, anuladas);
-                ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
+                ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
             }
         }
         else if (ultimo is { Decision: ConsentimientoVideoFila.Acepta })
@@ -164,7 +164,7 @@ public class ConsentimientoVideoService
         if (!disponible)
             return Permitido(Armar(false, NoDisponible, motivoNoDisponible, null));
 
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
         var estado = EstadoDe(ultimo);
         return Permitido(Armar(estado == Acepta, estado, estado == Acepta || estado == SinDecision ? null : estado, ultimo));
     }

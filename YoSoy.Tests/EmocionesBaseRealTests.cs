@@ -38,10 +38,11 @@ public static class BaseDeConsentimiento
             using var cmd = new SqlCommand(@"
                 SELECT CASE WHEN OBJECT_ID('dbo.ConsentimientoVideo', 'U') IS NOT NULL
                              AND COL_LENGTH('dbo.SesionClinica', 'IdConsentimientoVideo') IS NOT NULL
-                             AND COL_LENGTH('dbo.SesionClinica', 'EmocionesAnuladasUtc') IS NOT NULL THEN 1 ELSE 0 END", con);
+                             AND COL_LENGTH('dbo.SesionClinica', 'EmocionesAnuladasUtc') IS NOT NULL
+                             AND COL_LENGTH('dbo.ConsentimientoVideo', 'Finalidad') IS NOT NULL THEN 1 ELSE 0 END", con);
             return (int)cmd.ExecuteScalar()! == 1
                 ? null
-                : "La base no tiene la migración migrations/add_consentimiento_video.sql (aplicala con sqlcmd para correr estas pruebas).";
+                : "La base no tiene las migraciones migrations/add_consentimiento_video.sql y migrations/add_transcripcion_local.sql (aplicalas con sqlcmd para correr estas pruebas).";
         }
         catch (Exception e)
         {
@@ -189,6 +190,7 @@ public sealed class DatosEmociones : IDisposable
         // En el orden de las claves foráneas. Todo lo de esta prueba, y nada más.
         // La auditoría es de solo agregar (migración 19): no se borra lo que dejó la API. Un usuario que actuó (tiene filas en
         // LogAuditoria) no se puede borrar (FK_LogAuditoria_Usuario) y queda en la base de pruebas, con la marca; ver más abajo.
+        Intentar("DELETE FROM TranscripcionSesion WHERE IdConsentimientoVideo IN (SELECT IdConsentimientoVideo FROM ConsentimientoVideo WHERE IdPaciente = @P)", ("@P", IdPaciente));
         Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM ConsentimientoVideo WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM InformeAdmision WHERE IdPaciente = @P", ("@P", IdPaciente));
@@ -317,9 +319,9 @@ public class EmocionesBaseRealTests
         var dao = new ConsentimientoVideoDAO();
         var t0 = new DateTime(2031, 3, 4, 10, 0, 0, 123, DateTimeKind.Utc);
 
-        var rechazo = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "rechaza", t0);
-        var acepta = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('b', 64), "acepta", t0.AddMinutes(1));
-        var ultimo = dao.Ultimo("turno", d.IdTurno, d.IdPaciente)!;
+        var rechazo = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "rechaza", t0, ConsentimientoVideoFila.Emociones);
+        var acepta = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('b', 64), "acepta", t0.AddMinutes(1), ConsentimientoVideoFila.Emociones);
+        var ultimo = dao.Ultimo("turno", d.IdTurno, d.IdPaciente, ConsentimientoVideoFila.Emociones)!;
 
         Assert.True(acepta.IdConsentimientoVideo > rechazo.IdConsentimientoVideo);
         Assert.Equal(acepta.IdConsentimientoVideo, ultimo.IdConsentimientoVideo);
@@ -329,7 +331,7 @@ public class EmocionesBaseRealTests
         Assert.Equal(DateTimeKind.Utc, ultimo.DecididoUtc.Kind);
         Assert.Null(ultimo.RevocadoUtc);
         Assert.True(ultimo.EsAceptacionVigente);
-        Assert.Null(dao.Ultimo("turno", d.IdTurno + 1000, d.IdPaciente));   // otra sesión: nada
+        Assert.Null(dao.Ultimo("turno", d.IdTurno + 1000, d.IdPaciente, ConsentimientoVideoFila.Emociones));   // otra sesión: nada
     }
 
     [FactConBaseDeConsentimiento]
@@ -338,20 +340,20 @@ public class EmocionesBaseRealTests
         using var d = new DatosEmociones(salida: _salida);
         var dao = new ConsentimientoVideoDAO();
         var t0 = new DateTime(2031, 3, 4, 10, 0, 0, DateTimeKind.Utc);
-        var fila = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v", new string('c', 64), "acepta", t0);
+        var fila = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v", new string('c', 64), "acepta", t0, ConsentimientoVideoFila.Emociones);
 
         // Un reloj corrido hacia atrás no rompe la restricción: se usa la hora de la decisión.
         Assert.True(dao.Revocar(fila.IdConsentimientoVideo, t0.AddSeconds(-30)));
-        var revocada = dao.Ultimo("turno", d.IdTurno, d.IdPaciente)!;
+        var revocada = dao.Ultimo("turno", d.IdTurno, d.IdPaciente, ConsentimientoVideoFila.Emociones)!;
         Assert.Equal(t0, revocada.RevocadoUtc);
         Assert.False(revocada.EsAceptacionVigente);
 
         // Una segunda vez no cambia nada.
         Assert.False(dao.Revocar(fila.IdConsentimientoVideo, t0.AddHours(1)));
-        Assert.Equal(t0, dao.Ultimo("turno", d.IdTurno, d.IdPaciente)!.RevocadoUtc);
+        Assert.Equal(t0, dao.Ultimo("turno", d.IdTurno, d.IdPaciente, ConsentimientoVideoFila.Emociones)!.RevocadoUtc);
 
         // Un rechazo no se revoca.
-        var rechazo = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v", new string('d', 64), "rechaza", t0.AddMinutes(1));
+        var rechazo = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v", new string('d', 64), "rechaza", t0.AddMinutes(1), ConsentimientoVideoFila.Emociones);
         Assert.False(dao.Revocar(rechazo.IdConsentimientoVideo, t0.AddMinutes(2)));
     }
 
@@ -372,6 +374,74 @@ public class EmocionesBaseRealTests
         Assert.True(conTutor.TieneTutor);
         Assert.Null(sinFecha.FechaNacimiento);
         Assert.Null(dao.ObtenerDatosPaciente(-1));
+    }
+
+    [FactConBaseDeConsentimiento]
+    public void La_Finalidad_separa_el_consentimiento_de_emociones_del_de_grabacion()
+    {
+        using var d = new DatosEmociones(salida: _salida);
+        var dao = new ConsentimientoVideoDAO();
+        var ahora = DateTime.UtcNow;
+
+        var emociones = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "acepta", ahora, ConsentimientoVideoFila.Emociones);
+        var grabacion = dao.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('b', 64), "acepta", ahora.AddSeconds(1), ConsentimientoVideoFila.Grabacion);
+
+        var ultimoEmociones = dao.Ultimo("turno", d.IdTurno, d.IdPaciente, ConsentimientoVideoFila.Emociones)!;
+        var ultimoGrabacion = dao.Ultimo("turno", d.IdTurno, d.IdPaciente, ConsentimientoVideoFila.Grabacion)!;
+
+        Assert.Equal(emociones.IdConsentimientoVideo, ultimoEmociones.IdConsentimientoVideo);
+        Assert.Equal(grabacion.IdConsentimientoVideo, ultimoGrabacion.IdConsentimientoVideo);
+        Assert.Equal(ConsentimientoVideoFila.Emociones, ultimoEmociones.Finalidad);
+        Assert.Equal(ConsentimientoVideoFila.Grabacion, ultimoGrabacion.Finalidad);
+    }
+
+    // ───────────── TranscripcionSesionDAO ─────────────
+
+    [FactConBaseDeConsentimiento]
+    public void El_DAO_de_TranscripcionSesion_recorre_el_ciclo_de_vida_completo()
+    {
+        using var d = new DatosEmociones(salida: _salida);
+        var consentimientos = new ConsentimientoVideoDAO();
+        var transcripciones = new TranscripcionSesionDAO();
+        var consentimiento = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('c', 64), "acepta", DateTime.UtcNow, ConsentimientoVideoFila.Grabacion);
+
+        var creada = transcripciones.Crear("turno", d.IdTurno, consentimiento.IdConsentimientoVideo, 1000, 2000);
+        Assert.Equal("grabando", creada.Estado);
+        Assert.Null(creada.IdSesion);
+        Assert.Equal(1000, creada.InicioPistaProfesionalMs);
+        Assert.Equal(2000, creada.InicioPistaPacienteMs);
+
+        var activa = transcripciones.ObtenerActiva("turno", d.IdTurno)!;
+        Assert.Equal(creada.IdTranscripcion, activa.IdTranscripcion);
+
+        var idSesion = d.InsertarSesion(DatosEmociones.Fecha + DatosEmociones.Hora, emociones: null, idConsentimiento: consentimiento.IdConsentimientoVideo);
+        Assert.True(transcripciones.VincularSesion(creada.IdTranscripcion, idSesion));
+        Assert.False(transcripciones.VincularSesion(creada.IdTranscripcion, idSesion));
+
+        var vinculada = transcripciones.ObtenerPorSesion(idSesion)!;
+        Assert.Equal("pendiente", vinculada.Estado);
+        Assert.Null(transcripciones.ObtenerActiva("turno", d.IdTurno));
+
+        var tomada = transcripciones.TomarSiguientePendiente();
+        Assert.NotNull(tomada);
+        Assert.Equal(creada.IdTranscripcion, tomada!.IdTranscripcion);
+        Assert.Equal("procesando", tomada.Estado);
+        Assert.Equal(1, tomada.Intentos);
+
+        Assert.Equal(1, transcripciones.ReencolarProcesando());
+        var reencolada = transcripciones.ObtenerPorSesion(idSesion)!;
+        Assert.Equal("pendiente", reencolada.Estado);
+
+        var tomadaOtraVez = transcripciones.TomarSiguientePendiente()!;
+        Assert.Equal(creada.IdTranscripcion, tomadaOtraVez.IdTranscripcion);
+        Assert.Equal(2, tomadaOtraVez.Intentos);
+
+        Assert.True(transcripciones.CambiarEstado(tomadaOtraVez.IdTranscripcion, "lista", duracionAudioSeg: 120, duracionProcesoSeg: 30, modelo: "small"));
+        var lista = transcripciones.ObtenerPorSesion(idSesion)!;
+        Assert.Equal("lista", lista.Estado);
+        Assert.Equal(120, lista.DuracionAudioSeg);
+        Assert.Equal(30, lista.DuracionProcesoSeg);
+        Assert.Equal("small", lista.Modelo);
     }
 
     // ───────────── Punta a punta con la aplicación real ─────────────
@@ -755,8 +825,8 @@ public class EmocionesBaseRealTests
         using var d = new DatosEmociones(salida: _salida);
         var consentimientos = new ConsentimientoVideoDAO();
         var ahora = DateTime.UtcNow;
-        var vigente = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "acepta", ahora);
-        var revocado = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('b', 64), "acepta", ahora.AddSeconds(1));
+        var vigente = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('a', 64), "acepta", ahora, ConsentimientoVideoFila.Emociones);
+        var revocado = consentimientos.Insertar(d.IdUsuarioPaciente, d.IdPaciente, "turno", d.IdTurno, "v0-provisorio", new string('b', 64), "acepta", ahora.AddSeconds(1), ConsentimientoVideoFila.Emociones);
         Assert.True(consentimientos.Revocar(revocado.IdConsentimientoVideo, ahora.AddSeconds(2)));
         var dao = new SesionClinicaDAO();
         SesionClinica Sesion(int? idConsentimiento, string notas) => new()

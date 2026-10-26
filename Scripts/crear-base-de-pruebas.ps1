@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Arma una copia temporal de docs\produccion\01-produccion.sql con el nombre de la base reemplazado (el original no se
-    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 56 tablas (55 con
+    toca), la ejecuta con sqlcmd contra la instancia indicada y comprueba que la base quede con 57 tablas (56 con
     -SinConsentimientoWhatsApp).
 
     Se niega a:
@@ -25,7 +25,7 @@
     Nombre de la base a crear. Por defecto, yosoy_test. Letras, números y guion bajo; no puede ser "yosoy".
 
 .PARAMETER SinConsentimientoWhatsApp
-    Después de armar el esquema borra la tabla ConsentimientoWhatsApp (la de la migración 16): la base queda con 55 tablas,
+    Después de armar el esquema borra la tabla ConsentimientoWhatsApp (la de la migración 16): la base queda con 56 tablas,
     como está producción mientras no se aplique esa migración. Sirve para comprobar que la API anda sin esa tabla con la
     llave Mensajeria:AvisosPorWhatsApp apagada (la de por defecto):
         .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_44 -SinConsentimientoWhatsApp
@@ -44,7 +44,7 @@
 .PARAMETER SinMigracion25
     Después de armar el esquema deshace la migración 25 (el interruptor de IA por conversación de Chats v2): borra la restricción por defecto y la columna
     Conversacion.IaActiva y la fila 25 de VersionEsquema. La base queda como producción mientras no se aplique esa migración (con -SinConsentimientoWhatsApp es la
-    FORMA DE PRODUCCIÓN: 54 tablas, versión 24). Sirve para ensayar migrations\add_conversacion_ia.sql y su deshacer, y para comprobar que la API anda sin la columna:
+    FORMA DE PRODUCCIÓN: 55 tablas, versión 24). Sirve para ensayar migrations\add_conversacion_ia.sql y su deshacer, y para comprobar que la API anda sin la columna:
         .\Scripts\crear-base-de-pruebas.ps1 -Base yosoy_test_prod -SinConsentimientoWhatsApp -SinMigracion25
         .\Scripts\correr-tests.ps1 -Base yosoy_test_prod -Filtro 'Migracion!=25&Tabla!=ConsentimientoWhatsApp'
     Solo toca la base que este mismo comando acaba de crear.
@@ -73,7 +73,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TablasEsperadas = if ($SinConsentimientoWhatsApp) { 55 } else { 56 }
+$TablasEsperadas = if ($SinConsentimientoWhatsApp) { 56 } else { 57 }
 
 # ── 1) Guardas que no necesitan SQL Server: si alguna falla, no se toca nada ─────────────────────────────────────────
 if (-not $PSScriptRoot) { throw 'Ejecutá el archivo (por ejemplo: .\Scripts\crear-base-de-pruebas.ps1), no pegues su contenido en la consola.' }

@@ -5,32 +5,33 @@ using Microsoft.Data.SqlClient;
 // migrations/add_consentimiento_video.sql). Las fechas son UTC y se guardan como DATETIME2(3).
 public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
 {
-    public ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente)
+    public ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente, string finalidad)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(@"
             SELECT TOP 1 IdConsentimientoVideo, IdUsuario, IdPaciente, Origen, IdOrigen, VersionTexto, HashTexto,
-                         Decision, DecididoUtc, RevocadoUtc
+                         Decision, DecididoUtc, RevocadoUtc, Finalidad
             FROM ConsentimientoVideo
-            WHERE Origen = @Origen AND IdOrigen = @IdOrigen AND IdPaciente = @IdPaciente
+            WHERE Origen = @Origen AND IdOrigen = @IdOrigen AND IdPaciente = @IdPaciente AND Finalidad = @Finalidad
             ORDER BY IdConsentimientoVideo DESC", con);
         cmd.Parameters.AddWithValue("@Origen", origen);
         cmd.Parameters.AddWithValue("@IdOrigen", idOrigen);
         cmd.Parameters.AddWithValue("@IdPaciente", idPaciente);
+        cmd.Parameters.AddWithValue("@Finalidad", finalidad);
         using var r = cmd.ExecuteReader();
         return r.Read() ? Mapear(r) : null;
     }
 
     public ConsentimientoVideoFila Insertar(int idUsuario, int idPaciente, string origen, int idOrigen,
-        string versionTexto, string hashTexto, string decision, DateTime decididoUtc)
+        string versionTexto, string hashTexto, string decision, DateTime decididoUtc, string finalidad)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(@"
-            INSERT INTO ConsentimientoVideo (IdUsuario, IdPaciente, Origen, IdOrigen, VersionTexto, HashTexto, Decision, DecididoUtc)
+            INSERT INTO ConsentimientoVideo (IdUsuario, IdPaciente, Origen, IdOrigen, VersionTexto, HashTexto, Decision, DecididoUtc, Finalidad)
             OUTPUT INSERTED.IdConsentimientoVideo
-            VALUES (@IdUsuario, @IdPaciente, @Origen, @IdOrigen, @VersionTexto, @HashTexto, @Decision, @DecididoUtc)", con);
+            VALUES (@IdUsuario, @IdPaciente, @Origen, @IdOrigen, @VersionTexto, @HashTexto, @Decision, @DecididoUtc, @Finalidad)", con);
         cmd.Parameters.AddWithValue("@IdUsuario", idUsuario);
         cmd.Parameters.AddWithValue("@IdPaciente", idPaciente);
         cmd.Parameters.AddWithValue("@Origen", origen);
@@ -39,8 +40,9 @@ public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
         cmd.Parameters.AddWithValue("@HashTexto", hashTexto);
         cmd.Parameters.AddWithValue("@Decision", decision);
         cmd.Parameters.Add("@DecididoUtc", SqlDbType.DateTime2).Value = decididoUtc;
+        cmd.Parameters.AddWithValue("@Finalidad", finalidad);
         var id = (int)cmd.ExecuteScalar()!;
-        return new ConsentimientoVideoFila(id, idUsuario, idPaciente, origen, idOrigen, versionTexto, hashTexto, decision, decididoUtc, null);
+        return new ConsentimientoVideoFila(id, idUsuario, idPaciente, origen, idOrigen, versionTexto, hashTexto, decision, decididoUtc, null, finalidad);
     }
 
     public bool Revocar(int idConsentimientoVideo, DateTime revocadoUtc)
@@ -68,7 +70,8 @@ public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
             SET HistorialEmociones = NULL, EmocionesAnuladasUtc = @Ahora, EmocionesAnuladasMotivo = @Motivo
             WHERE HistorialEmociones IS NOT NULL
               AND IdConsentimientoVideo IN (SELECT IdConsentimientoVideo FROM ConsentimientoVideo
-                                            WHERE Origen = @Origen AND IdOrigen = @IdOrigen AND IdPaciente = @IdPaciente)", con);
+                                            WHERE Origen = @Origen AND IdOrigen = @IdOrigen AND IdPaciente = @IdPaciente
+                                              AND Finalidad = 'emociones')", con);
         cmd.Parameters.AddWithValue("@Origen", origen);
         cmd.Parameters.AddWithValue("@IdOrigen", idOrigen);
         cmd.Parameters.AddWithValue("@IdPaciente", idPaciente);
@@ -98,5 +101,6 @@ public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
         (int)r["IdConsentimientoVideo"], (int)r["IdUsuario"], (int)r["IdPaciente"], (string)r["Origen"], (int)r["IdOrigen"],
         (string)r["VersionTexto"], ((string)r["HashTexto"]).Trim(), (string)r["Decision"],
         DateTime.SpecifyKind((DateTime)r["DecididoUtc"], DateTimeKind.Utc),
-        r["RevocadoUtc"] == DBNull.Value ? null : DateTime.SpecifyKind((DateTime)r["RevocadoUtc"], DateTimeKind.Utc));
+        r["RevocadoUtc"] == DBNull.Value ? null : DateTime.SpecifyKind((DateTime)r["RevocadoUtc"], DateTimeKind.Utc),
+        (string)r["Finalidad"]);
 }

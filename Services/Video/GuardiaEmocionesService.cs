@@ -76,7 +76,7 @@ public class GuardiaEmocionesService
         var (disponible, motivoNoDisponible) = _consentimiento.Disponibilidad(ses.IdPaciente, _textos.Actual());
         if (!disponible) return Descartada(motivoNoDisponible!, origen, id);
 
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
         switch (ConsentimientoVideoService.EstadoDe(ultimo))
         {
             case ConsentimientoVideoService.SinDecision: return Descartada("sin-consentimiento", origen, id);

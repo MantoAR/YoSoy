@@ -19,13 +19,6 @@
     "use strict";
     const YS = window.YS = window.YS || {};
 
-    // ── Funciones que existen pero están apagadas ───────────────
-    // Se encienden cambiando el valor acá, en una revisión del código; no hay forma de prenderlas desde la URL ni
-    // desde el navegador de quien usa la pantalla.
-    //   transcripcion: el reconocimiento de voz del navegador (Web Speech). En Chrome manda el audio a servidores
-    //   de Google, así que no se ofrece hasta resolver la privacidad y el consentimiento (PR 6).
-    const FLAGS = Object.freeze({ transcripcion: false });
-
     // ── Dónde está la señalización ──────────────────────────────
     // Producción: Caddy manda /socket.io/ del mismo dominio al proceso de señalización, así
     // que alcanza con el origen de la página (https → wss). Desarrollo: la API sirve las
@@ -499,7 +492,7 @@
     }
 
     YS.video = {
-        SIGNAL, FLAGS, mensajeMedios, conexionActiva,
+        SIGNAL, mensajeMedios, conexionActiva,
         sesionDeCodigo, sesionDeLaUrl, mensajeAcceso, pedirAcceso, entrar
     };
 })();

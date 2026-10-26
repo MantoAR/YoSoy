@@ -368,9 +368,32 @@ CREATE TABLE [dbo].[ConsentimientoVideo](
     [Decision] [nvarchar](10) NOT NULL,
     [DecididoUtc] [datetime2](3) NOT NULL CONSTRAINT [DF_ConsentimientoVideo_DecididoUtc] DEFAULT (sysutcdatetime()),
     [RevocadoUtc] [datetime2](3) NULL,
+    [Finalidad] [nvarchar](12) NOT NULL CONSTRAINT [DF_ConsentimientoVideo_Finalidad] DEFAULT ('emociones'),
     CONSTRAINT [CK_ConsentimientoVideo_Origen] CHECK ([Origen] IN ('turno', 'admision')),
     CONSTRAINT [CK_ConsentimientoVideo_Decision] CHECK ([Decision] IN ('acepta', 'rechaza')),
-    CONSTRAINT [CK_ConsentimientoVideo_Revocacion] CHECK ([RevocadoUtc] IS NULL OR ([Decision] = 'acepta' AND [RevocadoUtc] >= [DecididoUtc]))
+    CONSTRAINT [CK_ConsentimientoVideo_Revocacion] CHECK ([RevocadoUtc] IS NULL OR ([Decision] = 'acepta' AND [RevocadoUtc] >= [DecididoUtc])),
+    CONSTRAINT [CK_ConsentimientoVideo_Finalidad] CHECK ([Finalidad] IN ('emociones', 'grabacion'))
+);
+GO
+
+CREATE TABLE [dbo].[TranscripcionSesion](
+    [IdTranscripcion] [int] IDENTITY(1,1) NOT NULL CONSTRAINT [PK_TranscripcionSesion] PRIMARY KEY,
+    [IdSesion] [int] NULL,
+    [Origen] [nvarchar](10) NOT NULL,
+    [IdOrigen] [int] NOT NULL,
+    [IdConsentimientoVideo] [int] NOT NULL,
+    [Estado] [nvarchar](12) NOT NULL CONSTRAINT [DF_TranscripcionSesion_Estado] DEFAULT ('grabando'),
+    [Intentos] [int] NOT NULL CONSTRAINT [DF_TranscripcionSesion_Intentos] DEFAULT (0),
+    [Error] [nvarchar](400) NULL,
+    [InicioPistaProfesionalMs] [bigint] NULL,
+    [InicioPistaPacienteMs] [bigint] NULL,
+    [Modelo] [nvarchar](40) NULL,
+    [DuracionAudioSeg] [int] NULL,
+    [DuracionProcesoSeg] [int] NULL,
+    [CreadoUtc] [datetime2](3) NOT NULL CONSTRAINT [DF_TranscripcionSesion_CreadoUtc] DEFAULT (sysutcdatetime()),
+    [ActualizadoUtc] [datetime2](3) NOT NULL CONSTRAINT [DF_TranscripcionSesion_ActualizadoUtc] DEFAULT (sysutcdatetime()),
+    CONSTRAINT [CK_TranscripcionSesion_Origen] CHECK ([Origen] IN ('turno', 'admision')),
+    CONSTRAINT [CK_TranscripcionSesion_Estado] CHECK ([Estado] IN ('grabando', 'pendiente', 'procesando', 'lista', 'error', 'anulada'))
 );
 GO
 
@@ -655,6 +678,12 @@ CREATE INDEX [IX_RespuestaRapida_Profesional] ON [dbo].[RespuestaRapida]([IdProf
 GO
 CREATE INDEX [IX_ConsentimientoVideo_Sesion] ON [dbo].[ConsentimientoVideo]([Origen], [IdOrigen], [IdPaciente], [IdConsentimientoVideo]);
 GO
+CREATE INDEX [IX_TranscripcionSesion_Estado] ON [dbo].[TranscripcionSesion]([Estado]);
+GO
+CREATE INDEX [IX_TranscripcionSesion_Origen] ON [dbo].[TranscripcionSesion]([Origen], [IdOrigen]);
+GO
+CREATE UNIQUE INDEX [UX_TranscripcionSesion_Grabando] ON [dbo].[TranscripcionSesion]([Origen], [IdOrigen]) WHERE [Estado] = 'grabando';
+GO
 -- Índice único filtrado: a lo sumo UNA aceptación abierta (sin revocar) de WhatsApp por paciente.
 CREATE UNIQUE INDEX [UQ_ConsentimientoWhatsApp_Abierto] ON [dbo].[ConsentimientoWhatsApp]([IdPaciente]) WHERE [RevocadoUtc] IS NULL;
 GO
@@ -738,6 +767,10 @@ GO
 ALTER TABLE [dbo].[ConsentimientoVideo] ADD CONSTRAINT [FK_ConsentimientoVideo_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
 GO
 ALTER TABLE [dbo].[SesionClinica] ADD CONSTRAINT [FK_SesionClinica_ConsentimientoVideo] FOREIGN KEY([IdConsentimientoVideo]) REFERENCES [dbo].[ConsentimientoVideo]([IdConsentimientoVideo]);
+GO
+ALTER TABLE [dbo].[TranscripcionSesion] ADD CONSTRAINT [FK_TranscripcionSesion_Sesion] FOREIGN KEY([IdSesion]) REFERENCES [dbo].[SesionClinica]([IdSesion]);
+GO
+ALTER TABLE [dbo].[TranscripcionSesion] ADD CONSTRAINT [FK_TranscripcionSesion_ConsentimientoVideo] FOREIGN KEY([IdConsentimientoVideo]) REFERENCES [dbo].[ConsentimientoVideo]([IdConsentimientoVideo]);
 GO
 ALTER TABLE [dbo].[ConsentimientoWhatsApp] ADD CONSTRAINT [FK_ConsentimientoWhatsApp_Paciente] FOREIGN KEY([IdPaciente]) REFERENCES [dbo].[Paciente]([IdPaciente]);
 GO

@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 
-// Migración 26 (add_cierre_sesion.sql: SesionClinica.ClaveCierre, TurnoRealizadoUtc, IdEvolucion y sus índices) ensayada en una base DESCARTABLE con la forma de producción: 54 tablas
+// Migración 26 (add_cierre_sesion.sql: SesionClinica.ClaveCierre, TurnoRealizadoUtc, IdEvolucion y sus índices) ensayada en una base DESCARTABLE con la forma de producción: 55 tablas
 // (sin la de la migración 16), con la 25 y sin la 26 (la prueba desregistra lo que el esquema consolidado ya trae). Se crea con docs/produccion/01-produccion.sql con otro nombre y se
 // borra al terminar: no toca la base donde corre el resto de la suite en paralelo. Mismo molde que Migracion25Tests.
 [Trait("Categoria", "Integracion")]
@@ -34,7 +34,7 @@ public class Migracion26Tests
                 using var cmd = new SqlCommand(lote, con) { CommandTimeout = 120 };
                 cmd.ExecuteNonQuery();
             }
-            // La forma de producción ANTES de la 26: sin la tabla de la migración 16 (54 tablas) y sin las columnas, índices ni la versión de la 26.
+            // La forma de producción ANTES de la 26: sin la tabla de la migración 16 (55 tablas) y sin las columnas, índices ni la versión de la 26.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
             // El esquema consolidado ya trae la 27 (alta clínica y derivación asistidas), que es posterior: se saca primero (la 27 necesita la 26).
             foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
@@ -108,7 +108,7 @@ public class Migracion26Tests
     {
         using var b = new BaseDeProduccion();
         ConUnaSesionVieja(b);
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(25, b.UltimaVersion());
         Assert.Equal(0, b.Columnas());
         var marcador = VerificadorEsquema.Migraciones.Single(m => m.Numero == 26).Marcador;
@@ -118,7 +118,7 @@ public class Migracion26Tests
 
         Assert.Equal(3, b.Columnas());
         Assert.Equal(3, b.Indices());
-        Assert.Equal(54, b.Tablas());                                                                // columnas e índices: ninguna tabla nueva
+        Assert.Equal(55, b.Tablas());                                                                // columnas e índices: ninguna tabla nueva
         Assert.Equal(26, b.UltimaVersion());
         Assert.Equal(1, b.Escalar<int>($"SELECT CASE WHEN {marcador} THEN 1 ELSE 0 END"));         // ahora el verificador la da por aplicada
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 26 AND Origen = 'Script' AND Archivo = N'add_cierre_sesion.sql'"));
@@ -165,7 +165,7 @@ public class Migracion26Tests
         Assert.Equal(3, b.Columnas());
         Assert.Equal(3, b.Indices());
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM SesionClinica WHERE ClaveCierre IS NOT NULL"));   // no pisa lo que ya estaba
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
     }
 
     [Fact]
@@ -218,7 +218,7 @@ public class Migracion26Tests
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM sys.foreign_keys WHERE name = 'FK_SesionClinica_Evolucion'"));
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 26"));
         Assert.Equal(25, b.UltimaVersion());
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM SesionClinica WHERE NotasEvolucion = N'nota vieja'"));   // ninguna sesión se perdió
 
         b.Correr("docs/produccion/deshacer-migracion-26.sql");           // también idempotente
@@ -231,7 +231,7 @@ public class Migracion26Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 26).Opcional);
-        Assert.Equal(27, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(28, VerificadorEsquema.VersionRequerida);
     }
 
     [Fact]

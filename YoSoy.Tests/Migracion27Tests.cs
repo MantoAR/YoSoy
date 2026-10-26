@@ -16,7 +16,7 @@ public static class Migracion27Pruebas
     };
 }
 
-// Migración 27 (add_alta_derivacion_cierre.sql: Caso.Estado 'En alta', tabla AltaClinica y columnas de Derivacion) ensayada en una base DESCARTABLE con la forma de producción: 54 tablas (sin la de la
+// Migración 27 (add_alta_derivacion_cierre.sql: Caso.Estado 'En alta', tabla AltaClinica y columnas de Derivacion) ensayada en una base DESCARTABLE con la forma de producción: 55 tablas (sin la de la
 // migración 16), con la 26 y sin la 27. Mismo molde que Migracion26Tests.
 [Trait("Categoria", "Integracion")]
 [Trait("Migracion", "27")]
@@ -119,7 +119,7 @@ public class Migracion27Tests
     {
         using var b = new BaseDeProduccion();
         var (pac, a, pb, caso) = Datos(b);
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(26, b.UltimaVersion());
         Assert.False(b.Aplicada());
         Assert.Throws<SqlException>(() => b.Ejecutar("UPDATE Caso SET Estado = N'En alta' WHERE IdCaso = @c", ("@c", caso)));   // antes de la 27, 'En alta' no existe
@@ -129,7 +129,7 @@ public class Migracion27Tests
         b.Correr("migrations/add_alta_derivacion_cierre.sql");
 
         Assert.True(b.Aplicada());
-        Assert.Equal(55, b.Tablas());                                                   // AltaClinica
+        Assert.Equal(56, b.Tablas());                                                   // AltaClinica
         Assert.Equal(27, b.UltimaVersion());
         Assert.Equal(8, b.ColumnasNuevas());
         Assert.Equal(1, b.Escalar<int>($"SELECT CASE WHEN {marcador} THEN 1 ELSE 0 END"));
@@ -181,7 +181,7 @@ public class Migracion27Tests
         b.Correr("migrations/add_alta_derivacion_cierre.sql");
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 27"));
         Assert.Equal(8, b.ColumnasNuevas());
-        Assert.Equal(55, b.Tablas());
+        Assert.Equal(56, b.Tablas());
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM Derivacion WHERE Observaciones = N'puesta despues'"));
     }
 
@@ -194,7 +194,7 @@ public class Migracion27Tests
         Assert.ThrowsAny<SqlException>(() => b.Correr("migrations/add_alta_derivacion_cierre.sql"));
         Assert.False(b.Aplicada());
         Assert.Equal(0, b.ColumnasNuevas());
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(26, b.UltimaVersion());
         Assert.Throws<SqlException>(() => b.Ejecutar("UPDATE Caso SET Estado = N'En alta' WHERE IdCaso = @c", ("@c", caso)));   // el CHECK también volvió atrás
         b.Ejecutar("ALTER TABLE VersionEsquema DROP CONSTRAINT CK_prueba_rechaza_27");
@@ -231,7 +231,7 @@ public class Migracion27Tests
 
         Assert.False(b.Aplicada());
         Assert.Equal(0, b.ColumnasNuevas());
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(26, b.UltimaVersion());
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM Derivacion WHERE Estado = 'Pendiente'"));   // la solicitud de siempre sigue ahí
         Assert.Throws<SqlException>(() => b.Ejecutar("UPDATE Caso SET Estado = N'En alta'"));
@@ -267,6 +267,6 @@ public class Migracion27Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 27).Opcional);
-        Assert.Equal(27, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(28, VerificadorEsquema.VersionRequerida);
     }
 }

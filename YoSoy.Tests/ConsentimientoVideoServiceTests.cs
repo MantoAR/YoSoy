@@ -140,7 +140,7 @@ public class ConsentimientoVideoServiceTests
         var e = new EscenarioEmociones();
         // Una decisión de esta sesión tomada con una versión anterior del texto.
         e.Repo.Insertar(EscenarioEmociones.UsuarioPaciente, EscenarioEmociones.IdPaciente, "turno", EscenarioEmociones.IdTurno,
-            "v-anterior", new string('a', 64), "rechaza", EscenarioEmociones.Inicio);
+            "v-anterior", new string('a', 64), "rechaza", EscenarioEmociones.Inicio, ConsentimientoVideoFila.Emociones);
 
         var estado = e.Consentimiento.Obtener(e.Paciente, "turno", EscenarioEmociones.IdTurno).Estado!;
         var decidir = e.Consentimiento.Decidir(e.Paciente, "turno", EscenarioEmociones.IdTurno, "acepta", estado.Version);

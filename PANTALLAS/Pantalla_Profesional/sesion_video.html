@@ -66,23 +66,8 @@
         .tl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
         .tl-time { color: var(--text-4); min-width: 32px; }
 
-        /* Panel inferior - transcripción y evolución */
-        .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .bottom-grid.sin-transcripcion { grid-template-columns: 1fr; }
-
-        /* Transcripción */
-        .transcripcion-box { height: 180px; overflow-y: auto; background: var(--surface-2); border-radius: var(--r-md); padding: 10px; font-size: var(--fs-sm); line-height: 1.6; border: 1px solid var(--border); }
-        .transcripcion-vacia { color: var(--text-4); font-style: italic; font-size: var(--fs-sm); }
-        .msg-medico { color: var(--accent-strong); margin-bottom: 4px; }
-        .msg-paciente { color: var(--ok); margin-bottom: 4px; }
-        .msg-label { font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .05em; margin-right: 4px; }
-        .mic-btns { display: flex; gap: 6px; margin-top: 8px; }
-        .btn-mic { padding: 6px 12px; border: 1px solid transparent; border-radius: var(--r-md); cursor: pointer; font-family: var(--font); font-size: var(--fs-sm); font-weight: 500; }
-        .btn-mic-medico { background: var(--accent-soft); color: var(--accent-strong); }
-        .btn-mic-medico.activo { background: var(--accent); color: #fff; }
-        .btn-mic-paciente { background: var(--ok-bg); color: var(--ok); }
-        .btn-mic-paciente.activo { background: var(--ok); color: #fff; }
-        .btn-limpiar { margin-left: auto; padding: 6px 10px; }
+        /* Panel inferior - evolución */
+        .bottom-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
 
         /* Evolución */
         .evolucion-box { display: flex; flex-direction: column; gap: 8px; }
@@ -230,21 +215,8 @@
             </div>
         </div>
 
-        <!-- PANEL INFERIOR: TRANSCRIPCIÓN + EVOLUCIÓN -->
+        <!-- PANEL INFERIOR: EVOLUCIÓN -->
         <div class="bottom-grid">
-
-            <!-- TRANSCRIPCIÓN (apagada: YS.video.FLAGS.transcripcion; con la bandera apagada la tarjeta se saca al cargar) -->
-            <div class="card" id="card-transcripcion">
-                <h3>Transcripción de la sesión</h3>
-                <div class="transcripcion-box" id="transcripcion-box">
-                    <div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>
-                </div>
-                <div class="mic-btns">
-                    <button class="btn-mic btn-mic-medico" id="btn-mic-medico" onclick="toggleMic('medico')">🎤 Mi micrófono</button>
-                    <button class="btn-mic btn-mic-paciente" id="btn-mic-paciente" onclick="toggleMic('paciente')">🎤 Micrófono paciente</button>
-                    <button class="btn-mic btn-gris btn-limpiar" onclick="limpiarTranscripcion()">🗑 Limpiar</button>
-                </div>
-            </div>
 
             <!-- EVOLUCIÓN -->
             <div class="card">
@@ -420,16 +392,11 @@ let modelsListo = false;
 let sala = '';   // código de la sala, solo para mostrarlo en el reporte: lo decide la API (acceso.sala)
 let tipoCierreSeleccionado = null;
 
-// Transcripción
-let recMedico = null, recPaciente = null;
-let micMedicoActivo = false, micPacienteActivo = false;
-let transcripcionLineas = [];
-
 // ─── CARGAR PACIENTES ─────────────────────────────────────
 const idProfesional = YS.sesion.idProfesional();   // null si no hay un profesional en la sesión: nunca un id de relleno
 // Avisos cuando la API contesta 401. Se pide sinRedireccion en cada YS.api de esta página: el
 // redirect a login de YS.fetch sacaría al profesional de la sala y perdería lo que ya cargó
-// (notas, transcripción, emociones).
+// (notas, emociones).
 const MSG_VENCIDA_AL_ABRIR = 'Tu sesión venció. Ingresá de nuevo y recargá esta página antes de entrar a la sala.';
 const MSG_VENCIDA_AL_GUARDAR = 'Tu sesión venció. Ingresá de nuevo en otra pestaña y volvé a tocar Guardar: lo que cargaste en esta sala no se pierde.';
 
@@ -825,102 +792,6 @@ function iniciarTimer() {
         const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
         document.getElementById('stat-dur').textContent = `${m}:${s}`;
     }, 1000);
-}
-
-// ─── TRANSCRIPCIÓN ────────────────────────────────────────
-function crearReconocedor(quien) {
-    if (!YS.video.FLAGS.transcripcion) return null;   // apagada, ver YS.video.FLAGS
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        toast('Tu navegador no soporta reconocimiento de voz. Usá Chrome o Edge.');
-        return null;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const rec = new SR();
-    rec.lang = 'es-AR';
-    rec.continuous = true;
-    rec.interimResults = true;
-
-    rec.onresult = (e) => {
-        let texto = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-            if (e.results[i].isFinal) {
-                texto = e.results[i][0].transcript.trim();
-                if (texto) agregarLinea(quien, texto);
-            }
-        }
-    };
-
-    rec.onerror = (e) => {
-        if (e.error !== 'no-speech') toast(`Error micrófono (${quien}): ${e.error}`);
-    };
-
-    rec.onend = () => {
-        // Si sigue activo, reiniciamos
-        if (quien === 'medico' && micMedicoActivo) rec.start();
-        if (quien === 'paciente' && micPacienteActivo) rec.start();
-    };
-
-    return rec;
-}
-
-function agregarLinea(quien, texto) {
-    const box = document.getElementById('transcripcion-box');
-
-    // Limpiar placeholder si existe
-    const placeholder = box.querySelector('.transcripcion-vacia');
-    if (placeholder) placeholder.remove();
-
-    const hora = new Date().toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit' });
-    const linea = `[${hora}] ${texto}`;
-    transcripcionLineas.push({ quien, texto: linea });
-
-    const div = document.createElement('div');
-    div.className = quien === 'medico' ? 'msg-medico' : 'msg-paciente';
-    const etiqueta = document.createElement('span');
-    etiqueta.className = 'msg-label';
-    etiqueta.textContent = quien === 'medico' ? '👨‍⚕️ Médico' : '🧑 Paciente';
-    div.append(etiqueta, linea);
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-}
-
-function toggleMic(quien) {
-    if (!YS.video.FLAGS.transcripcion) return;   // apagada, ver YS.video.FLAGS
-    if (quien === 'medico') {
-        if (!micMedicoActivo) {
-            recMedico = crearReconocedor('medico');
-            if (!recMedico) return;
-            recMedico.start();
-            micMedicoActivo = true;
-            document.getElementById('btn-mic-medico').classList.add('activo');
-            document.getElementById('btn-mic-medico').textContent = '⏹ Detener mi mic';
-        } else {
-            recMedico?.stop();
-            micMedicoActivo = false;
-            document.getElementById('btn-mic-medico').classList.remove('activo');
-            document.getElementById('btn-mic-medico').textContent = '🎤 Mi micrófono';
-        }
-    } else {
-        if (!micPacienteActivo) {
-            recPaciente = crearReconocedor('paciente');
-            if (!recPaciente) return;
-            recPaciente.start();
-            micPacienteActivo = true;
-            document.getElementById('btn-mic-paciente').classList.add('activo');
-            document.getElementById('btn-mic-paciente').textContent = '⏹ Detener mic paciente';
-        } else {
-            recPaciente?.stop();
-            micPacienteActivo = false;
-            document.getElementById('btn-mic-paciente').classList.remove('activo');
-            document.getElementById('btn-mic-paciente').textContent = '🎤 Micrófono paciente';
-        }
-    }
-}
-
-function limpiarTranscripcion() {
-    transcripcionLineas = [];
-    document.getElementById('transcripcion-box').innerHTML =
-        '<div class="transcripcion-vacia">La transcripción aparecerá acá cuando inicies el micrófono…</div>';
 }
 
 // ─── PANEL DE CIERRE ──────────────────────────────────────
@@ -1547,10 +1418,6 @@ async function finalizarSesion() {
     clearInterval(timerInterval);
     analisis?.detener();   // guardar y exportar vuelven a preguntar antes de usar nada
 
-    // Detener micrófonos
-    if (micMedicoActivo) { recMedico?.stop(); micMedicoActivo = false; }
-    if (micPacienteActivo) { recPaciente?.stop(); micPacienteActivo = false; }
-
     stream?.getTracks().forEach(t => t.stop());
     control?.cerrar();
 
@@ -1606,10 +1473,6 @@ async function guardarEnHC() {
     }
     mensajeCierre('');
 
-    const transcripcionTexto = transcripcionLineas
-        .map(l => `[${l.quien === 'medico' ? 'MÉDICO' : 'PACIENTE'}] ${l.texto}`)
-        .join('\n');
-
     const btn = document.getElementById('btn-cierre-guardar');
     btn.disabled = true;   // un solo guardado a la vez: el permiso se vuelve a consultar y eso tarda un instante
 
@@ -1619,7 +1482,6 @@ async function guardarEnHC() {
         idPaciente:         parseInt(idPaciente),
         idProfesional:      idProfesional,
         idTurno:            hayTurno() ? sesionVideo.id : null,
-        transcripcion:      transcripcionTexto || null,
         notasEvolucion:     notas || null,
         tipoCierre:         tipoCierreSeleccionado || null,
         emociones:          emociones,
@@ -1697,7 +1559,6 @@ async function exportarReporte() {
             ? Object.fromEntries(Object.entries(resumen.promedios).map(([k, v]) => [EMOCIONES[k]?.label || k, v + '%']))
             : {},
         historial_cambios: resumen ? historial : [],
-        transcripcion: transcripcionLineas,
         notas_evolucion: document.getElementById('notas-evolucion').value,
         tipo_cierre: tipoCierreSeleccionado
     };
@@ -1706,15 +1567,6 @@ async function exportarReporte() {
     a.href = URL.createObjectURL(blob);
     a.download = `sesion_${new Date().toISOString().slice(0,10)}.json`;
     a.click();
-}
-
-// ─── TRANSCRIPCIÓN APAGADA ────────────────────────────────
-// El reconocimiento de voz del navegador (Chrome) manda el audio a servidores externos, así que está detrás de
-// YS.video.FLAGS.transcripcion, apagada. Con la bandera apagada la tarjeta ni se muestra. El código queda para
-// cuando se resuelvan la privacidad y el consentimiento (PR 6).
-if (!YS.video.FLAGS.transcripcion) {
-    document.getElementById('card-transcripcion').remove();
-    document.querySelector('.bottom-grid').classList.add('sin-transcripcion');
 }
 </script>
 </body>

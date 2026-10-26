@@ -21,6 +21,7 @@ public static class VideoServiceCollectionExtensions
         // Consentimiento por sesión para la lectura de emociones (PR 6): reglas, cifrado en reposo, guardia de lo que se
         // guarda, auditoría y purga por retención. La purga arranca deshabilitada (Video:Emociones:PurgaHabilitada).
         services.AddSingleton<IConsentimientoVideoRepositorio, ConsentimientoVideoDAO>();
+        services.AddSingleton<ITranscripcionSesionRepositorio, TranscripcionSesionDAO>();
         services.AddSingleton<IEmocionesPurgaRepositorio, EmocionesPurgaDAO>();
         services.AddSingleton<IAuditoriaEmociones, AuditoriaEmociones>();
         services.AddSingleton<IEmocionesCifrado, EmocionesCifradoService>();

@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.Data.SqlClient;
 
-// Migración 25 (add_conversacion_ia.sql: Conversacion.IaActiva) ensayada en una base DESCARTABLE con la forma de producción: 54 tablas (sin la de la migración 16), con la 17 y la
+// Migración 25 (add_conversacion_ia.sql: Conversacion.IaActiva) ensayada en una base DESCARTABLE con la forma de producción: 55 tablas (sin la de la migración 16), con la 17 y la
 // 24, y sin la 25 (la prueba desregistra lo que el esquema consolidado ya trae). Se crea con docs/produccion/01-produccion.sql con otro nombre y se borra al terminar: no toca la
 // base donde corre el resto de la suite en paralelo. Mismo molde que MigracionDebeCambiarPasswordTests.
 [Trait("Categoria", "Integracion")]
@@ -34,7 +34,7 @@ public class Migracion25Tests
                 using var cmd = new SqlCommand(lote, con) { CommandTimeout = 120 };
                 cmd.ExecuteNonQuery();
             }
-            // La forma de producción ANTES de la 25: sin la tabla de la migración 16 (54 tablas) y sin la columna ni su versión.
+            // La forma de producción ANTES de la 25: sin la tabla de la migración 16 (55 tablas) y sin la columna ni su versión.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
             // El esquema consolidado ya trae la 27 (alta clínica y derivación asistidas), que es posterior: se saca primero (la 27 necesita la 26).
             foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
@@ -107,7 +107,7 @@ public class Migracion25Tests
     {
         using var b = new BaseDeProduccion();
         ConConversaciones(b);
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(24, b.UltimaVersion());                                                         // la forma de producción: versión 24
         Assert.False(b.ExisteColumna());
         var marcador = VerificadorEsquema.Migraciones.Single(m => m.Numero == 25).Marcador;
@@ -116,7 +116,7 @@ public class Migracion25Tests
         b.Correr("migrations/add_conversacion_ia.sql");
 
         Assert.True(b.ExisteColumna());
-        Assert.Equal(54, b.Tablas());                                                                // una columna: ninguna tabla nueva
+        Assert.Equal(55, b.Tablas());                                                                // una columna: ninguna tabla nueva
         Assert.Equal(25, b.UltimaVersion());
         Assert.Equal(1, b.Escalar<int>($"SELECT CASE WHEN {marcador} THEN 1 ELSE 0 END"));         // ahora el verificador la da por aplicada
         Assert.Equal("bit", b.Escalar<string>("SELECT t.name FROM sys.columns c JOIN sys.types t ON t.user_type_id = c.user_type_id WHERE c.object_id = OBJECT_ID('dbo.Conversacion') AND c.name = 'IaActiva'"));
@@ -145,7 +145,7 @@ public class Migracion25Tests
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 25"));
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID('dbo.Conversacion') AND name = 'IaActiva'"));
         Assert.Equal(1, b.Escalar<int>("SELECT COUNT(*) FROM Conversacion WHERE IaActiva = 1"));      // no pisa lo que ya estaba
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public class Migracion25Tests
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM sys.default_constraints WHERE name = 'DF_Conversacion_IaActiva'"));
         Assert.Equal(0, b.Escalar<int>("SELECT COUNT(*) FROM VersionEsquema WHERE Numero = 25"));
         Assert.Equal(24, b.UltimaVersion());
-        Assert.Equal(54, b.Tablas());
+        Assert.Equal(55, b.Tablas());
         Assert.Equal(3, b.Escalar<int>("SELECT COUNT(*) FROM Conversacion WHERE Telefono LIKE '11555500%'"));   // ninguna conversación se perdió
 
         b.Correr("docs/produccion/deshacer-migracion-25.sql");           // también idempotente

@@ -18,15 +18,15 @@ public class FakeConsentimientoRepo : IConsentimientoVideoRepositorio
 
     private int _siguiente = 100;
 
-    public ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente) =>
-        Filas.Where(f => f.Origen == origen && f.IdOrigen == idOrigen && f.IdPaciente == idPaciente)
+    public ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente, string finalidad) =>
+        Filas.Where(f => f.Origen == origen && f.IdOrigen == idOrigen && f.IdPaciente == idPaciente && f.Finalidad == finalidad)
              .OrderByDescending(f => f.IdConsentimientoVideo).FirstOrDefault();
 
     public ConsentimientoVideoFila Insertar(int idUsuario, int idPaciente, string origen, int idOrigen,
-        string versionTexto, string hashTexto, string decision, DateTime decididoUtc)
+        string versionTexto, string hashTexto, string decision, DateTime decididoUtc, string finalidad)
     {
         var fila = new ConsentimientoVideoFila(_siguiente++, idUsuario, idPaciente, origen, idOrigen, versionTexto, hashTexto,
-            decision, decididoUtc, null);
+            decision, decididoUtc, null, finalidad);
         Filas.Add(fila);
         return fila;
     }

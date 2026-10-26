@@ -4,10 +4,10 @@
 public interface IConsentimientoVideoRepositorio
 {
     /// <summary>La decisión más nueva de esa sesión para ese paciente (la vigente), o null si nunca decidió.</summary>
-    ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente);
+    ConsentimientoVideoFila? Ultimo(string origen, int idOrigen, int idPaciente, string finalidad);
 
     ConsentimientoVideoFila Insertar(int idUsuario, int idPaciente, string origen, int idOrigen,
-        string versionTexto, string hashTexto, string decision, DateTime decididoUtc);
+        string versionTexto, string hashTexto, string decision, DateTime decididoUtc, string finalidad);
 
     /// <summary>Marca la aceptación como revocada. false si ya estaba revocada (o no es una aceptación).</summary>
     bool Revocar(int idConsentimientoVideo, DateTime revocadoUtc);
@@ -22,10 +22,12 @@ public interface IConsentimientoVideoRepositorio
 }
 
 public record ConsentimientoVideoFila(int IdConsentimientoVideo, int IdUsuario, int IdPaciente, string Origen, int IdOrigen,
-    string VersionTexto, string HashTexto, string Decision, DateTime DecididoUtc, DateTime? RevocadoUtc)
+    string VersionTexto, string HashTexto, string Decision, DateTime DecididoUtc, DateTime? RevocadoUtc, string Finalidad)
 {
     public const string Acepta = "acepta";
     public const string Rechaza = "rechaza";
+    public const string Emociones = "emociones";
+    public const string Grabacion = "grabacion";
 
     /// <summary>Una aceptación que nadie revocó: lo único que habilita la lectura de emociones.</summary>
     public bool EsAceptacionVigente => Decision == Acepta && RevocadoUtc is null;
