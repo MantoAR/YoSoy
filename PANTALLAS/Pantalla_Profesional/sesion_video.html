@@ -48,6 +48,9 @@
         /* Estado del consentimiento del paciente: sin su aceptación no se analiza nada y las barras quedan apagadas. */
         .emo-estado { font-size: var(--fs-sm); line-height: 1.4; margin: 0 0 10px; padding: 8px 10px; border-radius: var(--r-md);
                       background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2); }
+        /* Indicador discreto de lo que el paciente aceptó de esta sesión (video y emociones) */
+        .aceptacion-paciente { font-size: var(--fs-sm); color: var(--text-3); margin: 0 0 8px; }
+        .aceptacion-paciente.alerta { color: var(--danger); }
         .emo-estado.activa { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok); }
         .emo-estado.alerta { background: var(--warn-bg, var(--surface-2)); border-color: var(--warn-border, var(--border)); }
         #emo-bars.apagadas { opacity: .35; }
@@ -202,6 +205,7 @@
             <div class="panel">
                 <div class="card">
                     <h3>Expresiones del paciente</h3>
+                    <p class="aceptacion-paciente oculto" id="aceptacion-paciente" role="status" aria-live="polite"></p>
                     <p class="emo-estado" id="emo-estado" role="status" aria-live="polite">Consultando si el paciente aceptó la lectura de emociones…</p>
                     <div id="emo-bars" class="apagadas">
                         <div class="emo-row"><span class="emo-label">Neutral</span><div class="emo-track"><div class="emo-fill" id="b-neutral"></div></div><span class="emo-val" id="v-neutral">0%</span></div>
@@ -746,6 +750,7 @@ function limpiarPanelEmociones() {
 
 // Cada vez que cambia lo que dice la API (acepta, rechaza, revoca, no contesta…).
 function alCambiarPermiso(v, info) {
+    pintarAceptacionPaciente(v);
     const cuadro = document.getElementById('emo-estado');
     cuadro.textContent = YS.emociones.textoDeEstado(v);
     cuadro.classList.toggle('activa', v.permitido);
@@ -755,6 +760,24 @@ function alCambiarPermiso(v, info) {
     // conexión conserva lo acumulado, así que no se limpia.
     if (!v.permitido && info.acumuladas === 0) limpiarPanelEmociones();
     if (!v.permitido && v.estado === 'revocado') toast('El paciente dejó de compartir sus expresiones: se detuvo el análisis.', 6000);
+}
+
+// Lo que el paciente aceptó de ESTA sesión, a la vista pero sin ruido: «Paciente aceptó: video ✓ · emociones ✗». Si revoca el video (la API lo dice en el permiso), el video se cierra de
+// forma ordenada —como al tocar «Finalizar sesión»— y queda a mano el cierre de la sesión. Sin la migración 28 la API no lo exige y no se muestra nada.
+function pintarAceptacionPaciente(v) {
+    const el = document.getElementById('aceptacion-paciente');
+    const video = v.video;
+    if (!video || !video.exigido) { el.classList.add('oculto'); return; }
+    const emocionesOk = v.permitido === true;
+    const videoOk = video.estado === 'acepta';
+    el.classList.remove('oculto');
+    el.classList.toggle('alerta', video.estado === 'revocada');
+    el.textContent = `Paciente aceptó: video ${videoOk ? '✓' : '✗'} · emociones ${emocionesOk ? '✓' : '✗'}`
+        + (video.estado === 'revocada' ? ' (el paciente dejó de usar el video)' : '');
+    if (video.estado === 'revocada' && !salaFinalizada) {
+        toast('El paciente dejó de aceptar la videollamada: se cerró el video. Completá el cierre de la sesión.', 8000);
+        finalizarSesion();
+    }
 }
 
 function iniciarDeteccion(video) {

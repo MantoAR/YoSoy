@@ -172,6 +172,52 @@ public class ConsentimientoAsignacionTests : IDisposable
         Assert.Equal(1, Vinculos(pac));
     }
 
+    // ───────────── Cita urgente: la sala no se habilita sin el consentimiento, y el bloqueo queda a la vista ─────────────
+
+    private static int BloqueosDe(int idProfesional, int idTurno) =>
+        DatosDePrueba.Contar("SELECT COUNT(*) FROM NotificacionInterna WHERE Destinatario = N'Profesional' AND IdProfesional = @p AND IdTurno = @t AND Tipo = @tipo",
+            ("@p", idProfesional), ("@t", idTurno), ("@tipo", BloqueoConsentimiento.Tipo));
+
+    [FactConBaseDeConsentimientos]
+    public async Task Generar_la_sala_de_una_cita_urgente_no_saltea_el_consentimiento_y_deja_el_bloqueo()
+    {
+        var (pac, prof) = Escenario();
+        var turno = _d.Turno(pac, prof, "Confirmado", DateTime.Today, TimeSpan.FromHours(10));
+        var profesional = DatosDePrueba.Cliente(_fabrica, _d.UsuarioDeProfesional(prof), Roles.Profesional, idProfesional: prof);
+        _d.AlLimpiar("NotificacionInterna", "IdTurno", turno);
+
+        var r = await profesional.PutAsync($"/turnos/{turno}/generar-sala", null);
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Equal("consentimiento-pendiente", (await Json(r)).GetProperty("codigo").GetString());
+        Assert.True(DatosDePrueba.Escalar("SELECT CodigoSala FROM Turno WHERE IdTurno = @t", ("@t", turno)) is null or DBNull);
+        Assert.Equal(1, BloqueosDe(prof, turno));      // el profesional lo ve
+        Assert.Equal(1, Avisos(pac));                  // y el paciente recibe el aviso para firmar
+        Assert.Contains(_mails.Avisos, m => m.Destinatario == Mail);
+
+        // Repetirlo no duplica nada.
+        Assert.Equal(HttpStatusCode.Conflict, (await profesional.PutAsync($"/turnos/{turno}/generar-sala", null)).StatusCode);
+        Assert.Equal(1, BloqueosDe(prof, turno));
+        Assert.Equal(1, Avisos(pac));
+
+        // Con el consentimiento firmado la sala se habilita.
+        _d.ConsentimientoFirmado(pac);
+        var ok = await profesional.PutAsync($"/turnos/{turno}/generar-sala", null);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.StartsWith("SALA-", (await Json(ok)).GetProperty("codigoSala").GetString());
+    }
+
+    [FactConBaseDeConsentimientos]
+    public async Task Otro_profesional_no_genera_la_sala_de_un_turno_ajeno()
+    {
+        var (pac, prof) = Escenario();
+        var turno = _d.Turno(pac, prof, "Confirmado", DateTime.Today, TimeSpan.FromHours(10));
+        var otro = _d.Profesional();
+        var cliente = DatosDePrueba.Cliente(_fabrica, _d.UsuarioDeProfesional(otro), Roles.Profesional, idProfesional: otro);
+        Assert.Equal(HttpStatusCode.Forbidden, (await cliente.PutAsync($"/turnos/{turno}/generar-sala", null)).StatusCode);
+        Assert.Equal(0, Avisos(pac));
+        Assert.Equal(0, BloqueosDe(prof, turno));
+    }
+
     [FactConBaseDeConsentimientos]
     public async Task La_pantalla_de_admision_muestra_firmado_o_pendiente()
     {

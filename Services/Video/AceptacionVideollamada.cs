@@ -91,7 +91,6 @@ public class AceptacionVideollamadaService
     public const string Revocada = "revocada";
 
     public const string TipoAvisoRevocacion = "consentimiento-video-revocado";
-    public const string TipoAvisoBloqueo = "consentimiento-bloqueo";
 
     private readonly IAceptacionVideollamadaRepositorio _repo;
     private readonly IOrigenSalaRepositorio _origen;
@@ -190,27 +189,6 @@ public class AceptacionVideollamadaService
         catch (Exception) { /* el aviso no puede tapar la revocación, que ya quedó registrada */ }
     }
 
-    /// <summary>
-    /// Deja constancia, para el profesional, de que una sesión urgente no se pudo autorizar porque el paciente no tiene lo que hace falta (consentimiento de tratamiento o aceptación de la
-    /// videollamada). No salta la regla: se registra el bloqueo. Idempotente por turno y motivo mientras el aviso siga sin leer.
-    /// </summary>
-    public void AvisarBloqueo(int idProfesional, int? idTurno, string nombrePaciente, string motivo)
-    {
-        try
-        {
-            _avisos.Insertar(new NotificacionInterna
-            {
-                Destinatario = "Profesional",
-                IdProfesional = idProfesional,
-                IdTurno = idTurno,
-                Tipo = TipoAvisoBloqueo,
-                Titulo = "La cita urgente no se pudo habilitar",
-                Mensaje = $"{nombrePaciente}: {motivo} Se le avisó al paciente. Cuando lo resuelva, podés volver a generar la sala."
-            });
-        }
-        catch (Exception) { /* idem */ }
-    }
-
     // ───────────────────────── Reglas compartidas ─────────────────────────
 
     private ResultadoAceptacion? Validar(Identidad yo, string origen, int id, bool exigirVentana, out SesionDeVideo? ses)
@@ -229,4 +207,40 @@ public class AceptacionVideollamadaService
 
     private static ResultadoAceptacion Ok(EstadoAceptacion e) => new(TipoResultado.Ok, "ok", "", e);
     private static ResultadoAceptacion Error(TipoResultado tipo, string codigo, string mensaje) => new(tipo, codigo, mensaje);
+}
+
+/// <summary>
+/// Cuando una sesión no se puede habilitar porque al paciente le falta algo de lo que se exige (el consentimiento de tratamiento o la aceptación de la videollamada), la regla NO se salta:
+/// se registra el bloqueo y se le avisa al profesional (campanita, «consentimiento-bloqueo») para que sepa por qué. Una sola vez mientras el aviso siga sin leer, por turno.
+/// </summary>
+public static class BloqueoConsentimiento
+{
+    public const string Tipo = "consentimiento-bloqueo";
+
+    public static void Registrar(INotificacionInternaDAO avisos, int idProfesional, int? idTurno, string nombrePaciente, string motivo)
+    {
+        try
+        {
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            using (var existe = new Microsoft.Data.SqlClient.SqlCommand(
+                "SELECT COUNT(*) FROM NotificacionInterna WHERE Destinatario = N'Profesional' AND IdProfesional = @P AND Tipo = @T AND Leida = 0 AND ((@Turno IS NULL AND IdTurno IS NULL) OR IdTurno = @Turno)", con))
+            {
+                existe.Parameters.AddWithValue("@P", idProfesional);
+                existe.Parameters.AddWithValue("@T", Tipo);
+                existe.Parameters.AddWithValue("@Turno", (object?)idTurno ?? DBNull.Value);
+                if ((int)existe.ExecuteScalar()! > 0) return;
+            }
+            avisos.Insertar(new NotificacionInterna
+            {
+                Destinatario = "Profesional",
+                IdProfesional = idProfesional,
+                IdTurno = idTurno,
+                Tipo = Tipo,
+                Titulo = "La sesión no se pudo habilitar",
+                Mensaje = $"{nombrePaciente}: {motivo} Se le avisó al paciente; la regla no se saltea. Cuando lo resuelva, la sesión se puede habilitar."
+            });
+        }
+        catch (Exception) { /* el aviso no puede tapar el rechazo, que ya se respondió */ }
+    }
 }

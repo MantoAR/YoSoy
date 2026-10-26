@@ -107,8 +107,11 @@ public class AceptacionVideollamadaEndpointsTests
         Assert.Equal("revocada", j.GetProperty("estado").GetString());
 
         Assert.Equal(HttpStatusCode.Conflict, (await VideoApp.Acceder(paciente, "turno", 1)).StatusCode);
-        var aviso = Assert.Single(app.Avisos.Enviadas);
-        Assert.Equal((VideoApp.IdProfesional, AceptacionVideollamadaService.TipoAvisoRevocacion), (aviso.IdProfesional, aviso.Tipo));
+        var aviso = Assert.Single(app.Avisos.Enviadas, a => a.Tipo == AceptacionVideollamadaService.TipoAvisoRevocacion);
+        Assert.Equal(VideoApp.IdProfesional, aviso.IdProfesional);
+        // El intento de entrar sin la aceptación deja además el bloqueo a la vista del profesional (la regla no se saltea).
+        var bloqueo = Assert.Single(app.Avisos.Enviadas, a => a.Tipo == BloqueoConsentimiento.Tipo);
+        Assert.Equal((VideoApp.IdProfesional, VideoApp.IdTurno), (bloqueo.IdProfesional, bloqueo.IdTurno));
 
         // El profesional lo ve en su próxima consulta del permiso.
         var (_, permiso) = await Pedir(app.Video.Profesional(), HttpMethod.Get, UrlPermiso);

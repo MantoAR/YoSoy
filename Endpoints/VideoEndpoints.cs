@@ -21,7 +21,7 @@ public static class VideoEndpoints
 
         app.MapPost("/video/acceso", (AccesoSalaRequest? req, HttpContext ctx, IdentidadActualService identidad,
             AccesoSalaService acceso, TokenSalaService tokens, TurnCredentialsService turn, IAuditoriaVideo auditoria,
-            AceptacionVideollamadaService aceptacion) =>
+            AceptacionVideollamadaService aceptacion, IOrigenSalaRepositorio origenSala, INotificacionInternaDAO avisos) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
             var log = loggers.CreateLogger("Video");
@@ -52,7 +52,12 @@ public static class VideoEndpoints
 
             // El paciente entra a la sala solo si aceptó la videollamada de ESTA sesión (migración 28); revocarla la cierra. El profesional no necesita nada.
             if (r.Rol == Roles.Paciente && yo.IdPaciente is int idPacienteSala && !aceptacion.Aceptada(origen, id, idPacienteSala))
+            {
+                // La regla no se saltea (tampoco en una cita urgente): se deja el bloqueo a la vista del profesional del turno.
+                if (origen == OrigenSala.Turno && origenSala.ObtenerTurno(id) is { } turnoBloqueado)
+                    BloqueoConsentimiento.Registrar(avisos, turnoBloqueado.IdProfesional, id, "El paciente", "intentó entrar a la sala sin aceptar usar la videollamada.");
                 return Error(409, "aceptacion-video-pendiente", "Antes de entrar tenés que aceptar usar la videollamada.");
+            }
 
             // Todo con el mismo instante con el que se decidió el acceso (r.Ahora).
             var sub = yo.IdUsuario.ToString(CultureInfo.InvariantCulture);

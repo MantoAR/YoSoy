@@ -2627,6 +2627,15 @@ app.MapPut("/turnos/{id}/generar-sala", (int id, HttpContext ctx, IdentidadActua
     if (yo is { EsProfesional: true } && yo.IdProfesional != turno.IdProfesional)
         return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
 
+    // Ni siquiera una cita urgente se saltea el consentimiento: sin el de tratamiento y telemedicina firmado y vigente no se habilita la sala. Queda el bloqueo a la vista del profesional
+    // y el paciente recibe el aviso para firmar (campanita y mail).
+    if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, turno.IdPaciente) is { } sinConsentimiento)
+    {
+        BloqueoConsentimiento.Registrar(ctx.RequestServices.GetRequiredService<INotificacionInternaDAO>(), turno.IdProfesional, id, new PacienteDAO().ObtenerPorId(turno.IdPaciente)?.Nombre ?? "El paciente",
+            "todavía no firmó el consentimiento de tratamiento y telemedicina.");
+        return sinConsentimiento;
+    }
+
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var codigoSala = "SALA-" + id + "-" + DateTime.Now.Ticks.ToString("x").ToUpper();

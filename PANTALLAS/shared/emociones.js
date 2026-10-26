@@ -53,6 +53,8 @@
             switch (datos.codigo) {
                 case "version-desactualizada":
                     return "El texto del consentimiento cambió mientras lo leías. Volvé a leerlo y decidí de nuevo.";
+                case "aceptacion-video-pendiente":
+                    return datos.mensaje || "Antes tenés que aceptar usar la videollamada.";
                 case "usar-revocar":
                     return "Ya habías aceptado: para dejar de compartir tus expresiones usá el botón de revocar.";
                 case "menor-de-edad":
@@ -98,6 +100,8 @@
                         return "La lectura de emociones no está disponible: el paciente no tiene fecha de nacimiento cargada y no se puede comprobar que sea mayor de edad.";
                     case "no-configurado":
                         return "La lectura de emociones no está disponible: el servidor no tiene configurado el cifrado de los datos.";
+                    case "video-no-aceptado":
+                        return "El paciente no aceptó (o revocó) la videollamada de esta sesión: no se analiza nada.";
                 }
                 return "La lectura de emociones no está disponible para esta sesión.";
         }
@@ -129,6 +133,19 @@
 
     /** Deja de compartir: corta el análisis y la API anula las emociones ya guardadas de esa sesión. */
     const revocar = sesion => llamar("/video/consentimiento/revocar",
+        { method: "POST", json: { origen: sesion.origen, id: sesion.id } }, "paciente");
+
+    // ── Paciente: aceptar la videollamada de la sesión (obligatoria), revocarla ──
+
+    /** { exigida, estado: "pendiente" | "acepta" | "revocada", version, titulo, texto[], marcaProvisoria, decididoUtc, revocadoUtc } */
+    const obtenerVideo = sesion => llamar(`/video/aceptacion?${consulta(sesion)}`, {}, "paciente");
+
+    /** Acepta usar la videollamada de ESA sesión sobre ESA versión del texto. */
+    const aceptarVideo = (sesion, version) => llamar("/video/aceptacion",
+        { method: "PUT", json: { origen: sesion.origen, id: sesion.id, version } }, "paciente");
+
+    /** Deja de usar el video: la API corta la lectura de emociones, descarta lo acumulado y le avisa al profesional. */
+    const revocarVideo = sesion => llamar("/video/aceptacion/revocar",
         { method: "POST", json: { origen: sesion.origen, id: sesion.id } }, "paciente");
 
     // ── Profesional: el permiso, vigilado ───────────────────────
@@ -164,24 +181,26 @@
         let timerCiclo = null, timerVence = null;
         let notificado = null;
 
+        // video: lo que el paciente aceptó de la videollamada de esta sesión ({ exigido, estado: "pendiente" | "acepta" | "revocada", revocadoUtc }), para el indicador del profesional.
         function vista() {
-            if (problema) return { permitido: false, estado: problema, motivo: null, desdeUtc: null, revocadoUtc: null, version: null };
-            if (!ultimo) return { permitido: false, estado: "consultando", motivo: null, desdeUtc: null, revocadoUtc: null, version: null };
+            if (problema) return { permitido: false, estado: problema, motivo: null, desdeUtc: null, revocadoUtc: null, version: null, video: null };
+            if (!ultimo) return { permitido: false, estado: "consultando", motivo: null, desdeUtc: null, revocadoUtc: null, version: null, video: null };
             if (ahora() - recibidaEn > vigenciaMs)
-                return { permitido: false, estado: "sin-conexion", motivo: null, desdeUtc: ultimo.desdeUtc || null, revocadoUtc: null, version: ultimo.version || null };
+                return { permitido: false, estado: "sin-conexion", motivo: null, desdeUtc: ultimo.desdeUtc || null, revocadoUtc: null, version: ultimo.version || null, video: null };
             return {
                 permitido: ultimo.permitido === true,
                 estado: String(ultimo.estado || ""),
                 motivo: ultimo.motivo || null,
                 desdeUtc: ultimo.desdeUtc || null,
                 revocadoUtc: ultimo.revocadoUtc || null,
-                version: ultimo.version || null
+                version: ultimo.version || null,
+                video: ultimo.video || null
             };
         }
 
         function notificar() {
             const v = vista();
-            const clave = [v.permitido, v.estado, v.motivo, v.desdeUtc, v.revocadoUtc].join("|");
+            const clave = [v.permitido, v.estado, v.motivo, v.desdeUtc, v.revocadoUtc, v.video && v.video.estado].join("|");
             if (clave === notificado) return;
             notificado = clave;
             alCambiar(v);
@@ -373,6 +392,7 @@
         ETIQUETAS, CADA_MS_POR_DEFECTO, VIGENCIA_MS_POR_DEFECTO,
         mensajeError, textoDeEstado,
         obtener, decidir, revocar,
+        obtenerVideo, aceptarVideo, revocarVideo,
         vigilar, crearAcumulador, analizar
     };
 })();
