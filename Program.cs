@@ -2639,6 +2639,7 @@ app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
 app.MapMensajeria();
 app.MapConsentimiento();
 app.MapCasos();
+app.MapCierreSesion();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapConsentimientoWhatsApp();

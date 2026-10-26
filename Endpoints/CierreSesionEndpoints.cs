@@ -91,6 +91,45 @@ public static class CierreSesionEndpoints
         return r.Repetido ? Results.Ok(cuerpo) : Results.Created("/sesiones-clinicas", cuerpo);
     }
 
+    /// <summary>El vínculo manual entre una sesión y una evolución: qué evoluciones se pueden vincular y el vínculo en sí.</summary>
+    public static IEndpointRouteBuilder MapCierreSesion(this IEndpointRouteBuilder app)
+    {
+        static IResult Falla(int status, string codigo) =>
+            Results.Json(new { codigo, mensaje = VinculoSesionEvolucionDAO.Mensaje(codigo) }, statusCode: status);
+
+        // Solo el profesional de la sesión. Lo que devuelve son evoluciones SUYAS, del mismo paciente y del mismo día.
+        app.MapGet("/sesiones-clinicas/{id:int}/evoluciones-vinculables", (int id, HttpContext ctx, IdentidadActualService identidad) =>
+        {
+            var yo = identidad.Resolver(ctx)!;
+            var dao = new VinculoSesionEvolucionDAO();
+            if (!new CierreSesionDAO().Migracion26Disponible()) return Results.Json(new { codigo = CierreSesionReglas.FaltaMigracion26, mensaje = CierreSesionReglas.Mensaje(CierreSesionReglas.FaltaMigracion26) }, statusCode: 409);
+            var s = dao.ObtenerSesion(id);
+            if (s is null || yo.IdProfesional != s.IdProfesional) return Falla(404, VinculoSesionEvolucionDAO.SesionInexistente);
+            AuditoriaIds.Registrar(ctx, "Consulta de evoluciones para vincular a una sesión", "SesionClinica", id, s.IdPaciente);
+            return Results.Ok(new { idSesion = s.IdSesion, idEvolucion = s.IdEvolucion, evoluciones = dao.Vinculables(s) });
+        }).Solo(Quien.Profesional);
+
+        // El profesional vincula SU sesión con UNA evolución suya del mismo paciente y del mismo día. Idempotente: repetir el mismo vínculo da 200 sin tocar nada.
+        // No crea ni modifica ninguna evolución.
+        app.MapPut("/sesiones-clinicas/{id:int}/evolucion", (int id, VincularEvolucionRequest req, HttpContext ctx, IdentidadActualService identidad) =>
+        {
+            var yo = identidad.Resolver(ctx)!;
+            if (yo.IdProfesional is not int idProfesional)
+                return Results.Json(new { mensaje = "No se pudo identificar tu usuario profesional." }, statusCode: 403);
+            if (req.IdEvolucion <= 0) return Results.BadRequest(new { mensaje = "Indicá la evolución a vincular." });
+            if (!new CierreSesionDAO().Migracion26Disponible()) return Results.Json(new { codigo = CierreSesionReglas.FaltaMigracion26, mensaje = CierreSesionReglas.Mensaje(CierreSesionReglas.FaltaMigracion26) }, statusCode: 409);
+
+            var s = new VinculoSesionEvolucionDAO().ObtenerSesion(id);
+            var autor = new AutorDelCierre(yo.IdUsuario, yo.Modulo ?? yo.Rol, s is null ? null : AuditoriaIds.Calidad(yo, s.IdPaciente));
+            var r = new VinculoSesionEvolucionDAO().Vincular(id, req.IdEvolucion, idProfesional, autor);
+            if (r.Rechazo is not null)
+                return Falla(r.Rechazo is VinculoSesionEvolucionDAO.SesionInexistente or VinculoSesionEvolucionDAO.EvolucionInexistente ? 404 : 409, r.Rechazo);
+            return Results.Ok(new { idSesion = id, idEvolucion = req.IdEvolucion, vinculada = true, yaEstaba = r.YaEstaba });
+        }).Solo(Quien.Profesional);
+
+        return app;
+    }
+
     // Un cierre rechazado por incoherencia deja rastro (solo ids): es lo que permite ver un intento de usar el turno de otro. Es un registro aparte: no hay transacción que lo proteja.
     private static void AuditarRechazo(Identidad yo, AutorDelCierre autor, SesionClinicaRequest req, int idProfesional, string codigo)
     {

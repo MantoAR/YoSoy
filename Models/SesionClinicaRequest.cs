@@ -27,3 +27,9 @@ public class SesionClinicaRequest
     // El profesional confirmó, con un clic en «Sí, se realizó», que la sesión se hizo. Ausente o false: el turno no se toca.
     public bool? ConfirmaRealizacion { get; set; }
 }
+
+// PUT /sesiones-clinicas/{id}/evolucion: la evolución de la historia clínica que el profesional vincula a la sesión (a mano).
+public class VincularEvolucionRequest
+{
+    public int IdEvolucion { get; set; }
+}

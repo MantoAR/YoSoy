@@ -91,8 +91,27 @@ public sealed class DatosCierre : IDisposable
     /// <summary>Las filas de auditoría de este profesional con esa acción (la auditoría es de solo agregar: se identifican por quién actuó).</summary>
     public List<(string Accion, string? Detalle)> Auditoria(string accion) => D.Auditoria(accion);
 
+    private int? _idHistoria;
+
+    /// <summary>La historia clínica del paciente (una por paciente): se crea la primera vez que se pide.</summary>
+    public int Historia() => _idHistoria ??= DatosEmociones.Insertar(
+        "INSERT INTO HistoriaClinica (IdPaciente, FechaApertura) OUTPUT INSERTED.IdHistoria VALUES (@P, GETDATE())", ("@P", IdPaciente));
+
+    /// <summary>Una evolución en la historia del paciente, escrita por el profesional indicado (por defecto, el de este juego de datos) en esa fecha.</summary>
+    public int NuevaEvolucion(DateTime fecha, int? idProfesional = null, string observaciones = "evolución de prueba [TEST-PR6]") =>
+        DatosEmociones.Insertar("INSERT INTO Evolucion (IdHistoria, IdProfesional, Fecha, Observaciones) OUTPUT INSERTED.IdEvolucion VALUES (@H, @M, @F, @O)",
+            ("@H", Historia()), ("@M", idProfesional ?? IdProfesional), ("@F", fecha), ("@O", observaciones));
+
+    public int Evoluciones() => Convert.ToInt32(DatosEmociones.Escalar("SELECT COUNT(*) FROM Evolucion e JOIN HistoriaClinica h ON h.IdHistoria = e.IdHistoria WHERE h.IdPaciente = @P", ("@P", IdPaciente)));
+    public int Historias() => Convert.ToInt32(DatosEmociones.Escalar("SELECT COUNT(*) FROM HistoriaClinica WHERE IdPaciente = @P", ("@P", IdPaciente)));
+    public int? EvolucionDeLaSesion(int idSesion) => (int?)DatosEmociones.Escalar("SELECT IdEvolucion FROM SesionClinica WHERE IdSesion = @S", ("@S", idSesion));
+
     public void Dispose()
     {
+        // Las sesiones apuntan a la evolución (IdEvolucion) y la evolución al turno y a la historia: de adentro hacia afuera.
+        D.Intentar("DELETE FROM SesionClinica WHERE IdPaciente = @P OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
+        D.Intentar("DELETE FROM Evolucion WHERE IdHistoria IN (SELECT IdHistoria FROM HistoriaClinica WHERE IdPaciente = @P) OR IdProfesional = @M", ("@P", IdPaciente), ("@M", IdProfesional));
+        D.Intentar("DELETE FROM HistoriaClinica WHERE IdPaciente = @P", ("@P", IdPaciente));
         D.Intentar("DELETE FROM Caso WHERE IdPaciente = @P", ("@P", IdPaciente));
         D.Dispose();
         foreach (var e in _estados) EstadosCompartidos.Soltar(e);
@@ -556,5 +575,125 @@ public class CierreSesionBaseRealTests
             Assert.Empty(c.Auditoria("Cierre de sesión clínica"));
         }
         finally { DatosEmociones.Ejecutar($"DROP TRIGGER {trigger}"); }
+    }
+
+    // ───────────── El vínculo manual sesión ↔ evolución ─────────────
+
+    private static async Task<int> SesionSinTurno(HttpClient cliente, DatosCierre c)
+    {
+        var (r, j) = await Cerrar(cliente, new { idPaciente = c.IdPaciente, notasEvolucion = "n [TEST-PR6]", claveCierre = Guid.NewGuid().ToString(), confirmaRealizacion = false });
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        return j.GetProperty("idSesion").GetInt32();
+    }
+
+    private static Task<HttpResponseMessage> Vincular(HttpClient cliente, int idSesion, int idEvolucion) =>
+        cliente.PutAsJsonAsync($"/sesiones-clinicas/{idSesion}/evolucion", new { idEvolucion });
+
+    [FactConBaseDeCierre]
+    public async Task El_cierre_no_crea_ninguna_evolucion_ni_abre_la_historia_clínica()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+
+        var (r, _) = await Cerrar(Profesional(app, c.D), Cuerpo(c, Guid.NewGuid(), notas: "una nota larga que NO se convierte en evolución [TEST-PR6]"));
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        Assert.Equal(0, c.Evoluciones());
+        Assert.Equal(0, c.Historias());
+    }
+
+    [FactConBaseDeCierre]
+    public async Task El_profesional_vincula_su_sesión_con_una_evolución_suya_del_mismo_día_sin_tocar_la_evolución_y_repetirlo_no_cambia_nada()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+        var cliente = Profesional(app, c.D);
+        var idSesion = await SesionSinTurno(cliente, c);
+        var idEvolucion = c.NuevaEvolucion(DateTime.Today, observaciones: "texto de la evolución [TEST-PR6]");
+        var antes = DatosEmociones.Filas("SELECT IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento FROM Evolucion WHERE IdEvolucion = @E", ("@E", idEvolucion)).Single();
+
+        // La lista de evoluciones que se pueden vincular la trae.
+        var lista = await VideoApp.Json(await cliente.GetAsync($"/sesiones-clinicas/{idSesion}/evoluciones-vinculables"));
+        Assert.Equal(idEvolucion, lista.GetProperty("evoluciones")[0].GetProperty("idEvolucion").GetInt32());
+
+        var r1 = await Vincular(cliente, idSesion, idEvolucion);
+        var j1 = await VideoApp.Json(r1);
+        var r2 = await Vincular(cliente, idSesion, idEvolucion);
+        var j2 = await VideoApp.Json(r2);
+
+        Assert.Equal(HttpStatusCode.OK, r1.StatusCode);
+        Assert.False(j1.GetProperty("yaEstaba").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, r2.StatusCode);
+        Assert.True(j2.GetProperty("yaEstaba").GetBoolean());
+        Assert.Equal(idEvolucion, c.EvolucionDeLaSesion(idSesion));
+        Assert.Single(c.Auditoria("Sesión vinculada a una evolución"));
+        // La evolución quedó exactamente igual (el vínculo vive en la sesión).
+        var despues = DatosEmociones.Filas("SELECT IdHistoria, IdProfesional, IdTurno, Fecha, Diagnostico, Observaciones, PlanTratamiento FROM Evolucion WHERE IdEvolucion = @E", ("@E", idEvolucion)).Single();
+        Assert.Equal(antes, despues);
+        Assert.Equal(1, c.Evoluciones());
+        // Ya vinculada, no se ofrece de nuevo, y las lecturas de sesiones traen el vínculo.
+        var lista2 = await VideoApp.Json(await cliente.GetAsync($"/sesiones-clinicas/{idSesion}/evoluciones-vinculables"));
+        Assert.Equal(0, lista2.GetProperty("evoluciones").GetArrayLength());
+        var sesiones = await VideoApp.Json(await cliente.GetAsync($"/pacientes/{c.IdPaciente}/sesiones-clinicas"));
+        Assert.Equal(idEvolucion, sesiones.EnumerateArray().Single(x => x.GetProperty("idSesion").GetInt32() == idSesion).GetProperty("idEvolucion").GetInt32());
+    }
+
+    [FactConBaseDeCierre]
+    public async Task El_vínculo_se_rechaza_si_no_es_el_mismo_paciente_profesional_y_día_o_si_ya_está_usado()
+    {
+        using var a = new DatosCierre(_salida);
+        using var b = new DatosCierre(_salida);
+        using var app = App();
+        var cliente = Profesional(app, a.D);
+        var idSesion = await SesionSinTurno(cliente, a);
+
+        async Task Rechaza(HttpClient quien, int sesion, int evolucion, HttpStatusCode status, string codigo)
+        {
+            var r = await Vincular(quien, sesion, evolucion);
+            Assert.Equal(status, r.StatusCode);
+            Assert.Equal(codigo, (await VideoApp.Json(r)).GetProperty("codigo").GetString());
+        }
+
+        var deOtroDia = a.NuevaEvolucion(DateTime.Today.AddDays(-1));
+        var deOtroProfesional = a.NuevaEvolucion(DateTime.Today, idProfesional: b.IdProfesional);
+        var deOtroPaciente = b.NuevaEvolucion(DateTime.Today, idProfesional: a.IdProfesional);
+        await Rechaza(cliente, idSesion, deOtroDia, HttpStatusCode.Conflict, "evolucion-no-coincide");
+        await Rechaza(cliente, idSesion, deOtroProfesional, HttpStatusCode.Conflict, "evolucion-no-coincide");
+        await Rechaza(cliente, idSesion, deOtroPaciente, HttpStatusCode.Conflict, "evolucion-no-coincide");
+        await Rechaza(cliente, idSesion, 2_000_000_000, HttpStatusCode.NotFound, "evolucion-inexistente");
+        await Rechaza(cliente, 2_000_000_000, deOtroDia, HttpStatusCode.NotFound, "sesion-inexistente");
+        Assert.Null(a.EvolucionDeLaSesion(idSesion));
+        Assert.Empty(a.Auditoria("Sesión vinculada a una evolución"));
+
+        // Una sesión ajena se ve igual que una inexistente.
+        var evolucionBuena = a.NuevaEvolucion(DateTime.Today);
+        await Rechaza(Profesional(app, b.D), idSesion, evolucionBuena, HttpStatusCode.NotFound, "sesion-inexistente");
+
+        // Una sesión con un vínculo no admite otro, y una evolución usada no se reusa.
+        Assert.Equal(HttpStatusCode.OK, (await Vincular(cliente, idSesion, evolucionBuena)).StatusCode);
+        var otraEvolucion = a.NuevaEvolucion(DateTime.Today);
+        await Rechaza(cliente, idSesion, otraEvolucion, HttpStatusCode.Conflict, "sesion-ya-vinculada");
+        var otraSesion = await SesionSinTurno(cliente, a);
+        await Rechaza(cliente, otraSesion, evolucionBuena, HttpStatusCode.Conflict, "evolucion-ya-vinculada");
+        Assert.Equal(evolucionBuena, a.EvolucionDeLaSesion(idSesion));
+        Assert.Null(a.EvolucionDeLaSesion(otraSesion));
+    }
+
+    [FactConBaseDeCierre]
+    public async Task Vincular_exige_ser_el_profesional_de_la_sesión_el_paciente_y_el_configurador_no_pueden()
+    {
+        using var c = new DatosCierre(_salida);
+        using var app = App();
+        var idSesion = await SesionSinTurno(Profesional(app, c.D), c);
+        var idEvolucion = c.NuevaEvolucion(DateTime.Today);
+
+        var paciente = app.Cliente(c.D.IdUsuarioPaciente, Roles.Paciente, idPaciente: c.IdPaciente);
+        var configurador = app.Cliente(c.D.IdUsuarioConfigurador, Roles.Configurador);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await Vincular(paciente, idSesion, idEvolucion)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Vincular(configurador, idSesion, idEvolucion)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Vincular(app.SinSesion(), idSesion, idEvolucion)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await paciente.GetAsync($"/sesiones-clinicas/{idSesion}/evoluciones-vinculables")).StatusCode);
+        Assert.Null(c.EvolucionDeLaSesion(idSesion));
     }
 }

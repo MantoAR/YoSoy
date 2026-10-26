@@ -82,8 +82,9 @@ public class SesionClinicaDAO
               WHERE IdPaciente = @Id
               ORDER BY FechaHora DESC", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) lista.Add(Mapear(reader));
+        using (var reader = cmd.ExecuteReader())
+            while (reader.Read()) lista.Add(Mapear(reader));
+        VinculoSesionEvolucionDAO.Completar(lista, "IdPaciente", idPaciente);
         return lista;
     }
 
@@ -100,8 +101,9 @@ public class SesionClinicaDAO
               WHERE IdProfesional = @Id
               ORDER BY FechaHora DESC", con);
         cmd.Parameters.AddWithValue("@Id", idProfesional);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) lista.Add(Mapear(reader));
+        using (var reader = cmd.ExecuteReader())
+            while (reader.Read()) lista.Add(Mapear(reader));
+        VinculoSesionEvolucionDAO.Completar(lista, "IdProfesional", idProfesional);
         return lista;
     }
 

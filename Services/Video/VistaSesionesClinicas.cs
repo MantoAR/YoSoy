@@ -11,7 +11,7 @@ using System.Text.Json;
 //  · Si lo guardado no se puede descifrar (falta la clave, o está alterado) se devuelve null y queda un aviso en el log,
 //    sin el contenido. Nunca se devuelve el texto cifrado.
 public record SesionClinicaVista(int IdSesion, int? IdTurno, int IdPaciente, int IdProfesional, DateTime FechaHora,
-    string? Transcripcion, string? NotasEvolucion, string? HistorialEmociones, string? TipoCierre, EmocionesInfo? Emociones);
+    string? Transcripcion, string? NotasEvolucion, string? HistorialEmociones, string? TipoCierre, EmocionesInfo? Emociones, int? IdEvolucion = null);
 
 /// <summary>Datos de la lectura de emociones de una sesión: ventana, muestras y, si se anularon, cuándo y por qué.</summary>
 public record EmocionesInfo(int? Muestras, DateTime? DesdeUtc, DateTime? HastaUtc, string? TextoVersion,
@@ -37,7 +37,7 @@ public class VistaSesionesClinicas
         if (puedeVerEmociones) (historial, info) = Leer(s);
 
         return new SesionClinicaVista(s.IdSesion, s.IdTurno, s.IdPaciente, s.IdProfesional, s.FechaHora,
-            s.Transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info);
+            s.Transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info, s.IdEvolucion);
     }
 
     private (string? Json, EmocionesInfo? Info) Leer(SesionClinica s)

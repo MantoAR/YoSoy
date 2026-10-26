@@ -23,4 +23,6 @@ public class SesionClinica
     public Guid? ClaveCierre { get; set; }
     // Cuándo (UTC) este cierre pasó el turno a Realizado; null si no tocó el turno.
     public DateTime? TurnoRealizadoUtc { get; set; }
+    // La evolución de la historia clínica a la que el profesional vinculó esta sesión (a mano); null si no hay vínculo. Solo la completan las lecturas.
+    public int? IdEvolucion { get; set; }
 }
