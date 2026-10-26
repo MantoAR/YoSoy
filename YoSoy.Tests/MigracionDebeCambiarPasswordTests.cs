@@ -36,6 +36,8 @@ public class MigracionDebeCambiarPasswordTests
             }
             // La forma de producción ANTES de la 24: sin la tabla de la migración 16 (54 tablas) y sin la columna ni su versión.
             Ejecutar("DROP TABLE ConsentimientoWhatsApp");
+            // El esquema consolidado ya trae la 27 (tabla AltaClinica), posterior a la 24: se saca para que la forma de producción siga siendo de 54 tablas.
+            foreach (var sentencia in Migracion27Pruebas.SentenciasParaQuitar) Ejecutar(sentencia);
             Ejecutar("ALTER TABLE Usuario DROP CONSTRAINT DF_Usuario_DebeCambiarPassword");
             Ejecutar("ALTER TABLE Usuario DROP COLUMN DebeCambiarPassword");
             Ejecutar("DELETE FROM VersionEsquema WHERE Numero = 24");
