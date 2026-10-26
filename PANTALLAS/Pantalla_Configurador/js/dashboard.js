@@ -2149,6 +2149,7 @@ async function renderCasosDerivaciones(c) {
                 <button class="ui-btn ui-btn--sm ui-btn--danger" onclick="rechazarDerivacionCaso(${d.idCasoDerivacion})">Rechazar</button>` }
         ]
     });
+    if (typeof renderTraspasosPorConfirmar === "function") await renderTraspasosPorConfirmar(c);   // traspasos aceptados por el destino (js/traspasos.js)
 }
 
 async function confirmarDerivacionCaso(id) {

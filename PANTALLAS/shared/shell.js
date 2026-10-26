@@ -499,17 +499,37 @@
                 const lista = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
+                // Derivaciones internas: lo que me toca responder y los avisos de derivación / traspaso (si la API todavía no los tiene, la campanita sigue como siempre).
+                const clinicos = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/avisos-clinicos`).catch(() => ({ avisos: [], porResponder: [] }));
+                const porResponder = (clinicos.porResponder || []).map(d => ({
+                    id: "deriv-" + d.idDerivacion, titulo: "Derivación pendiente de tu respuesta", noLeido: true,
+                    texto: `${d.nombreOrigen} te derivó el caso de ${d.nombrePaciente}. Motivo: ${d.motivo || "—"}${d.observaciones ? ` · Observaciones: ${d.observaciones}` : ""}`,
+                    fecha: d.fecha,
+                    acciones: [
+                        { texto: "Aceptar", tipo: "primary", alClick: () => responderDerivacion(d.idDerivacion, true) },
+                        { texto: "Rechazar", alClick: () => responderDerivacion(d.idDerivacion, false) }
+                    ]
+                }));
+                // «derivacion-pendiente» ya figura arriba con sus botones: acá solo el resto (enviada, aceptada, rechazada, traspaso confirmado).
+                const avisos = (clinicos.avisos || []).filter(a => a.tipo !== "derivacion-pendiente").map(a => ({
+                    id: "aviso-" + a.idAviso, titulo: a.titulo, texto: a.mensaje, fecha: a.fecha ? String(a.fecha).slice(0, 10) : null, noLeido: a.leida === false,
+                    accion: a.leida === false ? { texto: "Entendido", alClick: () => marcarAvisoClinico(a.idAviso) } : null
+                }));
                 return {
-                    noLeidos: sinSala.length,
-                    items: sinSala.map(t => ({
-                        id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
-                        texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
-                        accion: { texto: "Generar sala", tipo: "primary", alClick: () => generarSala(t.idTurno) }
-                    }))
+                    noLeidos: sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
+                    items: [
+                        ...porResponder,
+                        ...avisos,
+                        ...sinSala.map(t => ({
+                            id: t.idTurno, titulo: "Turno confirmado: falta la sala", noLeido: true,
+                            texto: `${t.nombrePaciente} · ${t.fecha} ${t.hora} hs`,
+                            accion: { texto: "Generar sala", tipo: "primary", alClick: () => generarSala(t.idTurno) }
+                        }))
+                    ]
                 };
             },
-            vacio: "No hay turnos confirmados esperando sala.",
-            recordatorio: n => `Tenés ${n} turno${n === 1 ? "" : "s"} confirmado${n === 1 ? "" : "s"} sin sala de video.`
+            vacio: "No hay avisos por ahora.",
+            recordatorio: n => `Tenés ${n} aviso${n === 1 ? "" : "s"} sin leer (turnos sin sala o derivaciones).`
         }
     };
 
@@ -518,6 +538,25 @@
     async function unirseSala(codigo, idNotif) {
         try { await YS.fetch(`/notificaciones/${idNotif}/leida`, { method: "PUT" }); } catch { }
         location.href = `/pantallas/Pantalla_Paciente/sesion_video.html?sala=${encodeURIComponent(codigo)}&idPaciente=${YS.sesion.idPaciente()}`;
+    }
+
+    // El profesional de destino acepta o rechaza una derivación. Aceptar NO cambia ningún vínculo: Admisión confirma el traspaso después.
+    async function responderDerivacion(idDerivacion, acepta) {
+        let motivo = null;
+        if (!acepta && YS.pedirTexto) {
+            motivo = await YS.pedirTexto({ titulo: "Rechazar la derivación", mensaje: "Admisión va a decidir cómo seguir. Contale el motivo (opcional).", etiqueta: "Motivo", multilinea: true, maximo: 300, textoConfirmar: "Rechazar" });
+            if (motivo === null) return;   // canceló
+        }
+        try {
+            await YS.api(`/derivaciones/${idDerivacion}/responder`, { method: "PUT", json: { acepta, motivo: motivo || null } });
+            YS.toast(acepta ? "Aceptaste la derivación. Admisión va a confirmar el traspaso." : "Rechazaste la derivación. Se avisó a Admisión y al profesional que derivó.");
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    async function marcarAvisoClinico(idAviso) {
+        try { await YS.fetch(`/avisos-clinicos/${idAviso}/leida`, { method: "PUT" }); } catch { }
+        campana.refrescar();
     }
 
     async function generarSala(idTurno) {
