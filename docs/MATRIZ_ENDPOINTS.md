@@ -8,6 +8,27 @@ mano — así esta tabla no se puede desactualizar en silencio sin que algo la c
 columna "Pertenencia" sí es juicio: la reflexión solo puede ver "autenticado" y "con qué
 rol", nunca "solo el dueño del recurso" — esa parte la decide el código de cada endpoint.
 
+## Consentimientos dentro del circuito (octubre 2026)
+
+**Esta sección manda sobre las de abajo** donde no coincidan. Diseño y reglas: [`CONSENTIMIENTOS_CIRCUITO.md`](CONSENTIMIENTOS_CIRCUITO.md). **Migración 28, opcional.**
+
+| Método | Ruta | Quién | Pertenencia | Qué cambia |
+|---|---|---|---|---|
+| GET | `/video/aceptacion?origen=&id=` | Cualquier rol autenticado | **Solo el paciente de la sesión — 404** | Su estado de la aceptación de la videollamada (`pendiente`/`acepta`/`revocada`; `exigida=false` sin la migración), el texto y su versión, y la marca provisoria. Nunca se cachea |
+| PUT | `/video/aceptacion` | Ídem | Ídem | `{ origen, id, version }`: acepta usar la videollamada de esa sesión (guarda usuario, fecha UTC, versión y hash). 409 `version-desactualizada` si el texto cambió. Repetirlo no agrega filas |
+| POST | `/video/aceptacion/revocar` | Ídem | Ídem | Revoca; corta y anula las emociones de esa sesión; avisa al profesional (campanita). Repetirlo no repite el aviso |
+| GET | `/video/aceptaciones-vigentes` | Paciente | Solo las propias | Sesiones de los últimos 30 días con el video aceptado y si aceptó emociones (para «Mis sesiones» del perfil) |
+| POST | `/video/acceso` | (sin cambios de rol) | (sin cambios) | **El paciente** sin la videollamada aceptada recibe 409 `aceptacion-video-pendiente` y queda un bloqueo para el profesional; el profesional entra igual |
+| PUT | `/video/consentimiento` | (sin cambios) | (sin cambios) | Aceptar la lectura de emociones exige haber aceptado el video (409 `aceptacion-video-pendiente`); rechazar no |
+| GET | `/video/emociones/permiso` | (sin cambios) | (sin cambios) | Agrega `video: { exigido, estado, revocadoUtc }`; `permitido` exige video aceptado **y** emociones aceptadas |
+| GET | `/informes-admision-detalle` | Admisión y auditor | (sin cambios) | Agrega `consentimientoFirmado` y `consentimientoMotivo` por fila |
+| GET/POST | `/pacientes/{id}/consentimiento-telemedicina` | (sin cambios) | (sin cambios) | «Firmado» = **vigente** (versión del texto y, en un menor, tutor). Agrega `motivo`, `esMenor`, `tutores`, `marcaProvisoria`; `POST` de un menor exige `idTutor` |
+| POST | `/pacientes/{id}/profesionales` | Admisión | (sin cambios) | 409 `consentimiento-pendiente` si el paciente no tiene el consentimiento de tratamiento vigente |
+| PUT | `/informes-admision/{id}/derivar` | Admisión | (sin cambios) | Ídem (se rechaza antes de tocar el informe) |
+| POST | `/usuarios/pacientes/{id}/profesionales` | Configurador | (sin cambios) | Ídem |
+| PUT | `/casosderivaciones/{id}/confirmar`, `/corregir` | CRM / Administración | (sin cambios) | Ídem cuando asignan un profesional |
+| PUT | `/turnos/{id}/generar-sala` | Profesional, CRM con Gestión de agendas | (sin cambios) | Ídem (también en una cita urgente); queda un bloqueo `consentimiento-bloqueo` para el profesional |
+
 ## Vista única: Administración (Configurador + CRM) y Leads (octubre 2026)
 
 **Esta sección manda sobre las de abajo** donde no coincidan. Quien tiene los permisos Configurador **y** CRM recibe una sola sesión, `administracion`. Código: `Services/Accesos.cs` (la unión, siempre armada en el servidor desde la base), `Program.cs` (`/login`, `/sesion/modulo`), `Services/Leads.cs` y `Endpoints/MensajeriaEndpoints.cs`. **Sin migración.** Despliegue: [`DEPLOY_VISTA_UNICA_PRODUCCION.md`](DEPLOY_VISTA_UNICA_PRODUCCION.md).

@@ -763,3 +763,7 @@ fijas, porque la cámara falsa no tiene rostro.
   parte", pero el tiempo no: el segundo caso lee la agenda y escribe la auditoría. Es una diferencia de milisegundos
   que, con el rate limit (20 pedidos por minuto por IP), no alcanza para sondear en la práctica; igualarla requeriría
   auditar también los ids que no existen o auditar en segundo plano.
+
+## Aceptación de la videollamada por sesión (octubre 2026)
+
+Además del consentimiento de la lectura de emociones, el **paciente** tiene que aceptar usar la videollamada antes de cada sesión (migración 28, tabla `AceptacionVideollamada`): `POST /video/acceso` le contesta 409 `aceptacion-video-pendiente` hasta que acepta, revocarla corta el video y las emociones y avisa al profesional, y la lectura de emociones solo se puede aceptar y analizar con el video aceptado. El permiso del profesional (`GET /video/emociones/permiso`) agrega `video`. Todo en [`CONSENTIMIENTOS_CIRCUITO.md`](CONSENTIMIENTOS_CIRCUITO.md).
