@@ -185,7 +185,7 @@ public class TurnoReglasService
     }
 
     public bool TieneConsentimiento(int idPaciente) =>
-        _repo.TieneConsentimiento(idPaciente, _consentimiento.CurrentValue.TipoRequerido);
+        _repo.TieneConsentimiento(idPaciente, _consentimiento.CurrentValue.TipoRequerido, _consentimiento.CurrentValue.VersionTexto);
 
     /// <summary>
     /// RN-02 para un turno que va a pasar a Confirmado. Si ya estaba Confirmado no se

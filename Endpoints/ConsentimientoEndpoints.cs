@@ -21,14 +21,20 @@ public static class ConsentimientoEndpoints
 
             var op = opciones.CurrentValue;
             if (new PacienteDAO().ObtenerPorId(id) is null) return Results.NotFound();
-            var c = new ConsentimientoDAO().ObtenerVigente(id, op.TipoRequerido);
+            // La misma decisión que usa RN-02 y el requisito de asignar un profesional (ConsentimientoTratamiento): «firmado» es «vigente».
+            var e = ConsentimientoTratamiento.Estado(id, op);
             return Results.Ok(new
             {
-                firmado        = c != null,
-                fechaFirma     = c?.FechaFirma,
-                versionFirmada = c?.Version,
+                firmado        = e.Vigente,
+                fechaFirma     = e.FechaFirma,
+                versionFirmada = e.Version,
                 tipo           = op.TipoRequerido,
-                versionTexto   = op.VersionTexto
+                versionTexto   = op.VersionTexto,
+                // Por qué no está vigente: sin-firma, version-anterior (el texto cambió: hay que volver a firmar) o falta-tutor (un menor: lo firma su tutor).
+                motivo         = e.Vigente ? null : e.Motivo,
+                esMenor        = e.EsMenor && Migracion28.Disponible(),
+                tutores        = e.EsMenor && Migracion28.Disponible() ? new ConsentimientoDAO().TutoresDe(id).Select(t => new { idTutor = t.IdTutor, nombre = t.Nombre, vinculo = t.Vinculo }) : null,
+                marcaProvisoria = string.IsNullOrWhiteSpace(op.MarcaProvisoria) ? null : op.MarcaProvisoria
             });
         }).RequireAuthorization();
 
@@ -49,23 +55,35 @@ public static class ConsentimientoEndpoints
             if (new PacienteDAO().ObtenerPorId(id) is null) return Results.NotFound();
 
             var dao = new ConsentimientoDAO();
-            var resultado = dao.FirmarSiNoExiste(id, op.TipoRequerido, op.VersionTexto, reloj.GetLocalNow().DateTime);
+            var hoy = reloj.GetLocalNow().DateTime;
+            // Una persona menor de edad (o con tutor) no firma sola: firma su tutor, y queda dicho quién. Provisorio: la regla exacta la tiene que validar el equipo legal.
+            // TODO-VALIDAR: cómo se acredita al tutor (hoy: la sesión del menor elige a uno de los tutores cargados en su ficha).
+            int? idTutorFirmante = null;
+            var estadoPrevio = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy);
+            if (estadoPrevio.EsMenor && Migracion28.Disponible())
+            {
+                var tutores = dao.TutoresDe(id);
+                if (req.IdTutor is not int elegido || !tutores.Any(t => t.IdTutor == elegido))
+                    return Results.BadRequest(new { codigo = "falta-tutor", mensaje = "Como sos menor de edad, el consentimiento lo firma tu madre, padre o tutor. Elegí quién firma y volvé a intentar." });
+                idTutorFirmante = elegido;
+            }
+            var resultado = dao.FirmarSiNoExiste(id, op.TipoRequerido, op.VersionTexto, hoy, idTutorFirmante);
             if (resultado == -1)
                 return Results.Problem($"No existe el tipo de consentimiento \"{op.TipoRequerido}\". " +
                                        "Correr migrations/add_consentimiento_telemedicina.sql.");
 
-            var vigente = dao.ObtenerVigente(id, op.TipoRequerido);
+            var vigente = ConsentimientoTratamiento.Estado(id, op.TipoRequerido, op.VersionTexto, hoy);
             if (resultado == 0)
-                return Results.Json(new { mensaje = "El consentimiento ya estaba firmado.", fechaFirma = vigente?.FechaFirma }, statusCode: 409);
+                return Results.Json(new { mensaje = "El consentimiento ya estaba firmado.", fechaFirma = vigente.FechaFirma }, statusCode: 409);
             return Results.Created($"/pacientes/{id}/consentimiento-telemedicina",
-                new { firmado = true, fechaFirma = vigente?.FechaFirma, versionFirmada = vigente?.Version });
+                new { firmado = true, fechaFirma = vigente.FechaFirma, versionFirmada = vigente.Version, idTutorFirmante });
         }).RequireAuthorization(p => p.RequireRole(Roles.Paciente));
 
         return app;
     }
 }
 
-public record FirmaConsentimientoRequest(bool? Acepto, string? Version);
+public record FirmaConsentimientoRequest(bool? Acepto, string? Version, int? IdTutor = null);
 
 // Respuesta HTTP de una regla de negocio incumplida: 409 con un cuerpo que el
 // frontend puede mostrar tal cual (y el link para resolverlo, si hay).

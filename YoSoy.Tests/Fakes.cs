@@ -70,7 +70,7 @@ public class FakeTurnoRepositorio : ITurnoRepositorio
         .Count(t => t.IdPaciente == idPaciente && t.IdProfesional == idProfesional && t.Fecha == fecha.Date
                     && _db.Estados[t.IdEstadoTurno] is "Pendiente" or "Confirmado");
 
-    public bool TieneConsentimiento(int idPaciente, string descripcionTipo) =>
+    public bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null) =>
         descripcionTipo == BaseEnMemoria.TipoTelemedicina
             ? _db.ConConsentimiento.Contains(idPaciente)
             : _db.ConOtroConsentimiento.Contains(idPaciente);

@@ -13,4 +13,8 @@ public class ConsentimientoOptions
 
     // Página donde el paciente lo firma. La usan el bot y los mensajes de error.
     public string UrlFirma { get; set; } = "";
+
+    // TODO-VALIDAR: el texto legal del consentimiento todavía no lo validó alguien con formación legal. Mientras tanto las pantallas muestran esta marca junto al texto. Para quitarla
+    // cuando el texto esté validado: dejar este valor vacío en la configuración (Consentimiento:MarcaProvisoria = "").
+    public string MarcaProvisoria { get; set; } = "Texto provisorio, pendiente de validación legal";
 }

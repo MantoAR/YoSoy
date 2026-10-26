@@ -8,7 +8,7 @@ public interface ITurnoRepositorio
     List<Agenda> AgendaDe(int idProfesional);
     List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha);
     int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha);
-    bool TieneConsentimiento(int idPaciente, string descripcionTipo);
+    bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null);
     Turno? ObtenerTurno(int idTurno);
     string? DescripcionEstado(int idEstadoTurno);
     int? IdEstado(string descripcion);
@@ -59,9 +59,9 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         return (int)cmd.ExecuteScalar();
     }
 
-    // Misma consulta que usa la página de firma (ConsentimientoDAO.ObtenerVigente).
-    public bool TieneConsentimiento(int idPaciente, string descripcionTipo) =>
-        new ConsentimientoDAO().ObtenerVigente(idPaciente, descripcionTipo) != null;
+    // LA misma decisión que la página de firma y que el requisito de asignar un profesional (ConsentimientoTratamiento).
+    public bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null) =>
+        ConsentimientoTratamiento.Estado(idPaciente, descripcionTipo, version).Vigente;
 
     public string? DescripcionEstado(int idEstadoTurno)
     {
