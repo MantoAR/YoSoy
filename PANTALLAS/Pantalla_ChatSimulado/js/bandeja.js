@@ -1329,7 +1329,7 @@
         try { est.etiquetasCatalogo = await YS.api(`${BASE}/etiquetas`); } catch (e) { YS.toast(e.message, "error"); return; }
         const catalogo = est.etiquetasCatalogo;
         if (!catalogo.length) {
-            YS.toast("Todavía no hay etiquetas en el catálogo. Las crea CRM y atención al cliente.", "info");
+            YS.toast("Todavía no hay etiquetas en el catálogo. Las crea la recepcionista.", "info");
             return;
         }
         const idsElegidos = new Set(idsActuales);

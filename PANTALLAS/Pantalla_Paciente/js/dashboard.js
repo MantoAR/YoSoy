@@ -1007,66 +1007,8 @@ function entrarSesion() {
     window.location.href = 'sesion_video.html?sala=' + encodeURIComponent(codigo) + '&idPaciente=' + idPaciente;
 }
 
-async function cargarNotificaciones() {
-    let notifs = [];
-    try { notifs = await (await YS.fetch("/pacientes/" + idPaciente + "/notificaciones")).json(); } catch(e) { return; }
-    const noLeidas = notifs.filter(function(n) { return n.leida === false; });
-    window._notifsFlotantes = noLeidas;
-    if (noLeidas.length === 0) return;
-
-    let cont = document.getElementById("notif-container");
-    if (cont === null) {
-        cont = document.createElement("div");
-        cont.id = "notif-container";
-        cont.className = "notif-flotantes";
-        document.body.appendChild(cont);
-    }
-    cont.innerHTML = "";
-
-    // Como máximo tres, primero los que tienen acción (entrar a la entrevista); el resto queda en la campana
-    const MAX_FLOTANTES = 3;
-    const conAccion = noLeidas.filter(n => n.link);
-    const visibles = conAccion.concat(noLeidas.filter(n => !n.link)).slice(0, MAX_FLOTANTES);
-    visibles.forEach(function(n) {
-        const card = document.createElement("div");
-        card.className = "notif-flotante";
-        let botones = '<button class="ui-btn ui-btn--sm" onclick="marcarLeida(' + n.idNotificacion + ')">Cerrar</button>';
-        if (n.link !== null && n.link !== "") {
-            botones = '<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="unirseEntrevista(null, ' + n.idNotificacion + ')">Unirse a la entrevista</button>' + botones;
-        }
-        card.innerHTML = '<div class="notif-titulo">' + YS.esc(n.titulo) + '</div>' +
-            '<div class="notif-mensaje">' + YS.esc(n.mensaje) + '</div>' +
-            '<div class="notif-botones">' + botones + '</div>';
-        cont.appendChild(card);
-    });
-    const resto = noLeidas.length - visibles.length;
-    if (resto > 0) {
-        const mas = document.createElement("div");
-        mas.className = "notif-flotante notif-flotante--mas";
-        mas.innerHTML = '<div class="notif-mensaje">Tenés ' + resto + ' aviso' + (resto === 1 ? '' : 's') + ' más.</div>' +
-            '<div class="notif-botones"><button class="ui-btn ui-btn--sm" onclick="YS.shell.campana.abrir()">Ver todos</button></div>';
-        cont.appendChild(mas);
-    }
-}
-
-async function marcarLeida(idNotif) {
-    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
-    YS.shell.campana.refrescar();
-    cargarNotificaciones();
-    const cont = document.getElementById("notif-container");
-    if (cont !== null) cont.innerHTML = "";
-    cargarNotificaciones();
-}
-
-// El código de la sala se toma de la notificación cargada (antes viajaba dentro del onclick)
-async function unirseEntrevista(codigoSala, idNotif) {
-    codigoSala ??= (window._notifsFlotantes || []).find(n => n.idNotificacion === idNotif)?.link;
-    if (!codigoSala) return;
-    try { await YS.fetch("/notificaciones/" + idNotif + "/leida", { method: "PUT" }); } catch(e) {}
-    window.location.href = "sesion_video.html?sala=" + encodeURIComponent(codigoSala) + "&idPaciente=" + idPaciente;
-}
-
-cargarNotificaciones();
+// Los avisos del paciente se ven en la campanita de la barra superior (shared/shell.js), solo los no leídos. Antes se repetían además como tarjetas
+// flotantes con el mismo texto: el mismo aviso aparecía dos veces (y una tercera en la tarjeta «Turno a confirmar» de Inicio).
 
 // Turno pendiente que propuso el profesional y el paciente todavía no confirmó.
 function propuestoPorProfesional(t) {

@@ -403,7 +403,7 @@ public static class MensajeriaEndpoints
         g.MapPut("/conversaciones/{id}/asignar", (int id, AsignarConversacionRequest req, HttpContext ctx, IConversacionDAO conversaciones) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente puede asignar una conversación." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista puede asignar una conversación." }, statusCode: 403);
             if (!MotivoReasignacion.Categorias.Contains(req.MotivoCategoria))
                 return Results.Json(new { mensaje = $"Motivo no reconocido: \"{req.MotivoCategoria}\". Tiene que ser uno de: {string.Join(", ", MotivoReasignacion.Categorias)}." }, statusCode: 400);
             var c = conversaciones.ObtenerPorId(id);
@@ -507,7 +507,7 @@ public static class MensajeriaEndpoints
         g.MapPost("/etiquetas", (EtiquetaConversacion e, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista administra el catálogo de etiquetas." }, statusCode: 403);
             var error = ValidarEtiqueta(e);
             if (error != null) return Results.BadRequest(new { mensaje = error });
             try { e.IdEtiqueta = new EtiquetaConversacionDAO().Insertar(e); return Results.Created($"/mensajeria/etiquetas/{e.IdEtiqueta}", e); }
@@ -517,7 +517,7 @@ public static class MensajeriaEndpoints
         g.MapPut("/etiquetas/{id}", (int id, EtiquetaConversacion e, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista administra el catálogo de etiquetas." }, statusCode: 403);
             var error = ValidarEtiqueta(e);
             if (error != null) return Results.BadRequest(new { mensaje = error });
             var dao = new EtiquetaConversacionDAO();
@@ -531,7 +531,7 @@ public static class MensajeriaEndpoints
         g.MapDelete("/etiquetas/{id}", (int id, HttpContext ctx) =>
         {
             var (esAdmin, _) = AutorizacionCasos.Resolver(ctx);
-            if (!esAdmin) return Results.Json(new { mensaje = "Solo CRM y atención al cliente administra el catálogo de etiquetas." }, statusCode: 403);
+            if (!esAdmin) return Results.Json(new { mensaje = "Solo la recepcionista administra el catálogo de etiquetas." }, statusCode: 403);
             var dao = new EtiquetaConversacionDAO();
             if (dao.ObtenerPorId(id) is null) return Results.NotFound();
             dao.Desactivar(id);

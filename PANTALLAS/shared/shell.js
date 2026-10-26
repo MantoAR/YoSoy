@@ -200,7 +200,7 @@
     }
     // Dónde entra un grupo agregado "al principio": después de Inicio si el menú lo tiene, o primero si no.
     const posicionInicial = items => items.some(it => it.id === "inicio") ? 1 : 0;
-    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: "CRM y atención al cliente", administracion: "Administración" };
+    const ROL_TEXTO = { paciente: "Paciente", profesional: "Profesional", configurador: "Configurador", crm: ETIQUETA_CRM, administracion: "Administración" };
     const LOGO = "/pantallas/Pantalla_Usuario/Usuario/img/logo_SINFONDO.png";
 
     let cfg = null, menu = null, actual = null, primeraMarca = true;
@@ -481,9 +481,10 @@
         paciente: {
             titulo: "Notificaciones",
             async cargar() {
-                const lista = await YS.api(`/pacientes/${YS.sesion.idPaciente()}/notificaciones`);
+                // Solo las NO LEÍDAS: al leer una, desaparece de la lista (no se acumulan avisos viejos ni repetidos).
+                const lista = (await YS.api(`/pacientes/${YS.sesion.idPaciente()}/notificaciones`)).filter(n => n.leida === false);
                 return {
-                    noLeidos: lista.filter(n => n.leida === false).length,
+                    noLeidos: lista.length,
                     items: lista.map(n => ({
                         id: n.idNotificacion, titulo: n.titulo, texto: n.mensaje, fecha: n.fecha, noLeido: n.leida === false,
                         // Un link que es una página (el aviso de firmar el consentimiento) se abre tal cual; el resto es el código de una sala.
@@ -500,7 +501,7 @@
                 document.dispatchEvent(new CustomEvent("ys:avisos-leidos"));
                 return true;   // vuelve a cargar el contador
             },
-            vacio: "No tenés notificaciones."
+            vacio: "No tenés notificaciones sin leer."
         },
         // Turnos confirmados por el paciente que todavía no tienen sala (antes eran avisos flotantes).
         profesional: {
@@ -641,7 +642,8 @@
             this.dibujar();
             if (this.def.alAbrir && this._datos?.noLeidos) {
                 const datos = this._datos;
-                if (await this.def.alAbrir(datos)) { this.b.contador(0); }
+                // Leídas al abrir: la lista que se está viendo queda hasta cerrar, y la próxima vez que se abra se vuelve a pedir (solo aparecen las no leídas).
+                if (await this.def.alAbrir(datos)) { this.b.contador(0); this._datos = null; }
             }
         },
         dibujar() {

@@ -28,7 +28,7 @@ public static class Modulos
     public static string Nombre(string modulo) => modulo switch
     {
         Profesional => "Profesional",
-        Crm => "CRM y atención al cliente",
+        Crm => "Recepcionista",   // el nombre visible del módulo CRM; el rol y la clave siguen siendo «crm»
         Facturacion => "Administración de facturación y pagos",
         Configurador => "Configurador",
         Administracion => "Administración",

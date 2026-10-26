@@ -157,15 +157,8 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 .toast { animation: toast-in .2s ease; }
 .toast.saliendo { animation: toast-out .25s ease forwards; }
 .toast-icono { font-size: 14px; flex-shrink: 0; }
-@keyframes toast-in  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes toast-out { to { opacity: 0; transform: translateY(8px); } }
-
-/* ── Avisos flotantes de notificaciones sin leer (la campana está en la barra, shared/shell.js) ── */
-.notif-flotantes { position: fixed; top: calc(var(--topbar-h) + 12px); right: 20px; z-index: 40; max-width: 360px; display: flex; flex-direction: column; gap: 8px; }
-.notif-flotante { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-lg); padding: 12px 14px; box-shadow: var(--shadow-lg); }
-.notif-titulo { font-weight: 600; color: var(--text); margin-bottom: 2px; }
-.notif-mensaje { font-size: var(--fs-md); color: var(--text-2); margin-bottom: 8px; line-height: 1.45; }
-.notif-botones { display: flex; gap: 6px; flex-wrap: wrap; }
+@keyframes toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateY(-8px); } }
 
 .panel-aviso { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-md); background: var(--accent-soft); border: 1px solid var(--accent-border); color: var(--accent-strong); font-size: var(--fs-md); }
 

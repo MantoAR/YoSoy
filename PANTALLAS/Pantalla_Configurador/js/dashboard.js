@@ -2335,7 +2335,7 @@ async function renderAltaUsuario(c) {
                     </div>
                 </fieldset>
                 <fieldset class="editor-permisos-modulo">
-                    <legend><label class="ui-check"><input type="checkbox" id="altaRolCrm"> <span class="texto-fuerte">CRM y atención al cliente</span></label></legend>
+                    <legend><label class="ui-check"><input type="checkbox" id="altaRolCrm"> <span class="texto-fuerte">Recepcionista</span></label></legend>
                     <div id="altaBloqueCrm" class="oculto">
                         <label class="ui-check"><input type="checkbox" id="altaAgendas"> Privilegio: Gestión de agendas
                             <span class="texto-chico ui-muted">(turnos y horarios de todos los profesionales; nunca historias clínicas)</span></label>
