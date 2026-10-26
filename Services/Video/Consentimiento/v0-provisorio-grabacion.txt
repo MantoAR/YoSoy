@@ -1,0 +1,19 @@
+Grabación y transcripción de la videollamada
+
+TEXTO PROVISORIO. Todavía no fue validado por un profesional legal y no es el consentimiento definitivo.
+
+Qué es. Si aceptás, mientras dure la sesión se grava el audio de la videollamada: tanto el tuyo como el de tu profesional. Al terminar, ese audio se transcribe a texto de forma automática, en un servidor propio de la plataforma, sin enviarlo a ningún servicio de terceros.
+
+Para qué se usa. Solo para tu atención de salud: tu profesional puede guardar la transcripción en tu historia clínica como apoyo a sus notas de la sesión. No reemplaza su criterio clínico y la transcripción automática puede tener errores.
+
+Qué se guarda. El audio se borra del servidor apenas termina de transcribirse: no queda guardado. Lo que se conserva es el texto de la transcripción, cifrado, dentro de tu historia clínica.
+
+Quién puede verlo. Únicamente el profesional que te atiende en esa sesión. El equipo de administración de la plataforma no lo ve desde el sistema.
+
+Por cuánto tiempo. [PLAZO DE CONSERVACIÓN: A DEFINIR POR EL EQUIPO LEGAL]
+
+Es tu decisión. Aceptar es voluntario y no cambia tu atención: si no aceptás, la videollamada se hace igual, sin grabarse. Podés cambiar de idea cuando quieras, también durante la sesión: desde ese momento se deja de grabar y, si la sesión ya tenía una transcripción guardada, se elimina.
+
+Tus derechos. Podés pedir acceso, rectificación o supresión de tus datos personales. [DATOS DE CONTACTO DE LA INSTITUCIÓN: A COMPLETAR]
+
+Marco normativo de referencia: Ley 25.326 (protección de los datos personales), Ley 26.529 (derechos del paciente, historia clínica y consentimiento informado) y Ley 26.657 (salud mental). [REFERENCIAS A VALIDAR POR EL EQUIPO LEGAL]

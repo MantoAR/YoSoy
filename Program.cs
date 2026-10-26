@@ -1998,7 +1998,7 @@ app.MapPost("/recuperacion-password/reset", (ResetPasswordRequest req) =>
 // guardan con una aceptación vigente del paciente de esa sesión de video (GuardiaEmocionesService) y siempre cifradas; si no
 // pasan la guardia, la sesión se guarda igual (notas, tipo de cierre) y la respuesta dice que las emociones se descartaron.
 soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpContext ctx, IdentidadActualService identidad,
-    GuardiaEmocionesService guardia, IEmocionesCifrado cifrado, TurnoReglasService reglas) =>
+    GuardiaEmocionesService guardia, IEmocionesCifrado cifrado, TurnoReglasService reglas, ITranscripcionSesionRepositorio transcripciones) =>
 {
     // Mismo criterio que turnos (Paso 3): si quien crea es profesional, la sesión queda a
     // su propio nombre, nunca al de otro id enviado en el cuerpo.
@@ -2013,7 +2013,7 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
 
     // Cierre de sesión (Endpoints/CierreSesionEndpoints.cs): con claveCierre o confirmaRealizacion, todo en una transacción.
     if (CierreSesionEndpoints.EsPedidoDeCierre(req))
-        return CierreSesionEndpoints.Guardar(req, ctx, identidad, guardia, cifrado, reglas, idProfesional, esAdmin);
+        return CierreSesionEndpoints.Guardar(req, ctx, identidad, guardia, cifrado, reglas, transcripciones, idProfesional, esAdmin);
 
     var s = new SesionClinica
     {
@@ -2021,7 +2021,6 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
         IdPaciente = req.IdPaciente,
         IdProfesional = idProfesional,
         FechaHora = DateTime.Now,
-        Transcripcion = req.Transcripcion,
         NotasEvolucion = req.NotasEvolucion,
         TipoCierre = req.TipoCierre
     };
@@ -2036,6 +2035,8 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
     // La escritura vuelve a mirar el consentimiento: si el paciente revocó justo en el medio, la sesión quedó sin emociones.
     ev = GuardiaEmocionesService.TrasLaEscritura(ev, insertada.EmocionesGuardadas);
     guardia.Registrar(yo, ev, id);
+    // Si la sesión viene de una videollamada que se estaba grabando, la grabación se vincula y pasa a "pendiente".
+    var estadoTranscripcion = EncoladoGrabacionReglas.Encolar(transcripciones, req.Grabacion, id);
 
     return Results.Created("/sesiones-clinicas", new
     {
@@ -2052,7 +2053,8 @@ soloClinico(app.MapPost("/sesiones-clinicas", (SesionClinicaRequest req, HttpCon
             mensaje = ev.Estado == EvaluacionEmociones.Descartadas
                 ? "La sesión se guardó sin las emociones: " + GuardiaEmocionesService.MensajeDeDescarte(ev.Motivo) + "."
                 : null
-        }
+        },
+        transcripcion = new { estado = estadoTranscripcion }
     });
 }));
 
@@ -2657,6 +2659,7 @@ app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapVideo();
 app.MapConsentimientoVideo();
+app.MapGrabacionVideo();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 

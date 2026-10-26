@@ -29,6 +29,33 @@ public class TranscripcionSesionDAO : ITranscripcionSesionRepositorio
         return Mapear(r);
     }
 
+    public TranscripcionSesion CrearOReusar(string origen, int idOrigen, int idConsentimientoVideo, long? inicioPistaProfesionalMs, long? inicioPistaPacienteMs)
+    {
+        try
+        {
+            return Crear(origen, idOrigen, idConsentimientoVideo, inicioPistaProfesionalMs, inicioPistaPacienteMs);
+        }
+        catch (SqlException e) when (e.Number is 2601 or 2627)
+        {
+            if (ObtenerActiva(origen, idOrigen) is { } reusada) return reusada;
+            throw;
+        }
+    }
+
+    public bool ActualizarInicioPista(int idTranscripcion, string pista, long inicioMs)
+    {
+        var columna = pista == PistaGrabacion.Profesional ? "InicioPistaProfesionalMs" : "InicioPistaPacienteMs";
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand($@"
+            UPDATE TranscripcionSesion
+            SET {columna} = @InicioMs, ActualizadoUtc = SYSUTCDATETIME()
+            WHERE IdTranscripcion = @Id AND {columna} IS NULL", con);
+        cmd.Parameters.AddWithValue("@InicioMs", inicioMs);
+        cmd.Parameters.AddWithValue("@Id", idTranscripcion);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
     public TranscripcionSesion? ObtenerActiva(string origen, int idOrigen)
     {
         using var con = Conexion.ObtenerConexion();

@@ -610,6 +610,19 @@ secretos nunca van en el archivo**.
 | `Video__Emociones__MuestrasMaxPorSegundo` | `4` | Tope de muestras por segundo que se acepta al guardar; la pantalla toma unas 2 (1–30). |
 | `Video__Emociones__PermitirEdadDesconocida` | `false` | Con `true`, a quien no tiene fecha de nacimiento (ni tutor) se le ofrece la lectura, tratándolo como adulto. Es para una base de desarrollo; en producción, `false`. |
 | `Video__Emociones__LimitePorMinuto` | `240` | Pedidos por minuto y por IP a los endpoints del consentimiento y del permiso (1–10000). |
+| `Video__Transcripcion__Habilitada` | `false` | La grabación y la transcripción arrancan **deshabilitadas**: sin esto no se le ofrece a los pacientes y `/video/grabacion/fragmento` contesta 503. |
+| `Video__Transcripcion__CarpetaAudio` | `/opt/yosoy/grabaciones` | Carpeta del servidor donde se guardan los fragmentos de audio subidos, un subdirectorio por `IdTranscripcion`. Nunca se expone por HTTP. |
+| `Video__Transcripcion__MaxBytesFragmento` | `2097152` (2 MB) | Tope de tamaño de **un** fragmento subido; más grande, `400 fragmento-muy-grande`. |
+| `Video__Transcripcion__MaxBytesPista` | `314572800` (300 MB) | Tope de bytes acumulados de **una** pista (profesional o paciente) de la grabación; `409 tope-bytes-pista`. |
+| `Video__Transcripcion__MaxMinutosGrabacion` | `120` | Tope de duración de la grabación desde el `inicioMs` de la secuencia 0 de cada pista; `409 duracion-maxima`. |
+| `Video__Transcripcion__HorasGrabacionHuerfana` | `24` | Antigüedad a partir de la cual una grabación "grabando" sin fragmentos nuevos se considera huérfana. **Todavía sin un saneamiento que la use** (etapa del worker). |
+| `Video__Transcripcion__Modelo` | `small` | Modelo de `faster-whisper` a usar. **Sin efecto en esta etapa** (es del worker, etapa 3). |
+| `Video__Transcripcion__RutaPython`, `__RutaScript` | vacío | Rutas del intérprete y del script del worker. **Sin efecto en esta etapa.** |
+| `Video__Transcripcion__HilosCpu` | `1` | Hilos de CPU que usará el worker. **Sin efecto en esta etapa.** |
+| `Video__Transcripcion__VersionTexto` | `v0-provisorio-grabacion` | Versión del texto del consentimiento de grabación (`Services/Video/Consentimiento/<versión>.txt`). Un texto publicado no se edita. |
+| `Video__Transcripcion__ConsultaCadaSegundos` | `3` | Cada cuánto pregunta la pantalla del profesional si sigue el permiso de grabación (1–60). |
+| `Video__Transcripcion__VigenciaSegundos` | `10` | Cuánto vale una respuesta del permiso de grabación (2–300). |
+| `Video__Transcripcion__LimitePorMinuto` | `240` | Pedidos por minuto y por IP a `/video/grabacion/permiso` y a `/video/grabacion/fragmento` (política `video-grabacion`, 1–10000). |
 
 Un valor numérico fuera del rango se acota al rango en vez de romper nada.
 
@@ -638,6 +651,113 @@ al arrancar.
 Si `SIGNALING_SECRETO` o `Video__SignalingSecreto` se rotan, hay que rotar los dos y reiniciar los dos servicios: los tokens
 ya emitidos (hasta 2 horas) dejan de valer y la gente vuelve a pedir uno. `generar-secretos.sh --rotar-signaling` lo hace en un
 solo paso (ver "Rotar un secreto más adelante" en el runbook).
+
+## Grabación y transcripción local
+
+> **Todo lo legal de esta sección es provisorio**, con la misma salvedad que "Lectura de emociones" (texto, plazo de
+> conservación, trato de los menores): ver "Qué hay que verificar con el equipo legal". Esta etapa es **solo
+> backend**: consentimiento, subida y encolado del audio. **Faltan** el worker que transcribe (`faster-whisper`,
+> etapa 3) y la pantalla que grava con `MediaRecorder` (etapa 4); hasta que estén, nada sube audio todavía.
+
+### Qué hace esta etapa
+
+- **Mismo consentimiento que las emociones, otra finalidad.** `ConsentimientoVideo.Finalidad` (migración 28) es
+  `emociones` o `grabacion`: es la misma tabla, el mismo `TextoConsentimientoVideo` (con su propia versión,
+  `Video__Transcripcion__VersionTexto`) y el mismo `ConsentimientoVideoService`, generalizados por finalidad en vez de
+  duplicados. Sin una aceptación vigente para `grabacion`, no se sube audio.
+- **Qué se grava.** Dos pistas de audio separadas (`profesional` y `paciente`), subidas en fragmentos desde el
+  navegador de quien atiende la sesión — **nunca** desde el del paciente ni del Configurador — a
+  `POST /video/grabacion/fragmento`. Cada fragmento se concatena en un archivo propio por pista, en
+  `Video__Transcripcion__CarpetaAudio/<IdTranscripcion>/<pista>.webm`.
+- **Qué guarda la base.** `TranscripcionSesion` (migración 28): una fila por grabación, con su `Estado`
+  (`grabando → pendiente → procesando → lista | error`, o `anulada`), los milisegundos de inicio de cada pista, y —
+  cuando el worker exista — el modelo usado y las duraciones. Mientras se está grabando (antes de guardar la sesión
+  clínica) no tiene `IdSesion`; **al guardar la sesión clínica se vincula** (ver "Encolado al guardar la sesión").
+- **Quién la ve.** El mismo gateo que las emociones: `VistaSesionesClinicas` solo informa `EstadoTranscripcion` si
+  `puedeVerEmociones` es `true`. **El Configurador no la ve nunca.**
+- **Revocar.** El paciente puede revocar el consentimiento de grabación en cualquier momento (incluso después de
+  cerrada la sesión), igual que con las emociones. Anula (pasa a `anulada`) las `TranscripcionSesion` de esa sesión de
+  video, y si alguna ya estaba vinculada a una sesión clínica con una transcripción guardada, le pone `NULL` y deja
+  constancia en `SesionClinica.TranscripcionAnuladaUtc` / `TranscripcionAnuladaMotivo` (migración 29) de cuándo y por
+  qué (`revocacion` o, más adelante, `retencion`). Además borra del disco la carpeta de audio de cada grabación
+  anulada (mejor esfuerzo: si falla, solo queda un aviso en el log). **Nunca** toca las notas clínicas ni las
+  emociones.
+
+### Contrato de la API
+
+Generaliza los mismos tres endpoints de consentimiento con un parámetro `finalidad` (`emociones` por omisión, para no
+romper a quien ya la omitía, o `grabacion`), y agrega dos endpoints propios de la grabación:
+
+| Endpoint | Quién | Qué hace |
+|---|---|---|
+| `GET /video/consentimiento?origen=&id=&finalidad=` | El paciente de la sesión | Su estado y, si se le puede ofrecer, el texto de esa finalidad. |
+| `PUT /video/consentimiento` | El paciente de la sesión | `{ "origen", "id", "decision": "acepta" \| "rechaza", "version", "finalidad" }`. |
+| `POST /video/consentimiento/revocar` | El paciente de la sesión | `{ "origen", "id", "finalidad" }`. Anula lo ya guardado de esa finalidad. |
+| `GET /video/grabacion/permiso?origen=&id=` | **Solo** quien atiende la sesión (el profesional del turno, o quien hace la admisión) | ¿Se puede grabar ahora? Mismo cuerpo que `/video/emociones/permiso`. |
+| `POST /video/grabacion/fragmento` | **Solo** quien atiende la sesión | Sube un fragmento de audio de una pista. |
+
+A diferencia de `/video/emociones/permiso` (que también deja entrar a un Configurador), **`/video/grabacion/permiso`
+y `/video/grabacion/fragmento` son solo para quien atiende la sesión** (`SesionDeVideoReglas.AtiendeLaSesion`): el
+Configurador no grava nada. Las dos política de rate limit son `video-consentimiento` (los tres endpoints de
+consentimiento, compartida con emociones) y `video-grabacion`, propia de los dos endpoints de grabación
+(`Video__Transcripcion__LimitePorMinuto`).
+
+`POST /video/grabacion/fragmento` recibe `multipart/form-data`:
+
+| Campo | Valor |
+|---|---|
+| `origen`, `id` | La misma pareja que `/video/acceso` (de qué sesión de video se trata). |
+| `pista` | `profesional` o `paciente`. |
+| `secuencia` | Entero ≥ 0, uno por fragmento de esa pista, **en orden**. |
+| `inicioMs` | Milisegundos desde el arranque de la sesión. Va **solo** en la secuencia 0 de cada pista. |
+| `archivo` | El audio (`audio/webm`). |
+
+Contesta `200 { idTranscripcion, pista, secuencia, estado }`. El primer fragmento (secuencia 0, con `inicioMs`) de la
+primera pista en llegar crea la fila `TranscripcionSesion` en `grabando` (o reusa la que ya creó la otra pista: índice
+único `UX_TranscripcionSesion_Grabando`, una sola grabación "grabando" por sesión de video). Repetir la misma
+secuencia (reintento de red) es "ya la tengo" y no duplica nada; saltear una es `409 secuencia-fuera-de-orden` con
+`secuenciaEsperada`, para que el cliente la reenvíe. Errores: `400 solicitud-invalida` / `fragmento-muy-grande`
+(incluido el que corta Kestrel antes de leer el fragmento entero) · `401` sin JWT · `404` no existe o no sos quien
+atiende la sesión (mismo cuerpo que `/video/acceso`) · `409` ventana cerrada, sin consentimiento vigente
+(`sin-consentimiento`), sin grabación activa (`sin-grabacion-activa`, si la secuencia no es 0), secuencia fuera de
+orden, `tope-bytes-pista` o `duracion-maxima` · `429` · `503 grabacion-no-disponible`
+(`Video__Transcripcion__Habilitada` en `false`).
+
+### Encolado al guardar la sesión clínica
+
+`POST /sesiones-clinicas` (guardado directo y cierre de sesión, `CierreSesionEndpoints.Guardar`) acepta un campo
+nuevo, opcional:
+
+```json
+{
+  "idPaciente": 7, "idProfesional": 3, "idTurno": 12, "notasEvolucion": "…", "tipoCierre": "Seguimiento",
+  "grabacion": { "origen": "turno", "id": 12 }
+}
+```
+
+`grabacion` es la misma pareja `origen`/`id` que `/video/acceso`: si esa sesión de video tenía una grabación activa
+(`Estado = 'grabando'`), `EncoladoGrabacionReglas.Encolar` la vincula a la sesión clínica recién guardada y la pasa a
+`pendiente` (lista para que el worker de transcripción la tome, fuera de alcance de esta etapa). **Sin este campo, o
+si no hay una grabación activa para esa sesión de video** (nunca se grabó, ya se vinculó antes, o se anuló porque el
+paciente revocó el consentimiento), **la sesión se guarda igual, sin transcripción** — nunca se bloquea el guardado
+por esto. La respuesta (`201` o, en un cierre repetido, `200`) suma `transcripcion: { estado }`, con `estado` uno de
+`TranscripcionEstado` (`pendiente`, …) o `sin-grabacion`.
+
+### Probar
+
+```bash
+dotnet test --filter "FullyQualifiedName~GrabacionVideo|FullyQualifiedName~EncoladoGrabacionReglas|FullyQualifiedName~VistaSesionesClinicas"
+```
+
+- `GrabacionVideoEndpointsTests`: `/video/grabacion/fragmento` por HTTP contra la app real con dobles en memoria —
+  los 400/404/409/429/503, el orden y los gaps de secuencia, los topes de bytes y de duración, la reutilización de la
+  fila "grabando" entre las dos pistas, y que el Configurador y el paciente no puedan subir audio.
+- `EncoladoGrabacionReglasTests`: sin referencia, referencia inválida, sin grabación activa, con una grabación activa
+  (la vincula y pasa a `pendiente`), y que una ya vinculada antes no se vuelva a encolar.
+- `VistaSesionesClinicasTests`: el mismo gateo que las emociones aplicado a `EstadoTranscripcion` (el Configurador
+  nunca lo ve), para una sesión y para una lista.
+- `ConsentimientoVideoEndpointsTests` y `EmocionesPruebas` (actualizados, no nuevos): la generalización por
+  `finalidad` no rompió el camino de `emociones`.
 
 ## Qué queda auditado
 
@@ -755,3 +875,8 @@ fijas, porque la cámara falsa no tiene rostro.
   parte", pero el tiempo no: el segundo caso lee la agenda y escribe la auditoría. Es una diferencia de milisegundos
   que, con el rate limit (20 pedidos por minuto por IP), no alcanza para sondear en la práctica; igualarla requeriría
   auditar también los ids que no existen o auditar en segundo plano.
+- **Grabación y transcripción local** (ver "Grabación y transcripción local"): esta etapa es solo consentimiento,
+  subida y encolado del audio. **Faltan, fuera de alcance de este cambio**: el worker que toma lo `pendiente`,
+  transcribe con `faster-whisper` y guarda el resultado (etapa 3); la pantalla que grava con `MediaRecorder` y sube
+  los fragmentos (etapa 4); el saneamiento de grabaciones huérfanas (`Video__Transcripcion__HorasGrabacionHuerfana`,
+  ya configurable, sin nada que lo use todavía); y una purga por retención como la de emociones.

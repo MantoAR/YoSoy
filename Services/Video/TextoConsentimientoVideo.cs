@@ -17,8 +17,8 @@ public record TextoConsentimiento(string Version, string Titulo, IReadOnlyList<s
 
 public interface ITextoConsentimientoVideo
 {
-    /// <summary>El texto de la versión configurada, o null si esa versión no existe (queda un aviso en el log).</summary>
-    TextoConsentimiento? Actual();
+    /// <summary>El texto de la versión configurada para esa finalidad, o null si esa versión no existe (queda un aviso en el log).</summary>
+    TextoConsentimiento? Actual(string finalidad = ConsentimientoVideoFila.Emociones);
 }
 
 public class TextoConsentimientoVideo : ITextoConsentimientoVideo
@@ -34,24 +34,27 @@ public class TextoConsentimientoVideo : ITextoConsentimientoVideo
         _opciones = opciones; _log = log;
     }
 
-    public TextoConsentimiento? Actual()
+    public TextoConsentimiento? Actual(string finalidad = ConsentimientoVideoFila.Emociones)
     {
-        var version = (_opciones.CurrentValue.Emociones.VersionTexto ?? "").Trim();
-        return _cache.GetOrAdd(version, Cargar);
+        var o = _opciones.CurrentValue;
+        var version = ((finalidad == ConsentimientoVideoFila.Grabacion ? o.Transcripcion.VersionTexto : o.Emociones.VersionTexto) ?? "").Trim();
+        return _cache.GetOrAdd(version, v => Cargar(v, finalidad));
     }
 
-    private TextoConsentimiento? Cargar(string version)
+    private TextoConsentimiento? Cargar(string version, string finalidad)
     {
+        var ajuste = finalidad == ConsentimientoVideoFila.Grabacion ? "Video:Transcripcion:VersionTexto" : "Video:Emociones:VersionTexto";
+        var que = finalidad == ConsentimientoVideoFila.Grabacion ? "la grabación" : "la lectura de emociones";
         if (!ReVersion.IsMatch(version))
         {
-            _log.LogWarning("Video: Video:Emociones:VersionTexto no es una versión válida; la lectura de emociones queda no disponible.");
+            _log.LogWarning("Video: {Ajuste} no es una versión válida; {Que} queda no disponible.", ajuste, que);
             return null;
         }
 
         using var flujo = typeof(TextoConsentimientoVideo).Assembly.GetManifestResourceStream($"ConsentimientoVideo.{version}.txt");
         if (flujo is null)
         {
-            _log.LogWarning("Video: no existe el texto de consentimiento de la versión \"{Version}\"; la lectura de emociones queda no disponible.", version);
+            _log.LogWarning("Video: no existe el texto de consentimiento de la versión \"{Version}\"; {Que} queda no disponible.", version, que);
             return null;
         }
         using var lector = new StreamReader(flujo, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);

@@ -54,86 +54,91 @@ public class ConsentimientoVideoService
     private readonly IAuditoriaEmociones _auditoria;
     private readonly TimeProvider _reloj;
     private readonly IOptionsMonitor<VideoOptions> _opciones;
+    private readonly ILogger<ConsentimientoVideoService> _log;
 
     public ConsentimientoVideoService(IConsentimientoVideoRepositorio repo, IOrigenSalaRepositorio origen,
         AccesoSalaService acceso, ITextoConsentimientoVideo textos, IEmocionesCifrado cifrado,
-        IAuditoriaEmociones auditoria, TimeProvider reloj, IOptionsMonitor<VideoOptions> opciones)
+        IAuditoriaEmociones auditoria, TimeProvider reloj, IOptionsMonitor<VideoOptions> opciones,
+        ILogger<ConsentimientoVideoService> log)
     {
         _repo = repo; _origen = origen; _acceso = acceso; _textos = textos; _cifrado = cifrado;
-        _auditoria = auditoria; _reloj = reloj; _opciones = opciones;
+        _auditoria = auditoria; _reloj = reloj; _opciones = opciones; _log = log;
     }
 
     // ───────────────────────── Paciente ─────────────────────────
 
-    /// <summary>El estado de la decisión del paciente y, si la lectura está disponible, el texto que tiene que leer.</summary>
-    public ResultadoConsentimiento Obtener(Identidad yo, string origen, int id)
+    /// <summary>El estado de la decisión del paciente y, si está disponible, el texto que tiene que leer.</summary>
+    public ResultadoConsentimiento Obtener(Identidad yo, string origen, int id, string finalidad = ConsentimientoVideoFila.Emociones)
     {
         if (ValidarPaciente(yo, origen, id, exigirVentana: true, out var ses) is { } rechazo) return rechazo;
 
-        var texto = _textos.Actual();
-        var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto);
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
+        var texto = _textos.Actual(finalidad);
+        var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto, finalidad);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, finalidad);
         return Ok(Vista(ultimo, disponible, motivo, texto, conTexto: disponible));
     }
 
     /// <summary>Registra "acepta" o "rechaza" para esta sesión, con la versión del texto que la persona leyó.</summary>
-    public ResultadoConsentimiento Decidir(Identidad yo, string origen, int id, string? decision, string? version)
+    public ResultadoConsentimiento Decidir(Identidad yo, string origen, int id, string? decision, string? version,
+        string finalidad = ConsentimientoVideoFila.Emociones)
     {
         if (ValidarPaciente(yo, origen, id, exigirVentana: true, out var ses) is { } rechazo) return rechazo;
 
         var d = TextoNormalizado.Normalizar(decision);
         if (d != Acepta && d != Rechaza)
-            return Error(TipoResultado.SolicitudInvalida, "solicitud-invalida", "Indicá si aceptás o rechazás la lectura de emociones.");
+            return Error(TipoResultado.SolicitudInvalida, "solicitud-invalida",
+                $"Indicá si aceptás o rechazás {QueEs(finalidad)}.");
 
-        var texto = _textos.Actual();
-        var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto);
-        if (!disponible) return Error(TipoResultado.Conflicto, motivo!, MensajeNoDisponible(motivo!));
+        var texto = _textos.Actual(finalidad);
+        var (disponible, motivo) = Disponibilidad(ses!.IdPaciente, texto, finalidad);
+        if (!disponible) return Error(TipoResultado.Conflicto, motivo!, MensajeNoDisponible(motivo!, finalidad));
 
         // La persona tiene que haber leído ESTE texto: si cambió mientras tanto, vuelve a leerlo.
         if (!string.Equals(version, texto!.Version, StringComparison.Ordinal))
             return Error(TipoResultado.Conflicto, "version-desactualizada", "El texto del consentimiento cambió. Volvé a leerlo antes de decidir.");
 
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, finalidad);
 
         // Para dejar de compartir hay una operación propia, que además anula lo ya guardado.
         if (d == Rechaza && ultimo is { EsAceptacionVigente: true })
-            return Error(TipoResultado.Conflicto, "usar-revocar", "Ya aceptaste: para dejar de compartir tus expresiones usá la opción de revocar.");
+            return Error(TipoResultado.Conflicto, "usar-revocar", $"Ya aceptaste: para dejar de {VerboCompartir(finalidad)} usá la opción de revocar.");
 
         // La misma decisión, sobre el mismo texto, que ya está vigente: no se agrega otra fila.
         if (ultimo is not null && ultimo.Decision == d && ultimo.RevocadoUtc is null && ultimo.VersionTexto == texto.Version)
             return Ok(Vista(ultimo, true, null, texto, conTexto: false));
 
         var ahora = _reloj.GetUtcNow().UtcDateTime;
-        var fila = _repo.Insertar(yo.IdUsuario, ses.IdPaciente, ses.Origen, ses.Id, texto.Version, texto.Hash, d, ahora, ConsentimientoVideoFila.Emociones);
+        var fila = _repo.Insertar(yo.IdUsuario, ses.IdPaciente, ses.Origen, ses.Id, texto.Version, texto.Hash, d, ahora, finalidad);
         _auditoria.Consentimiento(yo.IdUsuario, ses.Origen, ses.Id, d, texto.Version, fila.IdConsentimientoVideo);
         return Ok(Vista(fila, true, null, texto, conTexto: false));
     }
 
     /// <summary>
-    /// El paciente deja de compartir sus expresiones: corta el análisis, y las emociones ya guardadas de esta sesión
-    /// se anulan (las notas clínicas no). Se puede hacer aunque la sala ya haya cerrado, y repetirlo no hace daño.
+    /// El paciente deja de compartir sus expresiones (o de grabar la sesión): corta el análisis o la grabación, y lo
+    /// ya guardado de esta sesión para esa finalidad se anula (las notas clínicas no). Se puede hacer aunque la sala
+    /// ya haya cerrado, y repetirlo no hace daño.
     /// </summary>
-    public ResultadoConsentimiento Revocar(Identidad yo, string origen, int id)
+    public ResultadoConsentimiento Revocar(Identidad yo, string origen, int id, string finalidad = ConsentimientoVideoFila.Emociones)
     {
         if (ValidarPaciente(yo, origen, id, exigirVentana: false, out var ses) is { } rechazo) return rechazo;
 
-        var texto = _textos.Actual();
-        var ultimo = _repo.Ultimo(ses!.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
+        var texto = _textos.Actual(finalidad);
+        var ultimo = _repo.Ultimo(ses!.Origen, ses.Id, ses.IdPaciente, finalidad);
         var ahora = _reloj.GetUtcNow().UtcDateTime;
 
         if (ultimo is { EsAceptacionVigente: true })
         {
             if (_repo.Revocar(ultimo.IdConsentimientoVideo, ahora))
             {
-                var anuladas = _repo.AnularEmocionesDeLaSesion(ses.Origen, ses.Id, ses.IdPaciente, "revocacion", ahora);
+                var anuladas = AnularLoGuardado(ses, finalidad, ahora);
                 _auditoria.Consentimiento(yo.IdUsuario, ses.Origen, ses.Id, "revoca", ultimo.VersionTexto, ultimo.IdConsentimientoVideo, anuladas);
-                ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
+                ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, finalidad);
             }
         }
         else if (ultimo is { Decision: ConsentimientoVideoFila.Acepta })
         {
             // Ya estaba revocada: se vuelve a anular por si una revocación anterior se cortó a la mitad (no hace nada si no hay qué anular).
-            var anuladas = _repo.AnularEmocionesDeLaSesion(ses.Origen, ses.Id, ses.IdPaciente, "revocacion", ahora);
+            var anuladas = AnularLoGuardado(ses, finalidad, ahora);
             if (anuladas > 0)
                 _auditoria.Consentimiento(yo.IdUsuario, ses.Origen, ses.Id, "revoca", ultimo.VersionTexto, ultimo.IdConsentimientoVideo, anuladas);
         }
@@ -142,29 +147,61 @@ public class ConsentimientoVideoService
         return Ok(Vista(ultimo, true, null, texto, conTexto: false));
     }
 
+    // Emociones: anula el resumen guardado en la sesión clínica. Grabación: anula las TranscripcionSesion de esta
+    // sesión de video y, si alguna ya estaba vinculada a una sesión clínica con transcripción, también esa. Para
+    // Grabación, además borra del disco la carpeta de audio de cada transcripción anulada (si quedaba algo sin borrar).
+    private int AnularLoGuardado(SesionDeVideo ses, string finalidad, DateTime ahora)
+    {
+        if (finalidad == ConsentimientoVideoFila.Grabacion)
+        {
+            var idsTranscripcion = _repo.AnularGrabacionDeLaSesion(ses.Origen, ses.Id, ses.IdPaciente, "revocacion", ahora);
+            foreach (var idTranscripcion in idsTranscripcion) BorrarCarpetaDeAudio(idTranscripcion);
+            return idsTranscripcion.Count;
+        }
+        return _repo.AnularEmocionesDeLaSesion(ses.Origen, ses.Id, ses.IdPaciente, "revocacion", ahora);
+    }
+
+    private void BorrarCarpetaDeAudio(int idTranscripcion)
+    {
+        var carpeta = _opciones.CurrentValue.Transcripcion.CarpetaAudio;
+        if (string.IsNullOrWhiteSpace(carpeta)) return;
+        try
+        {
+            var ruta = Path.Combine(carpeta, idTranscripcion.ToString());
+            if (Directory.Exists(ruta)) Directory.Delete(ruta, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Video: no se pudo borrar la carpeta de audio de la transcripción {Id} al revocar el consentimiento.", idTranscripcion);
+        }
+    }
+
     // ───────────────────────── Profesional / Configurador ─────────────────────────
 
     /// <summary>
     /// ¿Puede la pantalla del profesional analizar las expresiones del paciente de esta sesión en este momento?
     /// Solo con una aceptación vigente de una persona a la que se le puede ofrecer el análisis.
     /// </summary>
-    public ResultadoPermiso Permiso(Identidad yo, string origen, int id)
+    public ResultadoPermiso Permiso(Identidad yo, string origen, int id, string finalidad = ConsentimientoVideoFila.Emociones)
     {
         var ses = SesionDeVideoReglas.Resolver(_origen, origen, id);
         if (ses is null || !SesionDeVideoReglas.AtiendeLaSesion(yo, ses))
             return new ResultadoPermiso(TipoResultado.NoEncontrada, AccesoSalaService.CodigoNoEncontrada, MensajeNoEncontrada);
 
-        var e = _opciones.CurrentValue.Emociones;
+        var consultaCadaSegundos = finalidad == ConsentimientoVideoFila.Grabacion
+            ? _opciones.CurrentValue.Transcripcion.ConsultaCadaSegundos : _opciones.CurrentValue.Emociones.ConsultaCadaSegundos;
+        var vigenciaSegundos = finalidad == ConsentimientoVideoFila.Grabacion
+            ? _opciones.CurrentValue.Transcripcion.VigenciaSegundos : _opciones.CurrentValue.Emociones.VigenciaSegundos;
         var ahora = _reloj.GetUtcNow().UtcDateTime;
         PermisoEmociones Armar(bool permitido, string estado, string? motivo, ConsentimientoVideoFila? f) => new(
             permitido, estado, motivo, f?.DecididoUtc, f?.RevocadoUtc, ahora,
-            Math.Clamp(e.ConsultaCadaSegundos, 1, 60), Math.Clamp(e.VigenciaSegundos, 2, 300), f?.VersionTexto);
+            Math.Clamp(consultaCadaSegundos, 1, 60), Math.Clamp(vigenciaSegundos, 2, 300), f?.VersionTexto);
 
-        var (disponible, motivoNoDisponible) = Disponibilidad(ses.IdPaciente, _textos.Actual());
+        var (disponible, motivoNoDisponible) = Disponibilidad(ses.IdPaciente, _textos.Actual(finalidad), finalidad);
         if (!disponible)
             return Permitido(Armar(false, NoDisponible, motivoNoDisponible, null));
 
-        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, ConsentimientoVideoFila.Emociones);
+        var ultimo = _repo.Ultimo(ses.Origen, ses.Id, ses.IdPaciente, finalidad);
         var estado = EstadoDe(ultimo);
         return Permitido(Armar(estado == Acepta, estado, estado == Acepta || estado == SinDecision ? null : estado, ultimo));
     }
@@ -174,11 +211,14 @@ public class ConsentimientoVideoService
     // ───────────────────────── Reglas compartidas ─────────────────────────
 
     /// <summary>
-    /// null si se puede mostrar o guardar emociones de esta persona; si no, el motivo. Es la misma regla para ofrecer el
-    /// consentimiento, dar el permiso y aceptar lo que se guarda.
+    /// null si se puede mostrar o guardar emociones (o la grabación) de esta persona; si no, el motivo. Es la misma
+    /// regla para ofrecer el consentimiento, dar el permiso y aceptar lo que se guarda.
     /// </summary>
-    public (bool Disponible, string? Motivo) Disponibilidad(int idPaciente, TextoConsentimiento? texto)
+    public (bool Disponible, string? Motivo) Disponibilidad(int idPaciente, TextoConsentimiento? texto,
+        string finalidad = ConsentimientoVideoFila.Emociones)
     {
+        if (finalidad == ConsentimientoVideoFila.Grabacion && !_opciones.CurrentValue.Transcripcion.Habilitada)
+            return (false, "no-configurado");
         if (_cifrado.ProblemaDeConfiguracion() is not null || texto is null) return (false, "no-configurado");
 
         var datos = _repo.ObtenerDatosPaciente(idPaciente);
@@ -208,12 +248,25 @@ public class ConsentimientoVideoService
         _ => Acepta
     };
 
-    public static string MensajeNoDisponible(string motivo) => motivo switch
+    public static string MensajeNoDisponible(string motivo, string finalidad = ConsentimientoVideoFila.Emociones)
     {
-        "menor-de-edad" => "La lectura de emociones no está disponible para esta persona.",
-        "edad-desconocida" => "La lectura de emociones no está disponible: falta la fecha de nacimiento en la ficha del paciente.",
-        _ => "La lectura de emociones no está disponible en este momento."
-    };
+        var que = QueEs(finalidad);
+        return motivo switch
+        {
+            "menor-de-edad" => $"{Capitalizar(que)} no está disponible para esta persona.",
+            "edad-desconocida" => $"{Capitalizar(que)} no está disponible: falta la fecha de nacimiento en la ficha del paciente.",
+            _ => $"{Capitalizar(que)} no está disponible en este momento."
+        };
+    }
+
+    // "la lectura de emociones" / "la grabación de la sesión": para armar mensajes de error genéricos por finalidad.
+    private static string QueEs(string finalidad) =>
+        finalidad == ConsentimientoVideoFila.Grabacion ? "la grabación de la sesión" : "la lectura de emociones";
+
+    private static string VerboCompartir(string finalidad) =>
+        finalidad == ConsentimientoVideoFila.Grabacion ? "grabar la sesión" : "compartir tus expresiones";
+
+    private static string Capitalizar(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
 
     // El paciente de ESA sesión (y nadie más). exigirVentana: además, la sesión tiene que estar en un estado en el que se
     // pueda decidir (misma lectura que /video/acceso: turno confirmado, informe en entrevista, sin cerrar).

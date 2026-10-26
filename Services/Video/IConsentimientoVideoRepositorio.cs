@@ -18,6 +18,14 @@ public interface IConsentimientoVideoRepositorio
     /// </summary>
     int AnularEmocionesDeLaSesion(string origen, int idOrigen, int idPaciente, string motivo, DateTime ahoraUtc);
 
+    /// <summary>
+    /// Pasa a 'anulada' las grabaciones (TranscripcionSesion) de esa sesión de video con consentimiento de grabación
+    /// de ese paciente (cualquiera sea su estado actual), y si alguna ya tenía una transcripción guardada en la
+    /// historia clínica le pone NULL y deja constancia de cuándo y por qué. Nunca toca las notas clínicas ni las
+    /// emociones. Devuelve los IdTranscripcion tocados, para borrar su carpeta de audio.
+    /// </summary>
+    IReadOnlyList<int> AnularGrabacionDeLaSesion(string origen, int idOrigen, int idPaciente, string motivo, DateTime ahoraUtc);
+
     DatosPacienteParaConsentimiento? ObtenerDatosPaciente(int idPaciente);
 }
 

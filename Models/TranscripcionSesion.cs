@@ -26,3 +26,9 @@ public static class TranscripcionEstado
     public const string Error = "error";
     public const string Anulada = "anulada";
 }
+
+public static class PistaGrabacion
+{
+    public const string Profesional = "profesional";
+    public const string Paciente = "paciente";
+}

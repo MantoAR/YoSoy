@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 // Los cuatro endpoints del consentimiento de la lectura de emociones, con la aplicación REAL (WebApplicationFactory, JWT de
@@ -33,7 +34,8 @@ public class ConsentimientoVideoEndpointsTests
                 s.RemoveAll<ConsentimientoVideoService>();
                 s.AddSingleton(sp => new ConsentimientoVideoService(Repo, sp.GetRequiredService<IOrigenSalaRepositorio>(),
                     sp.GetRequiredService<AccesoSalaService>(), sp.GetRequiredService<ITextoConsentimientoVideo>(),
-                    sp.GetRequiredService<IEmocionesCifrado>(), Auditoria, Video!.Reloj, sp.GetRequiredService<IOptionsMonitor<VideoOptions>>()));
+                    sp.GetRequiredService<IEmocionesCifrado>(), Auditoria, Video!.Reloj, sp.GetRequiredService<IOptionsMonitor<VideoOptions>>(),
+                    sp.GetRequiredService<ILogger<ConsentimientoVideoService>>()));
             });
         }
 

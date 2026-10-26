@@ -11,7 +11,8 @@ using System.Text.Json;
 //  · Si lo guardado no se puede descifrar (falta la clave, o está alterado) se devuelve null y queda un aviso en el log,
 //    sin el contenido. Nunca se devuelve el texto cifrado.
 public record SesionClinicaVista(int IdSesion, int? IdTurno, int IdPaciente, int IdProfesional, DateTime FechaHora,
-    string? Transcripcion, string? NotasEvolucion, string? HistorialEmociones, string? TipoCierre, EmocionesInfo? Emociones, int? IdEvolucion = null);
+    string? Transcripcion, string? NotasEvolucion, string? HistorialEmociones, string? TipoCierre, EmocionesInfo? Emociones,
+    int? IdEvolucion = null, string? EstadoTranscripcion = null);
 
 /// <summary>Datos de la lectura de emociones de una sesión: ventana, muestras y, si se anularon, cuándo y por qué.</summary>
 public record EmocionesInfo(int? Muestras, DateTime? DesdeUtc, DateTime? HastaUtc, string? TextoVersion,
@@ -20,11 +21,12 @@ public record EmocionesInfo(int? Muestras, DateTime? DesdeUtc, DateTime? HastaUt
 public class VistaSesionesClinicas
 {
     private readonly IEmocionesCifrado _cifrado;
+    private readonly ITranscripcionSesionRepositorio _transcripciones;
     private readonly ILogger<VistaSesionesClinicas> _log;
 
-    public VistaSesionesClinicas(IEmocionesCifrado cifrado, ILogger<VistaSesionesClinicas> log)
+    public VistaSesionesClinicas(IEmocionesCifrado cifrado, ITranscripcionSesionRepositorio transcripciones, ILogger<VistaSesionesClinicas> log)
     {
-        _cifrado = cifrado; _log = log;
+        _cifrado = cifrado; _transcripciones = transcripciones; _log = log;
     }
 
     public List<SesionClinicaVista> Armar(IEnumerable<SesionClinica> sesiones, bool puedeVerEmociones) =>
@@ -34,10 +36,16 @@ public class VistaSesionesClinicas
     {
         string? historial = null;
         EmocionesInfo? info = null;
-        if (puedeVerEmociones) (historial, info) = Leer(s);
+        // El estado de la transcripción se gatea igual que las emociones: el Configurador no lee ninguna de las dos.
+        string? estadoTranscripcion = null;
+        if (puedeVerEmociones)
+        {
+            (historial, info) = Leer(s);
+            estadoTranscripcion = _transcripciones.ObtenerPorSesion(s.IdSesion)?.Estado;
+        }
 
         return new SesionClinicaVista(s.IdSesion, s.IdTurno, s.IdPaciente, s.IdProfesional, s.FechaHora,
-            s.Transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info, s.IdEvolucion);
+            s.Transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info, s.IdEvolucion, estadoTranscripcion);
     }
 
     private (string? Json, EmocionesInfo? Info) Leer(SesionClinica s)

@@ -101,6 +101,39 @@ public class AccesoSalaService
         return EvaluarVentana(rol, a.CodigoSala, inicio, o.Admision.DuracionMinutos, o, ahora);
     }
 
+    // Mismo cálculo de ventana que Evaluar, pero sin resolver quién es "yo": lo usa la subida de audio de la
+    // grabación, que ya validó por su cuenta (SesionDeVideoReglas.AtiendeLaSesion) que el profesional que sube
+    // es el de esta sesión, y solo necesita saber si ahora cae dentro de la ventana. El Rol del resultado no se usa.
+    private const string RolVentanaSinIdentidad = "sesion";
+
+    public ResultadoAcceso EvaluarVentanaDeSesion(string origen, int id)
+    {
+        var o = _opciones.CurrentValue;
+        var ahora = _reloj.GetUtcNow();
+        switch (origen)
+        {
+            case OrigenSala.Turno:
+                var t = _repo.ObtenerTurno(id);
+                if (t is null) return ResultadoAcceso.De(EstadoAcceso.NoExiste, MensajeNoEncontrada, ahora);
+                if (TextoNormalizado.Normalizar(t.Estado) != EstadoTurnoConfirmado)
+                    return ResultadoAcceso.De(EstadoAcceso.EstadoInvalido, MensajeEstadoTurno(t.Estado), ahora);
+                var inicioTurno = EnZona(t.Fecha.Date + t.Hora, Zona(o));
+                var duracionTurno = t.DuracionMinutos is > 0 ? t.DuracionMinutos.Value : o.DuracionPorDefectoMinutos;
+                return EvaluarVentana(RolVentanaSinIdentidad, t.CodigoSala, inicioTurno, duracionTurno, o, ahora);
+            case OrigenSala.Admision:
+                var a = _repo.ObtenerAdmision(id);
+                if (a is null) return ResultadoAcceso.De(EstadoAcceso.NoExiste, MensajeNoEncontrada, ahora);
+                if (TextoNormalizado.Normalizar(a.Estado) != EstadoAdmisionEnEntrevista)
+                    return ResultadoAcceso.De(EstadoAcceso.EstadoInvalido, "La entrevista de admisión no está programada.", ahora);
+                if (a.FechaEntrevista is null)
+                    return ResultadoAcceso.De(EstadoAcceso.EstadoInvalido, "La entrevista de admisión no tiene fecha.", ahora);
+                var inicioAdmision = EnZona(a.FechaEntrevista.Value, Zona(o));
+                return EvaluarVentana(RolVentanaSinIdentidad, a.CodigoSala, inicioAdmision, o.Admision.DuracionMinutos, o, ahora);
+            default:
+                return ResultadoAcceso.De(EstadoAcceso.NoExiste, MensajeNoEncontrada, ahora);
+        }
+    }
+
     private ResultadoAcceso EvaluarVentana(string rol, string? sala, DateTimeOffset inicio, int duracionMinutos,
         VideoOptions o, DateTimeOffset ahora)
     {

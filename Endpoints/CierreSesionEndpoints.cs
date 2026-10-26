@@ -9,7 +9,7 @@ public static class CierreSesionEndpoints
 
     /// <param name="esAdmin">Quien guarda es el administrador de casos (no un profesional): puede guardar una nota, pero no confirmar que una sesión se realizó.</param>
     public static IResult Guardar(SesionClinicaRequest req, HttpContext ctx, IdentidadActualService identidad, GuardiaEmocionesService guardia,
-        IEmocionesCifrado cifrado, TurnoReglasService reglas, int idProfesional, bool esAdmin)
+        IEmocionesCifrado cifrado, TurnoReglasService reglas, ITranscripcionSesionRepositorio transcripciones, int idProfesional, bool esAdmin)
     {
         static IResult Falla(int status, string codigo, string? estado = null, int? idSesion = null) =>
             Results.Json(new { codigo, mensaje = CierreSesionReglas.Mensaje(codigo, estado), idSesion }, statusCode: status);
@@ -31,7 +31,7 @@ public static class CierreSesionEndpoints
         var s = new SesionClinica
         {
             IdTurno = req.IdTurno, IdPaciente = req.IdPaciente, IdProfesional = idProfesional,
-            FechaHora = DateTime.Now, Transcripcion = req.Transcripcion, NotasEvolucion = req.NotasEvolucion, TipoCierre = tipo
+            FechaHora = DateTime.Now, NotasEvolucion = req.NotasEvolucion, TipoCierre = tipo
         };
 
         var ev = guardia.Evaluar(yo, req.IdPaciente, req.Emociones, vinoElFormatoViejo: !string.IsNullOrWhiteSpace(req.HistorialEmociones));
@@ -50,13 +50,17 @@ public static class CierreSesionEndpoints
         }
 
         object emociones;
+        string estadoTranscripcion;
         if (r.Repetido)
         {
-            // Ya estaba guardado: no se vuelve a evaluar ni a registrar nada de las emociones.
+            // Ya estaba guardado: no se vuelve a evaluar ni a registrar nada de las emociones, ni a encolar la
+            // grabación de nuevo (ya se encoló, si correspondía, la primera vez). Se informa el estado actual.
             emociones = new { estado = r.TieneEmociones ? EvaluacionEmociones.Guardadas : EvaluacionEmociones.NoEnviadas, motivo = (string?)null, mensaje = (string?)null };
+            estadoTranscripcion = transcripciones.ObtenerPorSesion(r.IdSesion)?.Estado ?? EncoladoGrabacionReglas.SinGrabacion;
         }
         else
         {
+            estadoTranscripcion = EncoladoGrabacionReglas.Encolar(transcripciones, req.Grabacion, r.IdSesion);
             // La escritura vuelve a mirar el consentimiento: si el paciente revocó justo en el medio, la sesión quedó sin emociones.
             ev = GuardiaEmocionesService.TrasLaEscritura(ev, r.EmocionesGuardadas);
             guardia.Registrar(yo, ev, r.IdSesion);
@@ -85,6 +89,7 @@ public static class CierreSesionEndpoints
                 ? new { cambio = true, idCaso = (int?)idCaso, estadoAnterior = (string?)"Asignado", estado = (string?)"En atención" }
                 : new { cambio = false, idCaso = (int?)null, estadoAnterior = (string?)null, estado = (string?)null },
             emociones,
+            transcripcion = new { estado = estadoTranscripcion },
             // HOOK: lo que sigue después del cierre. El panel de la sala lo despacha como el evento ys:cierre-guardado; la feature de alta / derivación se engancha ahí.
             siguientePaso = new { tipo = CierreSesionReglas.SiguientePaso(r.TipoCierre), idPaciente = req.IdPaciente, idProfesional, idSesion = r.IdSesion, idTurno = req.IdTurno }
         };

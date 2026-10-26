@@ -80,6 +80,47 @@ public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
         return cmd.ExecuteNonQuery();
     }
 
+    public IReadOnlyList<int> AnularGrabacionDeLaSesion(string origen, int idOrigen, int idPaciente, string motivo, DateTime ahoraUtc)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var tx = con.BeginTransaction();
+
+        var tocadas = new List<(int IdTranscripcion, int? IdSesion)>();
+        var cmdAnular = new SqlCommand(@"
+            UPDATE TranscripcionSesion
+            SET Estado = 'anulada', ActualizadoUtc = SYSUTCDATETIME()
+            OUTPUT INSERTED.IdTranscripcion, INSERTED.IdSesion
+            WHERE Estado <> 'anulada'
+              AND Origen = @Origen AND IdOrigen = @IdOrigen
+              AND IdConsentimientoVideo IN (SELECT IdConsentimientoVideo FROM ConsentimientoVideo
+                                            WHERE Origen = @Origen AND IdOrigen = @IdOrigen AND IdPaciente = @IdPaciente
+                                              AND Finalidad = 'grabacion')", con, tx);
+        cmdAnular.Parameters.AddWithValue("@Origen", origen);
+        cmdAnular.Parameters.AddWithValue("@IdOrigen", idOrigen);
+        cmdAnular.Parameters.AddWithValue("@IdPaciente", idPaciente);
+        using (var r = cmdAnular.ExecuteReader())
+            while (r.Read())
+                tocadas.Add(((int)r["IdTranscripcion"], r["IdSesion"] == DBNull.Value ? null : (int)r["IdSesion"]));
+
+        var idsSesion = tocadas.Where(t => t.IdSesion is not null).Select(t => t.IdSesion!.Value).Distinct().ToList();
+        if (idsSesion.Count > 0)
+        {
+            var parametros = idsSesion.Select((_, i) => $"@IdSesion{i}").ToList();
+            var cmdSesion = new SqlCommand($@"
+                UPDATE SesionClinica
+                SET Transcripcion = NULL, TranscripcionAnuladaUtc = @Ahora, TranscripcionAnuladaMotivo = @Motivo
+                WHERE Transcripcion IS NOT NULL AND IdSesion IN ({string.Join(",", parametros)})", con, tx);
+            cmdSesion.Parameters.Add("@Ahora", SqlDbType.DateTime2).Value = ahoraUtc;
+            cmdSesion.Parameters.AddWithValue("@Motivo", motivo);
+            for (var i = 0; i < idsSesion.Count; i++) cmdSesion.Parameters.AddWithValue(parametros[i], idsSesion[i]);
+            cmdSesion.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+        return tocadas.Select(t => t.IdTranscripcion).ToList();
+    }
+
     public DatosPacienteParaConsentimiento? ObtenerDatosPaciente(int idPaciente)
     {
         using var con = Conexion.ObtenerConexion();

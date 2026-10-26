@@ -351,7 +351,12 @@ CREATE TABLE [dbo].[SesionClinica](
     [EmocionesAnuladasUtc] [datetime2](3) NULL,
     [EmocionesAnuladasMotivo] [nvarchar](20) NULL,
     CONSTRAINT [CK_SesionClinica_EmocionesAnuladasMotivo]
-        CHECK ([EmocionesAnuladasMotivo] IS NULL OR [EmocionesAnuladasMotivo] IN ('revocacion', 'retencion'))
+        CHECK ([EmocionesAnuladasMotivo] IS NULL OR [EmocionesAnuladasMotivo] IN ('revocacion', 'retencion')),
+    -- Migración 29: cuándo y por qué se anuló la transcripción guardada.
+    [TranscripcionAnuladaUtc] [datetime2](3) NULL,
+    [TranscripcionAnuladaMotivo] [nvarchar](20) NULL,
+    CONSTRAINT [CK_SesionClinica_TranscripcionAnuladaMotivo]
+        CHECK ([TranscripcionAnuladaMotivo] IS NULL OR [TranscripcionAnuladaMotivo] IN ('revocacion', 'retencion'))
 );
 GO
 

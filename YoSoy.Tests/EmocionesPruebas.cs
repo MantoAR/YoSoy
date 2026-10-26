@@ -12,9 +12,13 @@ public class FakeConsentimientoRepo : IConsentimientoVideoRepositorio
     public readonly List<ConsentimientoVideoFila> Filas = new();
     public readonly Dictionary<int, DatosPacienteParaConsentimiento> Pacientes = new();
     public readonly List<(string Origen, int IdOrigen, int IdPaciente, string Motivo, DateTime Ahora)> Anulaciones = new();
+    public readonly List<(string Origen, int IdOrigen, int IdPaciente, string Motivo, DateTime Ahora)> AnulacionesGrabacion = new();
 
     /// <summary>Lo que "anula" cada llamada a AnularEmocionesDeLaSesion (cuántas sesiones tenían emociones).</summary>
     public int SesionesConEmociones { get; set; }
+
+    /// <summary>Los IdTranscripcion que "anula" cada llamada a AnularGrabacionDeLaSesion.</summary>
+    public List<int> TranscripcionesGrabando { get; set; } = new();
 
     private int _siguiente = 100;
 
@@ -45,6 +49,14 @@ public class FakeConsentimientoRepo : IConsentimientoVideoRepositorio
         var n = SesionesConEmociones;
         SesionesConEmociones = 0;   // lo que ya se anuló no se vuelve a anular
         return n;
+    }
+
+    public IReadOnlyList<int> AnularGrabacionDeLaSesion(string origen, int idOrigen, int idPaciente, string motivo, DateTime ahoraUtc)
+    {
+        AnulacionesGrabacion.Add((origen, idOrigen, idPaciente, motivo, ahoraUtc));
+        var tocadas = TranscripcionesGrabando;
+        TranscripcionesGrabando = new();   // lo que ya se anuló no se vuelve a anular
+        return tocadas;
     }
 
     public DatosPacienteParaConsentimiento? ObtenerDatosPaciente(int idPaciente) => Pacientes.GetValueOrDefault(idPaciente);
@@ -119,7 +131,8 @@ public sealed class EscenarioEmociones
         Cifrado = new EmocionesCifradoService(Opciones, Config);
         Textos = new TextoConsentimientoVideo(Opciones, NullLogger<TextoConsentimientoVideo>.Instance);
         Acceso = new AccesoSalaService(Origen, Reloj, Opciones, NullLogger<AccesoSalaService>.Instance);
-        Consentimiento = new ConsentimientoVideoService(Repo, Origen, Acceso, Textos, Cifrado, Auditoria, Reloj, Opciones);
+        Consentimiento = new ConsentimientoVideoService(Repo, Origen, Acceso, Textos, Cifrado, Auditoria, Reloj, Opciones,
+            NullLogger<ConsentimientoVideoService>.Instance);
         Guardia = new GuardiaEmocionesService(Consentimiento, Repo, Origen, Textos, Auditoria, Reloj, Opciones);
     }
 

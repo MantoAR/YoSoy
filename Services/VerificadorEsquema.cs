@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 28;   // la última migración que el código conoce (la 25, 26 y 27 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa, sin la 26 el cierre de sesión nuevo responde 409, sin la 27 el alta/derivación asistida igual; la 28 NO es opcional: el consentimiento de video ya exige la columna Finalidad)
+    public const int VersionRequerida = 29;   // la última migración que el código conoce (la 25, 26 y 27 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa, sin la 26 el cierre de sesión nuevo responde 409, sin la 27 el alta/derivación asistida igual; la 28 y la 29 NO son opcionales: el consentimiento y la grabación de video ya exigen esas columnas)
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -113,6 +113,8 @@ public class VerificadorEsquema
             "OBJECT_ID('dbo.AltaClinica', 'U') IS NOT NULL AND COL_LENGTH('dbo.Derivacion', 'Origen') IS NOT NULL", Opcional: true),
         new(28, "add_transcripcion_local.sql",
             "COL_LENGTH('dbo.ConsentimientoVideo', 'Finalidad') IS NOT NULL AND OBJECT_ID('dbo.TranscripcionSesion', 'U') IS NOT NULL"),
+        new(29, "add_grabacion_video.sql",
+            "COL_LENGTH('dbo.SesionClinica', 'TranscripcionAnuladaUtc') IS NOT NULL AND COL_LENGTH('dbo.SesionClinica', 'TranscripcionAnuladaMotivo') IS NOT NULL"),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

@@ -57,6 +57,18 @@ public static class VideoServiceCollectionExtensions
                 QueueLimit = 0
             })));
 
+        // Política aparte para el permiso de grabación y la subida de fragmentos de audio: la pantalla del profesional
+        // pregunta el permiso cada pocos segundos, y además sube un fragmento de audio por pista cada pocos segundos
+        // mientras grava. Mismo estilo que "video-consentimiento". Tope: Video:Transcripcion:LimitePorMinuto.
+        services.AddRateLimiter(opt => opt.AddPolicy("video-grabacion", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "desconocida",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = Math.Clamp(httpContext.RequestServices.GetRequiredService<IOptionsMonitor<VideoOptions>>().CurrentValue.Transcripcion.LimitePorMinuto, 1, 10000),
+                QueueLimit = 0
+            })));
+
         return services;
     }
 }

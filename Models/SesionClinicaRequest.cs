@@ -13,6 +13,11 @@ public class SesionClinicaRequest
     public string? NotasEvolucion { get; set; }
     public string? TipoCierre { get; set; }
 
+    // De qué sesión de video viene (misma pareja origen/id que /video/acceso): si esa sesión se estaba grabando,
+    // al guardar la sesión clínica la grabación se vincula a ella y pasa a "pendiente" (ver EncoladoGrabacionReglas).
+    // Sin este campo, o si no hay grabación activa, la sesión se guarda igual, sin transcripción.
+    public GrabacionRefRequest? Grabacion { get; set; }
+
     // Las emociones del PR 6: promedios + ventana + de qué sesión de video son. Se guardan solo con un consentimiento
     // vigente (ver GuardiaEmocionesService).
     public EmocionesSesionRequest? Emociones { get; set; }
@@ -32,4 +37,11 @@ public class SesionClinicaRequest
 public class VincularEvolucionRequest
 {
     public int IdEvolucion { get; set; }
+}
+
+// Misma pareja (Origen, Id) que usa /video/acceso para identificar una sesión de video en curso.
+public class GrabacionRefRequest
+{
+    public string? Origen { get; set; }
+    public int? Id { get; set; }
 }

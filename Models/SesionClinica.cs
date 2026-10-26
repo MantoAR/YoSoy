@@ -18,6 +18,10 @@ public class SesionClinica
     public DateTime? EmocionesAnuladasUtc { get; set; }
     public string? EmocionesAnuladasMotivo { get; set; }
 
+    // Cuándo (UTC) y por qué ("revocacion" | "retencion") se anuló la transcripción guardada (ver TranscripcionSesion).
+    public DateTime? TranscripcionAnuladaUtc { get; set; }
+    public string? TranscripcionAnuladaMotivo { get; set; }
+
     // Migración 26 (cierre de sesión). Solo se escriben desde el cierre; las lecturas de siempre no las traen.
     // La clave con la que la sala identificó este cierre: repetirlo con la misma clave no duplica nada.
     public Guid? ClaveCierre { get; set; }

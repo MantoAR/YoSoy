@@ -24,6 +24,9 @@ public class VideoOptions
     // Consentimiento, cifrado y retención de la lectura de emociones (PR 6). Ver VideoEmocionesOptions.
     public VideoEmocionesOptions Emociones { get; set; } = new();
 
+    // Consentimiento y grabación para la transcripción local de la sesión. Ver VideoTranscripcionOptions.
+    public VideoTranscripcionOptions Transcripcion { get; set; } = new();
+
     // Duración de un turno que no cae en ninguna franja de la agenda del profesional. Es el mismo 30 que
     // usa el resto del sistema cuando una franja no tiene intervalo (ver TurnoReglasService.Slots).
     public int DuracionPorDefectoMinutos { get; set; } = 30;
