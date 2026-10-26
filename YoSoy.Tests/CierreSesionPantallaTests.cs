@@ -73,16 +73,64 @@ public class CierreSesionPantallaTests
     }
 
     [Fact]
-    public void Alta_y_derivacion_solo_registran_el_tipo_y_avisan_que_falta_completar()
+    public void Alta_y_derivacion_avisan_que_falta_completar_y_abren_su_asistente_sin_cambiar_nada_solos()
     {
         var sala = Sala;
+        var aviso = Funcion(sala, "function mostrarAvisoDelTipo() {");
 
-        Assert.Contains("Falta completar ${d.cosa} del paciente", sala);
-        Assert.Contains("'Alta': { cosa: 'el alta', seccion: 'pacientes'", sala);
-        Assert.Contains("'Derivación': { cosa: 'la derivación', seccion: 'casos'", sala);
-        // Ninguna de las dos hace un pedido propio: lo único que sale de la sala es POST /sesiones-clinicas con el tipo.
+        Assert.Contains("Falta completar ${d.cosa} del paciente", aviso);
+        Assert.Contains("'Alta': { cosa: 'el alta', boton: 'Completar el alta', cual: 'alta'", sala);
+        Assert.Contains("'Derivación': { cosa: 'la derivación', boton: 'Completar la derivación', cual: 'derivacion'", sala);
+        // Elegir el tipo solo muestra el aviso con su botón: el pedido al servidor sale de los botones de confirmar, nunca de elegir el tipo.
+        Assert.DoesNotContain("YS.api", aviso);
+        Assert.Contains("boton.onclick = () => abrirAsistente(d.cual);", aviso);
+        // El aviso desaparece cuando ya está hecho.
+        Assert.Contains("d.hecho()", aviso);
+        // No usa la solicitud de cambio de siempre ni el alta administrativa.
         Assert.DoesNotContain("/derivaciones", sala);
-        Assert.DoesNotContain("/altas", sala);
+        Assert.DoesNotContain("/alta'", sala);
+        Assert.DoesNotMatch(@"/pacientes/\$\{[^}]*\}/alta", sala);
+    }
+
+    [Fact]
+    public void Los_asistentes_precargan_revisan_y_solo_cambian_algo_con_el_boton_de_confirmar_enlazado_al_cierre_guardado()
+    {
+        var sala = Sala;
+        var revisarAlta = Funcion(sala, "function revisarAlta() {");
+        var revisarDeriv = Funcion(sala, "function revisarDerivacion() {");
+        var confirmarAlta = Funcion(sala, "async function confirmarAlta() {");
+        var confirmarDeriv = Funcion(sala, "async function confirmarDerivacion() {");
+        var actualizar = Funcion(sala, "function actualizarAsistentes() {");
+
+        // Revisar no manda nada.
+        Assert.DoesNotContain("YS.api", revisarAlta);
+        Assert.DoesNotContain("YS.api", revisarDeriv);
+        // Solo los botones de confirmar hacen el pedido, con la confirmación explícita y enlazado a la sesión del cierre.
+        Assert.Contains("/alta-clinica`", confirmarAlta);
+        Assert.Contains("confirma: true", confirmarAlta);
+        Assert.Contains("idSesion: idSesionGuardada", confirmarAlta);
+        Assert.Contains("claveCierre: claveCierre", confirmarAlta);
+        Assert.Contains("/derivar`", confirmarDeriv);
+        Assert.Contains("confirma: true", confirmarDeriv);
+        Assert.Contains("idSesion: idSesionGuardada", confirmarDeriv);
+        // Los botones de confirmar nacen apagados y dicen el nombre del paciente (y del destino); se habilitan solo con el cierre guardado con el tipo que corresponde.
+        Assert.Matches(@"id=""btn-alta-confirmar""[^>]*disabled", sala);
+        Assert.Matches(@"id=""btn-deriv-confirmar""[^>]*disabled", sala);
+        Assert.Contains("`Confirmar el alta de ${nombre}`", actualizar);
+        Assert.Contains("`Confirmar la derivación de ${nombre} a ${destinoElegido.nombre}`", actualizar);
+        Assert.Contains("cierreGuardado && !!idSesionGuardada && tipoCierreSeleccionado === tipo", actualizar);
+        // Un envío a la vez y el botón queda apagado una vez hecho.
+        Assert.Contains("btn.disabled = true;", confirmarAlta);
+        Assert.Contains("if (altaRegistrada", confirmarAlta);
+        Assert.Contains("if (derivacionEnviada", confirmarDeriv);
+        // La derivación manda al destino, el motivo y las observaciones; no toca vínculos ni reasigna (eso lo confirma Admisión).
+        Assert.DoesNotContain("reasignar", sala, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("traspasar", sala, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("El caso sigue a tu cargo hasta que el profesional acepte y Admisión confirme el traspaso", sala);
+        // El caso tiene que ser del profesional y estar asignado o en atención (el servidor lo vuelve a exigir).
+        var abrir = Funcion(sala, "async function abrirAsistente(cual) {");
+        Assert.Contains("caso.estado !== 'Asignado' && caso.estado !== 'En atención'", abrir);
+        Assert.Contains("caso.idProfesionalAsignado !== idProfesional", Funcion(sala, "async function cargarCasoDelCierre() {"));
     }
 
     [Fact]
