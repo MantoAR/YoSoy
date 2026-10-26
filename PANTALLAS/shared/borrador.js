@@ -21,6 +21,8 @@
 (function (global) {
     "use strict";
 
+    // TODO-VALIDAR: cuánto tiempo puede quedar una nota en borrador en el equipo del profesional (retención) lo tienen que validar los psicólogos y legal.
+    // 72 horas es un valor conservador provisorio; sobre todo en equipos compartidos del consultorio.
     const VIGENCIA_MS = 72 * 60 * 60 * 1000;
     const VERSION = 1;
     const TEXTO = new TextEncoder();

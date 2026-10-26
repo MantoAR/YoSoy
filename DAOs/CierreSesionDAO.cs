@@ -93,6 +93,8 @@ public class CierreSesionDAO
         if (previa is not null) return Repetida(con, tx, previa);
 
         // 3) Un turno tiene una sola sesión guardada.
+        // TODO-VALIDAR: hoy «No se realizó» también guarda una sesión (con su nota) y por eso ese turno ya no admite un cierre posterior con «Sí, se realizó». Si los psicólogos
+        // necesitan corregir una asistencia mal cargada, hace falta un camino auditado para eso (fuera de esta tanda).
         if (s.IdTurno is int idT)
         {
             var existente = SesionDelTurno(con, tx, idT);
@@ -157,6 +159,8 @@ public class CierreSesionDAO
         };
     }
 
+    // TODO-VALIDAR: qué cuenta como «primera sesión» para pasar el caso a En atención lo tienen que confirmar los psicólogos. Acá: ningún otro turno del mismo paciente con el
+    // mismo profesional figura Realizado, y el caso (el abierto más reciente) está Asignado a ese profesional. Es la única transición automática del caso.
     // El caso abierto más reciente del paciente pasa de Asignado a En atención si está asignado a ESTE profesional y esta es la primera sesión realizada entre ellos. El UPDATE lleva
     // la condición de partida en el WHERE: repetirlo (o dos cierres a la vez) no lo vuelve a cambiar. Devuelve el id del caso si lo cambió, o null.
     private static int? PasarCasoAEnAtencion(SqlConnection con, SqlTransaction tx, int idPaciente, int idProfesional, int idTurnoActual)
