@@ -23,7 +23,7 @@ public class PantallasConsentimientoWhatsAppTests
         var js = Dashboard;
         var inicio = js.IndexOf("// ── AVISOS POR WHATSAPP", StringComparison.Ordinal);
         Assert.True(inicio >= 0, "no encuentro la sección de avisos por WhatsApp en dashboard.js");
-        var fin = js.IndexOf("function renderSesion()", inicio, StringComparison.Ordinal);
+        var fin = js.IndexOf("// Menú «Sala de video»", inicio, StringComparison.Ordinal);
         Assert.True(fin > inicio, "no encuentro el final de la sección de avisos por WhatsApp en dashboard.js");
         return js[inicio..fin];
     }
