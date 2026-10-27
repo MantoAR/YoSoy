@@ -346,6 +346,146 @@ public class AgendarTurnoBaseRealTests : IDisposable
     }
 }
 
+/// Bloque E: TODOS los caminos que crean turnos y el estado con el que nace cada uno, contra los endpoints reales. Los pedidos del paciente quedan Pendientes (los acepta el profesional);
+// lo que crea una persona del equipo o la propuesta automática ya revisada por recepción sigue su camino. La tabla está en el reporte (enlaces-pr/05-ajustes-uso-real-reporte.md).
+[Trait("Categoria", "Integracion")]
+public class CaminosDeTurnoBaseRealTests : IDisposable
+{
+    private readonly DatosDePrueba _d = new();
+    private readonly EmailServiceEspia _mails = new();
+    private readonly WebApplicationFactory<Program> _fabrica;
+
+    public CaminosDeTurnoBaseRealTests()
+    {
+        _fabrica = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+            b.ConfigureServices(s => { s.RemoveAll<EmailService>(); s.AddSingleton<EmailService>(_mails); }));
+    }
+
+    public void Dispose()
+    {
+        DatosDePrueba.Ejecutar("DELETE FROM NotificacionInterna WHERE Mensaje LIKE @m", ("@m", "%" + _d.Marca + "%"));
+        _fabrica.Dispose();
+        _d.Dispose();
+    }
+
+    private DateTime Ahora => _fabrica.Services.GetRequiredService<TimeProvider>().GetLocalNow().DateTime;
+    private HttpClient ComoProfesional(int id) => DatosDePrueba.Cliente(_fabrica, _d.UsuarioDeProfesional(id), Roles.Profesional, idProfesional: id);
+    private HttpClient ComoPaciente(int id) => DatosDePrueba.Cliente(_fabrica, _d.UsuarioDePaciente(id), Roles.Paciente, idPaciente: id);
+    private HttpClient ComoRecepcion() => DatosDePrueba.Cliente(_fabrica, _fabrica.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(_d.Usuario(),
+        new SesionModulo(Modulos.Administracion, new[] { Roles.Configurador, Roles.Crm }, new[] { Privilegios.GestionAgendas }, null)));
+
+    private static async Task<JsonElement> Json(HttpResponseMessage r)
+    {
+        var texto = await r.Content.ReadAsStringAsync();
+        return string.IsNullOrWhiteSpace(texto) ? default : JsonDocument.Parse(texto).RootElement.Clone();
+    }
+
+    private (int Prof, int Pac, string Slug) Escenario()
+    {
+        var prof = _d.Profesional(_d.Especialidad(), nombre: "Prof " + _d.Marca);
+        foreach (var dia in Enum.GetValues<DayOfWeek>())
+            _d.Agenda(prof, DatosDePrueba.NombreDelDia(new DateTime(2026, 11, 1).AddDays((int)dia)), "09:00", "18:00");
+        var slug = "xtest" + Guid.NewGuid().ToString("N")[..10];
+        DatosDePrueba.Ejecutar("UPDATE Profesional SET Slug = @s, LinkPublicoActivo = 1 WHERE IdProfesional = @p", ("@s", slug), ("@p", prof));
+        var pac = _d.Paciente("Paciente " + _d.Marca, mail: $"{_d.Marca}@example.test");
+        _d.PacienteProfesional(pac, prof);
+        _d.ConsentimientoFirmado(pac);
+        _d.AlLimpiar("Turno", "IdPaciente", pac);
+        _d.AlLimpiar("Notificacion", "IdPaciente", pac);
+        return (prof, pac, slug);
+    }
+
+    private DateTime Dentro(int dias, int hora = 10) => Ahora.Date.AddDays(dias).AddHours(hora);
+
+    private static (string Estado, string? CreadoPor) Fila(int idTurno)
+    {
+        var f = DatosEmociones.Filas("SELECT et.Descripcion, t.CreadoPor FROM Turno t JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno WHERE t.IdTurno = @t", ("@t", idTurno)).Single();
+        return ((string)f[0]!, f[1] as string);
+    }
+
+    private static int Id(JsonElement j) => j.TryGetProperty("idTurno", out var v) ? v.GetInt32() : throw new InvalidOperationException(j.ToString());
+
+    [Fact]
+    public async Task Todo_lo_que_pide_el_paciente_por_su_cuenta_queda_Pendiente_con_CreadoPor_paciente()
+    {
+        var (prof, pac, slug) = Escenario();
+        var reglas = _fabrica.Services.GetRequiredService<TurnoReglasService>();
+
+        // 1. Autoservicio del paciente (Turnos > Pedir turno).
+        var autoservicio = await ComoPaciente(pac).PostAsJsonAsync("/turnos/solicitar", new { idProfesional = prof, fecha = Dentro(3).ToString("yyyy-MM-dd"), hora = "10:00:00", motivo = "[TEST] autoservicio" });
+        Assert.Equal(HttpStatusCode.Created, autoservicio.StatusCode);
+        Assert.Equal(("Pendiente", "paciente"), Fila(Id(await Json(autoservicio))));
+
+        // 2. Link público del profesional.
+        var publico = await ComoPaciente(pac).PostAsJsonAsync($"/public/profesionales/{slug}/reservar", new { idPaciente = pac, momento = Dentro(4), motivo = "[TEST] link público" });
+        Assert.Equal(HttpStatusCode.Created, publico.StatusCode);
+        Assert.Equal(("Pendiente", "paciente"), Fila(Id(await Json(publico))));
+
+        // 3. Bot de chat: llama a la misma función con el valor por defecto de «quién pide».
+        var bot = reglas.Solicitar(pac, prof, Dentro(5), "[TEST] bot");
+        Assert.True(bot.Regla.Ok);
+        Assert.Equal(("Pendiente", "paciente"), Fila(bot.IdTurno!.Value));
+
+        // 4. Reprogramación pedida por el paciente: cancela el turno anterior y pide uno nuevo por el mismo camino del autoservicio. El nuevo queda Pendiente.
+        var anterior = Id(await Json(autoservicio));
+        Assert.Equal(HttpStatusCode.OK, (await ComoPaciente(pac).PutAsync($"/turnos/{anterior}/cancelar?idPaciente={pac}", null)).StatusCode);
+        var reprogramado = await ComoPaciente(pac).PostAsJsonAsync("/turnos/solicitar", new { idProfesional = prof, fecha = Dentro(3).ToString("yyyy-MM-dd"), hora = "11:00:00", motivo = "[TEST] reprogramado" });
+        Assert.Equal(HttpStatusCode.Created, reprogramado.StatusCode);
+        Assert.Equal(("Pendiente", "paciente"), Fila(Id(await Json(reprogramado))));
+
+        // 5. El camino viejo de insertar un turno directo (POST /turnos) está apagado: no crea nada.
+        Assert.Equal(HttpStatusCode.Gone, (await ComoPaciente(pac).PostAsJsonAsync("/turnos", new { idProfesional = prof })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Lo_que_crea_el_equipo_sigue_su_camino_cita_urgente_y_propuesta_quedan_Pendientes_del_paciente_y_Agendar_nace_Confirmado()
+    {
+        var (prof, pac, _) = Escenario();
+        var momento = Dentro(3);
+
+        // Propuesta del profesional: queda Pendiente hasta que el paciente la confirma (CreadoPor profesional).
+        var propuesta = await ComoProfesional(prof).PostAsJsonAsync("/turnos/profesional-solicitar", new { idPaciente = pac, idProfesional = prof, fecha = momento.ToString("yyyy-MM-dd"), hora = "09:00:00", motivo = "[TEST] propuesta", esUrgente = false });
+        Assert.Equal(HttpStatusCode.Created, propuesta.StatusCode);
+        Assert.Equal(("Pendiente", "profesional"), Fila(Id(await Json(propuesta))));
+
+        // Agendado por recepción (CRM con «Gestión de agendas»): el mismo camino, en nombre del profesional.
+        var recepcion = await ComoRecepcion().PostAsJsonAsync("/turnos/profesional-solicitar", new { idPaciente = pac, idProfesional = prof, fecha = Dentro(4).ToString("yyyy-MM-dd"), hora = "09:00:00", motivo = "[TEST] recepción", esUrgente = false });
+        Assert.Equal(HttpStatusCode.Created, recepcion.StatusCode);
+        Assert.Equal(("Pendiente", "profesional"), Fila(Id(await Json(recepcion))));
+
+        // Cita urgente: nace del lado del profesional (el flujo del panel la confirma en el momento y genera la sala).
+        var urgente = await ComoProfesional(prof).PostAsJsonAsync("/turnos/profesional-solicitar", new { idPaciente = pac, idProfesional = prof, fecha = "", hora = "", motivo = "[TEST] urgente", esUrgente = true });
+        Assert.Equal(HttpStatusCode.Created, urgente.StatusCode);
+        Assert.Equal(("Pendiente", "profesional"), Fila(Id(await Json(urgente))));
+
+        // «Agendar turno» del profesional (nuevo): nace Confirmado, sin aceptación.
+        var (prof2, pac2, _) = Escenario();
+        var agendado = await ComoProfesional(prof2).PostAsJsonAsync("/turnos/agendar", new { idPaciente = pac2, fecha = momento.ToString("yyyy-MM-dd"), hora = "12:00:00", motivo = "[TEST] agendado" });
+        Assert.Equal(HttpStatusCode.Created, agendado.StatusCode);
+        Assert.Equal(("Confirmado", "profesional"), Fila(Id(await Json(agendado))));
+    }
+
+    [Fact]
+    public async Task Ni_el_paciente_ni_el_equipo_pueden_saltearse_la_aceptacion_un_Pendiente_del_paciente_solo_pasa_a_Confirmado_con_la_aceptacion_del_profesional()
+    {
+        var (prof, pac, _) = Escenario();
+        var r = await ComoPaciente(pac).PostAsJsonAsync("/turnos/solicitar", new { idProfesional = prof, fecha = Dentro(3).ToString("yyyy-MM-dd"), hora = "10:00:00", motivo = "[TEST]" });
+        var id = Id(await Json(r));
+
+        // El paciente no tiene forma de confirmar su propia solicitud: ni «aceptar» ni cambiar el estado.
+        Assert.Equal(HttpStatusCode.Forbidden, (await ComoPaciente(pac).PostAsJsonAsync($"/turnos/{id}/aceptar-solicitud", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await ComoPaciente(pac).PutAsJsonAsync($"/turnos/{id}", new { idTurno = id, idPaciente = pac, idProfesional = prof, idEstadoTurno = 2, fecha = Dentro(3), hora = "10:00:00" })).StatusCode);
+        // Ni siquiera por el camino de «confirmar» del turno propuesto: el paciente no confirma lo que él mismo pidió.
+        var confirmar = await ComoPaciente(pac).PutAsync($"/turnos/{id}/confirmar-paciente", null);
+        Assert.Equal(HttpStatusCode.Conflict, confirmar.StatusCode);
+        Assert.Contains("espera la aceptación de tu profesional", (await Json(confirmar)).GetProperty("mensaje").GetString());
+        Assert.Equal("Pendiente", Fila(id).Estado);
+
+        Assert.Equal(HttpStatusCode.OK, (await ComoProfesional(prof).PostAsJsonAsync($"/turnos/{id}/aceptar-solicitud", new { })).StatusCode);
+        Assert.Equal(("Confirmado", "paciente"), Fila(id));
+    }
+}
+
 // La regla de la sala y los primeros pasos, sin base.
 public class EstadoDeSalaReglasTests
 {

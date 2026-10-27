@@ -30,21 +30,22 @@ public class TurnoDetalleDAO
 
     // "Hoy" lo pone la aplicación (el reloj de la clínica) y no GETDATE(): la hora del servidor de base de datos no tiene
     // por qué estar en la zona de la clínica. Solo cuenta la fecha de <paramref name="hoy"/>.
-    public TurnoDetalle? ObtenerProximoPorPaciente(int idPaciente, DateTime hoy)
+    public TurnoDetalle? ObtenerProximoPorPaciente(int idPaciente, DateTime hoy, bool excluirTerminados = false)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
         var cmd = new SqlCommand(SELECT_BASE + @"
             WHERE t.IdPaciente = @Id
               AND t.Fecha >= @Hoy
-              AND et.Descripcion NOT IN ('Cancelado', 'Realizado', 'Ausente')
-              AND CAST(t.Fecha AS DATETIME) + CAST(t.Hora AS DATETIME) >= DATEADD(MINUTE, -@Gracia, @Ahora)
+              AND et.Descripcion != 'Cancelado'
+              AND (@Excluir = 0 OR (et.Descripcion NOT IN ('Realizado', 'Ausente') AND CAST(t.Fecha AS DATETIME) + CAST(t.Hora AS DATETIME) >= DATEADD(MINUTE, -@Gracia, @Ahora)))
             ORDER BY t.Fecha ASC, t.Hora ASC
             OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
         cmd.Parameters.Add("@Hoy", System.Data.SqlDbType.Date).Value = hoy.Date;
         cmd.Parameters.AddWithValue("@Ahora", hoy);   // el instante completo: un turno que ya terminó no es «el próximo» (EstadoDeSala.MinutosParaOcultarProximoTurno)
         cmd.Parameters.AddWithValue("@Gracia", EstadoDeSala.MinutosParaOcultarProximoTurno);
+        cmd.Parameters.AddWithValue("@Excluir", excluirTerminados ? 1 : 0);
         using var r = cmd.ExecuteReader();
         return r.Read() ? Mapear(r) : null;
     }
