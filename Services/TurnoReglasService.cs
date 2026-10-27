@@ -64,6 +64,8 @@ public class TurnoReglasService
 
     public DateTime Ahora => _reloj.GetLocalNow().DateTime;
 
+    public string? DescripcionDelEstado(int idEstadoTurno) => _repo.DescripcionEstado(idEstadoTurno);
+
     /// <summary>
     /// Próximos horarios que cumplen RN-01 y RN-07 para ese paciente y profesional (los de
     /// hoy que todavía no pasaron incluidos: no hay anticipación mínima), recorriendo como
@@ -96,6 +98,7 @@ public class TurnoReglasService
     {
         var ahora   = Ahora;
         _repo.VencerPropuestas(ahora);   // una propuesta de asignación vencida libera su horario (migración 32)
+        _repo.VencerSolicitudes(ahora);  // una solicitud del paciente sin respuesta a tiempo libera su horario (migración 36)
         // Las franjas de admisión (migración 26) no se ofrecen a los pacientes: ahí van las entrevistas.
         var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible && !a.EsAdmision).ToList();
         var result  = new List<DateTime>();
@@ -213,10 +216,13 @@ public class TurnoReglasService
     public ResultadoSolicitud Solicitar(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor = "paciente")
     {
         _repo.VencerPropuestas(Ahora);   // una propuesta de asignación vencida libera su horario (migración 32)
+        _repo.VencerSolicitudes(Ahora);  // una solicitud del paciente sin respuesta a tiempo libera su horario (migración 36)
         var regla = ValidarSolicitud(idPaciente, idProfesional, momento);
         if (!regla.Ok) return new ResultadoSolicitud(regla, null);
 
         var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, creadoPor);
+        // Lo que pide el paciente (autoservicio, link público, bot) espera la respuesta del profesional y vence si no llega a tiempo. Lo que crea el profesional o recepción no. Ver docs/SOLICITUDES_TURNO.md.
+        if (id is not null && creadoPor == "paciente") _repo.RegistrarSolicitud(id.Value, Ahora);
         return id is null
             ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-01", "Ese horario se acaba de ocupar."), null)
             : new ResultadoSolicitud(ResultadoRegla.Valido, id);

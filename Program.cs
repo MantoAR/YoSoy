@@ -2932,6 +2932,7 @@ app.MapCasos();
 app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapDerivacionPsiquiatra();
+app.MapSolicitudesTurno();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapAceptacionVideollamada();
