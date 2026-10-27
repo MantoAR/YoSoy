@@ -4,12 +4,14 @@
    · Mientras el otro no llegó, el recuadro no queda negro: «Esperando…» sobre fondo neutro y la cámara propia se ve grande.
    · Sin cámara: ícono y «Sin cámara», nunca una caja negra. */
 
+/* Tamaño: proporción fija 16:9, centrado, con un ancho máximo y sin pasar del alto de la ventana (60vh) para que los botones de abajo queden a la vista. NUNCA width:100% junto con
+   max-height: con el ancho fijo, el tope de alto solo achata el recuadro y la proporción se rompe (en una pantalla de 1920 px quedaba una franja de ~1860×620 que recortaba la cara). */
 .sala-marco {
-    position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh;
+    position: relative; width: min(100%, 1000px, calc(60vh * 16 / 9)); margin: 0 auto 12px; aspect-ratio: 16 / 9;
     background: var(--surface-2, #eef0f3); border-radius: var(--r-lg, 12px); overflow: hidden;
     color: var(--text, #1b1f24);
 }
-.sala-marco > .sala-principal { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: var(--surface-2, #eef0f3); }
+.sala-marco > .sala-principal { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #111; }   /* contain: la cara del otro nunca se recorta, sea cual sea su cámara (16:9, 4:3 o vertical); cover queda solo para la miniatura */
 
 /* La etiqueta del otro participante y el análisis en vivo quedan arriba/izquierda; la miniatura va abajo a la derecha, así no se tapan. */
 .sala-marco .video-label { z-index: 3; }
@@ -63,6 +65,6 @@
 .sala--esperando .sala-propio-etiqueta { left: 12px; bottom: 12px; }
 
 @media (max-width: 760px) {
-    .sala-marco { max-height: 56vh; }
+    .sala-marco { width: min(100%, calc(50vh * 4 / 3)); aspect-ratio: 4 / 3; }   /* celular en vertical: más alto que ancho disponible, el 16:9 quedaría diminuto */
     .sala-propio { width: min(140px, 38%); right: 8px; bottom: 8px; }
 }

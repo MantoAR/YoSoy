@@ -54,8 +54,6 @@
         .antes-sesion p { margin: 0 0 8px; line-height: 1.5; }
         .video-decision { margin: 10px 0 0; font-weight: 500; }
         .emo-opcional { margin: 16px 0 0; font-size: var(--fs-md); color: var(--text-2, var(--text)); }
-        .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; margin-bottom: 12px; }
-        .video-wrap > video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
         .controles { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
         .estado { font-size: var(--fs-md); color: var(--text-3); }
@@ -136,7 +134,7 @@
     <!-- PANTALLA DE SESIÓN -->
     <div id="pantalla-sesion" class="oculto">
         <!-- Una sola escena, igual que la del profesional (shared/video.js): el profesional grande, «Vos» en miniatura, y «Esperando a tu profesional…» mientras no llega. -->
-        <div class="video-wrap sala-marco" id="marco-sala">
+        <div class="sala-marco" id="marco-sala">
             <video id="vid-profesional" autoplay playsinline></video>
             <span class="video-label">Tu profesional</span>
             <video id="vid-paciente" autoplay playsinline muted></video>
