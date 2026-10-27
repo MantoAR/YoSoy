@@ -24,6 +24,79 @@ function ejecutarAccionPaso(tipo, idTurno) {
     if (tipo === "confirmar-turno") return confirmarTurnoPaciente(idTurno);
     if (tipo === "ver-turnos") { location.hash = "#agenda"; return; }
     if (tipo === "entrar-sesion") return entrarSesionDelPaso();
+    // "responder-propuesta": no tiene botón propio, el panel dibuja la tarjeta con «Me sirve» y «Prefiero otro horario» (htmlTarjetaPropuesta).
+}
+
+// ── Propuesta automática de profesional y horario ──────────
+// Al aceptar la recepción el formulario, el sistema propone un profesional y un horario y el paciente decide (Services/AsignacionAutomatica.cs).
+// «Me sirve» crea el turno confirmado; «Prefiero otro horario» muestra los próximos libres del mismo profesional y permite probar con otro.
+function htmlTarjetaPropuesta(pr) {
+    if (!pr) return "";
+    const vence = pr.expiraEn ? new Date(pr.expiraEn) : null;
+    const venceTexto = vence ? `${vence.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" })} a las ${vence.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false })} hs` : "";
+    return `<div class="pp-propuesta" role="group" aria-label="Propuesta de profesional y horario">
+        <div class="pp-propuesta-datos">
+            <span class="pp-propuesta-titulo">Te propusimos a ${YS.esc(pr.profesional)}${pr.especialidad ? ` <span class="texto-suave">(${YS.esc(pr.especialidad)})</span>` : ""}</span>
+            <span class="pp-propuesta-cuando">${YS.esc(pr.cuando)}</span>
+        </div>
+        <div class="pp-acciones">
+            <button type="button" id="btnPropuestaSirve" class="ui-btn ui-btn--primary pp-boton" onclick="confirmarPropuesta(${Number(pr.idPropuesta)})">Me sirve, confirmar</button>
+            <button type="button" class="ui-btn pp-boton" onclick="pedirOtraOpcion(${Number(pr.idPropuesta)})">${pr.puedeCambiar ? "Prefiero otro horario" : "No me sirve"}</button>
+        </div>
+        <span class="texto-suave texto-chico">${pr.puedeCambiar ? "" : "Es tu última propuesta: si no te sirve, la recepción te ayuda a elegir. "}${venceTexto ? `Podés responder hasta el ${YS.esc(venceTexto)}.` : ""}</span>
+    </div>`;
+}
+
+async function confirmarPropuesta(idPropuesta) {
+    const boton = document.getElementById("btnPropuestaSirve");
+    if (boton) boton.disabled = true;   // un doble clic no manda dos pedidos (el servidor igual no crea dos turnos)
+    try {
+        const r = await YS.fetch(`/propuestas-asignacion/${idPropuesta}/aceptar`, { method: "POST" });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok) toast(data.mensaje || "Listo, tu primer turno quedó confirmado.");
+        else toast(data.mensaje || "No pudimos confirmar la propuesta. Probá de nuevo.", "error");
+    } catch { toast("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.", "error"); }
+    mostrarSeccion("inicio");   // se vuelve a dibujar con lo que dice el servidor (turno confirmado, propuesta nueva o «estamos buscando»)
+}
+
+async function responderPropuesta(idPropuesta, cuerpo) {
+    try {
+        const r = await YS.fetch(`/propuestas-asignacion/${idPropuesta}/rechazar`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
+        const data = await r.json().catch(() => ({}));
+        toast(data.mensaje || (r.ok ? "Listo." : "No pudimos registrar tu respuesta. Probá de nuevo."), r.ok ? undefined : "error");
+    } catch { toast("No pudimos conectarnos con el servidor. Probá de nuevo en unos minutos.", "error"); }
+    mostrarSeccion("inicio");
+}
+
+async function pedirOtraOpcion(idPropuesta) {
+    const pr = window._ppActual?.propuesta;
+    if (!pr) return;
+    if (!pr.puedeCambiar) {
+        const ok = await YS.confirmar({ titulo: "Esta propuesta no me sirve", mensaje: "Ya usaste las tres propuestas. Si no te sirve, la recepción se encarga de ayudarte a elegir. ¿Seguimos?", textoConfirmar: "No me sirve" });
+        if (ok) await responderPropuesta(idPropuesta, { tipo: "ninguno" });
+        return;
+    }
+    let horarios = [];
+    try { horarios = (await YS.api(`/propuestas-asignacion/${idPropuesta}/horarios`)).horarios || []; }
+    catch (e) { toast(e.message || "No pudimos buscar otros horarios. Probá de nuevo.", "error"); return; }
+
+    const cuerpo = document.createElement("div");
+    cuerpo.innerHTML = `
+        <p class="mb-12">Elegí otro horario con <strong>${YS.esc(pr.profesional)}</strong> o probá con otro profesional.</p>
+        ${horarios.length
+            ? `<div class="pp-horarios">${horarios.map(h => `<button type="button" class="ui-btn pp-horario" data-h="${YS.esc(h.fechaHora)}">${YS.esc(h.cuando)}</button>`).join("")}</div>`
+            : `<p class="texto-suave">Ese profesional no tiene más horarios libres en los próximos días. Podés probar con otro profesional.</p>`}`;
+    const m = YS.modal({
+        titulo: "Prefiero otra opción", cuerpo,
+        acciones: [
+            { texto: "Probar con otro profesional", alClick: async c => { c.cerrar(null); await responderPropuesta(idPropuesta, { tipo: "otro-profesional" }); } },
+            { texto: "Cancelar", alClick: c => c.cerrar(null) }
+        ]
+    });
+    cuerpo.querySelectorAll("[data-h]").forEach(b => b.addEventListener("click", async () => {
+        m.cerrar(null);
+        await responderPropuesta(idPropuesta, { tipo: "otro-horario", fechaHora: b.dataset.h });
+    }));
 }
 
 function entrarSesionDelPaso() {
@@ -35,6 +108,7 @@ function entrarSesionDelPaso() {
 function botonPrincipal(pp) {
     const a = pp.principal;
     if (!a) return "";
+    if (a.tipo === "responder-propuesta") return htmlTarjetaPropuesta(pp.propuesta);
     if (a.tipo === "entrar-sesion") {
         const s = pp.sesion;
         // Gris hasta 10 minutos antes del turno: la hora es la del servidor (pp.ahora), no la de la computadora del paciente.
@@ -110,7 +184,7 @@ function inicioPacienteNuevo(pp, tarjetaConsentimiento, tarjetaProximo) {
                     <span class="pp-num pp-num--actual pp-num--grande">${indiceActual + 1}</span>
                     <div class="pp-cuerpo">
                         <span class="pp-titulo-grande">${YS.esc(actual.titulo)}</span>
-                        ${pp.cerrado || !pp.principal ? "" : `<span class="pp-texto">${YS.esc(actual.detalle)}</span>`}
+                        ${pp.cerrado || !pp.principal || pp.principal.tipo === "responder-propuesta" ? "" : `<span class="pp-texto">${YS.esc(actual.detalle)}</span>`}
                         ${cuerpo}
                     </div>
                 </div>

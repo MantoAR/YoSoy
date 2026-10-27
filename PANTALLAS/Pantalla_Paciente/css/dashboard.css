@@ -287,3 +287,10 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 
 /* Entrar a la sesión: gris hasta 10 minutos antes del turno */
 .pp-boton[disabled] { opacity: .55; cursor: not-allowed; }
+/* Propuesta automática de profesional y horario */
+.pp-propuesta { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--surface-2); }
+.pp-propuesta-datos { display: flex; flex-direction: column; gap: 2px; }
+.pp-propuesta-titulo { font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+.pp-propuesta-cuando { font-size: var(--fs-md); color: var(--accent-strong); font-weight: 600; }
+.pp-horarios { display: flex; flex-wrap: wrap; gap: 8px; }
+.pp-horario { min-height: 40px; }
