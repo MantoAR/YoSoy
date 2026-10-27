@@ -59,6 +59,7 @@ async function inicio() {
     const nuevos     = asignados.filter(p => p.estadoAsignacion === 'Nueva').length;
     const sesionesHoy = confirmados.filter(t => t.fecha === YS.fecha.corta(ahora));
     await cargarPacientes([...deHoy, ...pendientes, ...(proximo ? [proximo] : [])].map(t => t.idPaciente));
+    await cargarEstadoDeSalas([...deHoy, ...sesionesHoy].map(t => t.idTurno));   // por abrir / abierta / cerrada, decidido por el servidor
 
     if (YS.shell.actual !== 'inicio') return;   // el usuario ya cambió de sección
     YS.shell.encabezado({ titulo: `Hola, ${prof?.nombre ?? 'Profesional'}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
@@ -151,6 +152,20 @@ async function inicio() {
     } catch {}
 }
 
+// Estado de la sala de cada turno (por abrir / abierta / cerrada). Lo decide el servidor con la misma regla que el acceso a la sala (GET /salas/estado): acá no se calcula nada.
+let _estadoSalas = new Map();
+async function cargarEstadoDeSalas(ids) {
+    _estadoSalas = new Map();
+    const lista = [...new Set(ids)].filter(Boolean);
+    if (!lista.length) return;
+    try {
+        const r = await YS.api(`/salas/estado?ids=${lista.join(',')}`);
+        (r.salas || []).forEach(s => _estadoSalas.set(s.idTurno, s));
+    } catch { /* sin el dato no se bloquea nada: el servidor igual rechaza una sala cerrada */ }
+}
+const salaCerrada = id => _estadoSalas.get(id)?.fase === 'cerrada';
+const textoSalaCerrada = id => `La sala cerró a las ${_estadoSalas.get(id)?.horaCierre ?? ''} hs: el turno ya pasó.`;
+
 // Sesiones de hoy ya confirmadas: generar la sala o compartir el código
 function htmlSesionesHoy(turnosHoy) {
     return `
@@ -167,7 +182,11 @@ function htmlSesionesHoy(turnosHoy) {
                         <div class="turno-paciente">${YS.esc(t.nombrePaciente)}</div>
                         ${t.motivo ? `<div class="turno-meta">${YS.esc(t.motivo)}</div>` : ''}
                     </div>
-                    ${t.codigoSala
+                    ${salaCerrada(t.idTurno)
+                        ? `<div class="sala-estado">
+                            <span class="ui-chip ui-chip--neutral" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</span>
+                           </div>`
+                        : t.codigoSala
                         ? `<div class="sala-estado">
                             <span class="ui-chip ui-chip--ok">Sala lista</span>
                             <code class="codigo-sala">${YS.esc(t.codigoSala)}</code>
@@ -175,7 +194,11 @@ function htmlSesionesHoy(turnosHoy) {
                         : `<button class="ui-btn ui-btn--primary" onclick="generarSalaDesdeInicio(${t.idTurno})">Iniciar sesión</button>`
                     }
                 </div>
-                ${t.codigoSala ? `
+                ${salaCerrada(t.idTurno) ? `
+                <div class="sala-codigo-fila">
+                    <span class="texto-suave">${YS.esc(textoSalaCerrada(t.idTurno))}</span>
+                    <button class="ui-btn ui-btn--sm" disabled aria-disabled="true" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Entrar a la sala →</button>
+                </div>` : t.codigoSala ? `
                 <div class="sala-codigo-fila">
                     <span class="texto-suave">Compartí este código con el paciente:</span>
                     <code class="codigo-sala codigo-sala--grande">${YS.esc(t.codigoSala)}</code>
@@ -321,7 +344,9 @@ function renderPacientesHoy(turnos) {
                             <td>${YS.esc(t.motivo ?? '—')}</td>
                             <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span></td>
                             <td class="celda-acciones">
-                                <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>
+                                ${salaCerrada(t.idTurno)
+                                    ? `<button class="ui-btn ui-btn--sm" disabled aria-disabled="true" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</button>`
+                                    : `<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>`}
                             </td>
                         </tr>`).join('')}
                 </tbody>

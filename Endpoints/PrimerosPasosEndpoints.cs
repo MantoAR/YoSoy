@@ -33,7 +33,7 @@ public static class PrimerosPasosEndpoints
             var ahora = reloj.GetLocalNow().DateTime;
             var estado = ConsentimientoTratamiento.Estado(id, consentimiento.CurrentValue, ahora);
             var datos = new PrimerosPasosDAO().Cargar(id, estado, ahora, asignacion);
-            var r = PrimerosPasos.Calcular(datos, ahora, video.CurrentValue.Ventana.MinutosAntes);
+            var r = PrimerosPasos.Calcular(datos, ahora, video.CurrentValue.Ventana.MinutosAntes, video.CurrentValue);
             return Results.Ok(new
             {
                 ahora = ahora.ToString("yyyy-MM-ddTHH:mm:ss"),
@@ -42,7 +42,8 @@ public static class PrimerosPasosEndpoints
                 sesion = r.Sesion is null ? null : new
                 {
                     r.Sesion.IdTurno, inicio = r.Sesion.Inicio.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    habilitaDesde = r.Sesion.HabilitaDesde.ToString("yyyy-MM-ddTHH:mm:ss"), r.Sesion.Habilitada, r.Sesion.CodigoSala
+                    habilitaDesde = r.Sesion.HabilitaDesde.ToString("yyyy-MM-ddTHH:mm:ss"), r.Sesion.Habilitada, r.Sesion.CodigoSala,
+                    fase = r.Sesion.Fase, cierra = r.Sesion.Cierra?.ToString("yyyy-MM-ddTHH:mm:ss")
                 },
                 profesional = datos.Profesional is null ? null : new { datos.Profesional.IdProfesional, datos.Profesional.Nombre, datos.Profesional.Especialidad },
                 // La propuesta automática que espera su respuesta (migración 32): profesional, día y hora; puedeCambiar = todavía le quedan propuestas por pedir.

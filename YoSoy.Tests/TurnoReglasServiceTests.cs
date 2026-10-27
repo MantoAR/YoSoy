@@ -79,7 +79,7 @@ public class TurnoReglasServiceTests
         var r = _e.Reglas.ValidarSolicitud(1, 10, Dia(24, 9));                      // 09:00, hace 25 minutos
         Assert.False(r.Ok);
         Assert.Equal("RN-01", r.Codigo);
-        Assert.Equal("Ese horario ya pasó.", r.Mensaje);
+        Assert.StartsWith("Ese horario ya pasó.", r.Mensaje);
         Assert.Equal("RN-01", _e.Reglas.Solicitar(1, 10, Dia(24, 9), "tarde").Regla.Codigo);
         Assert.Empty(_e.Db.Turnos);                                                 // y no se creó nada
     }

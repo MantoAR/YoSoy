@@ -49,6 +49,13 @@ public class PrimerosPasosDAO
                 turnos.Add(new TurnoPaso((int)r["IdTurno"], ((DateTime)r["Fecha"]).Date + (TimeSpan)r["Hora"], (string)r["Estado"],
                     (bool)r["ConfirmadoPaciente"], r["CreadoPor"] as string, r["CodigoSala"] as string));
         }
+        // La duración de la franja de cada turno confirmado (la misma con la que la sala decide cuándo cierra).
+        var origen = new OrigenSalaDAO();
+        for (var i = 0; i < turnos.Count; i++)
+        {
+            if (turnos[i].Estado != "Confirmado") continue;
+            turnos[i] = turnos[i] with { DuracionMinutos = origen.ObtenerTurno(turnos[i].IdTurno)?.DuracionMinutos };
+        }
         bool perfilCompleto;
         using (var cmd = new SqlCommand(@"SELECT CASE WHEN FechaNacimiento IS NOT NULL AND LTRIM(RTRIM(ISNULL(Telefono, N''))) <> N'' THEN 1 ELSE 0 END FROM Paciente WHERE IdPaciente = @P", con))
         {

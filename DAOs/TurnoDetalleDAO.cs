@@ -37,11 +37,14 @@ public class TurnoDetalleDAO
         var cmd = new SqlCommand(SELECT_BASE + @"
             WHERE t.IdPaciente = @Id
               AND t.Fecha >= @Hoy
-              AND et.Descripcion != 'Cancelado'
+              AND et.Descripcion NOT IN ('Cancelado', 'Realizado', 'Ausente')
+              AND CAST(t.Fecha AS DATETIME) + CAST(t.Hora AS DATETIME) >= DATEADD(MINUTE, -@Gracia, @Ahora)
             ORDER BY t.Fecha ASC, t.Hora ASC
             OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY", con);
         cmd.Parameters.AddWithValue("@Id", idPaciente);
         cmd.Parameters.Add("@Hoy", System.Data.SqlDbType.Date).Value = hoy.Date;
+        cmd.Parameters.AddWithValue("@Ahora", hoy);   // el instante completo: un turno que ya terminó no es «el próximo» (EstadoDeSala.MinutosParaOcultarProximoTurno)
+        cmd.Parameters.AddWithValue("@Gracia", EstadoDeSala.MinutosParaOcultarProximoTurno);
         using var r = cmd.ExecuteReader();
         return r.Read() ? Mapear(r) : null;
     }

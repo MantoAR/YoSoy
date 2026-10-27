@@ -2933,6 +2933,8 @@ app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapDerivacionPsiquiatra();
 app.MapSolicitudesTurno();
+app.MapDisponibilidad();
+app.MapEstadoSala();
 app.MapAusenciasAlta();
 app.MapVideo();
 app.MapConsentimientoVideo();

@@ -24,6 +24,7 @@ function ejecutarAccionPaso(tipo, idTurno) {
     if (tipo === "confirmar-turno") return confirmarTurnoPaciente(idTurno);
     if (tipo === "ver-turnos") { location.hash = "#agenda"; return; }
     if (tipo === "entrar-sesion") return entrarSesionDelPaso();
+    if (tipo === "reprogramar") return reprogramarTurnoPasado(idTurno);
     // "responder-propuesta": no tiene botón propio, el panel dibuja la tarjeta con «Me sirve» y «Prefiero otro horario» (htmlTarjetaPropuesta).
 }
 
@@ -99,9 +100,18 @@ async function pedirOtraOpcion(idPropuesta) {
     }));
 }
 
+// El turno ya pasó (la sala cerró y no hubo sesión): lleva a Turnos, en el día de ese turno, con la reprogramación abierta.
+async function reprogramarTurnoPasado(idTurno) {
+    const turnos = await YS.api(`/pacientes/${idPaciente}/turnos-detalle`).catch(() => []);
+    const t = turnos.find(x => x.idTurno === idTurno);
+    if (!t) { location.hash = "#agenda"; return; }
+    window._reprogramarAlEntrar = { idTurno: t.idTurno, idProfesional: t.idProfesional };
+    irAlTurno(t.fecha);
+}
+
 function entrarSesionDelPaso() {
     const s = window._ppActual?.sesion;
-    if (!s || !s.habilitada || !s.codigoSala) return;   // el servidor también lo exige (ventana de la sala)
+    if (!s || !s.habilitada || s.fase === "cerrada" || !s.codigoSala) return;   // el servidor también lo exige (ventana de la sala)
     location.href = "sesion_video.html?sala=" + encodeURIComponent(s.codigoSala) + "&idPaciente=" + idPaciente;
 }
 

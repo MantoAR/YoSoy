@@ -115,7 +115,7 @@ public class TurnosZonaHorariaEndpointsTests
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
         var j = await TurnosApp.Json(r);
         Assert.Equal("RN-01", j.GetProperty("codigo").GetString());
-        Assert.Equal("Ese horario ya pasó.", j.GetProperty("mensaje").GetString());
+        Assert.StartsWith("Ese horario ya pasó.", j.GetProperty("mensaje").GetString());
         Assert.Empty(app.Esc.Db.Turnos);
     }
 
@@ -147,7 +147,7 @@ public class TurnosZonaHorariaEndpointsTests
         var r = await TurnosApp.ProfesionalSolicita(app.Profesional(), MedioDiaDelJueves, "09:00:00");
 
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
-        Assert.Equal("Ese horario ya pasó.", (await TurnosApp.Json(r)).GetProperty("mensaje").GetString());
+        Assert.StartsWith("Ese horario ya pasó.", (await TurnosApp.Json(r)).GetProperty("mensaje").GetString());
         Assert.Empty(app.Esc.Db.Turnos);
     }
 
