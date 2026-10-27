@@ -51,7 +51,7 @@ public static class PrimerosPasosEndpoints
                 {
                     datos.Propuesta.IdPropuesta, datos.Propuesta.IdProfesional, datos.Propuesta.Profesional, datos.Propuesta.Especialidad,
                     fechaHora = datos.Propuesta.FechaHora.ToString("yyyy-MM-ddTHH:mm:ss"), expiraEn = datos.Propuesta.ExpiraEn.ToString("yyyy-MM-ddTHH:mm:ss"),
-                    datos.Propuesta.NroPropuesta, datos.Propuesta.PuedeCambiar, maxPropuestas = AsignacionAutomaticaReglas.MaxPropuestas,
+                    datos.Propuesta.NroPropuesta, datos.Propuesta.PuedeCambiar, avisoPreferencia = datos.Propuesta.AvisoPreferencia, maxPropuestas = AsignacionAutomaticaReglas.MaxPropuestas,
                     cuando = AsignacionAutomaticaReglas.Cuando(datos.Propuesta.FechaHora)
                 },
                 asignacionPorResolver = datos.AsignacionPorResolver,
@@ -63,12 +63,14 @@ public static class PrimerosPasosEndpoints
             });
         }).RequireAuthorization();
 
-        app.MapGet("/profesionales/elegibles", () =>
-            Results.Ok(PreferenciasAdmision.ProfesionalesElegibles().Select(p => new { p.IdProfesional, p.Nombre, p.Especialidad })))
+        // «Profesionales que preferís» de «Sobre mí»: solo los que la asignación automática puede proponer de verdad (activos, no Admisión, con agenda de atención vigente), con el id de su especialidad
+        // para que la pantalla muestre los de la especialidad pedida. Antes salían también los que después se ignoraban en silencio.
+        app.MapGet("/profesionales/elegibles", (TimeProvider reloj) =>
+            Results.Ok(AsignacionAutomaticaService.Asignables(reloj.GetLocalNow().DateTime, new TurnoRepositorioDAO()).Select(p => new { p.IdProfesional, p.Nombre, p.Especialidad, p.IdEspecialidad })))
             .Solo(Quien.Paciente | Quien.Admision | Quien.Crm);
 
         // El paciente completa de nuevo el formulario devuelto. Sobre el mismo informe: vuelve a «Pendiente» para otra revisión. No crea otro informe ni otro caso.
-        app.MapPut("/pacientes/{id}/informe-admision", (int id, InformeAdmision i, HttpContext ctx, IdentidadActualService identidad) =>
+        app.MapPut("/pacientes/{id}/informe-admision", (int id, InformeAdmision i, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
         {
             var yo = identidad.Resolver(ctx)!;
             if (yo.IdPaciente != id)
@@ -80,7 +82,7 @@ public static class PrimerosPasosEndpoints
             if (actual.Estado != EstadoInforme.Devuelto)
                 return Results.Json(new { codigo = "estado", mensaje = "Tu formulario no está pedido de nuevo: no hace falta que lo completes otra vez." }, statusCode: 409);
 
-            var error = PreferenciasAdmision.Validar(i.HorarioPreferido, i.ProfesionalesPreferidos, IdsElegibles());
+            var error = PreferenciasAdmision.Validar(i.HorarioPreferido, i.ProfesionalesPreferidos, IdsElegibles(reloj.GetLocalNow().DateTime));
             if (error is not null) return Results.BadRequest(new { mensaje = error });
             i.IdInforme = actual.IdInforme;
             i.IdPaciente = id;
@@ -161,7 +163,7 @@ public static class PrimerosPasosEndpoints
     /// Antes de crear un formulario: las preferencias tienen que ser válidas y el paciente no puede tener otro (uno solo por ingreso; si se lo devolvieron lo completa de nuevo con PUT).
     /// null si se puede crear.
     /// </summary>
-    public static IResult? RechazarFormularioNuevo(InformeAdmision i)
+    public static IResult? RechazarFormularioNuevo(InformeAdmision i, DateTime ahora)
     {
         var existente = new InformeAdmisionDAO().ObtenerPorPaciente(i.IdPaciente);
         if (existente is not null)
@@ -172,11 +174,11 @@ public static class PrimerosPasosEndpoints
                     ? "La recepción te devolvió el formulario: completalo de nuevo desde tus primeros pasos."
                     : "Ya enviaste tu formulario «Sobre mí». No hace falta que lo mandes otra vez."
             }, statusCode: 409);
-        var error = PreferenciasAdmision.Validar(i.HorarioPreferido, i.ProfesionalesPreferidos, IdsElegibles());
+        var error = PreferenciasAdmision.Validar(i.HorarioPreferido, i.ProfesionalesPreferidos, IdsElegibles(ahora));
         return error is null ? null : Results.BadRequest(new { mensaje = error });
     }
 
-    private static IReadOnlySet<int> IdsElegibles() => PreferenciasAdmision.ProfesionalesElegibles().Select(p => p.IdProfesional).ToHashSet();
+    private static IReadOnlySet<int> IdsElegibles(DateTime ahora) => AsignacionAutomaticaService.Asignables(ahora, new TurnoRepositorioDAO()).Select(p => p.IdProfesional).ToHashSet();
 
     private static IResult? Falta(RevisionRequest req) =>
         req.Confirmo == true ? null : Results.BadRequest(new { codigo = "sin-confirmacion", mensaje = "Confirmá la acción para continuar." });

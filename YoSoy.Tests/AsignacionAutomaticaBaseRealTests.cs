@@ -915,4 +915,113 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         Assert.Equal(1, Turnos(pac, a));
     }
+
+    // ───────────── Bloque A (prompt 08): por qué un profesional preferido no se elige ─────────────
+    // El caso de producción: el paciente prefiere a un profesional (Alejandro) que NO es asignable (su especialidad es Admisión, o sus franjas son de admisión) aunque tenga agenda de 1:00 a 23:00,
+    // y el sistema propone a otro (Agustín). La regla que lo explica está en AsignacionAutomaticaService.ProfesionalesBase (especialidad = la pedida, nunca Admisión, nunca ADM-001) y en HorariosLibres
+    // (franjas que no son de admisión). Antes la lista de «Sobre mí» ofrecía a Alejandro igual y la preferencia se ignoraba en silencio.
+
+    private int EspecialidadAdmision()
+    {
+        // Catálogo con nombre único: si una corrida anterior dejó «Admisión», se usa esa (no se toca ni se borra).
+        var existente = DatosDePrueba.Escalar("SELECT TOP 1 IdEspecialidad FROM Especialidad WHERE Nombre = N'Admisión'");
+        if (existente is int id) return id;
+        var nueva = _d.Especialidad();
+        DatosDePrueba.Ejecutar("UPDATE Especialidad SET Nombre = N'Admisión' WHERE IdEspecialidad = @i", ("@i", nueva));
+        return nueva;
+    }
+
+    private int ProfesionalTodoElDia(int esp, string nombre, bool franjasDeAdmision = false)
+    {
+        var p = Profesional(esp, nombre, "01:00", "23:00");
+        if (franjasDeAdmision) DatosDePrueba.Ejecutar("UPDATE Agenda SET EsAdmision = 1 WHERE IdProfesional = @p", ("@p", p));
+        return p;
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Un_profesional_de_Admision_libre_todo_el_dia_nunca_es_candidato_ni_con_preferencia_ni_sin_ella()
+    {
+        var esp = _d.Especialidad();
+        var alejandro = ProfesionalTodoElDia(EspecialidadAdmision(), "Alejandro");   // libre de 1:00 a 23:00, pero de Admisión
+        var agustin = Profesional(esp, "Agustin");                                       // de la especialidad pedida, con agenda de atención
+
+        // Con la preferencia por Alejandro.
+        var (pac1, informe1) = NuevoFormulario(esp, profesionales: new { cualquiera = false, ids = new[] { alejandro } });
+        await Aceptar(Recepcion(_d.Profesional()), informe1);
+        var p1 = Assert.Single(Propuestas(informe1));
+        Assert.Equal(agustin, p1.Profesional);
+        Assert.Contains("Los profesionales elegidos no tenían disponibilidad.", p1.Motivo);
+
+        // Sin preferencias de profesional ni de horario.
+        var (_, informe2) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe2);
+        Assert.Equal(agustin, Assert.Single(Propuestas(informe2)).Profesional);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Un_profesional_de_la_especialidad_pedida_con_solo_franjas_de_admision_tampoco_es_candidato()
+    {
+        var esp = _d.Especialidad();
+        var alejandro = ProfesionalTodoElDia(esp, "Alejandro", franjasDeAdmision: true);   // mismo servicio, pero todas sus franjas son de entrevistas de admisión
+        var agustin = Profesional(esp, "Agustin");
+        var (_, informe) = NuevoFormulario(esp, profesionales: new { cualquiera = false, ids = new[] { alejandro } });
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        Assert.Equal(agustin, Assert.Single(Propuestas(informe)).Profesional);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task La_lista_de_Sobre_mi_ofrece_solo_los_profesionales_asignables()
+    {
+        var esp = _d.Especialidad();
+        var deAdmision = ProfesionalTodoElDia(EspecialidadAdmision(), "Alejandro");
+        var soloAdmision = ProfesionalTodoElDia(esp, "Soloadmision", franjasDeAdmision: true);
+        var sinAgenda = _d.Profesional(esp, nombre: "Sinagenda");
+        var inactivo = Profesional(esp, "Inactivo"); DatosDePrueba.Ejecutar("UPDATE Profesional SET Estado = N'Inactivo' WHERE IdProfesional = @p", ("@p", inactivo));
+        var vencida = Profesional(esp, "Vencida"); DatosDePrueba.Ejecutar("UPDATE Agenda SET FechaFin = @f WHERE IdProfesional = @p", ("@f", Ahora.Date.AddDays(-1)), ("@p", vencida));
+        var agustin = Profesional(esp, "Agustin");
+        var (pac, _) = NuevoFormulario(esp);
+
+        var r = await Json(await Paciente(pac).GetAsync("/profesionales/elegibles"));
+        var ids = r.EnumerateArray().Select(x => x.GetProperty("idProfesional").GetInt32()).ToHashSet();
+        Assert.Contains(agustin, ids);
+        Assert.DoesNotContain(deAdmision, ids);
+        Assert.DoesNotContain(soloAdmision, ids);
+        Assert.DoesNotContain(sinAgenda, ids);
+        Assert.DoesNotContain(inactivo, ids);
+        Assert.DoesNotContain(vencida, ids);
+        Assert.Equal(esp, r.EnumerateArray().Single(x => x.GetProperty("idProfesional").GetInt32() == agustin).GetProperty("idEspecialidad").GetInt32());
+
+        // Y el servidor rechaza al enviar un formulario con un profesional que no es asignable.
+        var pacNuevo = _d.Paciente("Nueva " + _d.Marca, mail: $"n{_d.Marca}@example.test");   // sin formulario previo (si no, el servidor responde 409 antes de mirar las preferencias)
+        var mal = await Paciente(pacNuevo).PostAsJsonAsync("/informes-admision", new { idPaciente = pacNuevo, idEspecialidad = esp, motivoConsulta = "Prueba", profesionalesPreferidos = new { cualquiera = false, ids = new[] { deAdmision } } });
+        Assert.Equal(HttpStatusCode.BadRequest, mal.StatusCode);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task La_propuesta_dice_con_una_frase_clara_cuando_la_preferencia_no_se_pudo_cumplir()
+    {
+        var esp = _d.Especialidad();
+        var alejandro = ProfesionalTodoElDia(EspecialidadAdmision(), "Alejandro");
+        var agustin = Profesional(esp, "Agustin");
+        var (pac, informe) = NuevoFormulario(esp, profesionales: new { cualquiera = false, ids = new[] { alejandro } });
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+
+        var propuesta = (await PrimerosPasos(pac)).GetProperty("propuesta");
+        Assert.Equal(agustin, propuesta.GetProperty("idProfesional").GetInt32());
+        Assert.Equal($"Tu profesional preferido no está disponible para asignación automática; te proponemos a Agustin {_d.Marca}.", propuesta.GetProperty("avisoPreferencia").GetString());
+
+        // Sin preferencia no hay aviso.
+        var (pac2, informe2) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe2);
+        Assert.Equal(JsonValueKind.Null, (await PrimerosPasos(pac2)).GetProperty("propuesta").GetProperty("avisoPreferencia").ValueKind);
+    }
+
+    [FactConBaseDeAsignacion]
+    public void La_zona_horaria_de_la_asignacion_es_la_de_la_clinica()
+    {
+        // «Ahora» sale del TimeProvider de la aplicación (Turnos:ZonaHoraria, por defecto America/Argentina/Buenos_Aires), no del reloj del servidor.
+        var reloj = _fabrica.Services.GetRequiredService<TimeProvider>();
+        var enArgentina = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("America/Argentina/Buenos_Aires"));
+        Assert.True(Math.Abs((reloj.GetLocalNow().DateTime - enArgentina).TotalSeconds) < 5, "la hora de la aplicación no es la de Argentina");
+    }
 }

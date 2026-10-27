@@ -188,6 +188,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
 
         await recep.PutAsJsonAsync($"/informes-admision/{informe}/devolver", new { confirmo = true, aclaracion = "Falta el motivo" });
         var prof = _d.Profesional();
+        _d.Agenda(prof, "Lunes");   // la lista de «Sobre mí» solo ofrece profesionales con agenda de atención (Bloque A, prompt 08)
         var r = await paciente.PutAsJsonAsync($"/pacientes/{pac}/informe-admision", new
         {
             idEspecialidad = _d.Especialidad(), motivoConsulta = "Ansiedad desde hace meses", tratamientoAnterior = false, recibeMedicacion = false,
@@ -259,6 +260,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     {
         var pac = NuevoPaciente();
         var prof = _d.Profesional(nombre: "Marta");
+        _d.Agenda(prof, "Lunes");   // la lista de «Sobre mí» solo ofrece profesionales con agenda de atención (Bloque A, prompt 08)
         var esp = _d.Especialidad();
         var r = await Paciente(pac).PostAsJsonAsync("/informes-admision", Formulario(esp,
             new { dias = new[] { "martes", "jueves" }, franja = "manana" }, new { cualquiera = false, ids = new[] { prof } }));
@@ -328,6 +330,7 @@ public class PrimerosPasosBaseRealTests : IDisposable
     {
         var pac = NuevoPaciente();
         var prof = _d.Profesional(nombre: "Marta");
+        _d.Agenda(prof, "Lunes");   // la lista de «Sobre mí» solo ofrece profesionales con agenda de atención (Bloque A, prompt 08)
         var lista = await Json(await Paciente(pac).GetAsync("/profesionales/elegibles"));
         var fila = lista.EnumerateArray().Single(x => x.GetProperty("idProfesional").GetInt32() == prof);
         Assert.Contains("Marta", fila.GetProperty("nombre").GetString());

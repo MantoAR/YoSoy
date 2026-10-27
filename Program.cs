@@ -2182,12 +2182,12 @@ app.MapGet("/reportes/atenciones/html", (int? idProfesional, HttpContext ctx) =>
 // PANTALLAS/Pantalla_Paciente/js/dashboard.js) — el IdPaciente es el del token, nunca el
 // que venga en el cuerpo; el Configurador puede completarlo en nombre de alguien (admisión
 // asistida), igual que ya puede un profesional crear turnos en nombre de un paciente.
-app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion, HttpContext ctx, IdentidadActualService identidad, TimeProvider relojInforme) =>
 {
     var yo = identidad.Resolver(ctx)!;
     // Roles y permisos: la admisión asistida la hace Admisión (antes el Configurador).
     if (!yo.HaceAdmision) i.IdPaciente = yo.IdPaciente!.Value;
-    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
+    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i, relojInforme.GetLocalNow().DateTime) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;

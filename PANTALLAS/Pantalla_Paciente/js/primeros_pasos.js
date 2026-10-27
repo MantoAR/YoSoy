@@ -39,6 +39,7 @@ function htmlTarjetaPropuesta(pr) {
         <div class="pp-propuesta-datos">
             <span class="pp-propuesta-titulo">Te propusimos a ${YS.esc(pr.profesional)}${pr.especialidad ? ` <span class="texto-suave">(${YS.esc(pr.especialidad)})</span>` : ""}</span>
             <span class="pp-propuesta-cuando">${YS.esc(pr.cuando)}</span>
+            ${pr.avisoPreferencia ? `<span class="pp-propuesta-aviso texto-suave" role="note">${YS.esc(pr.avisoPreferencia)}</span>` : ""}
         </div>
         <div class="pp-acciones">
             <button type="button" id="btnPropuestaSirve" class="ui-btn ui-btn--primary pp-boton" onclick="confirmarPropuesta(${Number(pr.idPropuesta)})">Me sirve, confirmar</button>
@@ -361,8 +362,9 @@ async function htmlFormularioSobreMi(previo) {
             <fieldset class="grupo-opciones mt-12" id="admProfesionales">
                 <legend>Profesionales que preferís</legend>
                 <label class="ui-check"><input type="checkbox" id="admProfIgual"${igual ? " checked" : ""}> <span>Me da igual</span></label>
+                <p class="texto-suave texto-chico" id="admProfNota">Solo se muestran los profesionales de la especialidad que elegiste a los que podemos asignarte directamente.</p>
                 <div class="grupo-opciones-lista grupo-opciones-lista--columna" id="admProfLista">${profesionales.length
-                    ? profesionales.map(p => `<label class="ui-check"><input type="checkbox" name="admProf" value="${p.idProfesional}"${idsPrevios.includes(p.idProfesional) ? " checked" : ""}${igual ? " disabled" : ""}> <span>${YS.esc(p.nombre)}${p.especialidad ? ` · <span class="texto-suave">${YS.esc(p.especialidad)}</span>` : ""}</span></label>`).join("")
+                    ? profesionales.map(p => `<label class="ui-check" data-especialidad="${Number(p.idEspecialidad) || 0}"><input type="checkbox" name="admProf" value="${p.idProfesional}"${idsPrevios.includes(p.idProfesional) ? " checked" : ""}${igual ? " disabled" : ""}> <span>${YS.esc(p.nombre)}${p.especialidad ? ` · <span class="texto-suave">${YS.esc(p.especialidad)}</span>` : ""}</span></label>`).join("")
                     : `<span class="texto-suave">Por ahora no hay profesionales para elegir: lo decide la recepción.</span>`}</div>
             </fieldset>
 
@@ -389,7 +391,28 @@ function enlazarFormularioSobreMi(alEnviar) {
     document.getElementById("admProfIgual").addEventListener("change", e => {
         document.querySelectorAll('input[name="admProf"]').forEach(c => { c.disabled = e.target.checked; if (e.target.checked) c.checked = false; });
     });
+    // Solo los profesionales de la especialidad pedida: elegir uno de otra especialidad no tiene efecto, así que no se ofrece.
+    const filtrar = () => filtrarProfesionalesPorEspecialidad(document.getElementById("admEspecialidad").value);
+    document.getElementById("admEspecialidad").addEventListener("change", filtrar);
+    filtrar();
     document.getElementById("formAdmision").addEventListener("submit", e => { e.preventDefault(); alEnviar(); });
+}
+
+/** Muestra solo los profesionales de la especialidad elegida (todos si todavía no eligió una) y desmarca los que se ocultan. */
+function filtrarProfesionalesPorEspecialidad(idEspecialidad) {
+    const etiquetas = [...document.querySelectorAll("#admProfLista label[data-especialidad]")];
+    let visibles = 0;
+    for (const l of etiquetas) {
+        const coincide = !idEspecialidad || l.dataset.especialidad === String(idEspecialidad);
+        l.hidden = !coincide;
+        const c = l.querySelector("input");
+        if (!coincide) c.checked = false;
+        if (coincide) visibles++;
+    }
+    const nota = document.getElementById("admProfNota");
+    if (nota) nota.textContent = etiquetas.length && !visibles
+        ? "Para esa especialidad no hay profesionales que podamos asignarte directamente: lo decide la recepción."
+        : "Solo se muestran los profesionales de la especialidad que elegiste a los que podemos asignarte directamente.";
 }
 
 function leerFormularioSobreMi() {
