@@ -155,7 +155,7 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         Assert.Equal(Primero(TodosLosDias, "09:00", "18:00"), p.FechaHora);
         Assert.Equal(PropuestaEstado.Pendiente, p.Estado);
         Assert.Equal(1, p.Nro);
-        Assert.InRange((p.ExpiraEn - Ahora).TotalHours, 47.9, 48.1);
+        Assert.Equal(p.FechaHora.AddHours(-AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar), p.ExpiraEn);   // el turno está a ~24 h: vence 2 h antes de él, no a las 48 h (Bloque F)
         Assert.Equal("Aprobado", EstadoInforme(informe));
         Assert.Equal("Propuesta", AsignacionEstado(informe));
         Assert.Equal(1, Auditorias(informe, "Se generó una propuesta de asignación"));
@@ -791,5 +791,126 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         Assert.True(reloj.Elapsed < TimeSpan.FromSeconds(25), $"tardaron {reloj.Elapsed.TotalSeconds:0} s: algo se trabó");
         Assert.Equal(6, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdProfesional = @r AND IdPaciente IN (SELECT IdPaciente FROM InformeAdmision WHERE IdProfesionalDerivado = @r)", ("@r", a)));
         Assert.All(formularios, f => Assert.Equal("Derivado", EstadoInforme(f.Informe)));
+    }
+
+    // ───────────── Bloque F: el vencimiento de la propuesta nunca pasa del turno ─────────────
+
+    [FactConBaseDeAsignacion]
+    public async Task Una_propuesta_para_un_turno_a_menos_de_48_horas_vence_antes_del_turno_y_el_paciente_ve_esa_hora()
+    {
+        var esp = _d.Especialidad();
+        Profesional(esp, "Alba");   // agenda todos los días: el primer horario libre queda a ~24 horas
+        var (pac, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var p = Propuestas(informe).Single();
+
+        Assert.True((p.FechaHora - Ahora).TotalHours < AsignacionAutomaticaReglas.HorasParaResponder);
+        Assert.Equal(p.FechaHora.AddHours(-AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar), p.ExpiraEn);
+        Assert.True(p.ExpiraEn < p.FechaHora, "nunca puede vencer después del turno");
+
+        // «Podés responder hasta…» usa el vencimiento nuevo (lo que viaja a la pantalla es ExpiraEn).
+        var pr = (await PrimerosPasos(pac)).GetProperty("propuesta");
+        Assert.Equal(p.ExpiraEn.ToString("yyyy-MM-ddTHH:mm:ss"), pr.GetProperty("expiraEn").GetString());
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Una_propuesta_para_un_turno_lejano_sigue_venciendo_a_las_48_horas()
+    {
+        var esp = _d.Especialidad();
+        var dia = Ahora.AddDays(6).DayOfWeek;   // su próxima aparición, contando desde dentro de 24 horas, es dentro de 6 días
+        Profesional(esp, "Alba", "09:00", "18:00", dia);
+        var (_, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var p = Propuestas(informe).Single();
+
+        Assert.True((p.FechaHora - Ahora).TotalHours > 100);
+        Assert.InRange((p.ExpiraEn - Ahora).TotalHours, 47.9, 48.1);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Confirmar_una_propuesta_vencida_se_rechaza_con_mensaje_claro_y_arma_la_siguiente_sin_crear_turno()
+    {
+        var esp = _d.Especialidad();
+        var a = Profesional(esp, "Alba");
+        var (pac, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var vieja = Propuestas(informe).Single();
+        DatosDePrueba.Ejecutar("UPDATE PropuestaAsignacion SET ExpiraEn = @e WHERE IdPropuesta = @i", ("@e", Ahora.AddMinutes(-5)), ("@i", vieja.Id));   // se le pasó el plazo
+
+        var r = await Paciente(pac).PostAsync($"/propuestas-asignacion/{vieja.Id}/aceptar", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        var cuerpo = await Json(r);
+        Assert.Equal("propuesta-vencida", cuerpo.GetProperty("codigo").GetString());
+        Assert.Contains("Esta propuesta venció, te armamos otra", cuerpo.GetProperty("mensaje").GetString());
+        Assert.Equal(0, Turnos(pac, a) + Vinculos(pac, a));   // no se asignó nada con la propuesta vencida
+
+        var todas = Propuestas(informe);
+        Assert.Equal(2, todas.Count);
+        Assert.Equal(PropuestaEstado.Vencida, todas.Single(x => x.Id == vieja.Id).Estado);
+        var nueva = todas.Single(x => x.Id != vieja.Id);
+        Assert.Equal(PropuestaEstado.Pendiente, nueva.Estado);
+        Assert.Equal(vieja.Nro, nueva.Nro);   // no cuenta como un rechazo del paciente
+        Assert.True(nueva.ExpiraEn > Ahora);
+        Assert.Equal("Propuesta", AsignacionEstado(informe));
+        Assert.Equal(1, Auditorias(informe, "Venció la propuesta de asignación"));
+        Assert.Equal(nueva.Id, cuerpo.GetProperty("propuesta").GetProperty("idPropuesta").GetInt32());
+
+        // Idempotente: repetir el pedido con la propuesta vieja no arma otra más.
+        var otraVez = await Paciente(pac).PostAsync($"/propuestas-asignacion/{vieja.Id}/aceptar", null);
+        Assert.Equal(HttpStatusCode.Conflict, otraVez.StatusCode);
+        Assert.Equal(2, Propuestas(informe).Count);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Si_el_turno_quedo_sin_el_margen_exigido_no_se_puede_confirmar_aunque_el_plazo_no_haya_vencido()
+    {
+        var esp = _d.Especialidad();
+        Profesional(esp, "Alba");
+        var (pac, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var vieja = Propuestas(informe).Single();
+        // Una propuesta «vieja» (de antes de este arreglo): plazo de 48 horas, pero el turno empieza dentro de 1 hora.
+        DatosDePrueba.Ejecutar("UPDATE PropuestaAsignacion SET ExpiraEn = @e, FechaHora = @f WHERE IdPropuesta = @i", ("@e", Ahora.AddHours(40)), ("@f", Ahora.AddHours(1)), ("@i", vieja.Id));
+
+        var r = await Paciente(pac).PostAsync($"/propuestas-asignacion/{vieja.Id}/aceptar", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Equal("propuesta-vencida", (await Json(r)).GetProperty("codigo").GetString());
+        Assert.Equal(PropuestaEstado.Vencida, Propuestas(informe).Single(x => x.Id == vieja.Id).Estado);
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdPaciente = @p", ("@p", pac)));
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Elegir_otro_horario_de_una_propuesta_vencida_tambien_se_rechaza_y_arma_la_siguiente()
+    {
+        var esp = _d.Especialidad();
+        Profesional(esp, "Alba");
+        var (pac, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var vieja = Propuestas(informe).Single();
+        DatosDePrueba.Ejecutar("UPDATE PropuestaAsignacion SET ExpiraEn = @e WHERE IdPropuesta = @i", ("@e", Ahora.AddMinutes(-1)), ("@i", vieja.Id));
+
+        var r = await Paciente(pac).PostAsJsonAsync($"/propuestas-asignacion/{vieja.Id}/rechazar", new { tipo = "otro-profesional" });
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Equal("propuesta-vencida", (await Json(r)).GetProperty("codigo").GetString());
+        Assert.Equal(PropuestaEstado.Vencida, Propuestas(informe).Single(x => x.Id == vieja.Id).Estado);   // venció: no se tomó como un rechazo
+        Assert.Contains(Propuestas(informe), x => x.Estado == PropuestaEstado.Pendiente);
+    }
+
+    [FactConBaseDeAsignacion]
+    public async Task Una_propuesta_vigente_se_confirma_con_normalidad()
+    {
+        var esp = _d.Especialidad();
+        var a = Profesional(esp, "Alba");
+        var (pac, informe) = NuevoFormulario(esp);
+        await Aceptar(Recepcion(_d.Profesional()), informe);
+        var p = Propuestas(informe).Single();
+
+        var r = await Paciente(pac).PostAsync($"/propuestas-asignacion/{p.Id}/aceptar", null);
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal(1, Turnos(pac, a));
     }
 }

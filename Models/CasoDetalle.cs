@@ -12,4 +12,6 @@ public class CasoDetalle
     public string Origen { get; set; }
     public DateTime FechaCreacion { get; set; }
     public int? IdInforme { get; set; }
+    // El paciente figura derivado a psiquiatría (migración 34). Se completa en el endpoint; no sale de la tabla Caso.
+    public bool Derivado { get; set; }
 }

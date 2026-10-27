@@ -40,7 +40,9 @@ Desde ahí la recepción puede **volver a calcular la propuesta** (`POST /inform
 4. **Horarios**: salen de las franjas de agenda **vigentes** (`Agenda.FechaInicio/FechaFin`, migración 30), **sin las franjas de admisión** (`Agenda.EsAdmision`, migración 29), descontando los turnos activos (no cancelados ni rechazados) y las **propuestas pendientes** de otros pacientes. Anticipación mínima de 24 hs y horizonte de 30 días.
 5. **Elección**: el horario libre más próximo; empate → el profesional con **menos pacientes activos**; empate → **menor Id**.
 
-Las tres cifras sin validar están en un solo lugar (`AsignacionAutomaticaReglas`, con `// TODO-VALIDAR`): `HorasAnticipacionMinima = 24`, `DiasHorizonte = 30`, `HorasParaResponder = 48`.
+Las cifras sin validar están en un solo lugar (`AsignacionAutomaticaReglas`, con `// TODO-VALIDAR`): `HorasAnticipacionMinima = 24`, `DiasHorizonte = 30`, `HorasParaResponder = 48` y `HorasAntesDelTurnoParaCerrar = 2`.
+
+**Vencimiento (`ExpiraEn`)** = el MENOR entre «creación + 48 hs» y «horario del turno propuesto − 2 hs» (`AsignacionAutomaticaReglas.Vencimiento`). Antes era solo lo primero y podía quedar después del turno. Es lo que se guarda y lo que ve el paciente en «Podés responder hasta…». Al confirmar («Me sirve») o elegir otro horario, el servidor vuelve a mirar que la propuesta no haya vencido y que el turno conserve ese margen de 2 hs; si no, la rechaza (409, `propuesta-vencida`: «Esta propuesta venció, te armamos otra»), la pasa a «Vencida» y arma la siguiente con la misma numeración (no cuenta como rechazo). No requiere migración.
 
 ## «Me sirve» (`POST /propuestas-asignacion/{id}/aceptar`)
 

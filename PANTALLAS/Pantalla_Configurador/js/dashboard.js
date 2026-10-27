@@ -1698,8 +1698,9 @@ function sinSecciones() {
 // ══════════════════════════════════════════════════════════════
 // FASE 2: Grupos, Reglas de derivación, Casos y Derivaciones
 // ══════════════════════════════════════════════════════════════
-const TONO_CASO = { Nuevo: "neutral", Derivado: "info", Asignado: "ok", "En atención": "ok", Cerrado: "neutral" };
-function chipCaso(estado) { return `<span class="ui-chip ui-chip--${TONO_CASO[estado] || "neutral"}">${YS.esc(estado)}</span>`; }
+const TONO_CASO = { Nuevo: "neutral", Derivado: "info", Asignado: "ok", "En atención": "ok", "En alta": "info", Cerrado: "neutral" };
+// derivado: el paciente figura derivado a psiquiatría (no puede reservar turnos). Es un estado aparte del del caso: «Derivado» del caso es derivado por admisión.
+function chipCaso(estado, derivado) { return `<span class="ui-chip ui-chip--${TONO_CASO[estado] || "neutral"}">${YS.esc(estado)}</span>` + (derivado ? ` <span class="ui-chip ui-chip--warn" title="Derivado a psiquiatría: no puede reservar turnos">Derivado a psiquiatría</span>` : ""); }
 const TEXTO_ORIGEN_DERIV = { Regla: "Regla de derivación", Manual: "Elegido a mano", Bot: "Bot" };
 const TEXTO_MOTIVO_HIST = {
     AutomaticaPorCarga: "Automática (menor carga)", AutomaticaAleatoria: "Automática (sorteo entre empatados)",
@@ -2157,7 +2158,7 @@ async function renderCasos(c, params = {}) {
               html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, "sm")}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },
             { titulo: "Grupo", html: cs => celda(cs.nombreGrupo), orden: cs => cs.nombreGrupo || "" },
             { titulo: "Profesional", html: cs => celda(cs.nombreProfesionalAsignado), orden: cs => cs.nombreProfesionalAsignado || "" },
-            { titulo: "Estado", html: cs => chipCaso(cs.estado), orden: cs => cs.estado },
+            { titulo: "Estado", html: cs => chipCaso(cs.estado, cs.derivado), orden: cs => cs.estado },
             { titulo: "Creado", html: cs => `<span class="ui-num">${YS.esc(YS.fecha.corta(cs.fechaCreacion))}</span>`, orden: cs => cs.fechaCreacion },
             { titulo: "", clase: "acciones", html: cs => `<button class="ui-btn ui-btn--sm" onclick="verDetalleCaso(${cs.idCaso})">Ver</button>` }
         ]
@@ -2187,7 +2188,7 @@ async function verDetalleCaso(id) {
     panel.innerHTML = `
         <h3 class="tarjeta-titulo">${YS.esc(detalle.nombrePaciente)}</h3>
         <div class="ui-datos">
-            ${datoCasoHtml("Estado", chipCaso(detalle.estado))}
+            ${datoCasoHtml("Estado", chipCaso(detalle.estado, detalle.derivado))}
             ${datoCasoHtml("Grupo", celda(detalle.nombreGrupo))}
             ${datoCasoHtml("Profesional asignado", celda(detalle.nombreProfesionalAsignado))}
             ${datoCasoHtml("Origen", celda(detalle.origen))}
@@ -2196,6 +2197,7 @@ async function verDetalleCaso(id) {
         <div class="split-info-acciones mt-12">
             <a class="ui-btn ui-btn--sm" href="#usuarios?paciente=${detalle.idPaciente}">Ver ficha</a>
             ${detalle.idGrupoActual ? `<button class="ui-btn ui-btn--sm" onclick="abrirModalReasignarCaso(${id})">Reasignar</button>` : ""}
+            ${detalle.derivado ? `<button class="ui-btn ui-btn--sm" onclick="reabrirDerivado(${detalle.idPaciente}, ${id})">Reabrir (volver al estado anterior)</button>` : ""}
         </div>
         <h4 class="tarjeta-titulo mt-16">Historial</h4>
         ${historial.length ? `<div>${historial.map(h => `<div class="item-historia">${fechaHoraCelda(h.fechaHora)} · ${histTexto(h)}</div>`).join("")}</div>`
@@ -2223,6 +2225,17 @@ function abrirModalReasignarCaso(idCaso) {
                 <input type="text" id="campoReasignarNota" class="ui-input" maxlength="140" placeholder="No va a auditoría ni a logs">
                 <div class="ui-campo-ayuda">Hasta 140 caracteres. Es solo para el equipo, no queda en el registro de auditoría.</div></div>
         </div>`, () => confirmarReasignarCaso(idCaso));
+}
+
+// Reabrir a un paciente derivado a psiquiatría: vuelve a poder reservar turnos. Pide confirmación y queda auditado (quién y cuándo). Solo recepción / CRM.
+async function reabrirDerivado(idPaciente, idCaso) {
+    if (!await confirmar("¿Reabrir a este paciente? Vuelve a su estado anterior y puede volver a reservar turnos con el equipo.",
+        { titulo: "Reabrir paciente derivado", textoConfirmar: "Sí, reabrir" })) return;
+    try {
+        const res = await YS.api(`/pacientes/${idPaciente}/reabrir-derivacion`, { method: "POST", json: { confirma: true } });
+        toast(res.mensaje || "El paciente fue reabierto.", "ok");
+        verDetalleCaso(idCaso);
+    } catch (e) { toast(e.message || "No se pudo reabrir al paciente.", "error"); }
 }
 
 async function confirmarReasignarCaso(idCaso) {

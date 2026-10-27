@@ -29,10 +29,18 @@ public class CierreSesionPantallaTests
         Assert.Equal(3, Regex.Matches(panel, @"<input type=""radio"" name=""cierre-realizo""").Count);
         Assert.DoesNotContain("checked", panel);                                        // nada viene preseleccionado
         Assert.Matches(@"id=""btn-cierre-guardar""[^>]*disabled", panel);
-        Assert.Contains("Anotar evolución", panel);
+        Assert.Contains("Anotar en la historia clínica", panel);   // reemplaza a «Anotar evolución»: las notas sueltas ya no se crean
+        Assert.DoesNotContain("Anotar evolución", panel);
+        Assert.Contains("Derivar a psiquiatra", panel);
         Assert.Contains("data-tipo=\"Seguimiento\"", panel);
         Assert.Contains("data-tipo=\"Alta\"", panel);
-        Assert.Contains("data-tipo=\"Derivación\"", panel);
+        // La derivación interna sigue en el código pero oculta: no se alcanza desde el cierre.
+        Assert.Matches(@"data-tipo=""Derivación"" style=""display:none""", panel);
+        Assert.Contains("const DERIVACION_INTERNA_ALCANZABLE = false;", sala);
+        // La propuesta de próximo turno desde el cierre también está oculta (la asignación es automática), sin borrar nada.
+        Assert.Matches(@"id=""btn-cierre-proximo"" style=""display:none""", panel);
+        Assert.Matches(@"id=""cierre-proximo"" class=""cierre-paso proximo-turno oculto"" style=""display:none""", panel);
+        Assert.Contains("const PROPUESTA_PROXIMO_TURNO_VISIBLE = false;", sala);
         Assert.Matches(@"id=""panel-cierre"" class=""card panel-cierre oculto""", sala);   // aparece recién al finalizar la llamada
     }
 
@@ -257,10 +265,16 @@ public class CierreSesionPantallaTests
         var buscar = Funcion(sala, "async function buscarEvolucionesVinculables() {");
         var vincular = Funcion(sala, "async function vincularEvolucion(idEvolucion, boton) {");
 
-        // La sala nunca escribe una evolución: ni en el cierre ni en el vínculo.
-        Assert.DoesNotContain("/evoluciones'", sala);
-        Assert.DoesNotContain("'/evoluciones", sala);
-        Assert.DoesNotContain("/historiasclinicas", sala);
+        // El cierre y el vínculo nunca escriben una evolución. La única escritura es la ventana «Anotar en la historia clínica», que abre el profesional a propósito.
+        foreach (var codigo in new[] { guardar, buscar, vincular })
+        {
+            Assert.DoesNotContain("'/evoluciones", codigo);
+            Assert.DoesNotContain("/historiasclinicas", codigo);
+        }
+        var anotar = Funcion(sala, "async function guardarAnotacionHC() {");
+        Assert.Contains("'/evoluciones'", anotar);
+        Assert.Contains("hcEnCurso", anotar);                         // un doble clic no crea dos evoluciones
+        Assert.Contains("onclick=\"guardarAnotacionHC()\"", sala);     // sale de un botón, no de un efecto
         // El bloque del vínculo nace oculto y aparece recién cuando el cierre quedó guardado.
         Assert.Matches(@"id=""cierre-vinculo"" class=""cierre-vinculo oculto""", sala);
         Assert.Contains("document.getElementById('cierre-vinculo').classList.remove('oculto');", guardar);

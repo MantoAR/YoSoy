@@ -16,7 +16,7 @@ const { crearLimitador, crearContador } = require('./limitador');
 const MAX_SDP = 30000;        // caracteres; un SDP real de audio y video ronda los 5 mil
 const MAX_CANDIDATO = 2048;
 const MAX_TIMER_MS = 2 ** 31 - 1;   // setTimeout no admite más: con un número mayor dispara enseguida
-const EVENTOS_DEL_CLIENTE = new Set(['join-room', 'offer', 'answer', 'ice-candidate']);
+const EVENTOS_DEL_CLIENTE = new Set(['join-room', 'offer', 'answer', 'ice-candidate', 'call-end']);
 const OTRO_ROL = { profesional: 'paciente', paciente: 'profesional' };
 
 // Lo que ve el usuario cuando el servidor lo saca de la sala (evento "rechazado").
@@ -250,6 +250,8 @@ function crearServidor(config, { log = logPorDefecto } = {}) {
             const c = candidato(msg && msg.candidate);
             if (c) reenviar(socket, 'ice-candidate', { candidate: c });
         }));
+        // «Finalizar»: cualquiera de los dos termina la llamada para ambos. No lleva carga: solo avisa quién la terminó (el rol sale del token). Salir de la sala NO manda esto.
+        socket.on('call-end', seguro(() => reenviar(socket, 'call-end', { rol: socket.data.rol })));
         socket.on('disconnect', seguro(razon => salir(socket, razon)));
     });
 
