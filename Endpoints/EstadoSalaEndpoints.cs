@@ -13,6 +13,7 @@ public static class EstadoSalaEndpoints
                 .Select(x => int.TryParse(x, out var n) ? n : 0).Where(n => n > 0).Distinct().Take(50).ToList();
             var ahora = reloj.GetLocalNow().DateTime;
             var salas = new List<object>();
+            var esperando = yo.EsProfesional ? AusenciasDAO.PacientesEsperando(pedidos) : new HashSet<int>();
             foreach (var id in pedidos)
             {
                 var t = origen.ObtenerTurno(id);
@@ -23,7 +24,8 @@ public static class EstadoSalaEndpoints
                 salas.Add(new
                 {
                     idTurno = id, estado = t.Estado, fase = EstadoDeSala.Nombre(fase),
-                    abre = desde.ToString("yyyy-MM-ddTHH:mm:ss"), cierra = hasta.ToString("yyyy-MM-ddTHH:mm:ss"), horaCierre = hasta.ToString("HH:mm")
+                    abre = desde.ToString("yyyy-MM-ddTHH:mm:ss"), cierra = hasta.ToString("yyyy-MM-ddTHH:mm:ss"), horaCierre = hasta.ToString("HH:mm"),
+                    pacienteEsperando = fase == FaseSala.Abierta && esperando.Contains(id)
                 });
             }
             return Results.Ok(new { ahora = ahora.ToString("yyyy-MM-ddTHH:mm:ss"), salas });

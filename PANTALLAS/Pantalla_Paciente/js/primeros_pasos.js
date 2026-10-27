@@ -111,8 +111,9 @@ async function reprogramarTurnoPasado(idTurno) {
 
 function entrarSesionDelPaso() {
     const s = window._ppActual?.sesion;
-    if (!s || !s.habilitada || s.fase === "cerrada" || !s.codigoSala) return;   // el servidor también lo exige (ventana de la sala)
-    location.href = "sesion_video.html?sala=" + encodeURIComponent(s.codigoSala) + "&idPaciente=" + idPaciente;
+    if (!s || !s.habilitada || s.fase === "cerrada") return;   // el servidor también lo exige (ventana de la sala)
+    // Se entra por el turno (no por el código de sala): el servidor genera la sala si el profesional todavía no entró, así el paciente puede esperar.
+    location.href = "sesion_video.html?turno=" + encodeURIComponent(s.idTurno) + "&idPaciente=" + idPaciente;
 }
 
 function botonPrincipal(pp) {
@@ -122,11 +123,10 @@ function botonPrincipal(pp) {
     if (a.tipo === "entrar-sesion") {
         const s = pp.sesion;
         // Gris hasta 10 minutos antes del turno: la hora es la del servidor (pp.ahora), no la de la computadora del paciente.
-        const habilitado = !!(s && s.habilitada && s.codigoSala);
+        const habilitado = !!(s && s.habilitada);
         const desde = s ? YS.esc(s.habilitaDesde.substring(11, 16)) : "";
-        const nota = !s ? "" : habilitado ? "" : !s.habilitada
-            ? `Se habilita 10 minutos antes del turno, a las ${desde} hs.`
-            : "Tu profesional todavía no generó la sala. Cuando lo haga, el botón se habilita.";
+        const nota = !s ? "" : habilitado ? "Podés entrar ahora: si tu profesional todavía no llegó, vas a ver «Esperando a tu profesional…» y se conectan solos cuando entre."
+            : `Se habilita 10 minutos antes del turno, a las ${desde} hs.`;
         return `<div class="pp-acciones">
             <button type="button" id="btnEntrarSesion" class="ui-btn ${habilitado ? "ui-btn--primary" : ""} pp-boton" ${habilitado ? "" : "disabled aria-disabled=\"true\""}
                     onclick="ejecutarAccionPaso('entrar-sesion')">${YS.esc(a.texto)}</button>

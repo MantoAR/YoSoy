@@ -21,7 +21,8 @@ public static class VideoEndpoints
 
         app.MapPost("/video/acceso", (AccesoSalaRequest? req, HttpContext ctx, IdentidadActualService identidad,
             AccesoSalaService acceso, TokenSalaService tokens, TurnCredentialsService turn, IAuditoriaVideo auditoria,
-            AceptacionVideollamadaService aceptacion, IOrigenSalaRepositorio origenSala, INotificacionInternaDAO avisos) =>
+            AceptacionVideollamadaService aceptacion, IOrigenSalaRepositorio origenSala, INotificacionInternaDAO avisos,
+            Microsoft.Extensions.Options.IOptionsMonitor<VideoOptions> videoOpciones, Microsoft.Extensions.Options.IOptionsMonitor<ConsentimientoOptions> consentimientoOpciones, TimeProvider reloj) =>
         {
             ctx.Response.Headers.CacheControl = "no-store";
             var log = loggers.CreateLogger("Video");
@@ -39,6 +40,9 @@ public static class VideoEndpoints
                 log.LogWarning("Video: /video/acceso deshabilitado. {Motivo}", problema);
                 return Error(503, "video-no-disponible", "La videollamada no está disponible por el momento. Probá de nuevo más tarde.");
             }
+
+            // Si el turno todavía no tiene código de sala y la sala está abierta, la genera el servidor: el paciente puede entrar a esperar sin que el profesional haya hecho nada antes.
+            if (origen == OrigenSala.Turno) SalaAutomatica.AsegurarCodigo(id, yo, origenSala, videoOpciones.CurrentValue, consentimientoOpciones.CurrentValue, reloj.GetLocalNow().DateTime);
 
             var r = acceso.Evaluar(yo, origen, id);
             if (!r.Ok)

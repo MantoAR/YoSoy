@@ -1812,6 +1812,8 @@ async function revisarAusencia() {
     if (!hayTurno() || salaFinalizada) return;
     try {
         const e = await YS.api(`/turnos/${sesionVideo.id}/ausencia`, { sinRedireccion: true });
+        // El paciente puede entrar a esperar antes que vos: si ya pidió entrar, se dice mientras se conecta el video.
+        if (e.pacienteConectado && /Esperando al paciente/.test(estadoTxt.textContent)) estadoTxt.textContent = 'Paciente en espera: conectando…';
         const hecho = !e.disponible || e.estado !== 'Confirmado' || e.pacienteConectado;
         document.getElementById('aviso-paciente-ausente').classList.toggle('oculto', hecho || !e.avisoTemprano);
         document.getElementById('btn-marcar-ausente').classList.toggle('oculto', hecho || !e.puedeMarcar);

@@ -164,6 +164,8 @@ async function cargarEstadoDeSalas(ids) {
     } catch { /* sin el dato no se bloquea nada: el servidor igual rechaza una sala cerrada */ }
 }
 const salaCerrada = id => _estadoSalas.get(id)?.fase === 'cerrada';
+const pacienteEsperando = id => !!_estadoSalas.get(id)?.pacienteEsperando;
+const chipEsperando = id => pacienteEsperando(id) ? '<span class="ui-chip ui-chip--info" title="Tu paciente ya entró a la sala y te está esperando">Esperando</span>' : '';
 const textoSalaCerrada = id => `La sala cerró a las ${_estadoSalas.get(id)?.horaCierre ?? ''} hs: el turno ya pasó.`;
 
 // Sesiones de hoy ya confirmadas: generar la sala o compartir el código
@@ -188,6 +190,7 @@ function htmlSesionesHoy(turnosHoy) {
                            </div>`
                         : t.codigoSala
                         ? `<div class="sala-estado">
+                            ${chipEsperando(t.idTurno)}
                             <span class="ui-chip ui-chip--ok">Sala lista</span>
                             <code class="codigo-sala">${YS.esc(t.codigoSala)}</code>
                            </div>`
@@ -384,7 +387,7 @@ function renderPacientesHoy(turnos) {
                             <td><strong>${fmtHora(t.hora)} hs</strong></td>
                             <td>${YS.esc(nombrePaciente(t.idPaciente))}</td>
                             <td>${YS.esc(t.motivo ?? '—')}</td>
-                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span></td>
+                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span> ${chipEsperando(t.idTurno)}</td>
                             <td class="celda-acciones">
                                 ${salaCerrada(t.idTurno)
                                     ? `<button class="ui-btn ui-btn--sm" disabled aria-disabled="true" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</button>`
