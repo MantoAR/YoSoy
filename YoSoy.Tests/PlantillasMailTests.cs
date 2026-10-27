@@ -236,7 +236,7 @@ public class PlantillasMailTests
 
         var campanita = Assert.Single(a.Datos.Campanita);
         Assert.Equal("Recordatorio de turno", campanita.Titulo);
-        Assert.Equal($"Recordatorio: tenés turno el {Formato.FechaHora(a.MomentoDelTurno)} con Dra. {MarcaProfesional} ({MarcaModalidad}).\nPara ingresar: {Url}" +
+        Assert.Equal($"Recordatorio: tenés turno el {Formato.FechaHora(a.MomentoDelTurno)} con Dra. {MarcaProfesional} ({MarcaModalidad}).\nPara entrar a tu sesión: {UrlsDeAviso.SalaDelTurno(new MensajeriaOptions { UrlIngresoTurno = Url }, a.Turno.IdTurno)}" +
                      "\n\nSi no vas a poder asistir, avisanos desde la web.", campanita.Mensaje);
         Assert.Contains(MarcaProfesional, campanita.Mensaje);
         Assert.Contains(MarcaModalidad, campanita.Mensaje);
