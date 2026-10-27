@@ -662,9 +662,8 @@ solo paso (ver "Rotar un secreto más adelante" en el runbook).
 
 > **Todo lo legal de esta sección es provisorio**, con la misma salvedad que "Lectura de emociones" (texto, plazo de
 > conservación, trato de los menores): ver "Qué hay que verificar con el equipo legal". Esta sección cubre consentimiento,
-> subida, encolado y el worker que transcribe localmente (`faster-whisper`, etapa 3). **Falta** la pantalla que graba
-> con `MediaRecorder` y sube los fragmentos (etapa 4); hasta que esté, nada sube audio todavía, así que el worker no
-> tiene nada para procesar en un despliegue real.
+> subida, encolado, el worker que transcribe localmente (`faster-whisper`) y la pantalla que graba con `MediaRecorder` y
+> sube los fragmentos.
 
 ### Qué hace esta etapa
 
@@ -832,6 +831,59 @@ campo o de una sesión a otra. `VistaSesionesClinicas.Armar` la descifra con **e
 solo si `puedeVerEmociones` es `true` (nunca para el Configurador), y si no se puede descifrar devuelve `Transcripcion:
 null` con `TranscripcionIlegible: true` en vez de romper o mostrar el valor cifrado.
 
+### Cómo lo cumple el frontend
+
+`PANTALLAS/shared/grabacion.js` (`YS.grabacion`) tiene la lógica, con la misma arquitectura que `emociones.js`
+(fail-closed, `vigilar()`/`obtener`/`decidir`/`revocar` inyectables); las dos `sesion_video.html` ponen la interfaz.
+
+- **Paciente.** El mismo panel de consentimiento que las emociones, pero con `finalidad=grabacion`: texto, versión y
+  decisión propios (independientes de los de emociones), con sus propios botones ("Acepto que se grabe el audio" /
+  "No acepto: la videollamada sigue igual, sin grabar") y, durante la sesión, su propio recuadro con "Dejar de que se
+  grabe" / "Permitir…". A un menor, o sin cifrado configurado, el panel tampoco aparece.
+- **Profesional.** `YS.grabacion.vigilar()` pregunta `GET /video/grabacion/permiso` igual que el de emociones
+  (mismo `consultarCadaSegundos`/`vigenciaSegundos`, misma falla cerrada). Con permiso y audio disponible,
+  `crearGrabador()`:
+  - Desacopla cada pista (`profesional`, `paciente`) del `MediaStreamTrack` crudo de WebRTC con la Web Audio API
+    (`AudioContext` → `MediaStreamAudioDestinationNode`): así, si el paciente se reconecta, solo se reenruta la
+    fuente (`adjuntarRemoto` otra vez) sin reiniciar el `MediaRecorder` que ya venía grabando ese destino.
+  - Un `MediaRecorder` por pista (`audio/webm;codecs=opus` o el primer tipo que soporte el navegador; sin ninguno,
+    o sin pista de audio en el stream, esa pista queda "sin-audio" y no bloquea nada), con fragmentos de 10 segundos
+    subidos en orden a `POST /video/grabacion/fragmento`.
+  - Reintenta con backoff (1 s a 30 s, hasta 6 veces) los errores transitorios (sin conexión, 429, 5xx); cualquier
+    otro error (400, 404, 409, 503) da la pista por "incompleta" de inmediato, sin reintentar.
+  - El indicador de grabación ("● Grabando…" y fragmentos pendientes, o el motivo si no se puede grabar) usa el
+    mismo estilo que el de emociones (`.emo-estado`/`.activa`/`.alerta`).
+  - **Al cerrar la sesión**, `finalizar()` corta ambos `MediaRecorder` y espera (hasta 15 s) a que termine de subir
+    lo que quedó en cola antes de permitir "Guardar en HC"; si la pestaña se cierra o recarga con algo sin subir
+    (`haySinSubir()`), el `beforeunload` de siempre (el mismo que ya frenaba por notas sin guardar) también avisa.
+- **La historia clínica** (`nuevo_dashboard.js`, `renderSesionesClinicas`/`bloqueTranscripcion`) muestra, por sesión,
+  uno de cinco estados según `estadoTranscripcion` (lo que ya gatea `VistaSesionesClinicas` — **el Configurador no ve
+  nada de esto**, igual que con las emociones): "pendiente"/"procesando" → "Transcribiendo…"; "lista" → el texto (o
+  "no se pudo leer" si `transcripcionIlegible`); "error" → el motivo y un botón "Reintentar" que llama a
+  `POST /sesiones-clinicas/{id}/transcripcion/reintentar`; "anulada" → que el paciente revocó el consentimiento; sin
+  estado pero con texto (transcripciones guardadas antes de esta etapa) se muestra igual que "lista".
+
+### Probar a mano (dos navegadores)
+
+Como `video-frontend.test.js`, esto no prueba un `MediaRecorder` real: hace falta un navegador. Con la app y la
+señalización levantadas como en "Probar en una máquina" (más arriba) y, para no depender de un micrófono físico,
+Chrome con `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream`:
+
+1. Paciente entra, acepta el consentimiento de **grabación** (no el de emociones) y se conecta.
+2. Profesional entra y confirma el indicador "● Grabando…" (no solo el de emociones, si también está esa finalidad
+   habilitada).
+3. Dejar pasar al menos un fragmento (10 s) hablando de cada lado, para generar audio en las dos pistas.
+4. Recargar la pestaña del paciente (simula un corte de red) y volver a entrar: el indicador del profesional no
+   tiene que reiniciar la grabación (seguir viendo el mismo contador de fragmentos subidos, no arrancar de cero).
+5. Cerrar la sesión y "Guardar en HC": el botón tiene que esperar a que termine de subir lo pendiente antes de
+   habilitarse.
+6. Con el worker habilitado (`Video__Transcripcion__Habilitada=true` y `faster-whisper` instalado), esperar un ciclo
+   y abrir la HC de esa sesión: "Transcribiendo…" primero, el texto con los dos interlocutores después.
+7. Revocar el consentimiento de grabación desde el paciente a mitad de sesión: el profesional deja de grabar y, en
+   la HC, esa sesión queda como "Transcripción anulada: el paciente revocó el consentimiento".
+8. Para probar "Reintentar": frenar el worker o mover la carpeta de audio antes de que procese una pendiente, para
+   que quede en `error`; el botón en la HC tiene que volverla a `pendiente`.
+
 ### Probar
 
 ```bash
@@ -860,6 +912,12 @@ dotnet test --filter "FullyQualifiedName~GrabacionVideo|FullyQualifiedName~Encol
   forma del JSON de un audio real, sin mirar el contenido transcripto.
 - `ConsentimientoVideoEndpointsTests` y `EmocionesPruebas` (actualizados, no nuevos): la generalización por
   `finalidad` no rompió el camino de `emociones`.
+- `signaling-server/test/grabacion-frontend.test.js` (parte de `npm test` en `signaling-server/`): el `grabacion.js`
+  real en un contexto de Node, con dobles de `MediaRecorder`/`AudioContext`/`MediaStream` inyectados — igual que
+  `emociones-frontend.test.js` pero para `crearGrabador()`: sin audio soportado, reconexión del paciente sin
+  reiniciar el `MediaRecorder`, subida exitosa, reintentos con backoff, fallo terminal inmediato, `haySinSubir()`,
+  `descartar()` y el tope de espera de `finalizar()`. No prueba un `MediaRecorder` real ni el worker: eso necesita
+  un navegador (ver "Probar a mano (dos navegadores)") y Python con `faster-whisper`.
 
 ## Qué queda auditado
 
@@ -977,8 +1035,9 @@ fijas, porque la cámara falsa no tiene rostro.
   parte", pero el tiempo no: el segundo caso lee la agenda y escribe la auditoría. Es una diferencia de milisegundos
   que, con el rate limit (20 pedidos por minuto por IP), no alcanza para sondear en la práctica; igualarla requeriría
   auditar también los ids que no existen o auditar en segundo plano.
-- **Grabación y transcripción local** (ver "Grabación y transcripción local"): consentimiento, subida, encolado y el
-  worker que transcribe localmente ya están. **Falta, fuera de alcance de este cambio**: la pantalla que grava con
-  `MediaRecorder` y sube los fragmentos (etapa 4, sin la cual el worker no tiene nada para procesar en un despliegue
-  real); y una purga por retención del texto ya transcripto, como la de emociones (hoy solo se purga el audio en
-  disco, nunca `SesionClinica.Transcripcion`).
+- **Grabación y transcripción local** (ver "Grabación y transcripción local"): consentimiento, subida, encolado, el
+  worker que transcribe localmente y la pantalla que graba y sube los fragmentos ya están. **Falta, fuera de alcance
+  de este cambio**: una purga por retención del texto ya transcripto, como la de emociones (hoy solo se purga el
+  audio en disco, nunca `SesionClinica.Transcripcion`); y verificar la etapa 4 (grabación en el navegador) con
+  navegadores reales, más de una red y micrófonos físicos — hasta ahora solo se probó con dispositivos falsos de
+  Chrome en una máquina (ver "Probar a mano (dos navegadores)").

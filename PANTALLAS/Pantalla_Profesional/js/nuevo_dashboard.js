@@ -675,6 +675,23 @@ async function verHistoria(idPaciente) {
         });
         cuerpo.querySelectorAll('.hc-panel').forEach(p => p.classList.toggle('oculto', p.id !== 'hc-panel-' + b.dataset.tab));
     });
+    cuerpo.addEventListener('click', async e => {
+        const b = e.target.closest('[data-reintentar-transcripcion]');
+        if (!b) return;
+        const id = b.dataset.reintentarTranscripcion;
+        b.disabled = true;
+        b.textContent = 'Reintentando…';
+        try {
+            await YS.api(`/sesiones-clinicas/${id}/transcripcion/reintentar`, { method: 'POST' });
+            b.closest('.evolucion-bloque').innerHTML = '<div class="evolucion-bloque-label">Transcripción</div>' +
+                '<p class="evolucion-bloque-texto">Transcribiendo…</p>';
+            toast('La transcripción se volvió a encolar.');
+        } catch (err) {
+            b.disabled = false;
+            b.textContent = 'Reintentar';
+            toast(err.message, 'error');
+        }
+    });
 }
 
 // Sesión de video con el paciente ya elegido (desde Mis pacientes o desde la historia clínica)
@@ -706,10 +723,35 @@ function renderSesionesClinicas(lista) {
                 (s.tipoCierre ? ' &nbsp;<span class="ui-chip ui-chip--info ui-chip--sin-punto">' + YS.esc(s.tipoCierre) + '</span>' : '') +
             '</div>' +
             (emociones ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Promedio de emociones</div><div class="flex-gap mt-8">' + emociones + '</div></div>' : '') +
-            (s.transcripcion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div><div class="evolucion-bloque-texto transcripcion">' + YS.esc(s.transcripcion) + '</div></div>' : '') +
+            bloqueTranscripcion(s) +
             (s.notasEvolucion ? '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Notas del médico</div><div class="evolucion-bloque-texto">' + YS.esc(s.notasEvolucion) + '</div></div>' : '') +
         '</div>';
     }).join('');
+}
+
+// Según en qué quedó la transcripción local de la sesión (TranscripcionEstado): "pendiente"/"procesando" todavía se
+// está armando, "lista" ya tiene texto (o, sin estado, es una transcripción de antes de esta función: texto plano,
+// se la trata igual), "error" se puede reintentar desde acá, y "anulada" es porque el paciente revocó el
+// consentimiento de grabar. Sin nada vinculado (estado null y sin texto) no se muestra el bloque.
+function bloqueTranscripcion(s) {
+    const estado = s.estadoTranscripcion;
+    let cuerpo;
+    if (!estado) {
+        if (!s.transcripcion) return '';
+        cuerpo = '<div class="evolucion-bloque-texto transcripcion">' + YS.esc(s.transcripcion) + '</div>';
+    } else if (estado === 'pendiente' || estado === 'procesando') {
+        cuerpo = '<p class="evolucion-bloque-texto">Transcribiendo…</p>';
+    } else if (estado === 'lista') {
+        cuerpo = s.transcripcionIlegible
+            ? '<p class="evolucion-bloque-texto">No se pudo leer la transcripción guardada.</p>'
+            : '<div class="evolucion-bloque-texto transcripcion">' + YS.esc(s.transcripcion || '') + '</div>';
+    } else if (estado === 'anulada') {
+        cuerpo = '<p class="evolucion-bloque-texto">Transcripción anulada: el paciente revocó el consentimiento.</p>';
+    } else if (estado === 'error') {
+        cuerpo = '<p class="evolucion-bloque-texto">No se pudo transcribir el audio de la sesión.</p>' +
+            '<button type="button" class="ui-btn ui-btn--sm" data-reintentar-transcripcion="' + s.idSesion + '">Reintentar</button>';
+    } else return '';
+    return '<div class="evolucion-bloque"><div class="evolucion-bloque-label">Transcripción</div>' + cuerpo + '</div>';
 }
 
 function renderDatosPaciente(p) {

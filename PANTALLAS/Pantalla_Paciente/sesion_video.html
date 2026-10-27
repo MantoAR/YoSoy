@@ -101,6 +101,21 @@
                 </div>
                 <p class="emo-decision" id="emo-decision" aria-live="polite"></p>
             </div>
+            <!-- Grabación de audio para transcripción local: también OPCIONAL y se decide antes de conectarse, sin
+                 opción premarcada. A diferencia de la lectura de expresiones, no bloquea "Conectarme": se puede
+                 decidir en cualquier momento, incluso durante la sesión. Si no está disponible, el panel no aparece. -->
+            <div class="ui-alerta ui-alerta--marca ui-alerta--bloque panel-emociones oculto" role="region"
+                 aria-labelledby="grab-titulo" id="panel-grabacion">
+                <span class="ui-chip ui-chip--warn ui-chip--sin-punto oculto" id="grab-provisorio">Texto provisorio</span>
+                <h4 id="grab-titulo"></h4>
+                <div class="emo-texto" id="grab-texto" tabindex="0"></div>
+                <div class="emo-botones">
+                    <button type="button" class="ui-btn ui-btn--primary" id="btn-grab-acepto">Acepto que se grabe la sesión</button>
+                    <button type="button" class="ui-btn" id="btn-grab-rechazo">No acepto: la videollamada sigue igual, sin grabación</button>
+                    <button type="button" class="ui-btn ui-btn--danger oculto" id="btn-grab-dejar">Dejar de grabar la sesión</button>
+                </div>
+                <p class="emo-decision" id="grab-decision" aria-live="polite"></p>
+            </div>
         </div>
     </div>
 
@@ -130,6 +145,15 @@
             </div>
             <p class="estado-box error" id="emo-sesion-error" role="alert"></p>
         </div>
+        <!-- Mientras dura la sesión, a la vista: si se está grabando y cómo dejar de hacerlo. -->
+        <div class="ui-alerta ui-alerta--bloque emo-sesion oculto" id="grab-sesion" role="status" aria-live="polite">
+            <strong id="grab-sesion-estado"></strong>
+            <div class="emo-botones">
+                <button type="button" class="ui-btn ui-btn--danger oculto" id="btn-grab-sesion-dejar">Dejar de grabar la sesión</button>
+                <button type="button" class="ui-btn oculto" id="btn-grab-sesion-permitir">Permitir que se grabe la sesión</button>
+            </div>
+            <p class="estado-box error" id="grab-sesion-error" role="alert"></p>
+        </div>
     </div>
 
 </div>
@@ -141,6 +165,7 @@
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
 <script src="../shared/emociones.js"></script>
+<script src="../shared/grabacion.js"></script>
 <script>
 let stream, control;   // control: lo que devuelve YS.video.entrar (cierra la conexión)
 
@@ -247,6 +272,100 @@ $('btn-emo-dejar').addEventListener('click', dejarDeCompartir);
 $('btn-emo-sesion-dejar').addEventListener('click', dejarDeCompartir);
 $('btn-emo-sesion-permitir').addEventListener('click', aceptarEmociones);
 
+// ─── GRABACIÓN DE AUDIO (consentimiento, para la transcripción local) ──────────
+// Misma idea que la lectura de expresiones de arriba, pero con YS.grabacion y sin bloquear "Conectarme": se puede
+// decidir en cualquier momento, incluso durante la sesión.
+let grabacionConsentimiento = null;
+let ocupadoGrabacion = false;
+let mensajeGrabacion = '';
+
+function pintarGrabacion() {
+    const panel = $('panel-grabacion');
+    const c = grabacionConsentimiento;
+    if (!c || !c.disponible) {
+        panel.classList.add('oculto');
+        $('grab-sesion').classList.add('oculto');
+        return;
+    }
+    panel.classList.remove('oculto');
+    $('grab-provisorio').classList.toggle('oculto', !c.provisorio);
+    if (c.titulo) $('grab-titulo').textContent = c.titulo;
+    if (Array.isArray(c.texto) && c.texto.length) {
+        const caja = $('grab-texto');
+        caja.replaceChildren(...c.texto.map(t => { const p = document.createElement('p'); p.textContent = t; return p; }));
+    }
+
+    const estado = c.estado;
+    $('btn-grab-acepto').classList.toggle('oculto', estado === 'acepta');
+    $('btn-grab-rechazo').classList.toggle('oculto', estado !== 'sin-decision');
+    $('btn-grab-dejar').classList.toggle('oculto', estado !== 'acepta');
+    $('btn-grab-acepto').textContent = estado === 'sin-decision'
+        ? 'Acepto que se grabe la sesión' : 'Cambié de idea: acepto que se grabe la sesión';
+
+    const decision = $('grab-decision');
+    decision.textContent = mensajeGrabacion || ({
+        'sin-decision': 'Elegí una opción cuando quieras. No es obligatorio aceptar, y no hace falta para conectarte.',
+        'acepta': 'Elegiste: aceptar que se grabe la sesión. Podés dejar de grabarla cuando quieras.',
+        'rechaza': 'Elegiste: no aceptar. La videollamada se hace igual, sin grabación.',
+        'revocado': 'Dejaste de grabar la sesión. La videollamada sigue igual, sin grabación.'
+    })[estado] || '';
+    decision.classList.toggle('error', !!mensajeGrabacion);
+    $('grab-sesion-error').textContent = mensajeGrabacion;
+
+    const sesion = $('grab-sesion');
+    sesion.classList.remove('oculto');
+    sesion.classList.toggle('ui-alerta--ok', estado === 'acepta');
+    sesion.classList.toggle('ui-alerta--info', estado !== 'acepta');
+    $('grab-sesion-estado').textContent = estado === 'acepta'
+        ? '● Se está grabando el audio de esta sesión (lo aceptaste).'
+        : estado === 'revocado'
+            ? 'Dejaste de grabar la sesión: no se guarda nada más.'
+            : 'No se está grabando esta sesión.';
+    $('btn-grab-sesion-dejar').classList.toggle('oculto', estado !== 'acepta');
+    $('btn-grab-sesion-permitir').classList.toggle('oculto', estado === 'acepta' || estado === 'sin-decision');
+}
+
+async function cargarGrabacion(sesion) {
+    try {
+        grabacionConsentimiento = await YS.grabacion.obtener(sesion);
+    } catch (err) {
+        grabacionConsentimiento = null;
+    }
+    pintarGrabacion();
+    return grabacionConsentimiento;
+}
+
+async function operarGrabacion(operacion) {
+    if (ocupadoGrabacion || !sesionDeVideo) return;
+    ocupadoGrabacion = true;
+    mensajeGrabacion = '';
+    const botones = document.querySelectorAll('#panel-grabacion button, #grab-sesion button');
+    botones.forEach(b => { b.disabled = true; });
+    try {
+        await operacion();
+        grabacionConsentimiento = await YS.grabacion.obtener(sesionDeVideo);
+    } catch (err) {
+        if (err.codigo === 'version-desactualizada') {
+            try { grabacionConsentimiento = await YS.grabacion.obtener(sesionDeVideo); } catch { /* queda lo que había */ }
+        }
+        mensajeGrabacion = err.message;
+    } finally {
+        botones.forEach(b => { b.disabled = false; });
+        ocupadoGrabacion = false;
+        pintarGrabacion();
+    }
+}
+
+const aceptarGrabacion = () => operarGrabacion(() => YS.grabacion.decidir(sesionDeVideo, 'acepta', grabacionConsentimiento.version));
+const rechazarGrabacion = () => operarGrabacion(() => YS.grabacion.decidir(sesionDeVideo, 'rechaza', grabacionConsentimiento.version));
+const dejarDeGrabar = () => operarGrabacion(() => YS.grabacion.revocar(sesionDeVideo));
+
+$('btn-grab-acepto').addEventListener('click', aceptarGrabacion);
+$('btn-grab-rechazo').addEventListener('click', rechazarGrabacion);
+$('btn-grab-dejar').addEventListener('click', dejarDeGrabar);
+$('btn-grab-sesion-dejar').addEventListener('click', dejarDeGrabar);
+$('btn-grab-sesion-permitir').addEventListener('click', aceptarGrabacion);
+
 // La página se abre con ?turno=<id> o ?admision=<id> (desde un panel) o con ?sala=<código> (el link de la
 // notificación). Con la sesión ya en la URL solo falta tocar "Conectarme": la cámara se pide recién ahí. Con
 // ?sala= el código queda cargado en el campo.
@@ -271,6 +390,7 @@ $('btn-emo-sesion-permitir').addEventListener('click', aceptarEmociones);
     document.getElementById('btn-conectar').focus();
     // Con la sesión conocida, el texto del consentimiento se puede leer con calma antes de conectarse.
     cargarConsentimiento(sesion);
+    cargarGrabacion(sesion);
 })();
 
 async function conectarse() {
@@ -298,6 +418,8 @@ async function conectarse() {
         estadoBox.className = 'estado-box';
         await cargarConsentimiento(sesion);
     }
+    if (!grabacionConsentimiento || sesionDeVideo?.origen !== sesion.origen || sesionDeVideo?.id !== sesion.id)
+        await cargarGrabacion(sesion);
     if (consentimiento && consentimiento.disponible && consentimiento.estado === 'sin-decision') {
         estadoBox.textContent = 'Antes de conectarte, elegí si aceptás o no la lectura de tus expresiones (más abajo). Después tocá "Conectarme".';
         estadoBox.className = 'estado-box';

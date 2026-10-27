@@ -225,8 +225,9 @@ public class CierreSesionPantallaTests
         Assert.Contains("No se pudo guardar el borrador en este equipo", iniciar);
         // Un cierre guardado descarta el borrador.
         Assert.Contains("descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');", Funcion(sala, "async function guardarEnHC() {"));
-        // El borrador se arranca al entrar a la sala, antes de abrirla.
-        Assert.Matches(@"analisis\.iniciar\(\);\s*// 2c\.[^\n]*\n\s*iniciarBorrador\(\);", sala);
+        // El borrador se arranca al entrar a la sala, antes de abrirla (entre medio queda el permiso de grabación, etapa 4).
+        Assert.Matches(@"// 2c\.[^\n]*\n\s*iniciarBorrador\(\);", sala);
+        Assert.True(sala.IndexOf("iniciarBorrador();", StringComparison.Ordinal) < sala.IndexOf("control = YS.video.entrar(", StringComparison.Ordinal));
     }
 
     [Fact]

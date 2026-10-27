@@ -65,7 +65,8 @@ public class SalaActividadTests
     {
         var sala = Sala;
 
-        Assert.Matches(@"window\.addEventListener\('beforeunload', e => \{\s*if \(!hayNotasSinGuardar\(\)\) return;", sala);
+        // También pregunta si queda audio grabado sin subir (transcripción local): perderlo no se puede deshacer.
+        Assert.Matches(@"window\.addEventListener\('beforeunload', e => \{\s*if \(!hayNotasSinGuardar\(\) && !\(grabador && grabador\.haySinSubir\(\)\)\) return;", sala);
         Assert.Contains("e.preventDefault();", sala);
         // "Sin guardar" = hay texto en las notas y todavía no se guardó en la historia clínica.
         Assert.Matches(@"return !guardadoEnHC && document\.getElementById\('notas-evolucion'\)\.value\.trim\(\) !== '';", sala);

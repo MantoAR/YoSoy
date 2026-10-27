@@ -200,6 +200,11 @@
                 </div>
 
                 <div class="card">
+                    <h3>Grabación del audio</h3>
+                    <p class="emo-estado" id="grab-estado" role="status" aria-live="polite">Consultando si se puede grabar la sesión…</p>
+                </div>
+
+                <div class="card">
                     <h3>Estadísticas</h3>
                     <div class="stats-grid">
                         <div class="stat-box"><div class="stat-num" id="stat-dur">0:00</div><div class="stat-lbl">Duración</div></div>
@@ -371,6 +376,7 @@
 <script src="../shared/vendor/socket.io.min.js"></script>
 <script src="../shared/video.js"></script>
 <script src="../shared/emociones.js"></script>
+<script src="../shared/grabacion.js"></script>
 <script>
 const EMOCIONES = {
     neutral:   { label:'Neutral',   color:'#888780', emoji:'😐' },
@@ -388,6 +394,13 @@ let control, stream, detectionTimer, timerInterval, sessionStart;   // control: 
 // Las muestras (cuántas, los promedios) viven en `analisis`; acá solo queda la línea de tiempo de la pantalla.
 let analisis = null;
 let historial = [], ultimaEmo = null;
+// Grabación del audio (para la transcripción local): misma idea que las emociones, con YS.grabacion.vigilar
+// preguntando el permiso, y un grabador (YS.grabacion.crearGrabador) que arranca recién cuando hay permiso Y audio
+// remoto del paciente. grabacionFinalizar guarda la promesa de `finalizar()` para que guardarEnHC pueda esperarla.
+let grabacionVigilancia = null;
+let grabador = null;
+let streamRemotoActual = null;
+let grabacionFinalizar = Promise.resolve(null);
 let modelsListo = false;
 let sala = '';   // código de la sala, solo para mostrarlo en el reporte: lo decide la API (acceso.sala)
 let tipoCierreSeleccionado = null;
@@ -588,6 +601,15 @@ async function entrarASala() {
     analisis = YS.emociones.analizar({ sesion: sesionVideo, alCambiar: alCambiarPermiso });
     analisis.iniciar();
 
+    // 2b-bis. Permiso de grabación: misma idea, pero para la grabación del audio de la sesión (transcripción local).
+    // Sin un permiso vigente el grabador ni se crea (ver alCambiarPermisoGrabacion).
+    grabacionVigilancia?.detener();
+    grabador = null;
+    streamRemotoActual = null;
+    grabacionFinalizar = Promise.resolve(null);
+    grabacionVigilancia = YS.grabacion.vigilar({ sesion: sesionVideo, alCambiar: alCambiarPermisoGrabacion });
+    grabacionVigilancia.iniciar();
+
     // 2c. Borrador de la nota: se mira si quedó uno de esta sesión y desde acá se guarda lo que se escribe (cifrado, en este equipo).
     iniciarBorrador();
 
@@ -600,6 +622,11 @@ async function entrarASala() {
         alVideoRemoto: s => {
             const vidPaciente = document.getElementById('vid-paciente');
             vidPaciente.srcObject = s;
+            // El audio remoto se re-enruta en CADA llamada (también si el paciente se reconecta): así el grabador,
+            // si ya existía, sigue grabando sin cortes, solo cambia de dónde sale el sonido.
+            streamRemotoActual = s;
+            if (grabador) grabador.adjuntarRemoto(s);
+            else intentarIniciarGrabacion();
             // Esto llega una vez por conexión (y de nuevo si el paciente vuelve a entrar): el video cambia, pero el
             // análisis y el reloj de la sesión arrancan una sola vez.
             if (sessionStart) return;
@@ -669,7 +696,7 @@ document.getElementById('notas-evolucion').addEventListener('input', () => {
     if (salaFinalizada && salaSigueEnUso()) iniciarAvisoDeActividad();
 });
 window.addEventListener('beforeunload', e => {
-    if (!hayNotasSinGuardar()) return;
+    if (!hayNotasSinGuardar() && !(grabador && grabador.haySinSubir())) return;
     e.preventDefault();
     e.returnValue = '';
 });
@@ -680,6 +707,11 @@ function volverAConexion(motivo) {
     detenerAvisoDeActividad();
     analisis?.detener();
     analisis = null;
+    grabacionVigilancia?.detener();
+    grabacionVigilancia = null;
+    grabador?.descartar();
+    grabador = null;
+    streamRemotoActual = null;
     stream?.getTracks().forEach(t => t.stop());
     control?.cerrar();
     control = null;
@@ -722,6 +754,57 @@ function alCambiarPermiso(v, info) {
     // conexión conserva lo acumulado, así que no se limpia.
     if (!v.permitido && info.acumuladas === 0) limpiarPanelEmociones();
     if (!v.permitido && v.estado === 'revocado') toast('El paciente dejó de compartir sus expresiones: se detuvo el análisis.', 6000);
+}
+
+// ─── GRABACIÓN DEL AUDIO (para la transcripción local) ────
+// El paciente decide en su pantalla (acepta, rechaza, revoca) y acá solo se obedece: sin un permiso vigente no se
+// crea el grabador, y si lo había se descarta (YS.grabacion.vigilar pregunta cada pocos segundos y falla cerrado).
+// El grabador recién arranca cuando hay permiso Y ya llegó el audio remoto del paciente: antes de eso no tiene
+// sentido grabar solo el micrófono propio.
+function pintarEstadoGrabacion() {
+    const cuadro = document.getElementById('grab-estado');
+    if (!cuadro) return;
+    const vg = grabador ? grabador.vista() : null;
+    const grabando = vg && Object.values(vg).some(p => p.grabando);
+    if (grabando) {
+        const pendientes = Object.values(vg).reduce((a, p) => a + p.pendientes, 0);
+        cuadro.textContent = pendientes > 0
+            ? `● Grabando el audio de la sesión · subiendo (${pendientes} fragmento${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'})`
+            : '● Grabando el audio de la sesión · al día con la subida';
+        cuadro.classList.add('activa');
+        cuadro.classList.remove('alerta');
+        return;
+    }
+    const v = grabacionVigilancia ? grabacionVigilancia.vista() : null;
+    cuadro.textContent = YS.grabacion.textoDeEstado(v);
+    cuadro.classList.toggle('activa', !!(v && v.permitido));
+    cuadro.classList.toggle('alerta', !!(v && !v.permitido && v.estado !== 'consultando'));
+}
+
+function intentarIniciarGrabacion() {
+    if (grabador || !grabacionVigilancia || !grabacionVigilancia.permitido() || !streamRemotoActual) return;
+    grabador = YS.grabacion.crearGrabador({
+        sesion: sesionVideo,
+        inicioSesionMs: sessionStart || undefined,
+        onCambio: pintarEstadoGrabacion
+    });
+    grabador.adjuntarRemoto(streamRemotoActual);
+    if (stream) grabador.adjuntarLocal(stream);
+    pintarEstadoGrabacion();
+}
+
+function alCambiarPermisoGrabacion(v) {
+    if (v.permitido) {
+        intentarIniciarGrabacion();
+    } else if (grabador) {
+        grabacionFinalizar = Promise.resolve(grabador.vista());
+        grabador.descartar();
+        grabador = null;
+        toast('Se detuvo la grabación de la sesión: ' + (v.estado === 'revocado'
+            ? 'el paciente dejó de permitirla.'
+            : 'no se pudo confirmar el consentimiento del paciente.'), 6000);
+    }
+    pintarEstadoGrabacion();
 }
 
 function iniciarDeteccion(video) {
@@ -1417,6 +1500,11 @@ async function finalizarSesion() {
     clearTimeout(detectionTimer);
     clearInterval(timerInterval);
     analisis?.detener();   // guardar y exportar vuelven a preguntar antes de usar nada
+    grabacionVigilancia?.detener();
+    // Corta las dos pistas y espera (con un tope) a que termine de subirse lo que ya se grabó; guardarEnHC espera
+    // esta misma promesa antes de guardar el cierre.
+    grabacionFinalizar = grabador ? grabador.finalizar() : Promise.resolve(null);
+    grabacionFinalizar.then(pintarEstadoGrabacion);
 
     stream?.getTracks().forEach(t => t.stop());
     control?.cerrar();
@@ -1476,6 +1564,16 @@ async function guardarEnHC() {
     const btn = document.getElementById('btn-cierre-guardar');
     btn.disabled = true;   // un solo guardado a la vez: el permiso se vuelve a consultar y eso tarda un instante
 
+    // El audio de la sesión puede seguir subiendo fragmentos: se espera a que termine (finalizarSesion ya cortó la
+    // grabación y pidió finalizar()) antes de guardar, para que el vínculo con la transcripción no se pierda.
+    if (grabador && grabador.haySinSubir()) {
+        btn.textContent = 'Subiendo el audio de la sesión…';
+        mensajeCierre('Esperando a que termine de subirse el audio de la sesión…');
+    }
+    await grabacionFinalizar;
+    mensajeCierre('');
+    btn.textContent = '💾 Guardar cierre';
+
     const { emociones, motivo } = await emocionesParaGuardar();
 
     const body = {
@@ -1485,6 +1583,7 @@ async function guardarEnHC() {
         notasEvolucion:     notas || null,
         tipoCierre:         tipoCierreSeleccionado || null,
         emociones:          emociones,
+        grabacion:          { origen: sesionVideo.origen, id: sesionVideo.id },
         claveCierre:        claveCierre,                          // la misma en cada reintento: el servidor no duplica
         confirmaRealizacion: hayTurno() && decisionRealizo === 'si'   // solo un clic explícito en «Sí, se realizó»
     };
@@ -1531,6 +1630,16 @@ function mostrarResultadoDelCierre(r, motivoSinEmociones, emociones) {
     if (estado === 'guardadas') lineas.push('Se guardaron las emociones (cifradas).');
     else if (estado === 'descartadas' && r.emociones.mensaje) lineas.push(r.emociones.mensaje);
     else if (emociones === null && motivoSinEmociones !== 'sin-muestras' && motivoSinEmociones !== 'no-disponible') lineas.push('Sin emociones: ' + razonSinEmociones(motivoSinEmociones) + '.');
+
+    const TEXTO_TRANSCRIPCION = {
+        pendiente: 'El audio de la sesión quedó encolado para transcribirse.',
+        procesando: 'El audio de la sesión se está transcribiendo.',
+        lista: 'La transcripción de la sesión ya está lista.',
+        error: 'Hubo un error al transcribir el audio de la sesión: se puede reintentar desde la historia clínica.',
+        anulada: 'La transcripción se anuló: el paciente revocó el consentimiento de grabar la sesión.'
+    };
+    const estadoTranscripcion = r.transcripcion && r.transcripcion.estado;
+    if (estadoTranscripcion && TEXTO_TRANSCRIPCION[estadoTranscripcion]) lineas.push(TEXTO_TRANSCRIPCION[estadoTranscripcion]);
 
     const cont = document.getElementById('cierre-resultado');
     const ul = document.createElement('ul');
