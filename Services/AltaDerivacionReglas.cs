@@ -85,13 +85,13 @@ public static class AltaDerivacionReglas
     public record PlanDeControl(int Controles, int? CadaDias, DateTime? Primero);
 
     /// <summary>Valida el alta; devuelve el mensaje de lo que falta o está mal (null si está todo bien) y los datos ya normalizados.</summary>
-    public static string? ValidarAlta(AltaClinicaRequest r, DateTime hoy, out DateTime fechaAlta, out PlanDeControl plan)
+    public static string? ValidarAlta(AltaClinicaRequest r, DateTime hoy, out DateTime fechaAlta, out PlanDeControl plan, int informeMaximo = InformeMaximo)
     {
         fechaAlta = hoy.Date;
         plan = new PlanDeControl(0, null, null);
 
         if (string.IsNullOrWhiteSpace(r.Informe)) return "Escribí el informe de alta.";
-        if (r.Informe.Length > InformeMaximo) return $"El informe de alta no puede superar los {InformeMaximo} caracteres.";
+        if (r.Informe.Length > informeMaximo) return $"El informe de alta no puede superar los {informeMaximo} caracteres.";
 
         if (!string.IsNullOrWhiteSpace(r.FechaAlta))
         {
@@ -128,7 +128,9 @@ public static class AltaDerivacionReglas
     public static string Detalle(string texto) => texto.Length <= 500 ? texto : texto[..500];
 }
 
-public record AltaClinicaRequest(bool? Confirma, string? Informe, string? FechaAlta, int? ControlesPrevistos, int? ControlCadaDias, string? PrimerControl, int? IdSesion, string? ClaveCierre);
+// InformeEstructurado y Controles son del alta estructurada (migración 35): si vienen, el informe se arma con las secciones y el plan sale de la lista de fechas de control (Services/AltaEstructurada.cs).
+public record AltaClinicaRequest(bool? Confirma, string? Informe, string? FechaAlta, int? ControlesPrevistos, int? ControlCadaDias, string? PrimerControl, int? IdSesion, string? ClaveCierre,
+    InformeAltaEstructurado? InformeEstructurado = null, List<string>? Controles = null);
 public record DerivarCasoRequest(bool? Confirma, int? IdProfesionalDestino, string? Motivo, string? Observaciones, int? IdSesion, string? ClaveCierre);
 public record ResponderDerivacionRequest(bool? Acepta, string? Motivo);
 public record TraspasarRequest(string? MotivoCategoria, string? Nota);

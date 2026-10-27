@@ -128,6 +128,7 @@ public static class MensajeriaServiceCollectionExtensions
         services.AddSingleton<EntrantesVistos>();
         services.AddSingleton<RecepcionDeMensajes>();
 
+        services.AddSingleton<ISeguimientoClinico, SeguimientoClinico>();   // la pasada de seguimiento (ausencias, controles, solicitudes vencidas) que corre junto con los recordatorios
         services.AddSingleton<RecordatorioBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<RecordatorioBackgroundService>());
 

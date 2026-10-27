@@ -66,6 +66,8 @@ public static class VideoEndpoints
             var ice = turn.Generar(sub, r.Ahora, expira, r.Hasta.Value - r.Desde!.Value);
 
             auditoria.Registrar(yo.IdUsuario, origen, id, r.Rol!, r);
+            // Quién pidió entrar a la sala de este turno (migración 35): es lo que permite saber que el paciente nunca se conectó (ausencias). Nunca frena el acceso.
+            if (origen == OrigenSala.Turno) AusenciasDAO.RegistrarConexion(id, string.Equals(r.Rol, Roles.Paciente, StringComparison.OrdinalIgnoreCase) ? "Paciente" : "Profesional");
             return Results.Ok(new
             {
                 token,

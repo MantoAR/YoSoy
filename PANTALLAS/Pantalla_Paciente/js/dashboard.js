@@ -1018,6 +1018,8 @@ function propuestoPorProfesional(t) {
 // Texto y color de un turno en el almanaque (los mismos de la leyenda).
 function estadoCalendario(t) {
     if (propuestoPorProfesional(t)) return { texto: "A confirmar", clase: "estado-Pendiente" };
+    // Lo que pidió el paciente por su cuenta todavía no es un turno: espera que el profesional lo acepte (no habilita la sala).
+    if (t.estadoDescripcion === "Pendiente") return { texto: "Esperando confirmación del profesional", clase: "estado-Pendiente" };
     return {
         Pendiente:  { texto: "Pendiente",  clase: "estado-Pendiente" },
         Confirmado: { texto: "Confirmado", clase: "estado-Confirmado" },

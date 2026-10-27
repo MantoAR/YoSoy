@@ -47,8 +47,15 @@ public class CierreSesionPantallaTests
     [Fact]
     public void Ausente_no_existe_ni_en_el_panel_ni_en_lo_que_la_sala_manda()
     {
-        Assert.DoesNotContain("Ausente", Sala, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("abandono", Sala, StringComparison.OrdinalIgnoreCase);
+        // El cierre nunca marca ausente ni abandono (eso es otra acción, con su propio botón y confirmación: ver AusenciasAltaPantallasTests).
+        var guardar = Funcion(Sala, "async function guardarEnHC() {");
+        var panel = Sala[Sala.IndexOf("id=\"panel-cierre\"", StringComparison.Ordinal)..];
+        panel = panel[..panel.IndexOf("</section>", StringComparison.Ordinal)];
+        foreach (var texto in new[] { guardar, panel })
+        {
+            Assert.DoesNotContain("Ausente", texto, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("abandono", texto, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]

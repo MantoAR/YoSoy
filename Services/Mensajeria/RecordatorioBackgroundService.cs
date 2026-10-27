@@ -17,10 +17,12 @@ public class RecordatorioBackgroundService : BackgroundService
     private readonly IOptionsMonitor<MensajeriaOptions> _opciones;
     private readonly TimeProvider _reloj;
     private readonly ILogger<RecordatorioBackgroundService> _log;
+    private readonly ISeguimientoClinico? _seguimiento;
 
     public RecordatorioBackgroundService(IRecordatorioDAO recordatorios, NotificadorTurnos notificador,
-        IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj, ILogger<RecordatorioBackgroundService> log)
+        IOptionsMonitor<MensajeriaOptions> opciones, TimeProvider reloj, ILogger<RecordatorioBackgroundService> log, ISeguimientoClinico? seguimiento = null)
     {
+        _seguimiento   = seguimiento;
         _recordatorios = recordatorios;
         _notificador   = notificador;
         _opciones      = opciones;
@@ -59,6 +61,10 @@ public class RecordatorioBackgroundService : BackgroundService
 
         foreach (var idTurno in ids)
             _notificador.EnviarRecordatorio24h(idTurno);   // nunca lanza
+
+        // La misma pasada también vence las solicitudes de turno sin respuesta, avisa las ausencias a los 10 minutos y los controles de seguimiento que se acercan (todo idempotente).
+        try { _seguimiento?.Pasada(ahora); }
+        catch (Exception ex) { _log.LogError(ex, "Falló la pasada de seguimiento clínico; se reintenta en el próximo ciclo."); }
         return ids.Count;
     }
 }

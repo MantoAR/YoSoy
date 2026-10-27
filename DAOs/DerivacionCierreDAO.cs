@@ -287,7 +287,7 @@ public class DerivacionCierreDAO
         con.Open();
         using (var cmd = new SqlCommand(@"
             SELECT TOP 30 IdNotificacionInterna, Tipo, Titulo, Mensaje, Leida, FechaCreacion FROM NotificacionInterna
-            WHERE Destinatario = N'Profesional' AND IdProfesional = @P AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%' OR Tipo LIKE N'asignacion-%')
+            WHERE Destinatario = N'Profesional' AND IdProfesional = @P AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%' OR Tipo LIKE N'asignacion-%' OR Tipo LIKE N'ausencia-%' OR Tipo LIKE N'control-%' OR Tipo LIKE N'solicitud-%')
             ORDER BY IdNotificacionInterna DESC", con))
         {
             cmd.Parameters.AddWithValue("@P", idProfesional);
@@ -309,7 +309,7 @@ public class DerivacionCierreDAO
         using var con = Conexion.ObtenerConexion();
         con.Open();
         using var cmd = new SqlCommand(@"UPDATE NotificacionInterna SET Leida = 1 WHERE IdNotificacionInterna = @I AND Destinatario = N'Profesional' AND IdProfesional = @P
-                                         AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%')", con);
+                                         AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%' OR Tipo LIKE N'ausencia-%' OR Tipo LIKE N'control-%' OR Tipo LIKE N'solicitud-%')", con);
         cmd.Parameters.AddWithValue("@I", idAviso);
         cmd.Parameters.AddWithValue("@P", idProfesional);
         return cmd.ExecuteNonQuery() == 1;

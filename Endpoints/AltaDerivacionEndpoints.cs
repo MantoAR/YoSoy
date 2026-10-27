@@ -34,11 +34,15 @@ public static class AltaDerivacionEndpoints
             var dao = new AltaClinicaDAO();
             if (!dao.Migracion27Disponible()) return Falla(AltaDerivacionReglas.FaltaMigracion27);
             if (req.Confirma != true) return Falla(AltaDerivacionReglas.FaltaConfirmacion);
-            var error = AltaDerivacionReglas.ValidarAlta(req, reglas.Ahora, out var fechaAlta, out var plan);
+            // Alta estructurada (migración 35): el informe sale de las secciones y el plan de la lista de fechas de control.
+            var errorEstructura = AltaEstructuradaReglas.Aplicar(req, reglas.Ahora, out req, out var extension);
+            if (errorEstructura is not null) return Invalido(errorEstructura);
+            if (extension is not null && !AltaEstructuradaDAO.Disponible()) return Results.Json(new { codigo = AltaEstructuradaReglas.FaltaMigracion35, mensaje = AusenciasReglas.Mensaje(AusenciasReglas.FaltaMigracion35) }, statusCode: 409);
+            var error = AltaDerivacionReglas.ValidarAlta(req, reglas.Ahora, out var fechaAlta, out var plan, extension is null ? AltaDerivacionReglas.InformeMaximo : AltaEstructuradaReglas.InformeEstructuradoMaximo);
             if (error is not null) return Invalido(error);
 
             var caso = new CasoDAO().ObtenerPorId(id);
-            var r = dao.Confirmar(id, idProfesional, req, fechaAlta, plan, Autor(yo, caso?.IdPaciente));
+            var r = dao.Confirmar(id, idProfesional, req, fechaAlta, plan, Autor(yo, caso?.IdPaciente), extension);
             if (r.Rechazo is not null) return Falla(r.Rechazo, r.Estado);
 
             var cuerpo = new
