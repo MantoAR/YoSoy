@@ -62,6 +62,10 @@ public class RecordatorioBackgroundService : BackgroundService
         foreach (var idTurno in ids)
             _notificador.EnviarRecordatorio24h(idTurno);   // nunca lanza
 
+        // Las propuestas automáticas de asignación vencidas pasan a la recepción en la misma pasada (con un turno cercano duran pocos minutos).
+        try { AsignacionAutomaticaService.VencerVencidas(ahora); }
+        catch (Exception ex) { _log.LogWarning(ex, "No se pudieron vencer las propuestas de asignación; se reintenta en el próximo ciclo."); }
+
         // La misma pasada también vence las solicitudes de turno sin respuesta, avisa las ausencias a los 10 minutos y los controles de seguimiento que se acercan (todo idempotente).
         try { _seguimiento?.Pasada(ahora); }
         catch (Exception ex) { _log.LogError(ex, "Falló la pasada de seguimiento clínico; se reintenta en el próximo ciclo."); }

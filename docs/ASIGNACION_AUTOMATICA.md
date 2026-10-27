@@ -12,7 +12,7 @@ Principio (no se negocia): **el sistema detecta, propone y precarga; una persona
 
 ```
 paciente envía «Sobre mí» ──► aviso a la recepción (campanita, uno por formulario)
-recepción acepta ──► el sistema calcula la propuesta nº 1 ──► propuesta Pendiente (vence a las 48 hs)
+recepción acepta ──► el sistema calcula la propuesta nº 1 ──► propuesta Pendiente (vence a las 48 hs, o antes si el turno está cerca: ver «Vencimiento»)
       │                                                              │
       │ no hay propuesta posible                                     ├─ «Me sirve, confirmar» ─► vínculo + turno confirmado (una sola vez)
       ▼                                                              ├─ «Prefiero otro horario» ─► elige uno de los próximos 10 libres del MISMO profesional ─► propuesta nº+1
@@ -28,7 +28,7 @@ Casos que dejan el formulario en **«Asignaciones para resolver»** (con el moti
 | Sin horarios libres para esa especialidad | No hay profesional activo de la especialidad con un horario libre dentro del horizonte (o el paciente pidió «otro profesional» y no quedan). |
 | El consentimiento del paciente no está vigente | Está sin firmar, revocado, vencido, de una versión anterior o sin la firma del tutor. **No se propone.** También si se revoca entre la propuesta y la confirmación (la propuesta se cancela). |
 | El paciente no aceptó las tres propuestas | Tercer rechazo. |
-| El paciente no respondió la propuesta a tiempo | Pasaron 48 horas. |
+| El paciente no respondió la propuesta a tiempo | Pasó el plazo de la propuesta (48 horas, o menos si el turno estaba cerca). |
 
 Desde ahí la recepción puede **volver a calcular la propuesta** (`POST /informes-admision/{id}/proponer-asignacion`, sirve cuando ya hay horarios o el paciente firmó; hasta 3 propuestas por formulario) o **asignar a mano** con el flujo de siempre (`PUT /informes-admision/{id}/derivar`), que **cancela cualquier propuesta pendiente del paciente** y libera su horario. Si la recepción devuelve el formulario o lo cierra con «otro recurso», la propuesta pendiente también se cancela.
 
@@ -37,12 +37,18 @@ Desde ahí la recepción puede **volver a calcular la propuesta** (`POST /inform
 1. **Candidatos**: profesionales **activos** cuya especialidad es la «Especialidad solicitada» del formulario. Nunca los de especialidad «Admisión» (ni la matrícula `ADM-001`) ni los inactivos.
 2. **Profesionales preferidos**: se prueba primero solo con ellos; si ninguno tiene horario, se amplía a todos los de la especialidad y el motivo anota «Los profesionales elegidos no tenían disponibilidad.»
 3. **Días y franja preferidos**: se filtran los horarios; si no queda ninguno se **relaja primero la franja y después los días**, y el motivo anota qué se relajó. «Me da igual» y los campos vacíos no filtran. (Franjas: mañana 8–12, tarde 12–18, noche 18–22.)
-4. **Horarios**: salen de las franjas de agenda **vigentes** (`Agenda.FechaInicio/FechaFin`, migración 30), **sin las franjas de admisión** (`Agenda.EsAdmision`, migración 29), descontando los turnos activos (no cancelados ni rechazados) y las **propuestas pendientes** de otros pacientes. Anticipación mínima de 24 hs y horizonte de 30 días.
+4. **Horarios**: salen de las franjas de agenda **vigentes** (`Agenda.FechaInicio/FechaFin`, migración 30), **sin las franjas de admisión** (`Agenda.EsAdmision`, migración 29), descontando los turnos activos (no cancelados ni rechazados) y las **propuestas pendientes** de otros pacientes. **Sin anticipación de 24 hs** (decisión del dueño, octubre 2026): se propone el primer hueco libre a partir de «ahora + colchón de 15 min», aunque sea hoy mismo dentro de la agenda; el horario es siempre estrictamente posterior a «ahora» (en la zona horaria de la clínica) y un hueco que empieza en menos de 15 min se salta al siguiente. Se puede volver a poner un colchón sin redesplegar con la clave `AsignacionAutomatica:AnticipacionMinimaMinutos` (variable `AsignacionAutomatica__AnticipacionMinimaMinutos`, en minutos, por defecto 0; nunca baja de los 15 min). Horizonte de 30 días. **La misma función** (`HorariosLibres`) arma la propuesta, «Prefiero otro horario» (hasta 10 horarios) y el calendario del paciente (`DisponibilidadPaciente`): lo que ofrece el calendario y lo que propone el sistema coinciden siempre.
 5. **Elección**: el horario libre más próximo; empate → el profesional con **menos pacientes activos**; empate → **menor Id**.
 
-Las cifras sin validar están en un solo lugar (`AsignacionAutomaticaReglas`, con `// TODO-VALIDAR`): `HorasAnticipacionMinima = 24`, `DiasHorizonte = 30`, `HorasParaResponder = 48` y `HorasAntesDelTurnoParaCerrar = 2`.
+Las cifras sin validar están en un solo lugar (`AsignacionAutomaticaReglas`, con `// TODO-VALIDAR`): `AnticipacionMinimaMinutosPorDefecto = 0`, `MinutosColchon = 15`, `MinutosMinimosDeVigencia = 15`, `DiasHorizonte = 30`, `HorasParaResponder = 48` y `HorasAntesDelTurnoParaCerrar = 2`.
 
-**Vencimiento (`ExpiraEn`)** = el MENOR entre «creación + 48 hs» y «horario del turno propuesto − 2 hs» (`AsignacionAutomaticaReglas.Vencimiento`). Antes era solo lo primero y podía quedar después del turno. Es lo que se guarda y lo que ve el paciente en «Podés responder hasta…». Al confirmar («Me sirve») o elegir otro horario, el servidor vuelve a mirar que la propuesta no haya vencido y que el turno conserve ese margen de 2 hs; si no, la rechaza (409, `propuesta-vencida`: «Esta propuesta venció, te armamos otra»), la pasa a «Vencida» y arma la siguiente con la misma numeración (no cuenta como rechazo). No requiere migración.
+**Vencimiento (`ExpiraEn`)** (`AsignacionAutomaticaReglas.Vencimiento(creación, turno)`). Es lo que se guarda y lo que ve el paciente en «Podés responder hasta…»:
+
+* **Turno lejano** (empieza a 2 h 15 min o más de la creación): el MENOR entre «creación + 48 h» y «inicio del turno − 2 h».
+* **Turno cercano** (empieza antes): «inicio del turno − 15 min», pero **nunca antes de «creación + 15 min»**. Así nunca nace vencida ni vence después de empezar el turno. Ejemplos: turno en 1 h → vale 45 min; en 30 min → 15 min; en 20 min → 15 min (siempre antes del inicio).
+* Un horario que empieza en menos de 15 min **no se propone** (se pasa al siguiente hueco).
+
+Al confirmar («Me sirve») o elegir otro horario, el servidor vuelve a mirar que la propuesta no haya vencido y que el turno no haya empezado; si no, la rechaza (409, `propuesta-vencida`: «Esta propuesta venció, te armamos otra»), la pasa a «Vencida» y arma la siguiente con la misma numeración (no cuenta como rechazo). El margen ya no se vuelve a exigir aparte (antes 2 h): lo trae `ExpiraEn`. No requiere migración.
 
 ## «Me sirve» (`POST /propuestas-asignacion/{id}/aceptar`)
 
@@ -60,7 +66,7 @@ Mientras una propuesta está **Pendiente** su horario cuenta como ocupado: para 
 
 ## Vencimiento sin procesos en segundo plano
 
-No hay servicio nuevo: el vencimiento se **evalúa al consultar**. `AsignacionAutomaticaService.VencerVencidas` pasa a «Vencida» (con constancia en la auditoría, sin usuario) toda propuesta pendiente con `ExpiraEn` vencido y deja el formulario en «Asignaciones para resolver». Se llama al leer los primeros pasos, al responder una propuesta, al listar los formularios de la recepción y antes de calcular horarios libres o pedir un turno. Es una consulta barata e idempotente.
+No hay servicio nuevo: el vencimiento se **evalúa al consultar** y, además, en cada pasada de `RecordatorioBackgroundService` (cada `IntervaloChequeoMinutos`, 5 por defecto), para que una propuesta de plazo corto no quede colgada hasta que alguien abra la lista. `AsignacionAutomaticaService.VencerVencidas` pasa a «Vencida» (con constancia en la auditoría, sin usuario) toda propuesta pendiente con `ExpiraEn` vencido y deja el formulario en «Asignaciones para resolver». Se llama al leer los primeros pasos, al responder una propuesta, al listar los formularios de la recepción y antes de calcular horarios libres o pedir un turno. Es una consulta barata e idempotente.
 
 ## Auditoría
 
@@ -91,4 +97,4 @@ Una propuesta ajena responde 404 (el paciente no se entera de que existe).
 
 ## A validar (`// TODO-VALIDAR`)
 
-Anticipación mínima (24 hs), horizonte (30 días) y plazo para responder (48 hs); qué hacer cuando el paciente no responde a tiempo (hoy pasa a la recepción); y si «Me sirve» debería exigir que el profesional acepte al paciente (hoy el vínculo queda `Confirmada` y el profesional se entera por la campanita). Las decide el equipo clínico, no el código.
+Colchón y anticipación mínima (15 min y 0), horizonte (30 días) y plazo para responder (48 hs); qué hacer cuando el paciente no responde a tiempo (hoy pasa a la recepción); y si «Me sirve» debería exigir que el profesional acepte al paciente (hoy el vínculo queda `Confirmada` y el profesional se entera por la campanita). Las decide el equipo clínico, no el código.

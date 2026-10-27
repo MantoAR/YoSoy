@@ -18,7 +18,7 @@ No se pudo reproducir un calendario vacío con datos válidos contra `yosoy_test
 
 ## Una sola fuente
 
-La disponibilidad sale de `AsignacionAutomaticaService.HorariosLibres` (la función de la propuesta automática de asignación), con la anticipación de un pedido del paciente en vez de las 24 horas de la propuesta, más RN-07 y el bloqueo del paciente derivado. Respuesta: `{ dias: [{ fecha, horas: ["09:00", ...] }], total, codigo, mensaje, mensajeHoy, anticipacionHoras }`.
+La disponibilidad sale de `AsignacionAutomaticaService.HorariosLibres` (la función de la propuesta automática de asignación), con la anticipación de un pedido del paciente (más el colchón de 15 min y la anticipación configurable de la propuesta, que valen para las dos: la propuesta ya no exige 24 horas), más RN-07 y el bloqueo del paciente derivado. Respuesta: `{ dias: [{ fecha, horas: ["09:00", ...] }], total, codigo, mensaje, mensajeHoy, anticipacionHoras }`.
 
 * Sin franjas de atención vigentes (`sin-agenda`): «Tu profesional todavía no cargó horarios de atención…».
 * Con franjas pero sin horarios libres (`sin-horarios`): «Tu profesional no tiene horarios libres en los próximos N días. Probá más adelante o escribinos…».
@@ -26,4 +26,4 @@ La disponibilidad sale de `AsignacionAutomaticaService.HorariosLibres` (la funci
 * `mensajeHoy`: lo que se muestra al elegir hoy cuando no queda nada: «Para hoy ya no quedan horarios libres. Si necesitás un turno hoy mismo, comunicate con recepción.» (con una anticipación definida: «Los turnos se piden con al menos N horas de anticipación; para hoy mismo comunicate con recepción.»). También lo usa el rechazo del servidor («Ese horario ya pasó. …»).
 * La pantalla ya no calcula nada: pinta los días del servidor, y si la consulta falla muestra «No pudimos cargar los horarios…».
 
-`// TODO-VALIDAR`: `DisponibilidadReglas.AnticipacionMinimaPedidoHoras = 0` (hoy se puede pedir para dentro de unos minutos; la de 24 horas quedó solo para cancelar y para la propuesta automática).
+`// TODO-VALIDAR`: `DisponibilidadReglas.AnticipacionMinimaPedidoHoras = 0` (hoy se puede pedir para dentro de unos minutos; la de 24 horas quedó solo para cancelar; la propuesta automática tampoco la exige, ver docs/ASIGNACION_AUTOMATICA.md).
