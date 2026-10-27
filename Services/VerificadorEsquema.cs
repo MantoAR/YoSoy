@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 34;   // la última migración que el código conoce (la 34 es opcional: sin ella nadie figura «Derivado» a psiquiatría y el botón del cierre avisa que falta aplicarla; la 33 es opcional: sin ella la primera evolución de una derivación con entrevista se escribe sin el tipo de cierre; la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión; la 31 son los primeros pasos del paciente; la 32 es opcional: sin ella aceptar un formulario anda como antes, sin propuesta automática)
+    public const int VersionRequerida = 36;   // la última migración que el código conoce (la 36 es opcional: sin ella las solicitudes de turno del paciente siguen pendientes hasta que el profesional responda, pero no vencen solas; la 35 es opcional: sin ella no hay avisos de ausencia ni propuesta de abandono, y el alta clínica anda como siempre, sin informe estructurado ni controles; la 34 es opcional: sin ella nadie figura «Derivado» a psiquiatría y el botón del cierre avisa que falta aplicarla; la 33 es opcional: sin ella la primera evolución de una derivación con entrevista se escribe sin el tipo de cierre; la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión; la 31 son los primeros pasos del paciente; la 32 es opcional: sin ella aceptar un formulario anda como antes, sin propuesta automática)
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -125,6 +125,10 @@ public class VerificadorEsquema
             "COL_LENGTH('dbo.Evolucion', 'TipoCierre') IS NOT NULL", Opcional: true),
         new(34, "add_derivado_psiquiatra.sql",
             "OBJECT_ID('dbo.DerivacionPsiquiatrica', 'U') IS NOT NULL", Opcional: true),
+        new(35, "add_ausencias_alta.sql",
+            "OBJECT_ID('dbo.PropuestaAbandono', 'U') IS NOT NULL AND OBJECT_ID('dbo.ControlSeguimiento', 'U') IS NOT NULL AND OBJECT_ID('dbo.TurnoConexion', 'U') IS NOT NULL AND OBJECT_ID('dbo.AvisoSeguimiento', 'U') IS NOT NULL", Opcional: true),
+        new(36, "add_solicitud_turno_vencimiento.sql",
+            "COL_LENGTH('dbo.Turno', 'SolicitudExpiraEn') IS NOT NULL", Opcional: true),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

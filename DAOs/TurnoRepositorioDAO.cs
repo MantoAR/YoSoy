@@ -24,11 +24,17 @@ public interface ITurnoRepositorio
 
     // Paciente derivado a psiquiatría (migración 34): no puede reservar ni recibir turnos. Por defecto nadie lo está (dobles de prueba y bases sin la migración).
     bool PacienteDerivado(int idPaciente) => false;
+
+    // Solicitudes de turno del paciente que esperan al profesional (migración 36): anotar hasta cuándo pueden responderse y vencer las que pasaron de plazo. Por defecto no hacen nada.
+    void RegistrarSolicitud(int idTurno, DateTime ahora) { }
+    void VencerSolicitudes(DateTime ahora) { }
 }
 
 public class TurnoRepositorioDAO : ITurnoRepositorio
 {
     public bool PacienteDerivado(int idPaciente) => DerivacionPsiquiatraDAO.EstaDerivado(idPaciente);
+    public void RegistrarSolicitud(int idTurno, DateTime ahora) => SolicitudesTurnoDAO.RegistrarSolicitud(idTurno, ahora);
+    public void VencerSolicitudes(DateTime ahora) => SolicitudesTurnoDAO.VencerSolicitudes(ahora);
 
     public List<Agenda> AgendaDe(int idProfesional) =>
         new AgendaDAO().ObtenerPorProfesional(idProfesional);

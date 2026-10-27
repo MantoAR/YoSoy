@@ -197,6 +197,7 @@ public sealed class DatosEmociones : IDisposable
         // frenan esos borrados y quedan filas sueltas con la marca.
         Intentar("DELETE FROM Recordatorio WHERE IdTurno IN (SELECT IdTurno FROM Turno WHERE IdPaciente = @P OR IdProfesional = @M)", ("@P", IdPaciente), ("@M", IdProfesional));
         Intentar("DELETE FROM Notificacion WHERE IdPaciente = @P", ("@P", IdPaciente));
+        Intentar("IF OBJECT_ID('dbo.TurnoConexion','U') IS NOT NULL DELETE FROM TurnoConexion WHERE IdTurno IN (SELECT IdTurno FROM Turno WHERE IdPaciente = @P)", ("@P", IdPaciente));
         Intentar("DELETE FROM Turno WHERE IdPaciente = @P", ("@P", IdPaciente));
         Intentar("DELETE FROM PacienteTutor WHERE IdPaciente = @P", ("@P", IdPaciente));
         if (_idTutor is int t) Intentar("DELETE FROM Tutor WHERE IdTutor = @T", ("@T", t));
@@ -205,6 +206,7 @@ public sealed class DatosEmociones : IDisposable
         // sesión del paciente de otra instancia): sin esto, el profesional quedaba sin borrar.
         Intentar("DELETE FROM SesionClinica WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM PacienteProfesional WHERE IdProfesional = @M", ("@M", IdProfesional));
+        Intentar("IF OBJECT_ID('dbo.TurnoConexion','U') IS NOT NULL DELETE FROM TurnoConexion WHERE IdTurno IN (SELECT IdTurno FROM Turno WHERE IdProfesional = @M)", ("@M", IdProfesional));
         Intentar("DELETE FROM Turno WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Profesional WHERE IdProfesional = @M", ("@M", IdProfesional));
         Intentar("DELETE FROM Paciente WHERE IdPaciente = @P", ("@P", IdPaciente));

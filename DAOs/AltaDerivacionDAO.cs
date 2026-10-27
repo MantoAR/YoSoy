@@ -106,7 +106,7 @@ public class AltaClinicaDAO
 {
     public bool Migracion27Disponible() => ADMigracion.Disponible();
 
-    public ResultadoAltaDerivacion Confirmar(int idCaso, int idProfesional, AltaClinicaRequest r, DateTime fechaAlta, AltaDerivacionReglas.PlanDeControl plan, AutorDelCierre autor)
+    public ResultadoAltaDerivacion Confirmar(int idCaso, int idProfesional, AltaClinicaRequest r, DateTime fechaAlta, AltaDerivacionReglas.PlanDeControl plan, AutorDelCierre autor, AltaExtension? ext = null)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -156,6 +156,9 @@ public class AltaClinicaDAO
                 upd.Parameters.AddWithValue("@Antes", caso.Estado);
                 if (upd.ExecuteNonQuery() != 1) return ResultadoAltaDerivacion.Rechazar(AltaDerivacionReglas.EstadoNoPermitido, caso.Estado);   // no se llega: el caso está bloqueado
             }
+
+            // Alta estructurada (migración 35): el informe queda en la historia clínica, ligado a la sesión, y se crean los controles. Todo antes de la auditoría.
+            if (ext is not null) AltaEstructuradaDAO.Escribir(con, tx, id, caso.IdPaciente, idProfesional, idCaso, idSesion, fechaAlta, ext);
 
             ADComun.Auditar(con, tx, autor, "Alta clínica confirmada", "AltaClinica", id,
                 $"AltaClinica #{id}, caso #{idCaso}, paciente #{caso.IdPaciente}" + (idSesion is int s ? $", sesión #{s}" : "") + $", controles previstos {plan.Controles}");

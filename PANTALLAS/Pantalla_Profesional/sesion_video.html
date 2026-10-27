@@ -284,6 +284,9 @@
             <button class="btn-rojo" id="btn-finalizar" onclick="finalizarSesion()" title="Termina la videollamada para las dos personas y abre el cierre de la sesión.">⏹ Finalizar</button>
             <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
             <span class="estado" id="estado-txt">Conectando...</span>
+            <!-- Ausencias (migración 35): el aviso es discreto y el botón recién se habilita pasados 15 minutos sin que el paciente haya entrado. Marcar es una acción del profesional, con confirmación. -->
+            <button class="btn-gris oculto" id="btn-marcar-ausente" type="button" onclick="marcarAusenteDesdeSala()" title="Disponible cuando pasaron 15 minutos del inicio del turno y el paciente no se conectó.">🚫 Marcar como ausente</button>
+            <span class="cierre-ayuda oculto" id="aviso-paciente-ausente" role="status" aria-live="polite">Tu paciente todavía no se conectó.</span>
         </div>
 
         <!-- PANEL DE CIERRE: aparece al finalizar la llamada. El sistema propone y el profesional confirma: nada cambia solo. -->
@@ -341,19 +344,22 @@
                 <p id="alta-quien" class="cierre-ayuda" style="margin:0 0 8px"></p>
                 <div id="alta-formulario">
                     <div class="campo-sesion">
-                        <label for="alta-informe">Informe de alta</label>
-                        <textarea id="alta-informe" class="ui-textarea" rows="5" maxlength="8000" placeholder="Motivo de consulta, evolución, estado al momento del alta, recomendaciones…"></textarea>
-                    </div>
-                    <div class="campo-sesion">
                         <label for="alta-fecha">Fecha de alta</label>
                         <input type="date" id="alta-fecha" class="ui-input">
                     </div>
-                    <div class="alta-plan">
-                        <div class="campo-sesion"><label for="alta-controles">Contactos de control</label><input type="number" id="alta-controles" class="ui-input" min="0" max="12" value="3"></div>
-                        <div class="campo-sesion"><label for="alta-cada">Cada cuántos días</label><input type="number" id="alta-cada" class="ui-input" min="7" max="365" value="30"></div>
-                        <div class="campo-sesion"><label for="alta-primero">Fecha del primero</label><input type="date" id="alta-primero" class="ui-input"></div>
-                    </div>
-                    <p class="cierre-ayuda">El plan de control queda guardado. Todavía no se agendan solos los contactos ni se avisa si el paciente no responde: eso viene en una etapa posterior.</p>
+                    <p class="cierre-ayuda">Informe de alta. El motivo de consulta y los objetivos vienen del formulario «Sobre mí» del paciente: revisalos y completá el resto. Los datos personales del paciente no se copian a la historia clínica.</p>
+                    <div class="campo-sesion"><label for="alta-motivo">Motivo de consulta</label><textarea id="alta-motivo" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-diagnostico">Diagnóstico o hipótesis diagnóstica *</label><textarea id="alta-diagnostico" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-objetivos">Objetivos terapéuticos *</label><textarea id="alta-objetivos" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-grado">Grado de consecución de los objetivos *</label><textarea id="alta-grado" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-tecnicas">Técnicas utilizadas</label><textarea id="alta-tecnicas" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-estado">Estado del paciente al momento del alta *</label><textarea id="alta-estado" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-recursos">Recursos del paciente</label><textarea id="alta-recursos" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-recomendaciones">Recomendaciones *</label><textarea id="alta-recomendaciones" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <div class="campo-sesion"><label for="alta-prevencion">Prevención de recaídas</label><textarea id="alta-prevencion" class="ui-textarea" rows="2" maxlength="2500"></textarea></div>
+                    <p class="cierre-ayuda">Plan de control: el sistema propone dos controles (a los 3 y a los 6 meses). Podés cambiar las fechas o quitar uno. Son recordatorios para vos, no turnos: al acercarse la fecha te avisamos a vos y a recepción para coordinar el turno de control.</p>
+                    <div id="alta-controles-lista"></div>
+                    <button type="button" class="btn-gris" id="btn-alta-agregar-control" onclick="agregarControlAlta()">+ Agregar un control</button>
                     <button type="button" class="btn-gris" id="btn-alta-revisar" onclick="revisarAlta()">Revisar el alta</button>
                 </div>
                 <div id="alta-confirmacion" class="cierre-resultado oculto">
@@ -1287,9 +1293,8 @@ async function abrirAsistente(cual) {
     if (cual === 'alta') {
         const fecha = document.getElementById('alta-fecha');
         if (!fecha.value) fecha.value = hoyISO();
-        const primero = document.getElementById('alta-primero');
-        if (!primero.value) primero.value = sumarDias(fecha.value, parseInt(document.getElementById('alta-cada').value) || 30);
-        document.getElementById('alta-informe').focus({ preventScroll: true });
+        await precargarAlta(caso);
+        document.getElementById('alta-diagnostico').focus({ preventScroll: true });
     } else {
         await cargarDestinos(caso);
     }
@@ -1320,29 +1325,69 @@ function actualizarAsistentes() {
 }
 
 // ── Alta ──
+// Informe de alta estructurado + plan de control (migración 35). El sistema precarga el motivo y los objetivos del formulario «Sobre mí» y propone dos controles (3 y 6 meses); el profesional los edita y confirma.
+const SECCIONES_ALTA = [
+    ['motivoConsulta', 'alta-motivo', 'Motivo de consulta', false], ['diagnostico', 'alta-diagnostico', 'Diagnóstico o hipótesis diagnóstica', true],
+    ['objetivosTerapeuticos', 'alta-objetivos', 'Objetivos terapéuticos', true], ['gradoConsecucion', 'alta-grado', 'Grado de consecución', true],
+    ['tecnicas', 'alta-tecnicas', 'Técnicas utilizadas', false], ['estadoAlAlta', 'alta-estado', 'Estado al momento del alta', true],
+    ['recursosPaciente', 'alta-recursos', 'Recursos del paciente', false], ['recomendaciones', 'alta-recomendaciones', 'Recomendaciones', true],
+    ['prevencionRecaidas', 'alta-prevencion', 'Prevención de recaídas', false]
+];
+let altaPrecargada = false;
+
+function filaControlAlta(fecha) {
+    const fila = document.createElement('div');
+    fila.className = 'alta-plan';
+    const input = document.createElement('input');
+    input.type = 'date'; input.className = 'ui-input'; input.value = fecha || ''; input.setAttribute('aria-label', 'Fecha del control');
+    const quitar = document.createElement('button');
+    quitar.type = 'button'; quitar.className = 'btn-gris'; quitar.textContent = 'Quitar';
+    quitar.onclick = () => fila.remove();
+    fila.append(input, quitar);
+    return fila;
+}
+
+function agregarControlAlta(fecha) {
+    document.getElementById('alta-controles-lista').appendChild(filaControlAlta(typeof fecha === 'string' ? fecha : ''));
+}
+
+async function precargarAlta(caso) {
+    if (altaPrecargada) return;
+    let p = null;
+    try { p = await YS.api(`/casos/${caso.idCaso}/precarga-alta`, { sinRedireccion: true, permitir404: true }); } catch { /* sin precarga se completa a mano */ }
+    const motivo = document.getElementById('alta-motivo'), objetivos = document.getElementById('alta-objetivos');
+    if (p && p.motivoConsulta && !motivo.value) motivo.value = p.motivoConsulta;
+    if (p && p.objetivosPaciente && !objetivos.value) objetivos.value = p.objetivosPaciente;
+    const lista = document.getElementById('alta-controles-lista');
+    lista.replaceChildren();
+    // Por defecto, dos controles a los 3 y a los 6 meses (el servidor los calcula). Si no hay precarga, se arman acá.
+    const sugeridos = p && p.controlesSugeridos ? p.controlesSugeridos : [3, 6].map(m => { const d = new Date(); d.setMonth(d.getMonth() + m); return fechaISOLocal(d); });
+    sugeridos.forEach(f => agregarControlAlta(f));
+    altaPrecargada = true;
+}
+
+const controlesDelAlta = () => [...document.querySelectorAll('#alta-controles-lista input[type=date]')].map(i => i.value).filter(Boolean);
+const informeDelAlta = () => Object.fromEntries(SECCIONES_ALTA.map(([clave, id]) => [clave, document.getElementById(id).value.trim()]));
+
 function revisarAlta() {
     const msg = document.getElementById('alta-mensaje');
-    const informe = document.getElementById('alta-informe').value.trim();
     const fecha = document.getElementById('alta-fecha').value;
-    const controles = parseInt(document.getElementById('alta-controles').value);
-    const cada = parseInt(document.getElementById('alta-cada').value);
-    const primero = document.getElementById('alta-primero').value;
+    const informe = informeDelAlta();
+    const controles = controlesDelAlta().sort();
     const mal = t => { msg.textContent = t; return false; };
-    if (!informe) return mal('Escribí el informe de alta.');
     if (!fecha) return mal('Indicá la fecha de alta.');
     if (fecha > hoyISO()) return mal('La fecha de alta no puede ser posterior a hoy.');
-    if (!(controles >= 0 && controles <= 12)) return mal('Los contactos de control tienen que estar entre 0 y 12.');
-    if (controles > 0) {
-        if (!(cada >= 7 && cada <= 365)) return mal('Indicá cada cuántos días se hace el control (entre 7 y 365).');
-        if (!primero) return mal('Indicá la fecha del primer contacto de control.');
-        if (primero < fecha) return mal('El primer control no puede ser anterior a la fecha de alta.');
-    }
+    const falta = SECCIONES_ALTA.find(([clave, , , obligatoria]) => obligatoria && !informe[clave]);
+    if (falta) return mal(`Completá: ${falta[2]}.`);
+    if (controles.some(f => f <= fecha)) return mal('Los controles tienen que ser posteriores a la fecha de alta.');
+    if (new Set(controles).size !== controles.length) return mal('Hay dos controles en la misma fecha.');
     msg.textContent = '';
     const ul = document.getElementById('alta-resumen');
     ul.replaceChildren();
     textoLinea(ul, `Paciente: ${nombreDelPaciente()} · Caso #${casoDelCierre.idCaso}`);
     textoLinea(ul, `Fecha de alta: ${fechaCorta(fecha)}`);
-    textoLinea(ul, controles > 0 ? `Plan de control: ${controles} contacto${controles === 1 ? '' : 's'}, cada ${cada} días, el primero el ${fechaCorta(primero)}` : 'Plan de control: sin contactos de control');
+    textoLinea(ul, `Informe de alta: ${SECCIONES_ALTA.filter(([clave]) => informe[clave]).length} secciones completas. Queda en la historia clínica, ligado a esta sesión.`);
+    textoLinea(ul, controles.length ? `Plan de control: ${controles.length} control${controles.length === 1 ? '' : 'es'} (${controles.map(fechaCorta).join(', ')}). Son recordatorios para vos y recepción, no turnos.` : 'Plan de control: sin controles.');
     textoLinea(ul, `El caso pasa de «${casoDelCierre.estado}» a «En alta». El paciente y su usuario siguen activos.`);
     document.getElementById('alta-formulario').classList.add('oculto');
     document.getElementById('alta-confirmacion').classList.remove('oculto');
@@ -1355,24 +1400,21 @@ async function confirmarAlta() {
     const msg = document.getElementById('alta-mensaje');
     if (altaRegistrada || !casoDelCierre) return;
     btn.disabled = true;   // un solo envío a la vez
-    const controles = parseInt(document.getElementById('alta-controles').value);
     try {
         const r = await YS.api(`/casos/${casoDelCierre.idCaso}/alta-clinica`, {
             method: 'POST', sinRedireccion: true,
             json: {
                 confirma: true,
-                informe: document.getElementById('alta-informe').value.trim(),
                 fechaAlta: document.getElementById('alta-fecha').value,
-                controlesPrevistos: controles,
-                controlCadaDias: controles > 0 ? parseInt(document.getElementById('alta-cada').value) : null,
-                primerControl: controles > 0 ? document.getElementById('alta-primero').value : null,
+                informeEstructurado: informeDelAlta(),
+                controles: controlesDelAlta(),
                 idSesion: idSesionGuardada,
                 claveCierre: claveCierre
             }
         });
         altaRegistrada = true;
         document.getElementById('alta-confirmacion').classList.add('oculto');
-        msg.textContent = `✅ ${r.repetido ? 'El alta ya estaba registrada' : 'El alta quedó registrada'}: el caso pasó a «En alta» y el plan de control quedó guardado. El paciente sigue activo.`;
+        msg.textContent = `✅ ${r.repetido ? 'El alta ya estaba registrada' : 'El alta quedó registrada'}: el caso pasó a «En alta», el informe quedó en la historia clínica y los controles quedaron como recordatorios. El paciente sigue activo.`;
         mostrarAvisoDelTipo();
         actualizarAsistentes();
         document.dispatchEvent(new CustomEvent('ys:alta-registrada', { detail: { idCaso: casoDelCierre.idCaso, idAltaClinica: r.idAltaClinica } }));
@@ -1763,6 +1805,45 @@ async function finalizarSesion() {
 }
 
 // SALIR: dejás la sala sin terminar la sesión. Podés volver a entrar con «Entrar a la sala» mientras la sesión siga abierta; el paciente ve que saliste y, si vuelve, la llamada se retoma.
+// ── Ausencias (migración 35) ──
+// El servidor decide: el aviso aparece pasados 10 minutos sin que el paciente haya entrado, y el botón se habilita pasados 15. Si la API todavía no tiene la migración, no se muestra nada.
+let vigiaAusencia = null;
+async function revisarAusencia() {
+    if (!hayTurno() || salaFinalizada) return;
+    try {
+        const e = await YS.api(`/turnos/${sesionVideo.id}/ausencia`, { sinRedireccion: true });
+        const hecho = !e.disponible || e.estado !== 'Confirmado' || e.pacienteConectado;
+        document.getElementById('aviso-paciente-ausente').classList.toggle('oculto', hecho || !e.avisoTemprano);
+        document.getElementById('btn-marcar-ausente').classList.toggle('oculto', hecho || !e.puedeMarcar);
+        if (hecho && vigiaAusencia) { clearInterval(vigiaAusencia); vigiaAusencia = null; }
+    } catch { /* la sala no depende de esto */ }
+}
+function vigilarAusencia() {
+    if (vigiaAusencia || !hayTurno()) return;
+    revisarAusencia();
+    vigiaAusencia = setInterval(revisarAusencia, 30000);
+}
+document.addEventListener('ys:sala-lista', vigilarAusencia);
+setTimeout(vigilarAusencia, 4000);
+
+async function marcarAusenteDesdeSala() {
+    if (!hayTurno()) return;
+    const nombre = nombreDelPaciente() || 'el paciente';
+    if (!await YS.confirmar({ mensaje: `¿Marcar el turno de ${nombre} como ausente? Pasaron más de 15 minutos y no se conectó. Queda registrado.`, titulo: 'Marcar como ausente', textoConfirmar: 'Marcar como ausente', peligro: true })) return;
+    const boton = document.getElementById('btn-marcar-ausente');
+    boton.disabled = true;
+    try {
+        const r = await YS.api(`/turnos/${sesionVideo.id}/marcar-ausente`, { method: 'POST', sinRedireccion: true, json: { confirma: true } });
+        toast(r.mensaje, 6000);
+        boton.classList.add('oculto');
+        document.getElementById('aviso-paciente-ausente').classList.add('oculto');
+        if (vigiaAusencia) { clearInterval(vigiaAusencia); vigiaAusencia = null; }
+    } catch (err) {
+        boton.disabled = false;
+        toast(err.message, 8000);
+    }
+}
+
 function salirDeLaSala() {
     if (salaFinalizada) return;
     volverAConexion('Saliste de la sala. La sesión sigue abierta: para volver, tocá «Entrar a la sala».');

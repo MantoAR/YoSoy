@@ -108,6 +108,7 @@ public class VideoBaseRealTests : IDisposable
     // de prueba: van antes que el turno, o el DELETE choca con FK_Recordatorio_Turno y la prueba falla a veces.
     private static void BorrarTurno(int idTurno) => Ejecutar(@"
         DELETE FROM Recordatorio WHERE IdTurno = @Id;
+        IF OBJECT_ID('dbo.TurnoConexion','U') IS NOT NULL DELETE FROM TurnoConexion WHERE IdTurno = @Id;
         DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", idTurno));
 
     private static void BorrarAdmision(int idInforme) => Ejecutar(@"
@@ -382,7 +383,7 @@ public class VideoBaseRealTests : IDisposable
         }
         finally
         {
-            Ejecutar("DELETE FROM Recordatorio WHERE IdTurno = @Id; DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", id));
+            Ejecutar("DELETE FROM Recordatorio WHERE IdTurno = @Id; IF OBJECT_ID('dbo.TurnoConexion','U') IS NOT NULL DELETE FROM TurnoConexion WHERE IdTurno = @Id; DELETE FROM Turno WHERE IdTurno = @Id", ("@Id", id));
         }
     }
 }

@@ -260,6 +260,6 @@ public class Migracion28Tests
     public void La_migracion_es_opcional_para_el_verificador()
     {
         Assert.True(VerificadorEsquema.Migraciones.Single(m => m.Numero == 28).Opcional);
-        Assert.Equal(34, VerificadorEsquema.VersionRequerida);
+        Assert.Equal(36, VerificadorEsquema.VersionRequerida);
     }
 }

@@ -343,7 +343,7 @@ public class ProximoTurnoZonaHorariaIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var id in _turnos) Ejecutar("DELETE FROM Turno WHERE IdTurno = @i", ("@i", id));
+        foreach (var id in _turnos) Ejecutar("IF OBJECT_ID('dbo.TurnoConexion','U') IS NOT NULL DELETE FROM TurnoConexion WHERE IdTurno = @i; DELETE FROM Turno WHERE IdTurno = @i", ("@i", id));
         Ejecutar("DELETE FROM Paciente WHERE IdPaciente = @i", ("@i", _idPaciente));
         Ejecutar("DELETE FROM Profesional WHERE IdProfesional = @i", ("@i", _idProfesional));
         Ejecutar("DELETE FROM Especialidad WHERE IdEspecialidad = @i", ("@i", _idEspecialidad));

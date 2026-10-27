@@ -537,9 +537,42 @@
                     id: "aviso-" + a.idAviso, titulo: a.titulo, texto: a.mensaje, fecha: a.fecha ? String(a.fecha).slice(0, 10) : null, noLeido: a.leida === false,
                     accion: a.leida === false ? { texto: "Entendido", alClick: () => marcarAvisoClinico(a.idAviso) } : null
                 }));
+                // Seguimiento (solicitudes de turno del paciente, ausentes por marcar, propuestas de abandono y controles de alta). Si la API todavía no lo tiene, la campanita sigue como siempre.
+                const seg = await YS.api(`/profesionales/${YS.sesion.idProfesional()}/seguimiento`).catch(() => ({}));
+                const fechaCorta = f => String(f || "").split("-").reverse().join("/");
+                const solicitudes = (seg.solicitudes || []).map(s => ({
+                    id: "sol-" + s.idTurno, titulo: "Solicitud de turno", noLeido: true,
+                    texto: `${s.nombrePaciente} pidió un turno para el ${fechaCorta(s.fecha)} a las ${s.hora} hs.${s.motivo ? " Motivo: " + s.motivo + "." : ""}${s.vence ? " Respondé antes de que venza." : ""}`,
+                    acciones: [
+                        { texto: "Aceptar", tipo: "primary", alClick: () => responderSolicitudTurno(s.idTurno, true) },
+                        { texto: "Rechazar", alClick: () => responderSolicitudTurno(s.idTurno, false) }
+                    ]
+                }));
+                const ausentes = (seg.ausentesPorMarcar || []).map(t => ({
+                    id: "aus-" + t.idTurno, titulo: "Paciente sin conectarse", noLeido: true,
+                    texto: `${t.nombrePaciente} no se conectó al turno del ${fechaCorta(t.fecha)} de las ${t.hora} hs. Ya podés marcarlo como ausente.`,
+                    accion: { texto: "Marcar como ausente", alClick: () => marcarAusente(t.idTurno, t.nombrePaciente) }
+                }));
+                const abandonos = (seg.propuestasAbandono || []).map(p => ({
+                    id: "aban-" + p.idPropuesta, titulo: "Proponer abandono", noLeido: true,
+                    texto: `${p.nombrePaciente} suma ${p.ausencias} ausencias consecutivas. El sistema te propone darlo/a por abandono: vos decidís.${p.turnosFuturos.length ? ` Tiene ${p.turnosFuturos.length} turno${p.turnosFuturos.length === 1 ? "" : "s"} por delante (no se cancelan solos).` : ""}`,
+                    acciones: [
+                        { texto: "Confirmar abandono", tipo: "primary", alClick: () => confirmarAbandono(p) },
+                        { texto: "Descartar", alClick: () => descartarAbandono(p) }
+                    ]
+                }));
+                const controles = (seg.controles || []).map(c => ({
+                    id: "ctrl-" + c.idControl, titulo: "Control de seguimiento", noLeido: true,
+                    texto: `Se acerca el control de ${c.nombrePaciente} (${fechaCorta(c.fecha)}). Coordiná el turno de control con recepción.`,
+                    accion: { texto: "Ya lo coordiné", alClick: () => resolverControl(c.idControl) }
+                }));
                 return {
-                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
+                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length + solicitudes.length + ausentes.length + abandonos.length + controles.length,
                     items: [
+                        ...solicitudes,
+                        ...abandonos,
+                        ...ausentes,
+                        ...controles,
                         ...porResponder,
                         ...avisos,
                         ...pendientes.map(a => ({
@@ -582,6 +615,60 @@
         try {
             await YS.api(`/derivaciones/${idDerivacion}/responder`, { method: "PUT", json: { acepta, motivo: motivo || null } });
             YS.toast(acepta ? "Aceptaste la derivación. Admisión va a confirmar el traspaso." : "Rechazaste la derivación. Se avisó a Admisión y al profesional que derivó.");
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    // El profesional acepta o rechaza una solicitud de turno que hizo el paciente. Rechazar permite contar el motivo (opcional).
+    async function responderSolicitudTurno(idTurno, acepta) {
+        let motivo = null;
+        if (!acepta && YS.pedirTexto) {
+            motivo = await YS.pedirTexto({ titulo: "Rechazar la solicitud", mensaje: "Le avisamos al paciente y el horario queda libre. Podés contarle el motivo (opcional).", etiqueta: "Motivo", multilinea: true, maximo: 300, textoConfirmar: "Rechazar solicitud" });
+            if (motivo === null) return;   // canceló
+        }
+        try {
+            const r = await YS.api(`/turnos/${idTurno}/${acepta ? "aceptar" : "rechazar"}-solicitud`, { method: "POST", json: acepta ? {} : { motivo: motivo || null } });
+            YS.toast(r.mensaje || (acepta ? "Aceptaste la solicitud." : "Rechazaste la solicitud."));
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    // «Marcar como ausente»: acción del profesional, con confirmación. El sistema solo lo habilita pasados 15 minutos sin conexión del paciente.
+    async function marcarAusente(idTurno, nombre) {
+        if (!await YS.confirmar({ mensaje: `¿Marcar el turno de ${nombre} como ausente? Queda registrado.`, titulo: "Marcar como ausente", textoConfirmar: "Marcar como ausente", peligro: true })) return;
+        try {
+            const r = await YS.api(`/turnos/${idTurno}/marcar-ausente`, { method: "POST", json: { confirma: true } });
+            YS.toast(r.mensaje);
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    // Propuesta de abandono (3 ausencias consecutivas): el profesional confirma o descarta. Al confirmar se le muestran los turnos por delante: no se cancelan solos, recepción decide.
+    async function confirmarAbandono(p) {
+        const futuros = (p.turnosFuturos || []).map(t => `${String(t.fecha).split("-").reverse().join("/")} ${t.hora} hs con ${t.profesional}`);
+        const detalle = futuros.length ? "\n\nTurnos por delante (no se cancelan solos; recepción decide qué hacer):\n· " + futuros.join("\n· ") : "\n\nNo tiene turnos por delante.";
+        if (!await YS.confirmar({ mensaje: `¿Confirmás que ${p.nombrePaciente} pasa a abandono? Son ${p.ausencias} ausencias consecutivas.` + detalle, titulo: "Confirmar abandono", textoConfirmar: "Confirmar abandono", peligro: true })) return;
+        try {
+            const r = await YS.api(`/propuestas-abandono/${p.idPropuesta}/confirmar`, { method: "POST", json: { confirma: true } });
+            YS.toast(r.mensaje);
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    async function descartarAbandono(p) {
+        const motivo = YS.pedirTexto ? await YS.pedirTexto({ titulo: "Descartar la propuesta", mensaje: `${p.nombrePaciente} sigue como estaba. Contá por qué descartás la propuesta.`, etiqueta: "Motivo", multilinea: true, maximo: 500, textoConfirmar: "Descartar propuesta" }) : null;
+        if (!motivo) return;
+        try {
+            const r = await YS.api(`/propuestas-abandono/${p.idPropuesta}/descartar`, { method: "POST", json: { motivo } });
+            YS.toast(r.mensaje);
+            campana.refrescar();
+        } catch (e) { YS.toast(e.message, "error"); }
+    }
+
+    async function resolverControl(idControl) {
+        try {
+            const r = await YS.api(`/controles/${idControl}/resolver`, { method: "POST", json: { confirma: true } });
+            YS.toast(r.mensaje);
             campana.refrescar();
         } catch (e) { YS.toast(e.message, "error"); }
     }
