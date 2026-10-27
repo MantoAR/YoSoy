@@ -224,17 +224,7 @@ async function renderAgenda(c) {
 
     if (YS.shell.actual !== "agenda") return;
     c.innerHTML = `
-        ${profesionales.length ? `
-        <div class="card">
-            <div class="filtro-prof">
-                <label for="selProfCalendario">Ver disponibilidad de:</label>
-                <select id="selProfCalendario" class="turno-input" onchange="cambiarProfCalendario()">
-                    <option value="">— Sin filtro —</option>
-                    ${profesionales.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")}
-                </select>
-                <div id="diasAtencion" class="dias-atencion"></div>
-            </div>
-        </div>` : ""}
+        ${YS.profesionalUnico.filtroCalendario(profesionales, "selProfCalendario", { alCambiar: "cambiarProfCalendario()" })}
 
         <div class="card">
             <div class="cal-nav">
@@ -256,6 +246,8 @@ async function renderAgenda(c) {
     `;
 
     dibujarCalendario();
+    // Con un solo profesional no hay nada que elegir: queda elegido y se ve su disponibilidad en el calendario sin tocar nada.
+    if (YS.profesionalUnico.modo(profesionales) === "uno") cambiarProfCalendario();
     if (_diaAlEntrarAgenda) {   // vino de Reprogramar en Inicio (o de «Tu turno ya pasó»)
         const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null;
         await mostrarPanelDia(dia);
@@ -514,9 +506,11 @@ async function cargarProfesionalesSolicitud(fechaStr) {
         return;
     }
     const profs = await YS.fetch(`/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
-    sel.innerHTML = profs.length
-        ? `<option value="">Seleccioná un profesional</option>` + profs.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")
-        : `<option value="">Sin profesionales asignados</option>`;
+    // Con más de uno, el selector de siempre; con uno, su tarjeta ya elegida y se siguen directo los horarios; con ninguno, un mensaje de qué hacer (shared/profesional-unico.js).
+    sel.outerHTML = YS.profesionalUnico.campoSolicitud(profs, "solProf", { alCambiar: `cargarHorasSolicitud('${fechaStr}')` });
+    const modo = YS.profesionalUnico.modo(profs);
+    if (modo === "ninguno") document.querySelector(".btn-accion.btn-guardar[onclick*='confirmarSolicitudDia']")?.setAttribute("disabled", true);
+    if (modo === "uno") cargarHorasSolicitud(fechaStr);
 }
 
 function normalizar(s) {

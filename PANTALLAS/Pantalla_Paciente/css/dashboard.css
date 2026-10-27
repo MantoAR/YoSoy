@@ -15,6 +15,12 @@
 .filtro-prof { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .filtro-prof label { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); white-space: nowrap; }
 .filtro-prof select { flex: 1; min-width: 220px; }
+/* Un solo profesional: ya está elegido, se muestra su tarjeta en vez de un desplegable con una única opción (shared/profesional-unico.js). */
+.prof-elegido { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2, var(--surface)); min-width: 220px; }
+.prof-elegido-nombre { font-weight: 600; color: var(--text); }
+.prof-elegido-esp { font-size: var(--fs-sm); }
+.prof-filtro-etiqueta { font-size: var(--fs-sm); font-weight: 500; color: var(--text-3); white-space: nowrap; }
+.prof-ninguno { margin: 0; line-height: 1.45; }
 .dias-atencion { font-size: var(--fs-sm); color: var(--text-3); }
 .cal-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .cal-nav button {
