@@ -28,4 +28,26 @@ public static class EstadoDeSala
     }
 
     public static string Nombre(FaseSala f) => f switch { FaseSala.PorAbrir => PorAbrir, FaseSala.Abierta => Abierta, _ => Cerrada };
+
+    /// <summary>
+    /// «El turno entrable» de una persona, en UN solo lugar (GET /salas/entrable lo lee el Inicio y el menú «Sala de video» del paciente y del profesional): el turno Confirmado cuya sala está
+    /// ABIERTA ahora (fase Abierta de <see cref="Evaluar"/>, la misma regla que AccesoSalaService); con más de uno, el que empieza más cerca de este momento. <c>Proximo</c> es el próximo turno
+    /// Confirmado que todavía no abrió (el primero por fecha y hora): para decir «la sala abre a las…». Pendiente, Cancelado y los turnos ya cerrados no cuentan.
+    /// </summary>
+    public static (TurnoConNombres? Entrable, TurnoConNombres? Proximo) Entrable(IEnumerable<TurnoConNombres> turnos, DateTime ahora, VideoOptions o)
+    {
+        TurnoConNombres? entrable = null, proximo = null;
+        foreach (var t in turnos.OrderBy(x => x.Turno.Fecha).ThenBy(x => x.Turno.Hora))
+        {
+            if (TextoNormalizado.Normalizar(t.Turno.Estado) != AccesoSalaService.EstadoTurnoConfirmado) continue;
+            var inicio = t.Turno.Fecha.Date + t.Turno.Hora;
+            var fase = Evaluar(inicio, t.Turno.DuracionMinutos, ahora, o).Fase;
+            if (fase == FaseSala.Abierta)
+            {
+                if (entrable is null || Math.Abs((inicio - ahora).Ticks) < Math.Abs((entrable.Turno.Fecha.Date + entrable.Turno.Hora - ahora).Ticks)) entrable = t;
+            }
+            else if (fase == FaseSala.PorAbrir && proximo is null) proximo = t;
+        }
+        return (entrable, proximo);
+    }
 }
