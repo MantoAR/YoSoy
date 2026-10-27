@@ -60,6 +60,9 @@ public class FakeConsentimientoRepo : IConsentimientoVideoRepositorio
     }
 
     public DatosPacienteParaConsentimiento? ObtenerDatosPaciente(int idPaciente) => Pacientes.GetValueOrDefault(idPaciente);
+
+    public bool EstaVigente(int idConsentimientoVideo) =>
+        Filas.FirstOrDefault(f => f.IdConsentimientoVideo == idConsentimientoVideo)?.EsAceptacionVigente ?? false;
 }
 
 public class FakeAuditoriaEmociones : IAuditoriaEmociones

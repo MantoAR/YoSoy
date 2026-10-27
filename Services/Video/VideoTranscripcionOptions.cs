@@ -31,6 +31,12 @@ public class VideoTranscripcionOptions
     public string? RutaScript { get; set; }
     public int HilosCpu { get; set; } = 1;
 
+    public string CarpetaModelos { get; set; } = "/opt/yosoy/whisper/modelos";
+    public int IntervaloSegundos { get; set; } = 30;
+    public int TimeoutMinutos { get; set; } = 180;
+    public int MaxIntentos { get; set; } = 3;
+    public int DiasConservarAudioConError { get; set; } = 7;
+
     // Qué versión del texto del consentimiento de grabación se muestra (archivo
     // Services/Video/Consentimiento/<versión>.txt). Una versión publicada no se edita: un texto nuevo es una versión nueva.
     public string VersionTexto { get; set; } = "v0-provisorio-grabacion";

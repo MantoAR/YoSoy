@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.Data.SqlClient;
 
 public class TranscripcionSesionDAO : ITranscripcionSesionRepositorio
@@ -143,6 +144,89 @@ public class TranscripcionSesionDAO : ITranscripcionSesionRepositorio
             SET Estado = 'pendiente', ActualizadoUtc = SYSUTCDATETIME()
             WHERE Estado = 'procesando'", con);
         return cmd.ExecuteNonQuery();
+    }
+
+    public bool GuardarResultado(int idTranscripcion, int idSesion, int idConsentimientoVideo, string transcripcionCifrada,
+        string modelo, int duracionAudioSeg, int duracionProcesoSeg)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var tx = con.BeginTransaction();
+
+        var upd = new SqlCommand(@"
+            UPDATE SesionClinica
+            SET Transcripcion = @Transcripcion
+            WHERE IdSesion = @IdSesion
+              AND EXISTS (SELECT 1 FROM ConsentimientoVideo WITH (UPDLOCK, HOLDLOCK)
+                          WHERE IdConsentimientoVideo = @IdConsentimiento AND Decision = 'acepta' AND RevocadoUtc IS NULL)", con, tx);
+        upd.Parameters.AddWithValue("@Transcripcion", transcripcionCifrada);
+        upd.Parameters.AddWithValue("@IdSesion", idSesion);
+        upd.Parameters.AddWithValue("@IdConsentimiento", idConsentimientoVideo);
+        var guardada = upd.ExecuteNonQuery() == 1;
+
+        var cmdEstado = guardada
+            ? new SqlCommand(@"
+                UPDATE TranscripcionSesion
+                SET Estado = 'lista', Modelo = @Modelo, DuracionAudioSeg = @DuracionAudioSeg, DuracionProcesoSeg = @DuracionProcesoSeg,
+                    Error = NULL, ActualizadoUtc = SYSUTCDATETIME()
+                WHERE IdTranscripcion = @Id", con, tx)
+            : new SqlCommand(@"
+                UPDATE TranscripcionSesion
+                SET Estado = 'anulada', ActualizadoUtc = SYSUTCDATETIME()
+                WHERE IdTranscripcion = @Id AND Estado <> 'anulada'", con, tx);
+        cmdEstado.Parameters.AddWithValue("@Id", idTranscripcion);
+        if (guardada)
+        {
+            cmdEstado.Parameters.AddWithValue("@Modelo", modelo);
+            cmdEstado.Parameters.AddWithValue("@DuracionAudioSeg", duracionAudioSeg);
+            cmdEstado.Parameters.AddWithValue("@DuracionProcesoSeg", duracionProcesoSeg);
+        }
+        cmdEstado.ExecuteNonQuery();
+
+        tx.Commit();
+        return guardada;
+    }
+
+    public IReadOnlyList<int> AnularGrabandoHuerfanas(DateTime corteUtc)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE TranscripcionSesion
+            SET Estado = 'anulada', ActualizadoUtc = SYSUTCDATETIME()
+            OUTPUT INSERTED.IdTranscripcion
+            WHERE Estado = 'grabando' AND ActualizadoUtc < @Corte", con);
+        cmd.Parameters.Add("@Corte", SqlDbType.DateTime2).Value = corteUtc;
+        var ids = new List<int>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) ids.Add((int)r["IdTranscripcion"]);
+        return ids;
+    }
+
+    public IReadOnlyList<int> IdsConCarpetaParaBorrar(DateTime corteErrorUtc)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT IdTranscripcion FROM TranscripcionSesion
+            WHERE Estado IN ('lista', 'anulada') OR (Estado = 'error' AND ActualizadoUtc < @Corte)", con);
+        cmd.Parameters.Add("@Corte", SqlDbType.DateTime2).Value = corteErrorUtc;
+        var ids = new List<int>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) ids.Add((int)r["IdTranscripcion"]);
+        return ids;
+    }
+
+    public bool VolverAPendienteDesdeError(int idTranscripcion)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            UPDATE TranscripcionSesion
+            SET Estado = 'pendiente', Intentos = 0, Error = NULL, ActualizadoUtc = SYSUTCDATETIME()
+            WHERE IdTranscripcion = @Id AND Estado = 'error'", con);
+        cmd.Parameters.AddWithValue("@Id", idTranscripcion);
+        return cmd.ExecuteNonQuery() > 0;
     }
 
     private static TranscripcionSesion Mapear(SqlDataReader r) => new()

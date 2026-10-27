@@ -31,6 +31,9 @@ public static class VideoServiceCollectionExtensions
         services.AddSingleton<VistaSesionesClinicas>();
         services.AddSingleton<PurgaEmocionesBackgroundService>();
         services.AddHostedService(sp => sp.GetRequiredService<PurgaEmocionesBackgroundService>());
+        services.AddSingleton<ITranscriptorLocal, TranscriptorLocalProceso>();
+        services.AddSingleton<TranscripcionBackgroundService>();
+        services.AddHostedService(sp => sp.GetRequiredService<TranscripcionBackgroundService>());
 
         // Rate limit propio de /video/acceso, por IP real (RemoteIpAddress ya es la del cliente detrás de Caddy
         // gracias a UseForwardedHeaders), ventana fija de un minuto, en memoria: mismo estilo que "publico" y las

@@ -48,6 +48,8 @@ public class EmocionesCifradoService : IEmocionesCifrado
     /// <summary>El dato asociado de una sesión clínica: ata el valor cifrado a la fila donde se guarda.</summary>
     public static string DatosAsociadosDeSesion(int idSesion) => "sesion:" + idSesion.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
+    public static string DatosAsociadosDeTranscripcion(int idSesion) => "transcripcion:" + idSesion.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     public string? ProblemaDeConfiguracion() => Evaluar(out _, out _);
 
     // Devuelve el problema (o null) y, si no hay, la clave y su id.

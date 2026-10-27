@@ -2660,6 +2660,7 @@ app.MapAltaDerivacion();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapGrabacionVideo();
+app.MapTranscripcionReintentar();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 

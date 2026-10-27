@@ -23,4 +23,13 @@ public interface ITranscripcionSesionRepositorio
     TranscripcionSesion? TomarSiguientePendiente();
 
     int ReencolarProcesando();
+
+    bool GuardarResultado(int idTranscripcion, int idSesion, int idConsentimientoVideo, string transcripcionCifrada,
+        string modelo, int duracionAudioSeg, int duracionProcesoSeg);
+
+    IReadOnlyList<int> AnularGrabandoHuerfanas(DateTime corteUtc);
+
+    IReadOnlyList<int> IdsConCarpetaParaBorrar(DateTime corteErrorUtc);
+
+    bool VolverAPendienteDesdeError(int idTranscripcion);
 }

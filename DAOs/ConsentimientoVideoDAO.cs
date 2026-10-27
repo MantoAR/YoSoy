@@ -138,6 +138,18 @@ public class ConsentimientoVideoDAO : IConsentimientoVideoRepositorio
             (int)r["TieneTutor"] == 1);
     }
 
+    public bool EstaVigente(int idConsentimientoVideo)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        var cmd = new SqlCommand(@"
+            SELECT CASE WHEN EXISTS (SELECT 1 FROM ConsentimientoVideo
+                                      WHERE IdConsentimientoVideo = @Id AND Decision = 'acepta' AND RevocadoUtc IS NULL)
+                        THEN 1 ELSE 0 END", con);
+        cmd.Parameters.AddWithValue("@Id", idConsentimientoVideo);
+        return (int)cmd.ExecuteScalar()! == 1;
+    }
+
     private static ConsentimientoVideoFila Mapear(SqlDataReader r) => new(
         (int)r["IdConsentimientoVideo"], (int)r["IdUsuario"], (int)r["IdPaciente"], (string)r["Origen"], (int)r["IdOrigen"],
         (string)r["VersionTexto"], ((string)r["HashTexto"]).Trim(), (string)r["Decision"],

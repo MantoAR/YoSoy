@@ -27,6 +27,8 @@ public interface IConsentimientoVideoRepositorio
     IReadOnlyList<int> AnularGrabacionDeLaSesion(string origen, int idOrigen, int idPaciente, string motivo, DateTime ahoraUtc);
 
     DatosPacienteParaConsentimiento? ObtenerDatosPaciente(int idPaciente);
+
+    bool EstaVigente(int idConsentimientoVideo);
 }
 
 public record ConsentimientoVideoFila(int IdConsentimientoVideo, int IdUsuario, int IdPaciente, string Origen, int IdOrigen,

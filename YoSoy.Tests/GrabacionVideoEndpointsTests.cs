@@ -13,6 +13,8 @@ using Microsoft.Extensions.Options;
 public class FakeTranscripcionRepo : ITranscripcionSesionRepositorio
 {
     public readonly List<TranscripcionSesion> Filas = new();
+    public readonly Dictionary<int, string> TranscripcionPorSesion = new();
+    public Func<int, bool> ConsentimientoVigente { get; set; } = _ => true;
     public TimeProvider? Reloj { get; set; }
     private int _siguiente = 9000;
 
@@ -78,7 +80,7 @@ public class FakeTranscripcionRepo : ITranscripcionSesionRepositorio
     public TranscripcionSesion? TomarSiguientePendiente()
     {
         var f = Filas.Where(x => x.Estado == TranscripcionEstado.Pendiente).OrderBy(x => x.IdTranscripcion).FirstOrDefault();
-        if (f is not null) f.Estado = TranscripcionEstado.Procesando;
+        if (f is not null) { f.Estado = TranscripcionEstado.Procesando; f.Intentos++; }
         return f;
     }
 
@@ -87,6 +89,44 @@ public class FakeTranscripcionRepo : ITranscripcionSesionRepositorio
         var procesando = Filas.Where(x => x.Estado == TranscripcionEstado.Procesando).ToList();
         foreach (var f in procesando) f.Estado = TranscripcionEstado.Pendiente;
         return procesando.Count;
+    }
+
+    public bool GuardarResultado(int idTranscripcion, int idSesion, int idConsentimientoVideo, string transcripcionCifrada,
+        string modelo, int duracionAudioSeg, int duracionProcesoSeg)
+    {
+        var f = Filas.FirstOrDefault(x => x.IdTranscripcion == idTranscripcion);
+        if (!ConsentimientoVigente(idConsentimientoVideo))
+        {
+            if (f is not null) f.Estado = TranscripcionEstado.Anulada;
+            return false;
+        }
+        TranscripcionPorSesion[idSesion] = transcripcionCifrada;
+        if (f is not null)
+        {
+            f.Estado = TranscripcionEstado.Lista; f.Modelo = modelo;
+            f.DuracionAudioSeg = duracionAudioSeg; f.DuracionProcesoSeg = duracionProcesoSeg; f.Error = null;
+        }
+        return true;
+    }
+
+    public IReadOnlyList<int> AnularGrabandoHuerfanas(DateTime corteUtc)
+    {
+        var tocadas = Filas.Where(f => f.Estado == TranscripcionEstado.Grabando && f.ActualizadoUtc < corteUtc).ToList();
+        foreach (var f in tocadas) f.Estado = TranscripcionEstado.Anulada;
+        return tocadas.Select(f => f.IdTranscripcion).ToList();
+    }
+
+    public IReadOnlyList<int> IdsConCarpetaParaBorrar(DateTime corteErrorUtc) =>
+        Filas.Where(f => f.Estado is TranscripcionEstado.Lista or TranscripcionEstado.Anulada
+                      || (f.Estado == TranscripcionEstado.Error && f.ActualizadoUtc < corteErrorUtc))
+             .Select(f => f.IdTranscripcion).ToList();
+
+    public bool VolverAPendienteDesdeError(int idTranscripcion)
+    {
+        var f = Filas.FirstOrDefault(x => x.IdTranscripcion == idTranscripcion && x.Estado == TranscripcionEstado.Error);
+        if (f is null) return false;
+        f.Estado = TranscripcionEstado.Pendiente; f.Intentos = 0; f.Error = null;
+        return true;
     }
 }
 

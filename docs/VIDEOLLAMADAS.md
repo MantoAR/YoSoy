@@ -615,10 +615,16 @@ secretos nunca van en el archivo**.
 | `Video__Transcripcion__MaxBytesFragmento` | `2097152` (2 MB) | Tope de tamaño de **un** fragmento subido; más grande, `400 fragmento-muy-grande`. |
 | `Video__Transcripcion__MaxBytesPista` | `314572800` (300 MB) | Tope de bytes acumulados de **una** pista (profesional o paciente) de la grabación; `409 tope-bytes-pista`. |
 | `Video__Transcripcion__MaxMinutosGrabacion` | `120` | Tope de duración de la grabación desde el `inicioMs` de la secuencia 0 de cada pista; `409 duracion-maxima`. |
-| `Video__Transcripcion__HorasGrabacionHuerfana` | `24` | Antigüedad a partir de la cual una grabación "grabando" sin fragmentos nuevos se considera huérfana. **Todavía sin un saneamiento que la use** (etapa del worker). |
-| `Video__Transcripcion__Modelo` | `small` | Modelo de `faster-whisper` a usar. **Sin efecto en esta etapa** (es del worker, etapa 3). |
-| `Video__Transcripcion__RutaPython`, `__RutaScript` | vacío | Rutas del intérprete y del script del worker. **Sin efecto en esta etapa.** |
-| `Video__Transcripcion__HilosCpu` | `1` | Hilos de CPU que usará el worker. **Sin efecto en esta etapa.** |
+| `Video__Transcripcion__HorasGrabacionHuerfana` | `24` | Antigüedad a partir de la cual una grabación "grabando" sin fragmentos nuevos se considera huérfana: el worker la anula y borra su audio. |
+| `Video__Transcripcion__Modelo` | `small` | Modelo de `faster-whisper` que usa el worker para transcribir. |
+| `Video__Transcripcion__RutaPython` | vacío (→ `python3`) | Ruta del intérprete de Python que ejecuta el worker. |
+| `Video__Transcripcion__RutaScript` | — (obligatoria para transcribir) | Ruta de `transcripcion/transcribir.py`. Vacía, el worker falla cada intento hasta agotarlos y la transcripción queda en `error`. |
+| `Video__Transcripcion__HilosCpu` | `1` | Hilos de CPU que usa `faster-whisper` al transcribir (`cpu_threads`). |
+| `Video__Transcripcion__CarpetaModelos` | `/opt/yosoy/whisper/modelos` | Carpeta donde `faster-whisper` descarga y cachea los modelos (`download_root`); se comparte entre corridas, no hace falta volver a bajarlo cada vez. |
+| `Video__Transcripcion__IntervaloSegundos` | `30` | Cada cuánto el worker busca una transcripción `pendiente` para procesar (5–3600). |
+| `Video__Transcripcion__TimeoutMinutos` | `180` | Tope de tiempo que se le da al script por transcripción antes de matarlo y contarlo como falla. |
+| `Video__Transcripcion__MaxIntentos` | `3` | Cuántas veces se reintenta una transcripción que falla antes de dejarla en `error` en vez de volver a `pendiente`. |
+| `Video__Transcripcion__DiasConservarAudioConError` | `7` | Cuánto se conserva el audio de una transcripción en `error` (para poder reintentarla a mano) antes de que el saneamiento lo borre. |
 | `Video__Transcripcion__VersionTexto` | `v0-provisorio-grabacion` | Versión del texto del consentimiento de grabación (`Services/Video/Consentimiento/<versión>.txt`). Un texto publicado no se edita. |
 | `Video__Transcripcion__ConsultaCadaSegundos` | `3` | Cada cuánto pregunta la pantalla del profesional si sigue el permiso de grabación (1–60). |
 | `Video__Transcripcion__VigenciaSegundos` | `10` | Cuánto vale una respuesta del permiso de grabación (2–300). |
@@ -655,9 +661,10 @@ solo paso (ver "Rotar un secreto más adelante" en el runbook).
 ## Grabación y transcripción local
 
 > **Todo lo legal de esta sección es provisorio**, con la misma salvedad que "Lectura de emociones" (texto, plazo de
-> conservación, trato de los menores): ver "Qué hay que verificar con el equipo legal". Esta etapa es **solo
-> backend**: consentimiento, subida y encolado del audio. **Faltan** el worker que transcribe (`faster-whisper`,
-> etapa 3) y la pantalla que grava con `MediaRecorder` (etapa 4); hasta que estén, nada sube audio todavía.
+> conservación, trato de los menores): ver "Qué hay que verificar con el equipo legal". Esta sección cubre consentimiento,
+> subida, encolado y el worker que transcribe localmente (`faster-whisper`, etapa 3). **Falta** la pantalla que graba
+> con `MediaRecorder` y sube los fragmentos (etapa 4); hasta que esté, nada sube audio todavía, así que el worker no
+> tiene nada para procesar en un despliegue real.
 
 ### Qué hace esta etapa
 
@@ -670,9 +677,10 @@ solo paso (ver "Rotar un secreto más adelante" en el runbook).
   `POST /video/grabacion/fragmento`. Cada fragmento se concatena en un archivo propio por pista, en
   `Video__Transcripcion__CarpetaAudio/<IdTranscripcion>/<pista>.webm`.
 - **Qué guarda la base.** `TranscripcionSesion` (migración 28): una fila por grabación, con su `Estado`
-  (`grabando → pendiente → procesando → lista | error`, o `anulada`), los milisegundos de inicio de cada pista, y —
-  cuando el worker exista — el modelo usado y las duraciones. Mientras se está grabando (antes de guardar la sesión
-  clínica) no tiene `IdSesion`; **al guardar la sesión clínica se vincula** (ver "Encolado al guardar la sesión").
+  (`grabando → pendiente → procesando → lista | error`, o `anulada`), los milisegundos de inicio de cada pista y,
+  una vez que el worker la procesa, el modelo usado y las duraciones. Mientras se está grabando (antes de guardar la
+  sesión clínica) no tiene `IdSesion`; **al guardar la sesión clínica se vincula** (ver "Encolado al guardar la
+  sesión").
 - **Quién la ve.** El mismo gateo que las emociones: `VistaSesionesClinicas` solo informa `EstadoTranscripcion` si
   `puedeVerEmociones` es `true`. **El Configurador no la ve nunca.**
 - **Revocar.** El paciente puede revocar el consentimiento de grabación en cualquier momento (incluso después de
@@ -695,6 +703,7 @@ romper a quien ya la omitía, o `grabacion`), y agrega dos endpoints propios de 
 | `POST /video/consentimiento/revocar` | El paciente de la sesión | `{ "origen", "id", "finalidad" }`. Anula lo ya guardado de esa finalidad. |
 | `GET /video/grabacion/permiso?origen=&id=` | **Solo** quien atiende la sesión (el profesional del turno, o quien hace la admisión) | ¿Se puede grabar ahora? Mismo cuerpo que `/video/emociones/permiso`. |
 | `POST /video/grabacion/fragmento` | **Solo** quien atiende la sesión | Sube un fragmento de audio de una pista. |
+| `POST /sesiones-clinicas/{id}/transcripcion/reintentar` | El profesional de esa sesión clínica | Vuelve a encolar una transcripción que quedó en `error`, si todavía está el audio. |
 
 A diferencia de `/video/emociones/permiso` (que también deja entrar a un Configurador), **`/video/grabacion/permiso`
 y `/video/grabacion/fragmento` son solo para quien atiende la sesión** (`SesionDeVideoReglas.AtiendeLaSesion`): el
@@ -723,6 +732,17 @@ atiende la sesión (mismo cuerpo que `/video/acceso`) · `409` ventana cerrada, 
 orden, `tope-bytes-pista` o `duracion-maxima` · `429` · `503 grabacion-no-disponible`
 (`Video__Transcripcion__Habilitada` en `false`).
 
+`POST /sesiones-clinicas/{id}/transcripcion/reintentar` no recibe cuerpo. Busca la sesión clínica con
+`VinculoSesionEvolucionDAO.ObtenerSesion` (la misma lectura que usa la vinculación a evolución, no una nueva): si no
+existe o el profesional no es el de esa sesión, `404 sesion-inexistente` (mismo cuerpo uniforme que el resto de los
+accesos por id). Si existe pero no tiene una `TranscripcionSesion` en `error`, `409 transcripcion-no-en-error`. Si la
+tiene pero ya no está la carpeta de audio en `Video__Transcripcion__CarpetaAudio/<IdTranscripcion>` (el worker la
+borra al dejarla en `error` solo después de `Video__Transcripcion__DiasConservarAudioConError`, pero puede faltar
+antes si se borró a mano), `409 audio-no-disponible`: no tiene sentido reencolar algo que el worker no va a poder
+leer. Si todo está, vuelve el estado a `pendiente` (resetea `Intentos` y `Error` igual que `VolverAPendienteDesdeError`)
+y contesta `200 { idSesion, estadoTranscripcion: "pendiente" }`; el worker la toma en su próximo ciclo. El Configurador
+y el paciente reciben `403`; sin sesión, `401`.
+
 ### Encolado al guardar la sesión clínica
 
 `POST /sesiones-clinicas` (guardado directo y cierre de sesión, `CierreSesionEndpoints.Guardar`) acepta un campo
@@ -743,10 +763,79 @@ paciente revocó el consentimiento), **la sesión se guarda igual, sin transcrip
 por esto. La respuesta (`201` o, en un cierre repetido, `200`) suma `transcripcion: { estado }`, con `estado` uno de
 `TranscripcionEstado` (`pendiente`, …) o `sin-grabacion`.
 
+### El worker de transcripción local
+
+`TranscripcionBackgroundService` corre en el mismo proceso de la API (`AddHostedService`, igual que
+`PurgaEmocionesBackgroundService`). Con `Video__Transcripcion__Habilitada` en `false` no hace nada más que avisarlo
+una vez en el log — así arrancan los tests que no la necesitan, sin tocar disco ni invocar a Python. Habilitado, cada
+`Video__Transcripcion__IntervaloSegundos` (5–3600):
+
+1. Toma **una** `TranscripcionSesion` en `pendiente` (`TomarSiguientePendiente`, la más vieja primero) y la pasa a
+   `procesando`. Si el consentimiento de grabación ya no está vigente (el paciente lo revocó mientras esperaba en la
+   cola), la anula sin llamar al transcriptor y borra el audio.
+2. Si tiene las dos pistas (o solo una: la otra es opcional), invoca `transcripcion/transcribir.py` como un proceso
+   aparte (ver "El script de transcripción"), con un timeout de `Video__Transcripcion__TimeoutMinutos`.
+3. Con el resultado, arma el texto (ver "El texto de la transcripción"), lo cifra igual que las emociones y lo guarda
+   en `SesionClinica.Transcripcion`; borra la carpeta de audio de esa transcripción (ya no hace falta: ni para
+   reintentar, porque quedó `lista`).
+4. Si falla (el script sale con error, se cuelga y expira el timeout, o falla el cifrado), reintenta: con
+   `Intentos < Video__Transcripcion__MaxIntentos` vuelve a `pendiente` (la toma de nuevo en una vuelta siguiente); si
+   ya agotó los intentos, queda en `error` con un motivo corto (`script-salida-<código>`, `timeout`, o
+   `error:<TipoDeExcepcion>` — nunca el detalle completo de la excepción, que podría traer rutas o texto). Desde
+   `error`, el **profesional** puede reencolarla a mano con `POST /sesiones-clinicas/{id}/transcripcion/reintentar`
+   mientras quede el audio.
+5. Al arrancar el proceso, cualquier fila que haya quedado en `procesando` (la API se reinició a mitad de un
+   procesamiento) vuelve a `pendiente` una sola vez (`ReencolarProcesando`).
+6. Cada vuelta, además, sanea: anula (y borra el audio de) las grabaciones en `grabando` más viejas que
+   `Video__Transcripcion__HorasGrabacionHuerfana` sin ningún fragmento nuevo (la sesión se cerró sin avisar), y borra
+   el audio que ya no hace falta — el de una transcripción `lista`, y el de una en `error` más vieja que
+   `Video__Transcripcion__DiasConservarAudioConError` (ya no vale la pena reintentarla).
+
+Una falla de un ciclo entero (no de una transcripción puntual) queda solo en el log: el worker sigue en el próximo
+ciclo, no se cae.
+
+### El script de transcripción
+
+`transcripcion/transcribir.py` (ver `transcripcion/requirements.txt`) recibe `--modelo`, `--hilos`,
+`--carpeta-modelos` y, opcionales, `--pista-profesional` y/o `--pista-paciente` (rutas a los `.webm` subidos). Si
+ninguna de las dos existe, sale con código 1 y `ninguna de las pistas indicadas existe` en stderr. Si existe al menos
+una, carga `faster_whisper.WhisperModel` (CPU, `compute_type="int8"`, descargando el modelo a `--carpeta-modelos` la
+primera vez) y transcribe cada pista presente en español, con `vad_filter` para saltar los silencios. Por stdout, una
+sola línea de JSON:
+
+```json
+{"duracionAudioSeg": 532, "segmentos": [{"pista": "profesional", "inicio": 0.0, "fin": 2.4, "texto": "hola, ¿cómo está?"}]}
+```
+
+`duracionAudioSeg` es la duración de la pista más larga de las dos; cada segmento trae su pista, su inicio y fin en
+segundos **relativos al arranque de esa pista** (no de la sesión) y su texto (los segmentos sin texto, por ejemplo un
+silencio, se descartan). Cualquier excepción sale por stderr como `TipoDeExcepción: mensaje` con código 1 — eso es lo
+que el worker guarda truncado a `error:<Tipo>`, nunca el mensaje completo.
+
+### El texto de la transcripción
+
+`UnionDeTranscripcion.ArmarTexto` intercala las dos pistas por su tiempo **absoluto**: a cada segmento le suma el
+`InicioPistaProfesionalMs`/`InicioPistaPacienteMs` de su pista (cuándo empezó a grabar cada una, que casi nunca es el
+mismo instante) y resta el menor de los dos, para que la línea más temprana arranque en `00:00`. Segmentos seguidos
+de la misma pista con menos de 2 segundos de silencio entre uno y el otro se funden en una sola línea. El resultado
+es texto plano, una línea por intervención:
+
+```
+[00:00] Profesional: hola, ¿cómo está?
+[00:03] Paciente: bien, gracias
+```
+
+Se guarda cifrado en `SesionClinica.Transcripcion` con el mismo `EmocionesCifradoService` y el mismo esquema de
+versión de clave (`ys1.<idClave>.…`) que `HistorialEmociones`, con datos asociados propios
+(`EmocionesCifradoService.DatosAsociadosDeTranscripcion(idSesion)`) para que un valor cifrado no se pueda mover de un
+campo o de una sesión a otra. `VistaSesionesClinicas.Armar` la descifra con **el mismo gateo que las emociones**:
+solo si `puedeVerEmociones` es `true` (nunca para el Configurador), y si no se puede descifrar devuelve `Transcripcion:
+null` con `TranscripcionIlegible: true` en vez de romper o mostrar el valor cifrado.
+
 ### Probar
 
 ```bash
-dotnet test --filter "FullyQualifiedName~GrabacionVideo|FullyQualifiedName~EncoladoGrabacionReglas|FullyQualifiedName~VistaSesionesClinicas"
+dotnet test --filter "FullyQualifiedName~GrabacionVideo|FullyQualifiedName~EncoladoGrabacionReglas|FullyQualifiedName~VistaSesionesClinicas|FullyQualifiedName~TranscripcionBackgroundService|FullyQualifiedName~UnionDeTranscripcion|FullyQualifiedName~TranscripcionReintentar|FullyQualifiedName~TranscribirScript"
 ```
 
 - `GrabacionVideoEndpointsTests`: `/video/grabacion/fragmento` por HTTP contra la app real con dobles en memoria —
@@ -754,8 +843,21 @@ dotnet test --filter "FullyQualifiedName~GrabacionVideo|FullyQualifiedName~Encol
   fila "grabando" entre las dos pistas, y que el Configurador y el paciente no puedan subir audio.
 - `EncoladoGrabacionReglasTests`: sin referencia, referencia inválida, sin grabación activa, con una grabación activa
   (la vincula y pasa a `pendiente`), y que una ya vinculada antes no se vuelva a encolar.
-- `VistaSesionesClinicasTests`: el mismo gateo que las emociones aplicado a `EstadoTranscripcion` (el Configurador
-  nunca lo ve), para una sesión y para una lista.
+- `VistaSesionesClinicasTests`: el mismo gateo que las emociones aplicado a `EstadoTranscripcion` y a `Transcripcion`
+  (el Configurador nunca los ve), con cifrado real, con un valor ilegible y con uno en claro de antes del cifrado.
+- `TranscripcionBackgroundServiceTests`: el ciclo completo con un transcriptor falso — procesa, cifra, borra el
+  audio; deshabilitado y sin pendientes no hacen nada; revocación antes y justo al guardar; reintentos (vuelve a
+  `pendiente` con intentos disponibles, pasa a `error` sin ellos); el timeout no guarda el detalle interno; el
+  saneamiento de huérfanas y del audio que ya no hace falta.
+- `UnionDeTranscripcionTests`: el formato de una pista y de dos intercaladas, el offset de inicio de cada pista, la
+  fusión de segmentos seguidos y el descarte de los vacíos.
+- `TranscripcionReintentarEndpointsBaseRealTests` (contra `yosoy_test`, igual que `EmocionesBaseRealTests`; se omite
+  sin esa base): el camino feliz (vuelve a `pendiente`, resetea intentos y error), `404` de una sesión ajena o
+  inexistente, `409` sin una transcripción en `error` y `409` sin el audio en disco, y que el paciente y el
+  Configurador no puedan reintentar.
+- `TranscribirScriptTests` (corre `transcribir.py` de verdad con el intérprete de la máquina; se omite sin `python`
+  o sin `faster-whisper` instalado — descarga el modelo `tiny` la primera vez): el error de "ninguna pista" y la
+  forma del JSON de un audio real, sin mirar el contenido transcripto.
 - `ConsentimientoVideoEndpointsTests` y `EmocionesPruebas` (actualizados, no nuevos): la generalización por
   `finalidad` no rompió el camino de `emociones`.
 
@@ -875,8 +977,8 @@ fijas, porque la cámara falsa no tiene rostro.
   parte", pero el tiempo no: el segundo caso lee la agenda y escribe la auditoría. Es una diferencia de milisegundos
   que, con el rate limit (20 pedidos por minuto por IP), no alcanza para sondear en la práctica; igualarla requeriría
   auditar también los ids que no existen o auditar en segundo plano.
-- **Grabación y transcripción local** (ver "Grabación y transcripción local"): esta etapa es solo consentimiento,
-  subida y encolado del audio. **Faltan, fuera de alcance de este cambio**: el worker que toma lo `pendiente`,
-  transcribe con `faster-whisper` y guarda el resultado (etapa 3); la pantalla que grava con `MediaRecorder` y sube
-  los fragmentos (etapa 4); el saneamiento de grabaciones huérfanas (`Video__Transcripcion__HorasGrabacionHuerfana`,
-  ya configurable, sin nada que lo use todavía); y una purga por retención como la de emociones.
+- **Grabación y transcripción local** (ver "Grabación y transcripción local"): consentimiento, subida, encolado y el
+  worker que transcribe localmente ya están. **Falta, fuera de alcance de este cambio**: la pantalla que grava con
+  `MediaRecorder` y sube los fragmentos (etapa 4, sin la cual el worker no tiene nada para procesar en un despliegue
+  real); y una purga por retención del texto ya transcripto, como la de emociones (hoy solo se purga el audio en
+  disco, nunca `SesionClinica.Transcripcion`).

@@ -12,7 +12,7 @@ using System.Text.Json;
 //    sin el contenido. Nunca se devuelve el texto cifrado.
 public record SesionClinicaVista(int IdSesion, int? IdTurno, int IdPaciente, int IdProfesional, DateTime FechaHora,
     string? Transcripcion, string? NotasEvolucion, string? HistorialEmociones, string? TipoCierre, EmocionesInfo? Emociones,
-    int? IdEvolucion = null, string? EstadoTranscripcion = null);
+    int? IdEvolucion = null, string? EstadoTranscripcion = null, bool TranscripcionIlegible = false);
 
 /// <summary>Datos de la lectura de emociones de una sesión: ventana, muestras y, si se anularon, cuándo y por qué.</summary>
 public record EmocionesInfo(int? Muestras, DateTime? DesdeUtc, DateTime? HastaUtc, string? TextoVersion,
@@ -36,16 +36,33 @@ public class VistaSesionesClinicas
     {
         string? historial = null;
         EmocionesInfo? info = null;
-        // El estado de la transcripción se gatea igual que las emociones: el Configurador no lee ninguna de las dos.
         string? estadoTranscripcion = null;
+        string? transcripcion = null;
+        var ilegible = false;
         if (puedeVerEmociones)
         {
             (historial, info) = Leer(s);
             estadoTranscripcion = _transcripciones.ObtenerPorSesion(s.IdSesion)?.Estado;
+            (transcripcion, ilegible) = LeerTranscripcion(s);
         }
 
         return new SesionClinicaVista(s.IdSesion, s.IdTurno, s.IdPaciente, s.IdProfesional, s.FechaHora,
-            s.Transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info, s.IdEvolucion, estadoTranscripcion);
+            transcripcion, s.NotasEvolucion, historial, s.TipoCierre, info, s.IdEvolucion, estadoTranscripcion, ilegible);
+    }
+
+    private (string? Texto, bool Ilegible) LeerTranscripcion(SesionClinica s)
+    {
+        var guardado = s.Transcripcion;
+        if (string.IsNullOrEmpty(guardado)) return (null, false);
+        if (!EmocionesCifradoService.EstaCifrado(guardado)) return (guardado, false);
+
+        var r = _cifrado.Descifrar(guardado, EmocionesCifradoService.DatosAsociadosDeTranscripcion(s.IdSesion), out var texto);
+        if (r != ResultadoDescifrado.Ok)
+        {
+            _log.LogWarning("Video: no se pudo descifrar la transcripción de una sesión clínica ({Motivo}).", r);
+            return (null, true);
+        }
+        return (texto, false);
     }
 
     private (string? Json, EmocionesInfo? Info) Leer(SesionClinica s)
