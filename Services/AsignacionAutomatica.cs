@@ -272,7 +272,8 @@ public class AsignacionAutomaticaService
     {
         var prefs = PreferenciasDelPaciente.Desde(informe.Horario, informe.Profesionales);
         var lista = candidatos ?? CargarCandidatos(informe.IdEspecialidad, ahora, profesionalesExcluidos, new HashSet<(int, DateTime)>(), con, tx);
-        for (var intento = 0; intento < 3; intento++)
+        // Hasta 10 intentos: con varias aceptaciones a la vez sobre el mismo primer horario, a la que pierde la carrera varias veces seguidas le toca el siguiente libre (con 3 se quedaba sin propuesta).
+        for (var intento = 0; intento < 10; intento++)
         {
             var elegido = AsignacionAutomaticaReglas.Elegir(lista, prefs);
             if (elegido is null) break;
