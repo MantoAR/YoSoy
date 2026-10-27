@@ -229,6 +229,15 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.MapGet("/", () => Results.Redirect("/pantallas/index.html"));
 
+// Los navegadores piden /favicon.ico en la raíz del sitio aunque la página no lo declare (pestañas, marcadores, rastreadores). Es el mismo archivo que enlazan las pantallas.
+app.MapGet("/favicon.ico", (HttpContext ctx, IWebHostEnvironment env) =>
+{
+    var archivo = Path.Combine(env.ContentRootPath, "PANTALLAS", "shared", "favicon", "favicon.ico");
+    if (!File.Exists(archivo)) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "public, max-age=86400";
+    return Results.File(archivo, "image/x-icon");
+});
+
 // Login. Un solo login para los tres roles, así que el bloqueo por intentos fallidos es el mismo para todos
 // (PoliticaBloqueoLogin: 3 intentos, 15 minutos; BloqueadoHasta en UTC; vencido el bloqueo el conteo arranca de
 // nuevo; un login exitoso lo pone en cero).

@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/x-icon" href="../shared/favicon/favicon.ico">
+    <link rel="icon" type="image/png" sizes="32x32" href="../shared/favicon/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="../shared/favicon/favicon-16.png">
+    <link rel="apple-touch-icon" href="../shared/favicon/favicon-180.png">
     <title>YoSoy · Sesión con paciente</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,9 +31,7 @@
         .main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 10px; }
 
         /* Video */
-        .video-principal { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
-        .video-principal > video { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .sala-marco canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: var(--fs-lg); padding: 6px 12px; border-radius: var(--r-md); font-weight: 500; }
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
 
@@ -202,7 +204,7 @@
         <div class="main-grid">
             <!-- VIDEO PACIENTE + ANÁLISIS -->
             <div>
-                <div class="video-principal sala-marco" id="marco-sala">
+                <div class="sala-marco" id="marco-sala">
                     <video id="vid-paciente" autoplay playsinline></video>
                     <canvas id="overlay"></canvas>
                     <div class="emo-live" id="emo-live">😐 Esperando...</div>
