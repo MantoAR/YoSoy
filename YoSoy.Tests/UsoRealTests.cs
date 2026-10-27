@@ -217,6 +217,135 @@ public class DisponibilidadYSalaBaseRealTests : IDisposable
     }
 }
 
+/// Bloque C: el profesional agenda un turno para un paciente suyo. Queda Confirmado y avisa al paciente.
+[Trait("Categoria", "Integracion")]
+public class AgendarTurnoBaseRealTests : IDisposable
+{
+    private readonly DatosDePrueba _d = new();
+    private readonly EmailServiceEspia _mails = new();
+    private readonly WebApplicationFactory<Program> _fabrica;
+
+    public AgendarTurnoBaseRealTests()
+    {
+        _fabrica = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+            b.ConfigureServices(s => { s.RemoveAll<EmailService>(); s.AddSingleton<EmailService>(_mails); }));
+    }
+
+    public void Dispose() { _fabrica.Dispose(); _d.Dispose(); }
+
+    private DateTime Ahora => _fabrica.Services.GetRequiredService<TimeProvider>().GetLocalNow().DateTime;
+    private HttpClient ComoProfesional(int id) => DatosDePrueba.Cliente(_fabrica, _d.UsuarioDeProfesional(id), Roles.Profesional, idProfesional: id);
+    private HttpClient ComoPaciente(int id) => DatosDePrueba.Cliente(_fabrica, _d.UsuarioDePaciente(id), Roles.Paciente, idPaciente: id);
+
+    private static async Task<JsonElement> Json(HttpResponseMessage r)
+    {
+        var texto = await r.Content.ReadAsStringAsync();
+        return string.IsNullOrWhiteSpace(texto) ? default : JsonDocument.Parse(texto).RootElement.Clone();
+    }
+
+    private (int Prof, int Pac) Escenario(bool consentimiento = true)
+    {
+        var prof = _d.Profesional(_d.Especialidad(), nombre: "Prof " + _d.Marca);
+        foreach (var dia in Enum.GetValues<DayOfWeek>())
+            _d.Agenda(prof, DatosDePrueba.NombreDelDia(new DateTime(2026, 11, 1).AddDays((int)dia)), "09:00", "18:00");
+        var pac = _d.Paciente("Paciente " + _d.Marca, mail: $"{_d.Marca}@example.test");
+        _d.PacienteProfesional(pac, prof);
+        if (consentimiento) _d.ConsentimientoFirmado(pac);
+        _d.AlLimpiar("DerivacionPsiquiatrica", "IdPaciente", pac);
+        _d.AlLimpiar("Turno", "IdPaciente", pac);
+        _d.AlLimpiar("Notificacion", "IdPaciente", pac);
+        return (prof, pac);
+    }
+
+    private object Pedido(int pac, DateTime momento) => new { idPaciente = pac, fecha = momento.ToString("yyyy-MM-dd"), hora = momento.ToString("HH:mm:ss"), motivo = "[TEST] agendado" };
+    private DateTime Dentro(int dias, int hora = 10) => Ahora.Date.AddDays(dias).AddHours(hora);
+
+    [Fact]
+    public async Task El_profesional_agenda_un_turno_que_nace_Confirmado_con_aviso_al_paciente_y_auditoria()
+    {
+        var (prof, pac) = Escenario();
+        var momento = Dentro(3);
+
+        var r = await ComoProfesional(prof).PostAsJsonAsync("/turnos/agendar", Pedido(pac, momento));
+        var j = await Json(r);
+
+        Assert.Equal(HttpStatusCode.Created, r.StatusCode);
+        var id = j.GetProperty("idTurno").GetInt32();
+        Assert.Equal("Confirmado", DatosDePrueba.Escalar("SELECT et.Descripcion FROM Turno t JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno WHERE t.IdTurno = @t", ("@t", id)));
+        Assert.Equal("profesional", DatosDePrueba.Escalar("SELECT CreadoPor FROM Turno WHERE IdTurno = @t", ("@t", id)));
+        Assert.Equal(true, DatosDePrueba.Escalar("SELECT ConfirmadoPaciente FROM Turno WHERE IdTurno = @t", ("@t", id)));
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM Notificacion WHERE IdPaciente = @p AND Titulo = N'Tu profesional te agendó un turno'", ("@p", pac)));
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM LogAuditoria WHERE Entidad = N'Turno' AND IdEntidad = @i AND Accion = N'Turno agendado por el profesional'", ("@i", id)));
+        // No requiere aceptación: no figura entre las solicitudes del profesional.
+        var solicitudes = await Json(await ComoProfesional(prof).GetAsync($"/profesionales/{prof}/solicitudes-turno"));
+        Assert.DoesNotContain(solicitudes.EnumerateArray(), s => s.GetProperty("idTurno").GetInt32() == id);
+    }
+
+    [Fact]
+    public async Task Agendar_dos_veces_lo_mismo_no_duplica_ni_el_turno_ni_el_aviso()
+    {
+        var (prof, pac) = Escenario();
+        var momento = Dentro(3);
+        var c = ComoProfesional(prof);
+
+        var r1 = await c.PostAsJsonAsync("/turnos/agendar", Pedido(pac, momento));
+        var r2 = await c.PostAsJsonAsync("/turnos/agendar", Pedido(pac, momento));
+
+        Assert.Equal(HttpStatusCode.Created, r1.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, r2.StatusCode);
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdPaciente = @p", ("@p", pac)));
+        Assert.Equal(1, DatosDePrueba.Contar("SELECT COUNT(*) FROM Notificacion WHERE IdPaciente = @p AND Titulo = N'Tu profesional te agendó un turno'", ("@p", pac)));
+    }
+
+    [Fact]
+    public async Task Se_rechaza_a_un_paciente_ajeno_derivado_o_sin_consentimiento_y_un_horario_que_no_es_de_su_agenda_y_el_motivo_se_explica()
+    {
+        var (prof, pac) = Escenario();
+        var ajeno = _d.Paciente("Ajeno " + _d.Marca);
+        var c = ComoProfesional(prof);
+
+        var rAjeno = await c.PostAsJsonAsync("/turnos/agendar", Pedido(ajeno, Dentro(3)));
+        Assert.Equal(HttpStatusCode.Forbidden, rAjeno.StatusCode);
+        Assert.Contains("no está a tu cargo", (await Json(rAjeno)).GetProperty("mensaje").GetString());
+
+        var rHora = await c.PostAsJsonAsync("/turnos/agendar", Pedido(pac, Dentro(3, 22)));   // fuera de la franja de 9 a 18
+        Assert.Equal(HttpStatusCode.Conflict, rHora.StatusCode);
+        Assert.Contains("agenda", (await Json(rHora)).GetProperty("mensaje").GetString());
+
+        var (prof2, pac2) = Escenario(consentimiento: false);
+        var rSin = await ComoProfesional(prof2).PostAsJsonAsync("/turnos/agendar", Pedido(pac2, Dentro(3)));
+        Assert.Equal(HttpStatusCode.Conflict, rSin.StatusCode);
+        Assert.Contains("consentimiento", (await Json(rSin)).GetProperty("mensaje").GetString());
+        Assert.Equal(0, DatosDePrueba.Contar("SELECT COUNT(*) FROM Turno WHERE IdPaciente IN (@a, @b)", ("@a", pac2), ("@b", ajeno)));
+
+        if (DerivacionPsiquiatraDAO.Disponible())
+        {
+            var (prof3, pac3) = Escenario();
+            DatosDePrueba.Ejecutar("INSERT INTO DerivacionPsiquiatrica (IdPaciente, IdProfesional) VALUES (@p, @m)", ("@p", pac3), ("@m", prof3));
+            var rDer = await ComoProfesional(prof3).PostAsJsonAsync("/turnos/agendar", Pedido(pac3, Dentro(3)));
+            Assert.Equal(HttpStatusCode.Conflict, rDer.StatusCode);
+            Assert.Contains("derivado", (await Json(rDer)).GetProperty("mensaje").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task Solo_un_profesional_agenda_y_un_horario_ocupado_se_rechaza()
+    {
+        var (prof, pac) = Escenario();
+        var otro = _d.Paciente("Otro " + _d.Marca);
+        _d.PacienteProfesional(otro, prof);
+        _d.ConsentimientoFirmado(otro);
+        _d.AlLimpiar("Turno", "IdPaciente", otro);
+        var momento = Dentro(3);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await ComoPaciente(pac).PostAsJsonAsync("/turnos/agendar", Pedido(pac, momento))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await ComoProfesional(prof).PostAsJsonAsync("/turnos/agendar", Pedido(pac, momento))).StatusCode);
+        var ocupado = await ComoProfesional(prof).PostAsJsonAsync("/turnos/agendar", Pedido(otro, momento));
+        Assert.Equal(HttpStatusCode.Conflict, ocupado.StatusCode);
+        Assert.Contains("ocupado", (await Json(ocupado)).GetProperty("mensaje").GetString());
+    }
+}
+
 // La regla de la sala y los primeros pasos, sin base.
 public class EstadoDeSalaReglasTests
 {

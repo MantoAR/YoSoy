@@ -2935,6 +2935,7 @@ app.MapDerivacionPsiquiatra();
 app.MapSolicitudesTurno();
 app.MapDisponibilidad();
 app.MapEstadoSala();
+app.MapAgendarTurno();
 app.MapAusenciasAlta();
 app.MapVideo();
 app.MapConsentimientoVideo();

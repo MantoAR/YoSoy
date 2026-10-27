@@ -63,7 +63,7 @@ async function inicio() {
 
     if (YS.shell.actual !== 'inicio') return;   // el usuario ya cambió de sección
     YS.shell.encabezado({ titulo: `Hola, ${prof?.nombre ?? 'Profesional'}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
-    YS.shell.acciones([{ texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
+    YS.shell.acciones([{ texto: 'Agendar turno', icono: 'agenda', tipo: 'primary', alClick: agendarTurno }, { texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
 
     const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
     // Quien hace admisión ve primero cuántos pacientes esperan su entrevista y cuántos están en entrevista para derivar
@@ -222,6 +222,48 @@ async function generarSalaDesdeInicio(idTurno) {
             activarTab('inicio');
         } else toast('Error al generar la sala.', 'error');
     } catch { toast('Error de conexión.', 'error'); }
+}
+
+// «Agendar turno»: el profesional agenda un turno para un paciente suyo, en un horario libre de su agenda. Queda Confirmado (no requiere aceptación) y el paciente recibe el aviso por la campanita.
+// Los horarios salen de GET /profesionales/{id}/horarios-libres (la misma función de siempre); si el servidor rechaza algo (derivado, sin consentimiento, horario ocupado) explica por qué.
+async function agendarTurno() {
+    const pacientes = await YS.api(`/profesionales/${idProfesional}/pacientes`).catch(() => []);
+    const libres = await YS.api(`/profesionales/${idProfesional}/horarios-libres?dias=21`).catch(() => null);
+    if (!pacientes.length) { toast('Todavía no tenés pacientes asignados a quienes agendar un turno.', 'warn'); return; }
+    if (!libres || !libres.length) { toast('No tenés horarios libres en los próximos días. Agregá horarios en Mis horarios de trabajo.', 'warn'); return; }
+
+    const cuerpo = document.createElement('div');
+    const dias = {};
+    libres.forEach(x => { const [dia, hora] = x.split('T'); (dias[dia] ||= []).push(hora.substring(0, 5)); });
+    cuerpo.innerHTML = `
+        <div class="ui-campo"><label for="agendar-paciente">Paciente</label>
+            <select id="agendar-paciente" class="ui-select">${pacientes.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')}</select></div>
+        <div class="ui-campo"><label for="agendar-dia">Día</label>
+            <select id="agendar-dia" class="ui-select">${Object.keys(dias).map(d => `<option value="${d}">${YS.esc(YS.capitalizar(YS.fecha.larga(d)))}</option>`).join('')}</select></div>
+        <div class="ui-campo"><label for="agendar-hora">Horario</label><select id="agendar-hora" class="ui-select"></select></div>
+        <div class="ui-campo"><label for="agendar-motivo">Motivo (opcional)</label><input id="agendar-motivo" class="ui-input" maxlength="500"></div>
+        <p class="texto-suave texto-chico">El turno queda confirmado y le avisamos al paciente. Un paciente derivado a psiquiatría o sin el consentimiento firmado no se puede agendar.</p>
+        <p id="agendar-error" class="texto-suave" role="alert"></p>`;
+    const horas = () => { cuerpo.querySelector('#agendar-hora').innerHTML = (dias[cuerpo.querySelector('#agendar-dia').value] || []).map(h => `<option value="${h}">${h} hs</option>`).join(''); };
+    cuerpo.querySelector('#agendar-dia').addEventListener('change', horas);
+    horas();
+    YS.modal({
+        titulo: 'Agendar turno', cuerpo, tamano: 'chico',
+        acciones: [
+            { texto: 'Cancelar', tipo: 'ghost', alClick: c => c.cerrar(null) },
+            { texto: 'Agendar turno', tipo: 'primary', alClick: async c => {
+                const error = cuerpo.querySelector('#agendar-error');
+                try {
+                    const r = await YS.api('/turnos/agendar', { method: 'POST', json: {
+                        idPaciente: parseInt(cuerpo.querySelector('#agendar-paciente').value), fecha: cuerpo.querySelector('#agendar-dia').value,
+                        hora: cuerpo.querySelector('#agendar-hora').value + ':00', motivo: cuerpo.querySelector('#agendar-motivo').value || null } });
+                    toast(r.mensaje || 'Turno agendado.');
+                    c.cerrar(true);
+                    activarTab('inicio');
+                } catch (e) { error.textContent = e.message || 'No se pudo agendar el turno.'; }
+            } }
+        ]
+    });
 }
 
 function citaUrgente() {

@@ -251,10 +251,29 @@ public class TurnoReglasService
             : new ResultadoSolicitud(ResultadoRegla.Valido, id);
     }
 
-    private int? InsertarPendiente(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor)
+    /// <summary>
+    /// El profesional AGENDA un turno para un paciente de su cartera: nace Confirmado (no requiere aceptación de nadie) y el paciente se entera por la campanita. Respeta las mismas reglas que cualquier
+    /// turno: horario libre dentro de su agenda (RN-01), un turno por día (RN-07), paciente derivado a psiquiatría y consentimiento firmado (RN-02, porque el turno queda confirmado).
+    /// </summary>
+    public ResultadoSolicitud Agendar(int idPaciente, int idProfesional, DateTime momento, string? motivo)
     {
-        var idPendiente = _repo.IdEstado("Pendiente")
-            ?? throw new InvalidOperationException("No existe el estado 'Pendiente' en EstadoTurno.");
+        _repo.VencerPropuestas(Ahora);
+        _repo.VencerSolicitudes(Ahora);
+        var regla = ValidarSolicitud(idPaciente, idProfesional, momento);
+        if (!regla.Ok) return new ResultadoSolicitud(regla, null);
+        var consentimiento = ValidarPasoAConfirmado(new Turno { IdPaciente = idPaciente, IdEstadoTurno = _repo.IdEstado("Pendiente") ?? 0 });
+        if (!consentimiento.Ok) return new ResultadoSolicitud(consentimiento, null);
+
+        var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, "profesional", "Confirmado");
+        return id is null
+            ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-01", "Ese horario se acaba de ocupar. Elegí otro."), null)
+            : new ResultadoSolicitud(ResultadoRegla.Valido, id);
+    }
+
+    private int? InsertarPendiente(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor, string estado = "Pendiente")
+    {
+        var idPendiente = _repo.IdEstado(estado)
+            ?? throw new InvalidOperationException($"No existe el estado '{estado}' en EstadoTurno.");
         var ahora = Ahora;
         return _repo.InsertarSiLibre(new Turno
         {
