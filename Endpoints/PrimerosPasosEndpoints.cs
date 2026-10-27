@@ -21,7 +21,7 @@ public static class PrimerosPasosEndpoints
         }
 
         app.MapGet("/pacientes/{id}/primeros-pasos", (int id, IOptionsMonitor<ConsentimientoOptions> consentimiento, IOptionsMonitor<VideoOptions> video,
-            TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
+            TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad, AsignacionAutomaticaService asignacion) =>
         {
             var yo = identidad.Resolver(ctx)!;
             if (yo is { EsPaciente: true } && yo.IdPaciente != id)
@@ -32,7 +32,7 @@ public static class PrimerosPasosEndpoints
 
             var ahora = reloj.GetLocalNow().DateTime;
             var estado = ConsentimientoTratamiento.Estado(id, consentimiento.CurrentValue, ahora);
-            var datos = new PrimerosPasosDAO().Cargar(id, estado);
+            var datos = new PrimerosPasosDAO().Cargar(id, estado, ahora, asignacion);
             var r = PrimerosPasos.Calcular(datos, ahora, video.CurrentValue.Ventana.MinutosAntes);
             return Results.Ok(new
             {
@@ -45,6 +45,15 @@ public static class PrimerosPasosEndpoints
                     habilitaDesde = r.Sesion.HabilitaDesde.ToString("yyyy-MM-ddTHH:mm:ss"), r.Sesion.Habilitada, r.Sesion.CodigoSala
                 },
                 profesional = datos.Profesional is null ? null : new { datos.Profesional.IdProfesional, datos.Profesional.Nombre, datos.Profesional.Especialidad },
+                // La propuesta automática que espera su respuesta (migración 32): profesional, día y hora; puedeCambiar = todavía le quedan propuestas por pedir.
+                propuesta = datos.Propuesta is null ? null : new
+                {
+                    datos.Propuesta.IdPropuesta, datos.Propuesta.IdProfesional, datos.Propuesta.Profesional, datos.Propuesta.Especialidad,
+                    fechaHora = datos.Propuesta.FechaHora.ToString("yyyy-MM-ddTHH:mm:ss"), expiraEn = datos.Propuesta.ExpiraEn.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    datos.Propuesta.NroPropuesta, datos.Propuesta.PuedeCambiar, maxPropuestas = AsignacionAutomaticaReglas.MaxPropuestas,
+                    cuando = AsignacionAutomaticaReglas.Cuando(datos.Propuesta.FechaHora)
+                },
+                asignacionPorResolver = datos.AsignacionPorResolver,
                 consentimiento = new
                 {
                     vigente = estado.Vigente, motivo = estado.Vigente ? null : estado.Motivo, fechaFirma = estado.FechaFirma, version = estado.Version,
@@ -77,15 +86,19 @@ public static class PrimerosPasosEndpoints
             if (!new InformeAdmisionDAO().ReenviarDevuelto(i))
                 return Results.Json(new { codigo = "estado", mensaje = "Tu formulario cambió mientras lo completabas. Actualizá la pantalla." }, statusCode: 409);
             AuditoriaIds.Registrar(ctx, "Reenvió el formulario de admisión", "InformeAdmision", actual.IdInforme, id);
+            AsignacionAutomaticaService.AvisarFormularioNuevo(actual.IdInforme, id);   // vuelve a «Para revisar»: aviso a la recepción
             return Results.Ok(new { idInforme = actual.IdInforme, estado = EstadoInforme.Pendiente });
         }).Solo(Quien.Paciente);
 
         app.MapPut("/informes-admision/{id}/aceptar", (int id, RevisionRequest req, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad,
-            IOptionsMonitor<ConsentimientoOptions> consentimiento) =>
+            IOptionsMonitor<ConsentimientoOptions> consentimiento, AsignacionAutomaticaService asignacion) =>
         {
             if (Falta(req) is { } faltaConfirmar) return faltaConfirmar;
             var yo = identidad.Resolver(ctx)!;
-            var r = RevisionAdmision.Aceptar(id, yo.IdUsuario, reloj.GetLocalNow().DateTime);
+            var ahora = reloj.GetLocalNow().DateTime;
+            AsignacionAutomaticaService.VencerVencidas(ahora);
+            // El sistema propone profesional y horario dentro de la misma transacción de la aceptación; la acción de origen es de esta persona de recepción.
+            var r = RevisionAdmision.Aceptar(id, yo.IdUsuario, ahora, (con, tx, idInforme, idPaciente) => asignacion.ProponerAlAceptar(con, tx, idInforme, idPaciente, yo.IdUsuario, ahora));
             if (r.Ok && r.IdPaciente is int pac)
             {
                 if (r.Cambio) AuditoriaIds.Registrar(ctx, "Aceptó el formulario de admisión", "InformeAdmision", id, pac);
@@ -168,7 +181,7 @@ public static class PrimerosPasosEndpoints
         req.Confirmo == true ? null : Results.BadRequest(new { codigo = "sin-confirmacion", mensaje = "Confirmá la acción para continuar." });
 
     private static IResult Responder(ResultadoRevision r) =>
-        Results.Json(new { r.Codigo, r.Mensaje, r.Cambio, r.Estado }, statusCode: r.Status);
+        Results.Json(new { r.Codigo, r.Mensaje, r.Cambio, r.Estado, r.Asignacion }, statusCode: r.Status);
 
     private static void AvisarSiNoFirmo(HttpContext ctx, int idPaciente, ConsentimientoOptions op)
     {

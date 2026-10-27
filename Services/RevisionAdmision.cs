@@ -2,14 +2,14 @@ using Microsoft.Data.SqlClient;
 
 // La revisión del formulario de admisión («Sobre mí») por la recepcionista. Reemplaza a la entrevista de admisión: el paciente completa el formulario, la
 // recepcionista lo revisa y decide una de tres cosas, siempre con confirmación explícita de su parte:
-//   · Aceptar          → el informe pasa a «Aprobado». La asignación del profesional sigue siendo la de siempre (manual, la hace ella: PUT /informes-admision/{id}/derivar).
+//   · Aceptar          → el informe pasa a «Aprobado» y el sistema PROPONE profesional y horario (AsignacionAutomaticaService); el paciente decide. Si no se puede proponer, o el paciente no
+//                        acepta, la asignación la hace ella a mano (PUT /informes-admision/{id}/derivar), que cancela cualquier propuesta pendiente.
 //   · Devolver         → «Devuelto», con una aclaración de qué falta. El paciente lo ve en sus primeros pasos y lo completa de nuevo.
 //   · Otro recurso     → «Otro recurso»: cierra el ingreso con un motivo. Es el único caso de «No ingresa».
 // Cada cambio es una sola transacción, queda con quién y cuándo (IdUsuarioRevision, FechaRevision), el servidor lo audita y repetirlo no hace nada de más (idempotente).
 //
-// TODO (trabajo siguiente): acá es donde engancha la propuesta AUTOMÁTICA de profesional y horario al aceptar (hoy la elige la recepcionista a mano). Ver el comentario
-// «PUNTO DE ENGANCHE» en Aceptar. Cuando exista, el sistema propone y la recepcionista confirma: nunca asigna solo.
-public record ResultadoRevision(int Status, string Codigo, string Mensaje, bool Cambio, int? IdPaciente = null, string? Estado = null)
+// La propuesta AUTOMÁTICA de profesional y horario engancha en Aceptar (ver «PUNTO DE ENGANCHE»): el sistema propone y el paciente confirma; nunca asigna solo.
+public record ResultadoRevision(int Status, string Codigo, string Mensaje, bool Cambio, int? IdPaciente = null, string? Estado = null, string? Asignacion = null)
 {
     public bool Ok => Status is >= 200 and < 300;
 }
@@ -22,7 +22,9 @@ public static class RevisionAdmision
     // Estados desde los que se puede aceptar: el normal y los viejos de la entrevista, que quedan sin salida en la pantalla.
     private static readonly string[] PuedeAceptar = { EstadoInforme.Pendiente, "En entrevista", "Rechazado" };
 
-    public static ResultadoRevision Aceptar(int idInforme, int idUsuario, DateTime ahora)
+    /// <param name="proponer">El punto de enganche: se llama dentro de la misma transacción, ya con el informe en «Aprobado», para que el sistema proponga profesional y horario
+    /// (AsignacionAutomaticaService.ProponerAlAceptar). Sin él (o sin la migración 32) la asignación sigue siendo manual.</param>
+    public static ResultadoRevision Aceptar(int idInforme, int idUsuario, DateTime ahora, Func<SqlConnection, SqlTransaction, int, int, ResultadoAlAceptar>? proponer = null)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -36,13 +38,19 @@ public static class RevisionAdmision
                 ? "Este ingreso se cerró con «otro recurso»: no se puede aceptar."
                 : "Este formulario está devuelto al paciente: tiene que completarlo de nuevo antes de aceptarlo.", false, idPaciente, estado);
 
-        // PUNTO DE ENGANCHE (trabajo siguiente): después de aceptar, proponer profesional y horario según las preferencias del paciente
-        // (InformeAdmision.HorarioPreferido / ProfesionalesPreferidos) y las agendas. La recepcionista confirma; no se asigna solo.
         Actualizar(con, tx, idInforme, EstadoInforme.Aprobado, idUsuario, ahora, aclaracion: null, motivo: null);
+        // PUNTO DE ENGANCHE: después de aceptar, el sistema propone profesional y horario según las preferencias del paciente (InformeAdmision.HorarioPreferido / ProfesionalesPreferidos) y las
+        // agendas. La propuesta la confirma el PACIENTE; no se asigna solo. Si no se puede proponer, el formulario queda en «Asignaciones para resolver» para la recepción.
+        var propuesta = proponer?.Invoke(con, tx, idInforme, idPaciente!.Value);
         AvisosPaciente.CrearUnaVez(con, tx, idPaciente!.Value, $"informe:{idInforme}:aprobado", "Aceptamos tu formulario",
-            "La recepción revisó «Sobre mí» y lo aceptó. Ahora estamos eligiendo tu profesional: te avisamos apenas esté asignado.", null);
+            propuesta?.IdPropuesta is not null
+                ? "La recepción revisó «Sobre mí» y lo aceptó. Te propusimos un profesional y un horario: entrá a tus primeros pasos para confirmarlo o elegir otro."
+                : "La recepción revisó «Sobre mí» y lo aceptó. Ahora estamos eligiendo tu profesional: te avisamos apenas esté asignado.", null);
         tx.Commit();
-        return new(200, "aceptado", "Formulario aceptado.", true, idPaciente, EstadoInforme.Aprobado);
+        return new(200, "aceptado", propuesta?.IdPropuesta is not null ? "Formulario aceptado. Le propusimos un profesional y un horario al paciente: él decide."
+                : propuesta?.MotivoPorResolver is not null ? "Formulario aceptado. No pudimos proponerle un profesional: quedó en «Asignaciones para resolver»."
+                : propuesta?.Fallo == true ? "Formulario aceptado. No pudimos calcular la propuesta automática: asignale el profesional a mano."
+                : "Formulario aceptado.", true, idPaciente, EstadoInforme.Aprobado, propuesta?.Resumen);
     }
 
     public static ResultadoRevision Devolver(int idInforme, int idUsuario, string? aclaracion, DateTime ahora)
@@ -69,6 +77,7 @@ public static class RevisionAdmision
                 : "Este paciente ya tiene profesional asignado: el formulario no se puede devolver.", false, idPaciente, estado);
 
         Actualizar(con, tx, idInforme, EstadoInforme.Devuelto, idUsuario, ahora, aclaracion, motivo: null);
+        AsignacionAutomaticaService.CancelarDelInformeEnTx(con, tx, idInforme, idUsuario, ahora, "la recepción devolvió el formulario al paciente");   // una propuesta pendiente ya no tiene sentido
         AvisosPaciente.CrearUnaVez(con, tx, idPaciente!.Value, $"informe:{idInforme}:devuelto:{ahora.Ticks}", "Necesitamos que aclares algo en tu formulario",
             "La recepción revisó «Sobre mí» y necesita que completes algo: " + aclaracion + " Entrá a tus primeros pasos para completarlo.", null);
         tx.Commit();
@@ -94,6 +103,7 @@ public static class RevisionAdmision
             return new(409, "estado", "Este paciente ya tiene profesional asignado: el ingreso no se puede cerrar desde acá.", false, idPaciente, estado);
 
         Actualizar(con, tx, idInforme, EstadoInforme.OtroRecurso, idUsuario, ahora, aclaracion: null, motivo);
+        AsignacionAutomaticaService.CancelarDelInformeEnTx(con, tx, idInforme, idUsuario, ahora, "el ingreso se cerró con «otro recurso»");
         // El caso de seguimiento del ingreso se cierra con él y la sugerencia de profesional que quedara pendiente se descarta: no queda nada esperando en la cola.
         Ejecutar(con, tx, "UPDATE Caso SET Estado = N'Cerrado' WHERE IdInforme = @I AND Estado IN (N'Nuevo', N'Derivado')", ("@I", idInforme));
         Ejecutar(con, tx, @"UPDATE cd SET Estado = N'Rechazada', FechaResolucion = @F, Nota = N'Ingreso cerrado: otro recurso'

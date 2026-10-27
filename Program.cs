@@ -31,6 +31,7 @@ builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddUsuariosAdmin(builder.Configuration);
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
+builder.Services.AddSingleton<AsignacionAutomaticaService>();   // propuesta automática de profesional y horario al aceptar un formulario (migración 32)
 // Circuito de atención: salas, interruptores de IA/transcripción y evolución por enfoque.
 
 // JWT (rama Cambios-Agus-jwt): reemplaza la identidad autodeclarada por X-Usuario-Id.
@@ -2179,6 +2180,7 @@ app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignaci
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
+    AsignacionAutomaticaService.AvisarFormularioNuevo(id, i.IdPaciente);   // la campanita de la recepción: un aviso por formulario
 
     // Caso nuevo para el seguimiento de la Fase 2: aditivo, no cambia esta respuesta ni
     // el resto del flujo de admisión. Si la especialidad solicitada tiene una regla de
@@ -2263,9 +2265,12 @@ app.MapPut("/informes-admision/{id}/estado", (int id, string estado) =>
 
 
 // ── Admision: endpoints de Admisión (roles y permisos; antes del configurador) ──
-app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
+app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento, TimeProvider relojAsignacion) =>
 {
     // (Admisión y auditor: ver .Solo() al final de este endpoint.)
+    // Propuestas automáticas (migración 32): las vencidas pasan a «Asignaciones para resolver» antes de listar, y se junta la pendiente de cada formulario.
+    AsignacionAutomaticaService.VencerVencidas(relojAsignacion.GetLocalNow().DateTime);
+    var propuestasPendientes = AsignacionAutomaticaService.PendientesPorInforme();
     using var con = Conexion.ObtenerConexion();
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -2276,7 +2281,9 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
                ia.FechaEntrevista, ia.ObservacionesEntrevista, ia.IdProfesionalDerivado, ia.CodigoSala, ia.MotivoRechazo,
                prof.Nombre + ' ' + ISNULL(prof.Apellido, '') AS NombreProfesionalDerivado,
                ent.Nombre + ' ' + ISNULL(ent.Apellido, '') AS NombreProfesionalEntrevista,
-               ia.AclaracionRecepcion, ia.HorarioPreferido, ia.ProfesionalesPreferidos
+               ia.AclaracionRecepcion, ia.HorarioPreferido, ia.ProfesionalesPreferidos, " +
+               (AsignacionAutomaticaService.Disponible() ? "ia.AsignacionEstado, ia.AsignacionMotivo"
+                   : "CAST(NULL AS NVARCHAR(20)) AS AsignacionEstado, CAST(NULL AS NVARCHAR(500)) AS AsignacionMotivo") + @"
         FROM InformeAdmision ia
         INNER JOIN Paciente p ON p.IdPaciente = ia.IdPaciente
         INNER JOIN Especialidad e ON e.IdEspecialidad = ia.IdEspecialidad
@@ -2327,6 +2334,11 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento) =>
             profesionalesPreferidos = PreferenciasAdmision.Leer(reader["ProfesionalesPreferidos"] as string),
             profesionalesPreferidosNombres = ((reader["ProfesionalesPreferidos"] as string) is { } pj && PreferenciasAdmision.Leer(pj) is { } pe && pe.TryGetProperty("ids", out var pids)
                 ? pids.EnumerateArray().Select(x => nombresProfesionales.TryGetValue(x.GetInt32(), out var n) ? n : "Profesional #" + x.GetInt32()).ToList() : new System.Collections.Generic.List<string>()),
+            // Propuesta automática (migración 32): dónde quedó la asignación («Propuesta» o «Por resolver», null = nunca pasó por ahí), por qué, y la propuesta que espera al paciente.
+            asignacionEstado        = reader["AsignacionEstado"] as string,
+            asignacionMotivo        = reader["AsignacionMotivo"] as string,
+            propuestaPendiente      = propuestasPendientes.TryGetValue((int)reader["IdInforme"], out var propPend)
+                ? new { profesional = propPend.Profesional, fechaHora = propPend.FechaHora.ToString("dd/MM/yyyy HH:mm"), expiraEn = propPend.ExpiraEn.ToString("dd/MM/yyyy HH:mm"), nro = propPend.Nro } : null,
             // Quién programó la entrevista (migración 26); "" en las de antes.
             nombreProfesionalEntrevista = reader["NombreProfesionalEntrevista"] == DBNull.Value ? "" : reader["NombreProfesionalEntrevista"].ToString()!.Trim()
         });
@@ -2530,6 +2542,10 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     // Sin el consentimiento de tratamiento y telemedicina firmado y vigente no se deriva (no se asigna profesional): se rechaza ANTES de tocar el informe y se le avisa al paciente.
     if (ConsentimientoTratamiento.BloquearSiNoFirmo(ctx, idPac) is { } sinConsentimiento) return sinConsentimiento;
 
+    // Asignación a mano: cualquier propuesta automática pendiente de este paciente se cancela y su horario queda libre (migración 32). Va antes de asignar: así el paciente no puede
+    // aceptar una propuesta mientras la recepción lo está asignando.
+    AsignacionAutomaticaService.CancelarPendientesPorAsignacionManual(idPac, ctx.RequestServices.GetRequiredService<IdentidadActualService>().Resolver(ctx)?.IdUsuario, reloj.GetLocalNow().DateTime);
+
     // Actualizar el informe
     var cmdUpd = new Microsoft.Data.SqlClient.SqlCommand(@"
         UPDATE InformeAdmision
@@ -2540,6 +2556,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     cmdUpd.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
     cmdUpd.Parameters.AddWithValue("@Id", id);
     cmdUpd.ExecuteNonQuery();
+    AsignacionAutomaticaService.LimpiarAlAsignar(id);   // ya tiene profesional: el formulario deja de figurar en «Asignaciones para resolver» (migración 32)
 
     // Vincular paciente con profesional con estado 'Nueva'
     var cmdVinc = new Microsoft.Data.SqlClient.SqlCommand(@"
@@ -2921,6 +2938,7 @@ app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 app.MapPrimerosPasos();
+app.MapAsignacionAutomatica();
 
 // ═══════════════════════════════════════════════════════
 // REPORTES DEL PROFESIONAL

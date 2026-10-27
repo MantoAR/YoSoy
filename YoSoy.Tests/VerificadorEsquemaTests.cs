@@ -60,13 +60,13 @@ public class VerificadorEsquemaTests
     [Fact]
     public void Las_migraciones_opcionales_no_cuentan_como_faltantes()
     {
-        // La 16 (consentimiento de WhatsApp, dormido), la 17 (solo la lee el modo Personal) y la 25 (interruptor de IA por conversación) no frenan nada: producción puede no tener la 16 ni la 25.
+        // La 16 (consentimiento de WhatsApp, dormido), la 17 (solo la lee el modo Personal) y la 25 (interruptor de IA por conversación) y la 32 (propuesta automática de profesional y horario: sin ella aceptar un formulario anda como antes) no frenan nada: producción puede no tener la 16 ni la 25.
         var inspector = new InspectorFalso();
-        inspector.Faltan.UnionWith(new[] { 16, 17, 25, 26, 27, 28 });
+        inspector.Faltan.UnionWith(new[] { 16, 17, 25, 26, 27, 28, 32 });
         var e = new VerificadorEsquema(inspector, new Reloj()).Estado();
         Assert.True(e.Verificado);
         Assert.False(e.Desactualizado);
-        Assert.Equal(new[] { 16, 17, 25, 26, 27, 28 }, VerificadorEsquema.Migraciones.Where(m => m.Opcional).Select(m => m.Numero));
+        Assert.Equal(new[] { 16, 17, 25, 26, 27, 28, 32 }, VerificadorEsquema.Migraciones.Where(m => m.Opcional).Select(m => m.Numero));
     }
 
     [Fact]
