@@ -151,6 +151,7 @@ public static class AsignacionAutomaticaReglas
         ha != hb ? ha < hb : a.PacientesActivos != b.PacientesActivos ? a.PacientesActivos < b.PacientesActivos : a.IdProfesional < b.IdProfesional;
 }
 
+public record ProfesionalParaElegir(int IdProfesional, string Nombre, string? Especialidad, int IdEspecialidad);
 public record CandidatoPropuesta(int IdProfesional, string Nombre, string? Especialidad, int PacientesActivos, IReadOnlyList<DateTime> Horarios);
 public record ElegidoPropuesta(int IdProfesional, string Nombre, string? Especialidad, DateTime Momento, string Motivo);
 
@@ -188,7 +189,7 @@ public record PreferenciasDelPaciente(IReadOnlyList<string> Dias, string? Franja
 }
 
 /// <summary>La propuesta tal como la ve el paciente en sus primeros pasos.</summary>
-public record PropuestaVista(int IdPropuesta, int IdProfesional, string Profesional, string? Especialidad, DateTime FechaHora, DateTime ExpiraEn, int NroPropuesta, bool PuedeCambiar);
+public record PropuestaVista(int IdPropuesta, int IdProfesional, string Profesional, string? Especialidad, DateTime FechaHora, DateTime ExpiraEn, int NroPropuesta, bool PuedeCambiar, string? AvisoPreferencia = null);
 
 public record ResultadoAlAceptar(int? IdPropuesta, string? MotivoPorResolver, bool Fallo = false)
 {
@@ -348,31 +349,59 @@ public class AsignacionAutomaticaService
 
     // ───────────── Candidatos y horarios libres ─────────────
 
+    /// <summary>
+    /// Los profesionales que la asignación automática PUEDE considerar, antes de mirar su agenda: activos, de la especialidad pedida (si se pide una), y nunca Admisión (ni la matrícula ADM-001: entrevistan, no
+    /// atienden pacientes). Es la ÚNICA fuente de esta regla: la usan los candidatos de la propuesta y la lista «Profesionales que preferís» del formulario «Sobre mí».
+    /// </summary>
+    internal static List<(int Id, string Nombre, string? Especialidad, int IdEspecialidad, int Activos)> ProfesionalesBase(int? idEspecialidad)
+    {
+        var profesionales = new List<(int Id, string Nombre, string? Especialidad, int IdEspecialidad, int Activos)>();
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var cmd = new SqlCommand(@"
+            SELECT p.IdProfesional, LTRIM(RTRIM(p.Nombre + ISNULL(' ' + p.Apellido, N''))) AS Nombre, e.Nombre AS Especialidad, ISNULL(p.IdEspecialidad, 0) AS IdEspecialidad,
+                   (SELECT COUNT(*) FROM PacienteProfesional pp JOIN Paciente pa ON pa.IdPaciente = pp.IdPaciente
+                    WHERE pp.IdProfesional = p.IdProfesional AND ISNULL(pp.EstadoAsignacion, N'Confirmada') NOT IN (N'Rechazada', N'Cancelada')
+                      AND ISNULL(pa.Estado, N'Activo') <> N'Inactivo') AS Activos
+            FROM Profesional p LEFT JOIN Especialidad e ON e.IdEspecialidad = p.IdEspecialidad
+            WHERE p.Estado = N'Activo' AND (@E IS NULL OR p.IdEspecialidad = @E) AND ISNULL(p.Matricula, N'') <> N'ADM-001'
+            ORDER BY p.IdProfesional", con);
+        cmd.Parameters.AddWithValue("@E", (object?)idEspecialidad ?? DBNull.Value);
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+        {
+            var especialidad = r["Especialidad"] as string;
+            if (TextoNormalizado.Normalizar(especialidad) == "admision") continue;   // Admisión entrevista, no atiende pacientes
+            profesionales.Add(((int)r["IdProfesional"], (string)r["Nombre"], especialidad, (int)r["IdEspecialidad"], (int)r["Activos"]));
+        }
+        return profesionales;
+    }
+
+    /// <summary>¿Tiene este profesional alguna franja de atención que la asignación pueda ofrecer? Disponible, con horas, que no sea de admisión y que no haya terminado.</summary>
+    internal static bool TieneAgendaAsignable(IEnumerable<Agenda> agenda, DateTime ahora) =>
+        agenda.Any(a => a.Disponible && !a.EsAdmision && a.HoraInicio.HasValue && a.HoraFin.HasValue && (a.FechaFin is null || a.FechaFin.Value.Date >= ahora.Date));
+
+    /// <summary>
+    /// Los profesionales entre los que el paciente puede elegir en «Sobre mí»: exactamente los que la asignación automática puede proponer (activos, no Admisión, con agenda de atención vigente),
+    /// con su especialidad. Antes la lista incluía profesionales que después se ignoraban en silencio (de Admisión, o sin agenda de atención).
+    /// </summary>
+    public IReadOnlyList<ProfesionalParaElegir> ProfesionalesAsignables(DateTime? ahora = null) => Asignables(ahora ?? _reglas.Ahora, _repo);
+
+    /// <summary>Lo mismo sin una instancia del servicio (para validar lo que el paciente eligió al enviar el formulario).</summary>
+    public static IReadOnlyList<ProfesionalParaElegir> Asignables(DateTime hoy, ITurnoRepositorio repo)
+    {
+        return ProfesionalesBase(null)
+            .Where(p => TieneAgendaAsignable(repo.AgendaDe(p.Id), hoy))
+            .OrderBy(p => p.Nombre, StringComparer.CurrentCultureIgnoreCase)
+            .Select(p => new ProfesionalParaElegir(p.Id, p.Nombre, p.Especialidad, p.IdEspecialidad))
+            .ToList();
+    }
+
     /// <summary>Profesionales activos de la especialidad pedida (nunca Admisión) con sus horarios libres. Un horario libre es: franja de agenda vigente que no es de admisión, con la anticipación
     /// mínima, dentro del horizonte, sin un turno activo y sin otra propuesta pendiente de otro paciente.</summary>
     private List<CandidatoPropuesta> CargarCandidatos(int idEspecialidad, DateTime ahora, ISet<int> excluidos, ISet<(int, DateTime)> descartados, SqlConnection? conTx = null, SqlTransaction? tx = null)
     {
-        var profesionales = new List<(int Id, string Nombre, string? Especialidad, int Activos)>();
-        using (var con = Conexion.ObtenerConexion())
-        {
-            con.Open();
-            using var cmd = new SqlCommand(@"
-                SELECT p.IdProfesional, LTRIM(RTRIM(p.Nombre + ISNULL(' ' + p.Apellido, N''))) AS Nombre, e.Nombre AS Especialidad,
-                       (SELECT COUNT(*) FROM PacienteProfesional pp JOIN Paciente pa ON pa.IdPaciente = pp.IdPaciente
-                        WHERE pp.IdProfesional = p.IdProfesional AND ISNULL(pp.EstadoAsignacion, N'Confirmada') NOT IN (N'Rechazada', N'Cancelada')
-                          AND ISNULL(pa.Estado, N'Activo') <> N'Inactivo') AS Activos
-                FROM Profesional p LEFT JOIN Especialidad e ON e.IdEspecialidad = p.IdEspecialidad
-                WHERE p.Estado = N'Activo' AND p.IdEspecialidad = @E AND ISNULL(p.Matricula, N'') <> N'ADM-001'
-                ORDER BY p.IdProfesional", con);
-            cmd.Parameters.AddWithValue("@E", idEspecialidad);
-            using var r = cmd.ExecuteReader();
-            while (r.Read())
-            {
-                var especialidad = r["Especialidad"] as string;
-                if (TextoNormalizado.Normalizar(especialidad) == "admision") continue;   // Admisión entrevista, no atiende pacientes
-                profesionales.Add(((int)r["IdProfesional"], (string)r["Nombre"], especialidad, (int)r["Activos"]));
-            }
-        }
+        var profesionales = ProfesionalesBase(idEspecialidad).Select(p => (p.Id, p.Nombre, p.Especialidad, p.Activos)).ToList();
         return profesionales.Where(p => !excluidos.Contains(p.Id))
             .Select(p => new CandidatoPropuesta(p.Id, p.Nombre, p.Especialidad, p.Activos,
                 HorariosLibres(p.Id, ahora, conTx, tx).Where(h => !descartados.Contains((p.Id, h))).ToList()))
@@ -503,15 +532,36 @@ public class AsignacionAutomaticaService
     private static PropuestaVista? LeerVista(SqlConnection con, SqlTransaction? tx, string donde, params (string, object?)[] ps)
     {
         using var cmd = new SqlCommand($@"
-            SELECT pr.IdPropuesta, pr.IdProfesional, LTRIM(RTRIM(p.Nombre + ISNULL(' ' + p.Apellido, N''))) AS Profesional, e.Nombre AS Especialidad, pr.FechaHora, pr.ExpiraEn, pr.NroPropuesta
+            SELECT pr.IdPropuesta, pr.IdProfesional, LTRIM(RTRIM(p.Nombre + ISNULL(' ' + p.Apellido, N''))) AS Profesional, e.Nombre AS Especialidad, pr.FechaHora, pr.ExpiraEn, pr.NroPropuesta,
+                   pr.FechaCreacion, ia.ProfesionalesPreferidos
             FROM PropuestaAsignacion pr JOIN Profesional p ON p.IdProfesional = pr.IdProfesional LEFT JOIN Especialidad e ON e.IdEspecialidad = p.IdEspecialidad
+                 LEFT JOIN InformeAdmision ia ON ia.IdInforme = pr.IdInformeAdmision
             WHERE {donde}", con, tx);
         foreach (var (n, v) in ps) cmd.Parameters.AddWithValue(n, v ?? DBNull.Value);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
         var nro = Convert.ToInt32(r["NroPropuesta"]);
-        return new PropuestaVista((int)r["IdPropuesta"], (int)r["IdProfesional"], (string)r["Profesional"], r["Especialidad"] as string,
-            (DateTime)r["FechaHora"], (DateTime)r["ExpiraEn"], nro, nro < AsignacionAutomaticaReglas.MaxPropuestas);
+        var idProfesional = (int)r["IdProfesional"];
+        var nombre = (string)r["Profesional"];
+        var creacion = (DateTime)r["FechaCreacion"];
+        var preferidos = r["ProfesionalesPreferidos"] as string;
+        var (idPropuesta, especialidad, fechaHora, expiraEn) = ((int)r["IdPropuesta"], r["Especialidad"] as string, (DateTime)r["FechaHora"], (DateTime)r["ExpiraEn"]);
+        r.Close();   // el aviso consulta otra vez la base: se libera esta lectura antes
+        return new PropuestaVista(idPropuesta, idProfesional, nombre, especialidad, fechaHora, expiraEn, nro, nro < AsignacionAutomaticaReglas.MaxPropuestas, AvisoPreferencia(preferidos, idProfesional, nombre, creacion));
+    }
+
+    /// <summary>
+    /// Si el paciente eligió profesionales y NO se le propone ninguno de ellos, se lo decimos con una frase clara (en vez de ignorar la preferencia en silencio): o no se pueden asignar
+    /// automáticamente (Admisión, de otra especialidad o sin agenda de atención), o no tenían horarios libres. null si no tenía preferencia o se le propone uno de los elegidos.
+    /// </summary>
+    internal static string? AvisoPreferencia(string? profesionalesPreferidosJson, int idProfesionalPropuesto, string nombrePropuesto, DateTime ahora)
+    {
+        var prefs = PreferenciasDelPaciente.Desde(null, profesionalesPreferidosJson);
+        if (prefs.CualquierProfesional || prefs.IdsProfesionales.Count == 0 || prefs.IdsProfesionales.Contains(idProfesionalPropuesto)) return null;
+        var asignables = Asignables(ahora, new TurnoRepositorioDAO()).Select(p => p.IdProfesional).ToHashSet();
+        return prefs.IdsProfesionales.Any(asignables.Contains)
+            ? $"Tu profesional preferido no tenía horarios libres por ahora; te proponemos a {nombrePropuesto}."
+            : $"Tu profesional preferido no está disponible para asignación automática; te proponemos a {nombrePropuesto}.";
     }
 
     /// <summary>Los próximos horarios libres del MISMO profesional de la propuesta (hasta 10), sin el que ya se propuso.</summary>

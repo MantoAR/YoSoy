@@ -100,7 +100,7 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         { id: "email", requerido: "Ingresá tu email.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un email válido." },
         { id: "domicilio", requerido: "Ingresá la calle." },
         { id: "numero", requerido: "Ingresá el número." },
-        { id: "provincia", requerido: "Ingresá la provincia." },
+        { id: "provincia", requerido: "Ingresá la provincia.", validar: v => YS.provincias.error(v) },   // Elegí una provincia de la lista.
         { id: "usuario", requerido: "Elegí un nombre de usuario.", patron: /^[a-zA-Z0-9_.-]{3,50}$/, mensajePatron: "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." },
         { id: "pass1", requerido: "Ingresá una contraseña.", minimo: 6, mensajeMinimo: "La contraseña debe tener al menos 6 caracteres." },
         { id: "pass2", requerido: "Repetí la contraseña.",
@@ -131,7 +131,7 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         telefono: valor("telefono"),
         domicilio: valor("domicilio"),
         numero: parseInt(valor("numero")),
-        provincia: valor("provincia"),
+        provincia: YS.provincias.canonica(valor("provincia")) || valor("provincia"),   // el nombre canónico, con su tilde
         estado: "Activo",
         esMenorEdad: edad < 18,
         fechaAlta: new Date().toISOString(),
@@ -182,3 +182,9 @@ document.getElementById("formRegistro")?.addEventListener("submit", async functi
         btn.classList.remove("cargando");
     }
 });
+
+// Provincia: campo de escritura con sugerencias (shared/provincias.js), no un desplegable.
+(function () {
+    const campo = document.getElementById("provincia");
+    if (campo && window.YS && YS.provincias) YS.provincias.combo(campo);
+})();

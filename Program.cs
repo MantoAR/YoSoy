@@ -706,6 +706,8 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppSe
         return Results.BadRequest(new { mensaje = "El nombre es obligatorio." });
     if (string.IsNullOrWhiteSpace(req.Dni))
         return Results.BadRequest(new { mensaje = "El DNI es obligatorio." });
+    if (!string.IsNullOrWhiteSpace(req.Provincia) && Provincias.Canonica(req.Provincia) is null)
+        return Results.BadRequest(new { mensaje = Provincias.MensajeInvalida });
     if (string.IsNullOrWhiteSpace(req.Usuario) || !System.Text.RegularExpressions.Regex.IsMatch(req.Usuario, "^[a-zA-Z0-9_.-]{3,50}$"))
         return Results.BadRequest(new { mensaje = "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." });
     var errorContrasena = PoliticaContrasena.Validar(req.Contrasena);
@@ -2182,12 +2184,12 @@ app.MapGet("/reportes/atenciones/html", (int? idProfesional, HttpContext ctx) =>
 // PANTALLAS/Pantalla_Paciente/js/dashboard.js) — el IdPaciente es el del token, nunca el
 // que venga en el cuerpo; el Configurador puede completarlo en nombre de alguien (admisión
 // asistida), igual que ya puede un profesional crear turnos en nombre de un paciente.
-app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPost("/informes-admision", (InformeAdmision i, AsignacionService asignacion, HttpContext ctx, IdentidadActualService identidad, TimeProvider relojInforme) =>
 {
     var yo = identidad.Resolver(ctx)!;
     // Roles y permisos: la admisión asistida la hace Admisión (antes el Configurador).
     if (!yo.HaceAdmision) i.IdPaciente = yo.IdPaciente!.Value;
-    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
+    if (PrimerosPasosEndpoints.RechazarFormularioNuevo(i, relojInforme.GetLocalNow().DateTime) is { } rechazo) return rechazo;   // un solo formulario por paciente + preferencias válidas
 
     var id = new InformeAdmisionDAO().Insertar(i);
     i.IdInforme = id;
@@ -2956,6 +2958,7 @@ app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 app.MapPrimerosPasos();
+app.MapNovedadesPaciente();   // GET /pacientes/{id}/novedades: la huella barata que consulta el Inicio del paciente (Endpoints/NovedadesPacienteEndpoints.cs)
 app.MapAsignacionAutomatica();
 
 // ═══════════════════════════════════════════════════════

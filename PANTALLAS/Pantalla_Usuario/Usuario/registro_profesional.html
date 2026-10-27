@@ -90,6 +90,7 @@
     </main>
 
     <script src="../../shared/ui.js"></script>
+    <script src="../../shared/provincias.js"></script>
     <script>
         YS.api("/especialidades").then(lista => {
             const sel = document.getElementById("especialidad");
@@ -98,6 +99,9 @@
             document.getElementById("errorMsg").textContent = "No se pudieron cargar las especialidades. Recargá la página.";
             document.getElementById("errorMsg").classList.remove("oculto");
         });
+
+        // Provincia: campo de escritura con sugerencias (shared/provincias.js), no un desplegable.
+        YS.provincias.combo(document.getElementById("provincia"));
 
         function toggleOtro(select) {
             document.getElementById("campoOtro").classList.toggle("oculto", select.value !== "otro");
@@ -113,7 +117,7 @@
                 { id: "email",           requerido: "Ingresá un email válido.", patron: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, mensajePatron: "Ingresá un email válido." },
                 { id: "especialidad",    requerido: "Seleccioná tu especialidad." },
                 { id: "matricula",       requerido: "Ingresá tu número de matrícula." },
-                { id: "provincia",       requerido: "Ingresá tu provincia." },
+                { id: "provincia",       requerido: "Ingresá tu provincia.", validar: v => YS.provincias.error(v) },
                 { id: "conocio",         requerido: "Seleccioná cómo nos conociste." }
             ];
             if (document.getElementById("conocio").value === "otro")
@@ -141,7 +145,7 @@
                 fechaNacimiento: valor("fechaNacimiento"),
                 matricula:       valor("matricula"),
                 idEspecialidad:  parseInt(valor("especialidad")),
-                provincia:       valor("provincia"),
+                provincia:       YS.provincias.canonica(valor("provincia")) || valor("provincia"),
                 origenContacto:  conocio,
                 estado:          "Pendiente",
                 mail:            valor("email"),

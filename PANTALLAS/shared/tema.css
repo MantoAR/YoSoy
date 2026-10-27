@@ -781,3 +781,10 @@ body.ui-sin-scroll { overflow: hidden; }
 }
 .ys-modulo-opcion:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
 .ys-modulo-opcion.cargando { opacity: .6; pointer-events: none; }
+
+/* Combobox de provincia (shared/provincias.js): campo de escritura con sugerencias que aparecen al escribir. */
+.ui-combo { position: relative; }
+.ui-combo-lista { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; margin: 2px 0 0; padding: 4px 0; list-style: none; max-height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-strong, var(--border)); border-radius: var(--r-md); box-shadow: var(--shadow-md, 0 6px 18px rgba(0,0,0,.12)); }
+.ui-combo-lista[hidden] { display: none; }
+.ui-combo-opcion { padding: 9px 12px; cursor: pointer; font-size: var(--fs-md); min-height: 36px; display: flex; align-items: center; }
+.ui-combo-opcion:hover, .ui-combo-activa { background: var(--accent-soft, #eef0ff); }

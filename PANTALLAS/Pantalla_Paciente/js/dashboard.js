@@ -12,6 +12,7 @@ function toast(msg, tipo = "ok", duracion = 3500) {
 const idPaciente = localStorage.getItem("idPaciente");
 if (!idPaciente) window.location.href = "../index.html";
 
+let refrescoPaciente = null;   // la actualización automática (se arma al final, ver shared/refresco.js)
 let calAnio  = new Date().getFullYear();
 let calMes   = new Date().getMonth();
 let turnosCalendario = [];
@@ -45,6 +46,8 @@ function mostrarSeccion(id) {
     else if (id === "perfil")        renderPerfil(c);
     else if (id === "sesion")        renderSala(c);
     else if (id === "admision")      renderSobreMi(c);   // «Sobre mí» (primeros_pasos.js)
+    // Después de una acción propia (firmar, enviar el formulario, «Me sirve»…) la pantalla ya se redibujó: se toma la referencia nueva para no redibujarla otra vez por el mismo cambio.
+    refrescoPaciente?.sincronizar();
 }
 
 async function cerrarSesion() {
@@ -52,12 +55,14 @@ async function cerrarSesion() {
 }
 
 // ── INICIO ─────────────────────────────────────────────────
-async function renderInicio(c) {
+// silencioso: lo llama el refresco automático (shared/refresco.js) cuando cambió algo en el servidor: sin esqueleto de carga, solo se redibuja si el contenido es distinto y un error no pisa lo que ya se ve.
+let _htmlInicio = null;
+async function renderInicio(c, silencioso = false) {
     YS.shell.usuario.then(u => {
         if (YS.shell.actual === "inicio" && u.nombre)
             YS.shell.encabezado({ titulo: `Hola, ${u.nombre.split(" ")[0]}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
     });
-    c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3);
+    if (!silencioso) { c.innerHTML = YS.esqueleto.bloques(3) + YS.esqueleto.lista(3); _htmlInicio = null; }
     try {
         const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
         const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
@@ -95,13 +100,14 @@ async function renderInicio(c) {
         // primer turno y entrar a la sala son pasos de la guía); con los siete hechos, sus turnos al frente. Los pasos y el
         // botón principal los decide el servidor. Si algo no se pudo consultar, no se adivina: queda el Inicio con los turnos.
         const guia = pasos && (pasos.cerrado || pasos.hechos < pasos.total) ? pasos : null;
-        c.innerHTML = guia
+        const html = guia
             ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo)
             : inicioPacienteEnAtencion({ sala, proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
                                          tarjetaConsentimiento, profesionales: pasos?.profesional ? [pasos.profesional] : profesionales === FALLA ? [] : profesionales });
+        if (!silencioso || html !== _htmlInicio) { c.innerHTML = html; _htmlInicio = html; }   // sin parpadeos: si no cambió nada, no se toca el DOM
         programarHabilitacionDeLaSesion(guia);
     } catch {
-        c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
+        if (!silencioso) c.innerHTML = YS.errorCarga({ reintentar: "mostrarSeccion('inicio')" });
     }
 }
 
@@ -218,17 +224,7 @@ async function renderAgenda(c) {
 
     if (YS.shell.actual !== "agenda") return;
     c.innerHTML = `
-        ${profesionales.length ? `
-        <div class="card">
-            <div class="filtro-prof">
-                <label for="selProfCalendario">Ver disponibilidad de:</label>
-                <select id="selProfCalendario" class="turno-input" onchange="cambiarProfCalendario()">
-                    <option value="">— Sin filtro —</option>
-                    ${profesionales.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")}
-                </select>
-                <div id="diasAtencion" class="dias-atencion"></div>
-            </div>
-        </div>` : ""}
+        ${YS.profesionalUnico.filtroCalendario(profesionales, "selProfCalendario", { alCambiar: "cambiarProfCalendario()" })}
 
         <div class="card">
             <div class="cal-nav">
@@ -250,6 +246,8 @@ async function renderAgenda(c) {
     `;
 
     dibujarCalendario();
+    // Con un solo profesional no hay nada que elegir: queda elegido y se ve su disponibilidad en el calendario sin tocar nada.
+    if (YS.profesionalUnico.modo(profesionales) === "uno") cambiarProfCalendario();
     if (_diaAlEntrarAgenda) {   // vino de Reprogramar en Inicio (o de «Tu turno ya pasó»)
         const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null;
         await mostrarPanelDia(dia);
@@ -508,9 +506,11 @@ async function cargarProfesionalesSolicitud(fechaStr) {
         return;
     }
     const profs = await YS.fetch(`/pacientes/${idPaciente}/mis-profesionales`).then(r => r.json()).catch(() => []);
-    sel.innerHTML = profs.length
-        ? `<option value="">Seleccioná un profesional</option>` + profs.map(p => `<option value="${p.idProfesional}">${YS.esc(p.nombre)} — ${YS.esc(p.especialidad)}</option>`).join("")
-        : `<option value="">Sin profesionales asignados</option>`;
+    // Con más de uno, el selector de siempre; con uno, su tarjeta ya elegida y se siguen directo los horarios; con ninguno, un mensaje de qué hacer (shared/profesional-unico.js).
+    sel.outerHTML = YS.profesionalUnico.campoSolicitud(profs, "solProf", { alCambiar: `cargarHorasSolicitud('${fechaStr}')` });
+    const modo = YS.profesionalUnico.modo(profs);
+    if (modo === "ninguno") document.querySelector(".btn-accion.btn-guardar[onclick*='confirmarSolicitudDia']")?.setAttribute("disabled", true);
+    if (modo === "uno") cargarHorasSolicitud(fechaStr);
 }
 
 function normalizar(s) {
@@ -1066,4 +1066,22 @@ async function confirmarTurnoPaciente(idTurno) {
 // Si se leyeron desde ahí, se sacan los avisos flotantes.
 document.addEventListener("ys:avisos-leidos", () => document.getElementById("notif-container")?.remove());
 
+// ── Actualización automática (shared/refresco.js) ───────────
+// Lo que hace OTRA persona (recepción acepta el formulario, el sistema propone, el profesional acepta o rechaza) aparece solo: cada ~15 s, con la pestaña visible, se consulta una huella barata
+// (GET /pacientes/{id}/novedades) y, si cambió, se redibuja el Inicio (o el estado de «Sobre mí») y se refresca la campanita. Tras una acción propia, mostrarSeccion() vuelve a tomar la referencia.
+function refrescarSeccionActual() {
+    const c = document.getElementById("contenido");
+    if (!c) return;
+    if (YS.shell.actual === "inicio") renderInicio(c, true);
+    else if (YS.shell.actual === "admision" && !document.getElementById("formAdmision")) renderSobreMi(c);   // si está escribiendo el formulario, no se le pisa
+}
+refrescoPaciente = YS.refresco.unico("paciente", {
+    consultar: () => YS.api(`/pacientes/${idPaciente}/novedades`),
+    alCambiar: (nuevo, previo) => {
+        if (!previo || nuevo.noLeidas !== previo.noLeidas) YS.shell.campana.refrescar();
+        refrescarSeccionActual();
+    }
+});
+
 YS.shell.iniciar({ rol: "paciente", navegar: id => mostrarSeccion(id) });
+refrescoPaciente.iniciar();

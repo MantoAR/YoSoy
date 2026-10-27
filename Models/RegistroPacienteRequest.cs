@@ -4,6 +4,8 @@ public class RegistroPacienteRequest
     public string Dni { get; set; }
     public DateTime? FechaNacimiento { get; set; }
     public string Domicilio { get; set; }
+    // La provincia del formulario de registro: hoy no se guarda, pero un valor que no sea de la lista se rechaza (es un registro nuevo). Ausente = no se valida (clientes viejos).
+    public string? Provincia { get; set; }
     public string Telefono { get; set; }
     public string Mail { get; set; }
     public string Usuario { get; set; }
