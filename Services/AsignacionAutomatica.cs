@@ -43,6 +43,27 @@ public static class AsignacionAutomaticaReglas
     public const int DiasHorizonte = 30;
     /// <summary>Cuánto tiempo tiene el paciente para responder una propuesta antes de que venza.</summary>
     public const int HorasParaResponder = 48;
+    /// <summary>
+    /// Con cuántas horas de margen antes del turno propuesto se cierra la propuesta: nadie puede confirmar un horario que empieza en menos de esto. Es también la «anticipación mínima» que el servidor
+    /// vuelve a exigir al confirmar. (No es la de 24 horas de arriba, que solo decide qué horarios se PROPONEN.)
+    /// TODO-VALIDAR: lo define el equipo clínico/operativo; queda en un solo lugar.
+    /// </summary>
+    public const int HorasAntesDelTurnoParaCerrar = 2;
+
+    /// <summary>
+    /// Hasta cuándo puede responder el paciente: lo MENOR entre «creación + 48 horas» y «el horario del turno propuesto − 2 horas». Antes era solo lo primero y podía quedar DESPUÉS del turno
+    /// (turno el miércoles 08:15, «podés responder hasta el miércoles 23:16»). Es el valor que se guarda en ExpiraEn y el que ve el paciente.
+    /// </summary>
+    public static DateTime Vencimiento(DateTime creacion, DateTime turno)
+    {
+        var porPlazo = creacion.AddHours(HorasParaResponder);
+        var porTurno = turno.AddHours(-HorasAntesDelTurnoParaCerrar);
+        return porTurno < porPlazo ? porTurno : porPlazo;
+    }
+
+    /// <summary>¿Ya no se puede confirmar? Venció su plazo, o el horario quedó con menos margen del exigido antes del turno (aunque ExpiraEn, de una propuesta vieja, diga otra cosa).</summary>
+    public static bool NoSePuedeConfirmar(DateTime expiraEn, DateTime turno, DateTime ahora) =>
+        expiraEn <= ahora || turno < ahora.AddHours(HorasAntesDelTurnoParaCerrar);
 
     public const int MaxPropuestas = 3;
     public const int MaxHorariosAlternativos = 10;
@@ -297,7 +318,7 @@ public class AsignacionAutomaticaService
         cmd.Parameters.AddWithValue("@M", Cortar(motivo, 500));
         cmd.Parameters.AddWithValue("@N", (byte)nro);
         cmd.Parameters.AddWithValue("@Ahora", ahora);
-        cmd.Parameters.AddWithValue("@Expira", ahora.AddHours(AsignacionAutomaticaReglas.HorasParaResponder));
+        cmd.Parameters.AddWithValue("@Expira", AsignacionAutomaticaReglas.Vencimiento(ahora, e.Momento));
         cmd.Parameters.AddWithValue("@U", (object?)idUsuarioOrigen ?? DBNull.Value);
         try { return (int)cmd.ExecuteScalar()!; }
         catch (SqlException ex) when (ex.Number is 2601 or 2627) { return null; }   // ese horario ya tiene una propuesta pendiente, o este formulario ya tiene la suya
@@ -452,6 +473,9 @@ public class AsignacionAutomaticaService
     public ResultadoAsignacionAuto Aceptar(int idPropuesta, int idPaciente, int idUsuario, DateTime ahora)
     {
         if (!Disponible()) return NoDisponible();
+        // Si la propuesta venció (o el turno quedó sin el margen exigido) y el paciente igual la confirma, se rechaza con un mensaje claro y se arma la siguiente. Va ANTES de barrer los
+        // vencimientos: el barrido la dejaría para la recepción sin que el paciente se entere de nada.
+        if (ReponerSiVencio(idPropuesta, idPaciente, ahora) is { } reemplazo) return reemplazo;
         VencerVencidas(ahora);
         int? idTurnoCreado = null;
         ResultadoAsignacionAuto resultado;
@@ -574,6 +598,35 @@ public class AsignacionAutomaticaService
             : new(409, "horario-ocupado", "Ese horario se acaba de ocupar. " + AsignacionAutomaticaReglas.MensajeBuscando);
     }
 
+    /// <summary>
+    /// El paciente responde una propuesta que ya no se puede confirmar (venció su plazo o el turno quedó con menos margen del exigido). La propuesta pasa a «Vencida» (queda auditado), se arma
+    /// la siguiente con la misma numeración (no cuenta como rechazo del paciente) y se le dice claro. null = la propuesta sigue vigente, o no es de este paciente: sigue el camino normal.
+    /// Primero se LEE todo y recién después se escribe y se audita (la auditoría serializa las transacciones).
+    /// </summary>
+    private ResultadoAsignacionAuto? ReponerSiVencio(int idPropuesta, int idPaciente, DateTime ahora)
+    {
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var tx = con.BeginTransaction();
+        if (!Bloquear(con, tx, "YoSoy.Propuesta." + idPropuesta)) return null;
+        var p = LeerPropuesta(con, tx, idPropuesta);
+        if (p is null || p.IdPaciente != idPaciente || p.Estado != PropuestaEstado.Pendiente) return null;
+        if (!AsignacionAutomaticaReglas.NoSePuedeConfirmar(p.ExpiraEn, p.FechaHora, ahora)) return null;
+        var informe = LeerInforme(con, tx, p.IdInformeAdmision);
+        if (informe is null || informe.Estado != EstadoInforme.Aprobado) return null;   // el camino normal explica que ya no está vigente
+
+        var rechazados = ProfesionalesRechazados(con, tx, p.IdInformeAdmision);
+        var candidatos = CargarCandidatos(informe.IdEspecialidad, ahora, rechazados, new HashSet<(int, DateTime)>(), con, tx);
+        Cerrar(con, tx, p, PropuestaEstado.Vencida, ahora, "Venció antes de que el paciente la confirmara.");
+        Auditar(con, tx, null, "Venció la propuesta de asignación", p.IdInformeAdmision, $"propuesta #{p.IdPropuesta}: el paciente la respondió después de su plazo; se arma la siguiente", "paciente");
+        var nueva = ProponerSiguiente(con, tx, informe, p.NroPropuesta, p.IdUsuarioOrigen, ahora, rechazados, candidatos: candidatos);
+        PropuestaVista? vista = nueva.IdPropuesta is int id ? LeerVista(con, tx, "pr.IdPropuesta = @I", ("@I", id)) : null;
+        tx.Commit();
+        return vista is not null
+            ? new(409, "propuesta-vencida", $"Esta propuesta venció, te armamos otra: {vista.Profesional}, {AsignacionAutomaticaReglas.Cuando(vista.FechaHora)}.", vista)
+            : new(409, "propuesta-vencida", "Esta propuesta venció. " + AsignacionAutomaticaReglas.MensajeBuscando);
+    }
+
     private ResultadoAsignacionAuto Cancelar(SqlConnection con, SqlTransaction tx, PropuestaCtx p, int idPaciente, DateTime ahora, string motivo, string mensaje)
     {
         Cerrar(con, tx, p, PropuestaEstado.Cancelada, ahora, motivo);
@@ -594,6 +647,7 @@ public class AsignacionAutomaticaService
         if (tipo is not ("otro-horario" or "otro-profesional" or "ninguno"))
             return new(400, "tipo", "Elegí una opción: otro horario, otro profesional o ninguna.");
         if (tipo == "otro-horario" && fechaHora is null) return new(400, "falta-horario", "Elegí el horario que preferís.");
+        if (ReponerSiVencio(idPropuesta, idPaciente, ahora) is { } reemplazo) return reemplazo;   // mismo criterio que al confirmar
         VencerVencidas(ahora);
 
         using var con = Conexion.ObtenerConexion();
