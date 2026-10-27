@@ -215,6 +215,9 @@ public class AsignacionAutomaticaService
             if (informe is null) return new(null, null);
             if (PendienteDe(con, tx, idInforme) is int existente) return new(existente, null);
 
+            // Un paciente derivado a psiquiatría no recibe propuestas (migración 34): queda para que la recepción lo resuelva.
+            if (DerivacionPsiquiatraDAO.EstaDerivadoEn(con, tx, idPaciente))
+                return PorResolver(con, tx, informe, idUsuario, ahora, DerivacionPsiquiatraReglas.MensajeBloqueo);
             var consentimiento = ConsentimientoTratamiento.Estado(idPaciente, _consentimiento.CurrentValue, ahora);
             if (!consentimiento.Vigente)
                 return PorResolver(con, tx, informe, idUsuario, ahora, MotivoPorConsentimiento(consentimiento.Motivo));
@@ -472,6 +475,16 @@ public class AsignacionAutomaticaService
             if (informe is null || informe.Estado != EstadoInforme.Aprobado)
                 return Cancelar(con, tx, p, idPaciente, ahora, "El formulario ya no está esperando asignación.", "Esta propuesta ya no está vigente: la recepción ya resolvió tu asignación.");
 
+            // Si lo derivaron a psiquiatría mientras tanto, no se le asigna nada: se cancela la propuesta y lo resuelve la recepción.
+            if (DerivacionPsiquiatraDAO.EstaDerivadoEn(con, tx, idPaciente))
+            {
+                Cerrar(con, tx, p, PropuestaEstado.Cancelada, ahora, "El paciente fue derivado.");
+                Auditar(con, tx, idUsuario, "Se canceló la propuesta de asignación", p.IdInformeAdmision, $"propuesta #{p.IdPropuesta}: el paciente figura derivado", "paciente");
+                PorResolver(con, tx, informe, idUsuario, ahora, DerivacionPsiquiatraReglas.MensajeBloqueo);
+                tx.Commit();
+                return new(409, DerivacionPsiquiatraReglas.CodigoBloqueo, DerivacionPsiquiatraReglas.MensajeBloqueo);
+            }
+
             // El consentimiento tiene que seguir vigente: si lo revocó o venció mientras tanto, no se asigna (la recepción retoma el caso cuando vuelva a firmar).
             var consentimiento = ConsentimientoTratamiento.Estado(idPaciente, _consentimiento.CurrentValue, ahora);
             if (!consentimiento.Vigente)
@@ -687,6 +700,12 @@ public class AsignacionAutomaticaService
         if (maxNro >= AsignacionAutomaticaReglas.MaxPropuestas)
             return new(409, "sin-propuestas", "Ya se hicieron las tres propuestas. Asignale un profesional a mano.");
 
+        if (DerivacionPsiquiatraDAO.EstaDerivadoEn(con, tx, informe.IdPaciente))
+        {
+            PorResolver(con, tx, informe, idUsuario, ahora, DerivacionPsiquiatraReglas.MensajeBloqueo);
+            tx.Commit();
+            return new(409, DerivacionPsiquiatraReglas.CodigoBloqueo, DerivacionPsiquiatraReglas.MensajeBloqueo);
+        }
         var consentimiento = ConsentimientoTratamiento.Estado(informe.IdPaciente, _consentimiento.CurrentValue, ahora);
         if (!consentimiento.Vigente)
         {

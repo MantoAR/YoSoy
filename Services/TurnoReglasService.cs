@@ -156,8 +156,27 @@ public class TurnoReglasService
         return null;
     }
 
+    /// <summary>
+    /// Un paciente derivado a psiquiatría no puede reservar ni recibir turnos con este equipo, por NINGÚN camino. La regla vive acá y la usan todos: pedir turno (paciente, link público, bot,
+    /// recepción, profesional), cita urgente, reprogramar y la asignación automática.
+    /// </summary>
+    public ResultadoRegla ValidarPacienteNoDerivado(int idPaciente) =>
+        _repo.PacienteDerivado(idPaciente)
+            ? ResultadoRegla.Falla(DerivacionPsiquiatraReglas.CodigoBloqueo, DerivacionPsiquiatraReglas.MensajeBloqueo)
+            : ResultadoRegla.Valido;
+
+    /// <summary>Reprogramar un turno (cambiar día, hora o profesional) es recibir un turno nuevo: un paciente derivado no puede. Editar otros datos o cancelar no se frena.</summary>
+    public ResultadoRegla ValidarReprogramacion(Turno? anterior, Turno nuevo)
+    {
+        if (anterior is null) return ResultadoRegla.Valido;
+        var cambia = anterior.Fecha.Date != nuevo.Fecha.Date || anterior.Hora != nuevo.Hora || anterior.IdProfesional != nuevo.IdProfesional;
+        return cambia ? ValidarPacienteNoDerivado(anterior.IdPaciente) : ResultadoRegla.Valido;
+    }
+
     public ResultadoRegla ValidarSolicitud(int idPaciente, int idProfesional, DateTime momento)
     {
+        var derivado = ValidarPacienteNoDerivado(idPaciente);
+        if (!derivado.Ok) return derivado;
         var ahora = Ahora;
 
         // RN-01: en el futuro y dentro de una franja de agenda, alineado al intervalo.
@@ -214,6 +233,8 @@ public class TurnoReglasService
     /// </summary>
     public ResultadoSolicitud SolicitarUrgente(int idPaciente, int idProfesional, DateTime momento, string? motivo)
     {
+        var derivado = ValidarPacienteNoDerivado(idPaciente);
+        if (!derivado.Ok) return new ResultadoSolicitud(derivado, null);
         var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, "profesional");
         return id is null
             ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-07", "Ya hay un turno activo para ese profesional y paciente ese día, o el horario está ocupado."), null)

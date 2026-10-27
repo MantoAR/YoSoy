@@ -1238,6 +1238,8 @@ app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador, Tur
     t.IdTurno = id;
     var rn02 = reglas.ValidarCambioDeEstado(anterior, t);
     if (!rn02.Ok) return rn02.ComoConflicto();
+    var reprogramacion = reglas.ValidarReprogramacion(anterior, t);   // un paciente derivado a psiquiatría no puede recibir un turno nuevo
+    if (!reprogramacion.Ok) return reprogramacion.ComoConflicto();
     new TurnoDAO().Modificar(t);
     notificador.CambioDeEstado(id, anterior.IdEstadoTurno);
     return Results.Ok(t);
@@ -2574,24 +2576,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     // ni crea la historia clínica, y no hubo ninguna entrevista que registrar.
     if (estado != EstadoInforme.Aprobado)
     {
-    var cmdEvo = new Microsoft.Data.SqlClient.SqlCommand(@"
-        DECLARE @IdHistoria INT = (SELECT TOP 1 IdHistoria FROM HistoriaClinica WHERE IdPaciente = @IdPac);
-        IF @IdHistoria IS NULL
-        BEGIN
-            INSERT INTO HistoriaClinica (IdPaciente, FechaApertura) VALUES (@IdPac, GETDATE());
-            SET @IdHistoria = SCOPE_IDENTITY();
-        END
-        DECLARE @IdAdm INT = (SELECT TOP 1 IdProfesional FROM Profesional WHERE Matricula = 'ADM-001');
-        DECLARE @NombreProf NVARCHAR(200) = (SELECT TOP 1 Nombre + ' ' + ISNULL(Apellido,'') FROM Profesional WHERE IdProfesional = @IdProf);
-        IF @IdAdm IS NOT NULL
-            INSERT INTO Evolucion (IdHistoria, IdProfesional, Fecha, Diagnostico, Observaciones, PlanTratamiento, TipoCierre)
-            VALUES (@IdHistoria, @IdAdm, GETDATE(), 'Evaluacion de admision',
-                    ISNULL(@Obs, 'Entrevista de admision realizada.'),
-                    'Derivado a: ' + ISNULL(@NombreProf, ''), N'Derivación')", con);
-    cmdEvo.Parameters.AddWithValue("@IdPac", idPac);
-    cmdEvo.Parameters.AddWithValue("@IdProf", req.IdProfesional);
-    cmdEvo.Parameters.AddWithValue("@Obs", (object)req.Observaciones ?? DBNull.Value);
-    cmdEvo.ExecuteNonQuery();
+    PrimeraEvolucionAdmision.Insertar(con, idPac, req.IdProfesional, req.Observaciones);
     }
 
     // Sincroniza el Caso de esta admisión (Fase 2, aditivo): no cambia nada de lo de
@@ -2932,6 +2917,7 @@ app.MapConsentimiento();
 app.MapCasos();
 app.MapCierreSesion();
 app.MapAltaDerivacion();
+app.MapDerivacionPsiquiatra();
 app.MapVideo();
 app.MapConsentimientoVideo();
 app.MapAceptacionVideollamada();

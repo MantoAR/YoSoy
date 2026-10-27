@@ -21,10 +21,15 @@ public interface ITurnoRepositorio
     // (los dobles de prueba y las bases sin la migración 32 no cambian de comportamiento).
     List<TimeSpan> HorasReservadasPorPropuestas(int idProfesional, DateTime fecha, int? idPacienteAExcluir, DateTime ahora) => new();
     void VencerPropuestas(DateTime ahora) { }
+
+    // Paciente derivado a psiquiatría (migración 34): no puede reservar ni recibir turnos. Por defecto nadie lo está (dobles de prueba y bases sin la migración).
+    bool PacienteDerivado(int idPaciente) => false;
 }
 
 public class TurnoRepositorioDAO : ITurnoRepositorio
 {
+    public bool PacienteDerivado(int idPaciente) => DerivacionPsiquiatraDAO.EstaDerivado(idPaciente);
+
     public List<Agenda> AgendaDe(int idProfesional) =>
         new AgendaDAO().ObtenerPorProfesional(idProfesional);
 

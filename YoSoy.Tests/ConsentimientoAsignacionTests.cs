@@ -137,11 +137,11 @@ public class ConsentimientoAsignacionTests : IDisposable
         Assert.Equal(0, Vinculos(pac));
         Assert.Equal(1, Avisos(pac));
 
-        // Ya firmado, el consentimiento deja de bloquear. (Lo que sigue de «derivar» falla HOY en cualquier base, con o sin consentimiento: la consulta que escribe la primera evolución usa la
-        // columna Evolucion.TipoCierre, que ninguna migración crea. Es un defecto anterior a esta tarea, anotado en el reporte; acá solo se prueba que el rechazo por consentimiento desaparece.)
+        // Ya firmado, el consentimiento deja de bloquear. (Antes de la migración 33, lo que sigue de «derivar» fallaba en cualquier base: la consulta que escribía la primera evolución usaba la
+        // columna Evolucion.TipoCierre, que ninguna migración creaba. Ya está arreglado.)
         _d.ConsentimientoFirmado(pac);
         var derivada = await admision.PutAsJsonAsync($"/informes-admision/{informe}/derivar", new { idProfesional = prof, observaciones = "ficticia" });
-        Assert.NotEqual(HttpStatusCode.Conflict, derivada.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, derivada.StatusCode);   // desde la migración 33 (y también sin ella: ver Migracion33Tests) deriva sin el 500 de Evolucion.TipoCierre
         Assert.DoesNotContain("consentimiento-pendiente", await derivada.Content.ReadAsStringAsync());
     }
 
