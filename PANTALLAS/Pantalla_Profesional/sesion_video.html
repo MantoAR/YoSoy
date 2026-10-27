@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="../shared/tema.css">
+    <link rel="stylesheet" href="../shared/sala.css">
     <script src="face-api.min.js"></script>
     <style>
         /* Propio de esta página; colores y tipografía salen de ../shared/tema.css */
@@ -27,11 +28,10 @@
 
         /* Video */
         .video-principal { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
-        .video-principal video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-principal > video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .video-principal canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .emo-live { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,.65); color: #fff; font-size: var(--fs-lg); padding: 6px 12px; border-radius: var(--r-md); font-weight: 500; }
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
-        .mini-video { width: 100%; border-radius: var(--r-md); margin-top: 8px; height: 90px; object-fit: cover; background: #111; }
 
         /* Panel derecho */
         .panel { display: flex; flex-direction: column; gap: 8px; }
@@ -202,13 +202,13 @@
         <div class="main-grid">
             <!-- VIDEO PACIENTE + ANÁLISIS -->
             <div>
-                <div class="video-principal">
+                <div class="video-principal sala-marco" id="marco-sala">
                     <video id="vid-paciente" autoplay playsinline></video>
                     <canvas id="overlay"></canvas>
                     <div class="emo-live" id="emo-live">😐 Esperando...</div>
                     <span class="video-label">Paciente</span>
                 </div>
-                <video id="vid-propio" autoplay playsinline muted class="mini-video"></video>
+                <video id="vid-propio" autoplay playsinline muted></video>   <!-- la escena (shared/video.js) lo pasa a la miniatura «Vos» dentro del recuadro principal -->
             </div>
 
             <!-- PANEL ANÁLISIS -->
@@ -477,6 +477,7 @@ const EMOCIONES = {
     disgusted: { label:'Disgusto',  color:'#D4537E', emoji:'🤢' }
 };
 
+let escenaSala = null;   // la escena de la sala (shared/video.js): video del paciente, miniatura propia y estados
 let control, stream, detectionTimer, timerInterval, sessionStart;   // control: lo que devuelve YS.video.entrar
 // La lectura de emociones solo corre con el consentimiento vigente del paciente, y la autoridad es la API: YS.emociones
 // pregunta cada pocos segundos, frena si no hay permiso (o no contesta) y descarta lo acumulado si el paciente revoca.
@@ -680,7 +681,9 @@ async function entrarASala() {
     document.getElementById('pantalla-conexion').classList.add('oculto');
     document.getElementById('pantalla-sesion').classList.remove('oculto');
     estadoTxt.textContent = 'Esperando al paciente...';
-    document.getElementById('vid-propio').srcObject = stream;
+    // La escena de la sala: video del paciente grande, el propio en miniatura («Vos») y un estado claro mientras el paciente no llega o si no hay cámara.
+    escenaSala = YS.video.escena({ marco: document.getElementById('marco-sala'), principal: document.getElementById('vid-paciente'), propio: document.getElementById('vid-propio'), textoEspera: 'Esperando al paciente…' });
+    escenaSala.usarStream(stream);
 
     // 2b. Consentimiento de la lectura de emociones: desde acá se le pregunta a la API si el paciente la aceptó. Hasta que
     // diga que sí (y mientras lo siga diciendo) no se analiza ni se acumula nada.
@@ -700,6 +703,7 @@ async function entrarASala() {
         alVideoRemoto: s => {
             const vidPaciente = document.getElementById('vid-paciente');
             vidPaciente.srcObject = s;
+            escenaSala?.otroConectado(true);
             // Esto llega una vez por conexión (y de nuevo si el paciente vuelve a entrar): el video cambia, pero el
             // análisis y el reloj de la sesión arrancan una sola vez.
             if (sessionStart) return;
@@ -709,7 +713,7 @@ async function entrarASala() {
             iniciarTimer();
         },
         alConectado: () => { estadoTxt.textContent = '🟢 Sesión activa'; },
-        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El paciente salió de la sala. Si vuelve, la llamada sigue sola.'; },
+        alOtroSeFue: () => { escenaSala?.otroConectado(false); estadoTxt.textContent = '⚠ El paciente salió de la sala. Si vuelve, la llamada sigue sola.'; },
         alLlamadaTerminada: () => llamadaTerminadaPorElPaciente(),
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
         alRecuperar: () => { estadoTxt.textContent = 'Esperando al paciente...'; },

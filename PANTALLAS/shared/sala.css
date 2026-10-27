@@ -1,0 +1,68 @@
+/* La escena de la sala de video: la MISMA para el profesional y el paciente (la arma YS.video.escena, shared/video.js).
+   · El video del otro participante ocupa el recuadro principal.
+   · El propio es una miniatura flotante (picture-in-picture) en la esquina inferior derecha: ~200 px, 4:3, espejada, con la etiqueta «Vos». Nunca una tira de ancho completo.
+   · Mientras el otro no llegó, el recuadro no queda negro: «Esperando…» sobre fondo neutro y la cámara propia se ve grande.
+   · Sin cámara: ícono y «Sin cámara», nunca una caja negra. */
+
+.sala-marco {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh;
+    background: var(--surface-2, #eef0f3); border-radius: var(--r-lg, 12px); overflow: hidden;
+    color: var(--text, #1b1f24);
+}
+.sala-marco > .sala-principal { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: var(--surface-2, #eef0f3); }
+
+/* La etiqueta del otro participante y el análisis en vivo quedan arriba/izquierda; la miniatura va abajo a la derecha, así no se tapan. */
+.sala-marco .video-label { z-index: 3; }
+.sala-marco .emo-live { z-index: 3; }
+.sala-marco canvas { z-index: 2; }
+
+/* Miniatura propia */
+.sala-propio {
+    position: absolute; right: 12px; bottom: 12px; z-index: 4;
+    width: min(200px, 34%); aspect-ratio: 4 / 3;
+    border-radius: var(--r-md, 10px); overflow: hidden; background: #1c2128;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .35); border: 2px solid rgba(255, 255, 255, .85);
+    transition: inset .2s ease, width .2s ease;
+}
+.sala-propio-video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }   /* espejada */
+.sala-propio-etiqueta {
+    position: absolute; left: 6px; bottom: 6px; z-index: 2;
+    background: rgba(0, 0, 0, .6); color: #fff; font-size: var(--fs-sm, 12px); padding: 1px 7px; border-radius: var(--r-sm, 6px);
+}
+
+/* Sin cámara: se muestra solo cuando no hay video propio */
+.sala-sin-camara {
+    position: absolute; inset: 0; z-index: 1; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    background: #2a313a; color: #e8ecf1; text-align: center; font-size: var(--fs-sm, 12px);
+}
+.sala-sin-camara-icono { font-size: 1.6em; line-height: 1; opacity: .85; position: relative; }
+.sala-sin-camara-icono::after { content: ""; position: absolute; left: -10%; right: -10%; top: 50%; border-top: 2px solid #e8ecf1; transform: rotate(-35deg); }
+.sala--sin-camara .sala-sin-camara { display: flex; }
+.sala--sin-camara .sala-propio-video { visibility: hidden; }
+
+/* Esperando al otro: el recuadro principal es un estado, no una caja negra */
+.sala-espera {
+    position: absolute; left: 0; right: 0; top: 0; z-index: 2; display: none;
+    flex-direction: column; align-items: center; gap: 2px; padding: 12px 16px; text-align: center;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, .55), rgba(0, 0, 0, 0)); color: #fff;
+}
+.sala-espera-titulo { font-size: var(--fs-lg, 16px); font-weight: 600; }
+.sala-espera-nota { font-size: var(--fs-sm, 12px); opacity: .9; }
+.sala--esperando .sala-espera { display: flex; }
+.sala--esperando > .sala-principal { visibility: hidden; }                 /* sin video del otro no se dibuja un rectángulo negro */
+.sala--esperando .emo-live, .sala--esperando canvas, .sala--esperando > .video-label { display: none; }
+
+/* En la espera, la cámara propia llena el recuadro (grande). Al conectarse el otro, vuelve a ser miniatura. */
+.sala--esperando .sala-propio { inset: 0; width: 100%; max-width: none; aspect-ratio: auto; border: 0; border-radius: 0; box-shadow: none; z-index: 1; }
+.sala--esperando.sala--sin-camara .sala-propio { background: var(--surface-2, #eef0f3); }
+.sala--esperando .sala-sin-camara { background: var(--surface-2, #eef0f3); color: var(--text-2, #4a5461); font-size: var(--fs-md, 14px); }
+.sala--esperando .sala-sin-camara-icono { font-size: 3em; }
+.sala--esperando .sala-sin-camara-icono::after { border-top-color: var(--text-2, #4a5461); }
+.sala--esperando.sala--sin-camara .sala-espera { background: none; color: var(--text, #1b1f24); top: 14%; }
+.sala--esperando .sala-propio-etiqueta { left: 12px; bottom: 12px; }
+
+@media (max-width: 760px) {
+    .sala-marco { max-height: 56vh; }
+    .sala-propio { width: min(140px, 38%); right: 8px; bottom: 8px; }
+}

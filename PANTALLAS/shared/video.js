@@ -507,8 +507,68 @@
         };
     }
 
+    // ── La escena de la sala (la misma para el profesional y para el paciente) ──
+    // El video del otro participante ocupa el recuadro principal; el propio es una miniatura flotante (picture-in-picture) en la esquina inferior derecha, espejada, 4:3, con la etiqueta «Vos».
+    // Mientras el otro todavía no está, el recuadro NO queda negro: dice «Esperando…» sobre un fondo neutro y la cámara propia se ve grande. Sin cámara (permiso denegado, cámara apagada o
+    // en uso por otro programa) la miniatura dice «Sin cámara» con un ícono, nunca una caja negra. Los estilos están en shared/sala.css.
+
+    /** 'activa' si el stream tiene una pista de video viva y encendida; 'sin-camara' en cualquier otro caso (sin stream, sin pista, apagada o terminada). */
+    function estadoDeCamara(stream) {
+        const pistas = stream && stream.getVideoTracks ? stream.getVideoTracks() : [];
+        return pistas.some(p => p.readyState !== "ended" && p.enabled !== false && p.muted !== true) ? "activa" : "sin-camara";
+    }
+
+    /** Las clases de estado del marco, en función de si el otro participante está y de si hay cámara propia. Pura: se prueba sin navegador. */
+    function clasesDeEscena({ otroPresente, camara }) {
+        return ["sala-marco", otroPresente ? "sala--conectada" : "sala--esperando", camara === "activa" ? "sala--con-camara" : "sala--sin-camara"];
+    }
+
+    /**
+     * Arma la escena sobre un recuadro que ya tiene el video del otro (principal) y el propio (propio, muted).
+     * opciones: { marco, principal, propio, textoEspera: "Esperando al paciente…" }. Devuelve { usarStream(stream), otroConectado(bool), estado() }.
+     */
+    function escena({ marco, principal, propio, textoEspera }) {
+        const el = (etiqueta, clase, texto) => { const e = document.createElement(etiqueta); e.className = clase; if (texto) e.textContent = texto; return e; };
+        principal.classList.add("sala-principal");
+        propio.classList.add("sala-propio-video");
+
+        const espera = el("div", "sala-espera");
+        espera.setAttribute("role", "status");
+        espera.append(el("div", "sala-espera-titulo", textoEspera || "Esperando…"), el("div", "sala-espera-nota", "Cuando llegue, la llamada se conecta sola."));
+
+        const miniatura = el("div", "sala-propio");
+        const sinCamara = el("div", "sala-sin-camara");
+        const icono = el("span", "sala-sin-camara-icono", "\u{1F4F7}");
+        icono.setAttribute("aria-hidden", "true");
+        sinCamara.append(icono, el("span", "sala-sin-camara-texto", "Sin cámara"));
+        miniatura.append(propio, sinCamara, el("span", "sala-propio-etiqueta", "Vos"));
+        marco.append(espera, miniatura);
+
+        let otroPresente = false, camara = "sin-camara", stream = null;
+        const pintar = () => {
+            for (const c of ["sala--conectada", "sala--esperando", "sala--con-camara", "sala--sin-camara"]) marco.classList.remove(c);
+            clasesDeEscena({ otroPresente, camara }).forEach(c => marco.classList.add(c));
+        };
+        const revisarCamara = () => { camara = estadoDeCamara(stream); pintar(); };
+        pintar();
+
+        return {
+            usarStream(nuevo) {
+                stream = nuevo;
+                propio.srcObject = nuevo;
+                const pistas = nuevo && nuevo.getVideoTracks ? nuevo.getVideoTracks() : [];
+                // Si la cámara se apaga o se desconecta a mitad de la llamada, la miniatura pasa a «Sin cámara» sola.
+                pistas.forEach(p => { p.addEventListener("ended", revisarCamara); p.addEventListener("mute", revisarCamara); p.addEventListener("unmute", revisarCamara); });
+                revisarCamara();
+            },
+            otroConectado(presente) { otroPresente = !!presente; pintar(); },
+            estado() { return { otroPresente, camara }; }
+        };
+    }
+
     YS.video = {
         SIGNAL, FLAGS, mensajeMedios, conexionActiva,
-        sesionDeCodigo, sesionDeLaUrl, mensajeAcceso, pedirAcceso, entrar
+        sesionDeCodigo, sesionDeLaUrl, mensajeAcceso, pedirAcceso, entrar,
+        estadoDeCamara, clasesDeEscena, escena
     };
 })();
