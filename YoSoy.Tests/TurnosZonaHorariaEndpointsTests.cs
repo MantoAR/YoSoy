@@ -414,7 +414,8 @@ public class ProximoTurnoZonaHorariaIntegrationTests : IDisposable
     [Fact]
     public async Task El_endpoint_usa_el_dia_de_la_clinica_y_no_el_de_UTC()
     {
-        var delDia3 = Turno(new DateTime(2031, 3, 3), new TimeSpan(10, 0, 0), _idPendiente);
+        // A las 23:45 del día 3 todavía no pasó (para la clínica son las 23:30): un turno que ya pasó no es «el próximo».
+        var delDia3 = Turno(new DateTime(2031, 3, 3), new TimeSpan(23, 45, 0), _idPendiente);
         Turno(new DateTime(2031, 3, 4), new TimeSpan(10, 0, 0), _idPendiente);
         using var app = new TurnosApp(new DateTime(2031, 3, 4, 2, 30, 0));
 
