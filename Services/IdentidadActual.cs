@@ -32,6 +32,13 @@ public record Identidad(int IdUsuario, string Rol, int? IdPaciente, int? IdProfe
     // Roles y permisos: los dos privilegios que cambian lo que se puede hacer (ver Politicas.cs).
     public bool HaceAdmision => EsProfesional && TienePrivilegio(global::Privilegios.Admision);
     public bool GestionaAgendas => EsCrm && TienePrivilegio(global::Privilegios.GestionAgendas);
+    // Migración 36: la Recepcionista (admisionista) revisa los formularios «Sobre mí» y asigna solo con el privilegio Admisión;
+    // nunca ve la historia clínica (eso sigue siendo solo HaceAdmision, del profesional).
+    public bool RecepcionAdmision => EsCrm && TienePrivilegio(global::Privilegios.Admision);
+    // Migración 36: la entrevista de admisión por video es opcional y solo la ofrece un profesional con este privilegio.
+    public bool OfreceEntrevistaVideo => EsProfesional && TienePrivilegio(global::Privilegios.EntrevistaVideo);
+    // Migración 37: la Recepcionista con «Gestión de pacientes» ve pacientes y turnos (sin la historia clínica) y marca Ausente o cancela.
+    public bool GestionaPacientes => EsCrm && TienePrivilegio(global::Privilegios.GestionPacientes);
 }
 
 // Mismos 3 valores, en minúscula, que ya devuelve POST /login en el campo "rol" (contrato

@@ -35,6 +35,8 @@
 .estado-2 { color: var(--ok);      background: var(--ok-bg);      border-color: var(--ok-border); }
 .estado-3 { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 .estado-4 { color: var(--info);    background: var(--info-bg);    border-color: var(--info-border); }
+/* Migración 26: inasistencia registrada por el profesional */
+.estado-ausente { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
 .estado-propuesto, .bloque-turno.propuesto { color: var(--accent-strong); background: var(--accent-soft); border-color: var(--accent-border); }
 .badge-disponible.si { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-border); }
 .badge-disponible.no { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
@@ -385,3 +387,6 @@ button.horarios-cal-dia { cursor: pointer; }
 .horarios-cal-dia--propuesta { background: var(--ok-solid); color: #fff; }
 .horarios-hora--propuesta { background: var(--ok-solid); border-color: var(--ok-solid); color: #fff; font-weight: 600; }
 .horario-muestra--propuesta { background: var(--ok-solid); border-color: var(--ok-solid); }
+/* Asistencia (rama AAA1, migración 37): tarjeta de Inicio con esperando conexión, ausentes y posible abandono */
+.asistencia-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.asistencia-fila:last-child { border-bottom: 0; }

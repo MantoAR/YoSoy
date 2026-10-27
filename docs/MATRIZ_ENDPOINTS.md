@@ -651,3 +651,85 @@ slug no existe o si el link está apagado (nunca se revela cuál de las dos cosa
   `AccesoSalaServiceTests`, `TurnCredentialsServiceTests` (vectores HMAC-SHA1 calculados aparte), `TokenSalaServiceTests`,
   `VideoInteropNodeTests` (el token de la API verificado con `signaling-server/token.js`) y `VideoBaseRealTests`
   (base real). Detalle en `docs/VIDEOLLAMADAS.md`.
+
+## Asistencia: llegada tarde, inasistencia, cobro y abandono (rama AAA1, migración 37)
+
+Reunión con la Lic. Villalón (26/10) y decisiones del 27/10: a los 15 minutos el turno **no** pasa solo a Ausente, lo marca una persona; el profesional puede siempre, la Recepcionista solo con el privilegio nuevo **Gestión de pacientes** (`gestion_pacientes`, `Quien.GestionPacientes`), que le muestra pacientes y turnos y nunca la historia clínica. El abandono lo confirma el profesional tratante o el auditor. Parámetros de la organización: aviso 5 min, tolerancia 15, 24 hs para cancelar sin cargo, alerta con 2 ausencias seguidas, abandono sugerido con 3. Código: `Endpoints/AsistenciaEndpoints.cs`, reglas puras en `Services/AsistenciaReglas.cs` (pruebas: `YoSoy.Tests/AsistenciaReglasTests.cs`).
+
+| Método | Ruta | Quién | Qué hace |
+|---|---|---|---|
+| GET | `/asistencia/parametros` | Profesional, CRM o Configurador | Los cinco parámetros |
+| PUT | `/asistencia/parametros` | Configurador | Valida y guarda; auditoría administrativa |
+| GET | `/asistencia/turnos?fecha=&todos=` | Profesional (los suyos; el auditor todos con `todos=true`) o CRM con Gestión de pacientes (todos) | Turnos del día con ingreso a la sala (de `AceptacionVideollamada`), demora, `esperandoConexion`, `puedeMarcarAusente` y cobro |
+| PUT | `/turnos/{id}/inasistencia` | Profesional del turno o CRM con Gestión de pacientes | Confirmado → `Ausente` pasada la tolerancia y si el paciente no entró a la sala. Queda `Cobrable`. Auditoría clínica |
+| DELETE | `/turnos/{id}/inasistencia` | Ídem | `Ausente` → `Confirmado` (corrección; borra la marca de cobro) |
+| PUT | `/turnos/{id}/cobro` | Profesional del turno | `{ cobrable, motivo }`: sin cargo por fuerza mayor (motivo obligatorio) |
+| PUT | `/turnos/{id}/cancelar` | (el de siempre) | Ahora deja quién y cuándo, y `Cobrable` si cancela el paciente (o la recepción con `?porPaciente=true`) con menos de 24 hs. **Un paciente solo cancela sus turnos** (antes podía cancelar cualquiera) |
+| GET | `/asistencia/alertas` | Profesional (los suyos; el auditor, todos) o CRM con Gestión de pacientes | Pares paciente-profesional con 2 o más ausencias seguidas, sin abandono confirmado, con el último contacto |
+| POST | `/pacientes/{id}/seguimiento-asistencia` | Profesional que lo atiende, auditor o CRM con Gestión de pacientes | `{ resultado: Sigue\|Pausa\|No responde\|Otro, nota, idProfesional }` |
+| POST | `/pacientes/{id}/abandono` | Profesional tratante o auditor | `{ idProfesional, motivo }`. Cancela sus turnos futuros con ese profesional y le avisa al paciente. De solo agregar (error 50030) |
+| GET | `/pacientes/{id}/asistencia-resumen` | Profesional que lo atiende, auditor o CRM con Gestión de pacientes | Para el aviso de la historia clínica |
+
+Además, `Services/AsistenciaAvisosService.cs` deja al paciente «Te estamos esperando» (una vez por turno) entre los minutos 5 y 15 si no entró a la sala; `Asistencia:AvisosHabilitados=false` lo apaga.
+
+## Admisión: privilegio de la Recepcionista y entrevista por video opcional (rama AAA1, migración 36)
+
+| Método | Ruta | Antes | Ahora |
+| --- | --- | --- | --- |
+| GET | `/informes-admision-detalle` | Admisión, auditor o **cualquier** CRM | Admisión, auditor o CRM **con el privilegio Admisión** |
+| PUT | `/informes-admision/{id}/aceptar` · `/devolver` · `/otro-recurso` | Admisión o cualquier CRM | Admisión o CRM con Admisión |
+| PUT | `/informes-admision/{id}/derivar` | Admisión o cualquier CRM | Admisión o CRM con Admisión |
+| POST | `/informes-admision/{id}/proponer-asignacion` | Admisión o cualquier CRM | Admisión o CRM con Admisión |
+| GET | `/pacientes/{id}/primeros-pasos` · `/profesionales/elegibles` | incluía cualquier CRM | CRM con Admisión |
+| PUT | `/informes-admision/{id}/entrevista` | Profesional con Admisión | **Profesional con el privilegio Entrevista de admisión por video** (opcional) |
+
+La recepcionista con Admisión nunca ve la historia clínica: `Quien.Admision` (y `AutorizacionClinica`) siguen siendo solo del profesional.
+
+## Configuración › Especialidades (rama AAA1, migración 34)
+
+El catálogo lo administra el Configurador. Las activas de tipo `Especialidad` son las que ofrece `GET /usuarios/equipo/opciones` al registrar un profesional. Todo cambio va a la auditoría administrativa. Los `GET /especialidades` de siempre no cambian.
+
+| Método | Ruta | Quién | Notas |
+| --- | --- | --- | --- |
+| GET | `/especialidades/catalogo` | Configurador | Todas, con disciplina, tipo, estado y en cuántos registros se usan |
+| POST | `/especialidades/catalogo` | Configurador | `{ nombre, disciplina, tipo, requiereMatriculaEspecialista }`. 409 si el nombre ya existe (sin distinguir tildes ni mayúsculas) |
+| PUT | `/especialidades/catalogo/{id}` | Configurador | Los mismos datos. Audita qué cambió |
+| PUT | `/especialidades/catalogo/{id}/estado` | Configurador | `{ activa }`: dar de baja o reactivar |
+| DELETE | `/especialidades/catalogo/{id}` | Configurador | Solo si nunca se usó; si se usó, 409 y se da de baja (se conserva con qué especialidad atendió cada profesional) |
+
+## Agenda y matrícula (rama AAA1, migración 33)
+
+Todo exige sesión; ninguno es público. Sin datos clínicos, salvo la inasistencia: es un hecho de la atención de un paciente, así que va a la auditoría **clínica**. El resto va a la **administrativa**. Código: `Endpoints/AgendaEndpoints.cs`. Guía de prueba: `docs/PRUEBA_AGENDA_MATRICULA.md`.
+
+| Método | Ruta | Quién | Qué hace |
+|---|---|---|---|
+| GET | `/feriados?anio=` | Cualquiera con sesión | Feriados activos del año |
+| POST | `/feriados` | Configurador | `{ fecha: "AAAA-MM-DD", nombre }`. 409 si ya hay uno esa fecha |
+| DELETE | `/feriados/{id}` | Configurador | Baja lógica (`Activo = 0`) |
+| GET | `/profesionales/yo/feriados` | Profesional | Próximos 12 meses, con la marca `trabajo` |
+| PUT | `/profesionales/yo/feriados/{id}` | Profesional | `{ trabajo }`: "trabajo este feriado". 409 si ya pasó |
+| GET | `/profesionales/{id}/bloqueos` | El propio profesional o CRM con Gestión de agendas | Vigentes y futuros |
+| POST | `/profesionales/{id}/bloqueos` | Ídem | `{ desde, hasta, motivo, detalle }` (hasta un año; motivos: Licencia, Vacaciones, Capacitación, Personal, Otro). Devuelve `turnosAfectados`: **no los cancela** |
+| DELETE | `/bloqueos/{id}` | Ídem (dueño del bloqueo) | Anulación lógica |
+| PUT · DELETE | `/turnos/{id}/inasistencia` | — | Pasaron a `Endpoints/AsistenciaEndpoints.cs` (migración 37, ver abajo) |
+| GET | `/profesionales/yo/matricula` | Profesional | Matrículas, estado, `agendaSuspendida` y turnos dados después del vencimiento |
+| GET | `/profesionales/{id}/matriculas` | El propio profesional, el Configurador o el Profesional auditor | Matrículas con estado y días restantes |
+| POST | `/profesionales/{id}/matriculas` | Configurador | `{ idEspecialidad, numero, jurisdiccion, vencimiento, principal }`. Una por especialidad (409 si repite). La primera es la principal. Si es principal, la anterior pasa a secundaria y la ficha (`Profesional.Matricula`, `IdEspecialidad`) se actualiza |
+| PUT | `/matriculas/{id}` | Configurador | `{ numero, jurisdiccion, vencimiento }`: la renovación |
+| DELETE | `/matriculas/{id}` | Configurador | Solo secundarias (409 la principal) |
+| GET | `/reportes/matriculas` | Profesional auditor o Configurador | Vencimientos de todos, con resumen y turnos dados después del vencimiento |
+| POST | `/matriculas/avisos/ejecutar` | Configurador | Corre ahora la pasada diaria de avisos (para probar) |
+| GET | `/profesionales/yo/avisos` | Profesional | Campanita: avisos del sistema (`NotificacionInterna`) |
+| PUT | `/profesionales/yo/avisos/{id}/leida` | Profesional | Marca uno como leído (solo los propios) |
+
+Cambios en endpoints que ya existían:
+
+| Ruta | Qué cambia |
+|---|---|
+| `POST`/`PUT /agendas` y `/agenda` | 409 si la matrícula principal está vencida |
+| `GET /turnos/ocupados` | Suma `{ hora, bloqueado: true }` por cada horario de la agenda que cae en un feriado, un bloqueo o después del vencimiento. No dice el motivo: lo pide cualquier paciente |
+| `PUT /turnos/{id}` | Si cambia fecha u hora hacia un horario bloqueado: 409 `RN-08` |
+| `POST /turnos/solicitar`, `/public/.../reservar`, `/turnos/profesional-solicitar`, el bot | `RN-08` en `TurnoReglasService` |
+| Cita urgente | Solo la frena la matrícula vencida; los feriados y los bloqueos no |
+| `PUT /profesionales/{id}` | Desde "Mi perfil", la matrícula y la especialidad no cambian (las administra el Configurador). Si las cambia el Configurador, la matrícula principal acompaña |
+| `POST /usuarios/equipo` | Con rol Profesional exige `vencimientoMatricula` (AAAA-MM-DD, futura) y crea la matrícula principal |

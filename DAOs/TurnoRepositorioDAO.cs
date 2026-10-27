@@ -7,7 +7,7 @@ public interface ITurnoRepositorio
 {
     List<Agenda> AgendaDe(int idProfesional);
     List<TimeSpan> HorasOcupadas(int idProfesional, DateTime fecha);
-    // Horas de las entrevistas de admisión que ese profesional ya programó ese día (migración 26).
+    // Horas de las entrevistas de admisión que ese profesional ya programó ese día (migración 33).
     List<TimeSpan> EntrevistasDeAdmision(int idProfesional, DateTime fecha);
     int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha);
     bool TieneConsentimiento(int idPaciente, string descripcionTipo, string? version = null);
@@ -21,10 +21,16 @@ public interface ITurnoRepositorio
     // (los dobles de prueba y las bases sin la migración 32 no cambian de comportamiento).
     List<TimeSpan> HorasReservadasPorPropuestas(int idProfesional, DateTime fecha, int? idPacienteAExcluir, DateTime ahora) => new();
     void VencerPropuestas(DateTime ahora) { }
+    // Migración 33: feriados, bloqueos y vencimiento de la matrícula principal entre dos fechas (inclusive).
+    // Tiene implementación por defecto para que los repositorios de prueba que no la necesitan sigan compilando.
+    RestriccionesAgenda Restricciones(int idProfesional, DateTime desde, DateTime hasta) => RestriccionesAgenda.Ninguna;
 }
 
 public class TurnoRepositorioDAO : ITurnoRepositorio
 {
+    public RestriccionesAgenda Restricciones(int idProfesional, DateTime desde, DateTime hasta) =>
+        new AgendaRestriccionesDAO().Restricciones(idProfesional, desde, hasta);
+
     public List<Agenda> AgendaDe(int idProfesional) =>
         new AgendaDAO().ObtenerPorProfesional(idProfesional);
 

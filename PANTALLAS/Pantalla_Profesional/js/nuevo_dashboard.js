@@ -18,6 +18,186 @@ function toast(msg, tipo = 'ok') {
     YS.toast(msg, tipo);
 }
 
+// Estados de turno por id. 1 a 4 son fijos (seed_catalogos.sql); 'Ausente' (migración 33: inasistencia) y 'Rechazado'
+// tienen el id que les tocó en cada base, así que se leen de /estadosturnos.
+const ESTADOS_TURNO = { 1: 'Pendiente', 2: 'Confirmado', 3: 'Cancelado', 4: 'Realizado' };
+const _estadosCargados = YS.fetch('/estadosturnos').then(r => r.ok ? r.json() : [])
+    .then(lista => lista.forEach(e => { ESTADOS_TURNO[e.idEstadoTurno] = e.descripcion; })).catch(() => {});
+const nombreEstado = t => ESTADOS_TURNO[t.idEstadoTurno] ?? '—';
+// Cerrado = ya no se puede cancelar, reprogramar ni ocupa el horario para pedir otro.
+const esCerrado = t => ['Cancelado', 'Realizado', 'Ausente', 'Rechazado'].includes(ESTADOS_TURNO[t.idEstadoTurno]);
+const claseEstado = t => ESTADOS_TURNO[t.idEstadoTurno] === 'Ausente' ? 'ausente' : t.idEstadoTurno;
+// Inasistencia: la registra el profesional en un turno confirmado, pasada la tolerancia (migración 37: 15 minutos por defecto).
+// El servidor vuelve a controlarlo y, además, no deja marcar Ausente si el paciente entró a la sala.
+const puedeMarcarAusente = t => ESTADOS_TURNO[t.idEstadoTurno] === 'Confirmado'
+    && momentoTurno(t) <= new Date(Date.now() - (_paramAsistencia?.toleranciaMinutos ?? 15) * 60000);
+
+async function registrarInasistencia(idTurno, deshacer = false) {
+    if (!deshacer) {
+        const ok = await confirmar('¿Registrar que el paciente no se presentó a este turno? Queda en su historial de turnos y en la auditoría, y el turno queda cobrable (podés dejarlo sin cargo por fuerza mayor desde Inicio). Se puede corregir.',
+            { titulo: 'Registrar inasistencia', textoConfirmar: 'Registrar inasistencia' });
+        if (!ok) return;
+    }
+    try {
+        const r = await YS.fetch(`/turnos/${idTurno}/inasistencia`, { method: deshacer ? 'DELETE' : 'PUT' });
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo registrar.'), 'error'); return; }
+        const d = await r.json();
+        const t = turnosCalendarioProfesional.find(x => x.idTurno === idTurno);
+        if (t) t.idEstadoTurno = d.idEstadoTurno;
+        if (d.idEstadoTurno) ESTADOS_TURNO[d.idEstadoTurno] = d.estado;
+        toast(deshacer ? 'Inasistencia corregida: el turno vuelve a Confirmado.' : 'Inasistencia registrada.', deshacer ? 'ok' : 'warn');
+        if (YS.shell.actual === 'agenda' && _diaSeleccionadoProf) { await dibujarCalendarioProfesional?.(); mostrarPanelDiaProfesional(_diaSeleccionadoProf); }
+        else activarTab(YS.shell.actual || 'inicio');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════
+// ASISTENCIA (rama AAA1, migración 37): llegada tarde, inasistencia, cobro y abandono
+// ══════════════════════════════════════════════════════════════
+// A los 5 minutos al paciente le llega «Te estamos esperando»; a los 15 (la tolerancia de la organización) se habilita «Registrar
+// inasistencia»: el turno nunca pasa solo a Ausente. Si el paciente entró a la sala, aunque tarde, no es inasistencia.
+// Un ausente (o una cancelación con menos de 24 hs) queda cobrable: el profesional puede dejarlo sin cargo por fuerza mayor.
+// Con 2 ausencias seguidas aparece «Posible abandono»; con 3, el sistema sugiere confirmarlo (lo hace el tratante o el auditor).
+let _paramAsistencia = { avisoMinutos: 5, toleranciaMinutos: 15, horasCancelacionSinCargo: 24, ausenciasAlerta: 2, ausenciasAbandono: 3 };
+YS.api('/asistencia/parametros').then(p => { if (p) _paramAsistencia = p; }).catch(() => {});
+let _alertasAsistenciaProf = [], _turnosAsistenciaHoy = [];
+
+async function cargarAsistenciaInicio() {
+    const cont = document.getElementById('asistencia-inicio');
+    if (!cont) return;
+    const [hoy, alertas] = await Promise.all([
+        YS.api('/asistencia/turnos').catch(() => null),
+        YS.api('/asistencia/alertas').catch(() => null)
+    ]);
+    if (YS.shell.actual !== 'inicio' || !document.getElementById('asistencia-inicio')) return;
+    if (hoy?.parametros) _paramAsistencia = hoy.parametros;
+    _turnosAsistenciaHoy = hoy?.turnos || [];
+    _alertasAsistenciaProf = alertas?.alertas || [];
+    const esperando = _turnosAsistenciaHoy.filter(t => t.esperandoConexion);
+    const ausentes = _turnosAsistenciaHoy.filter(t => t.estado === 'Ausente');
+    if (!esperando.length && !ausentes.length && !_alertasAsistenciaProf.length) { cont.innerHTML = ''; return; }
+    const p = _paramAsistencia;
+    const filaEsperando = t => `
+        <div class="asistencia-fila">
+            <span class="texto-fuerte">${YS.esc(t.hora)}</span> ${YS.esc(t.paciente)}
+            <span class="ui-chip ui-chip--warn">Esperando conexión · ${t.minutosDemora} min</span>
+            ${t.puedeMarcarAusente
+                ? `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="registrarInasistencia(${t.idTurno})">Registrar inasistencia</button>`
+                : `<span class="texto-chico ui-muted">Se puede marcar ausente desde las ${YS.esc(t.marcarAusenteDesde)}</span>`}
+        </div>`;
+    const filaAusente = t => `
+        <div class="asistencia-fila">
+            <span class="texto-fuerte">${YS.esc(t.hora)}</span> ${YS.esc(t.paciente)}
+            <span class="ui-chip ui-chip--danger">Ausente</span>
+            ${htmlCobroTurno(t)}
+        </div>`;
+    const filaAlerta = a => `
+        <div class="asistencia-fila">
+            ${YS.esc(a.paciente)}${a.profesional && a.idProfesional !== idProfesional ? ` <span class="texto-chico ui-muted">(con ${YS.esc(a.profesional)})</span>` : ''}
+            <span class="ui-chip ui-chip--${a.nivel === 'abandono' ? 'danger' : 'warn'}">${a.ausencias} ausencias seguidas</span>
+            ${a.ultimoContacto ? `<span class="texto-chico ui-muted">Último contacto: ${YS.esc(a.ultimoContacto.resultado)} · ${YS.esc(YS.fecha.relativa(a.ultimoContacto.fecha))}</span>` : ''}
+            <button class="ui-btn ui-btn--sm" onclick="registrarContactoAsistencia(${a.idPaciente}, ${a.idProfesional})">Registrar contacto</button>
+            ${a.puedeConfirmarAbandono ? `<button class="ui-btn ui-btn--sm${a.nivel === 'abandono' ? ' ui-btn--danger' : ''}" onclick="confirmarAbandono(${a.idPaciente}, ${a.idProfesional})">Confirmar abandono</button>` : ''}
+        </div>`;
+    cont.innerHTML = `
+        <div class="card${esperando.length || _alertasAsistenciaProf.some(a => a.nivel === 'abandono') ? ' card--acento-danger' : ' card--acento-info'}">
+            <div class="titulo-seccion titulo-seccion--tarjeta">Asistencia</div>
+            <p class="texto-chico ui-muted mb-12">Al paciente le avisamos a los ${p.avisoMinutos} min; desde los ${p.toleranciaMinutos} min podés registrar la inasistencia (nunca es automática).</p>
+            ${esperando.length ? `<div class="ui-titulo-seccion texto-chico ui-muted">Esperando conexión</div>${esperando.map(filaEsperando).join('')}` : ''}
+            ${ausentes.length ? `<div class="ui-titulo-seccion texto-chico ui-muted mt-12">Ausentes de hoy</div>${ausentes.map(filaAusente).join('')}` : ''}
+            ${_alertasAsistenciaProf.length ? `<div class="ui-titulo-seccion texto-chico ui-muted mt-12">Posible abandono</div>
+                <p class="texto-chico ui-muted">Con ${p.ausenciasAlerta} ausencias seguidas, contactá al paciente; con ${p.ausenciasAbandono} se sugiere confirmar el abandono:
+                    se cancelan sus próximos turnos con vos y se le avisa (sin datos clínicos).</p>
+                ${_alertasAsistenciaProf.map(filaAlerta).join('')}` : ''}
+        </div>`;
+}
+
+// El cobro de un turno ausente o cancelado: lo decide el profesional del turno.
+function htmlCobroTurno(t) {
+    if (t.cobrable === false) return `<span class="ui-chip ui-chip--neutral" title="${YS.esc(t.motivoNoCobrable || '')}">Sin cargo (fuerza mayor)</span>
+        ${t.puedeCambiarCobro ? `<button class="ui-btn ui-btn--sm" onclick="cambiarCobroTurno(${t.idTurno}, true)">Volver a cobrable</button>` : ''}`;
+    if (t.cobrable === true) return `<span class="ui-chip ui-chip--warn">Cobrable</span>
+        ${t.puedeCambiarCobro ? `<button class="ui-btn ui-btn--sm" onclick="cambiarCobroTurno(${t.idTurno}, false)">Sin cargo (fuerza mayor)</button>` : ''}`;
+    return '';
+}
+
+async function cambiarCobroTurno(idTurno, cobrable) {
+    let motivo = null;
+    if (!cobrable) {
+        const campo = YS.el('textarea', { class: 'ui-input', id: 'motivoSinCargo', maxlength: '300', rows: '3', placeholder: 'Ej.: internación, corte de luz en la zona, duelo' });
+        const ok = await YS.modal({
+            titulo: 'Turno sin cargo por fuerza mayor', tamano: 'chico',
+            cuerpo: YS.el('div', {}, YS.el('p', { class: 'texto-suave mb-12', text: 'El motivo queda registrado. Escribí solo lo necesario: no es la historia clínica.' }), campo),
+            acciones: [
+                { texto: 'Cancelar', alClick: c => c.cerrar(false) },
+                { texto: 'Dejar sin cargo', tipo: 'primary', alClick: c => c.cerrar(true) }
+            ]
+        }).resultado;
+        if (!ok) return;
+        motivo = campo.value.trim();
+        if (!motivo || motivo.length < 3) { toast('Escribí el motivo de fuerza mayor.', 'error'); return; }
+    }
+    try {
+        const r = await YS.fetch(`/turnos/${idTurno}/cobro`, { method: 'PUT', json: { cobrable, motivo } });
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo guardar.'), 'error'); return; }
+        toast(cobrable ? 'El turno vuelve a ser cobrable.' : 'Turno sin cargo por fuerza mayor.');
+        cargarAsistenciaInicio();
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+async function registrarContactoAsistencia(idPaciente, idProfesionalPar) {
+    const sel = YS.el('select', { class: 'ui-select', id: 'resultadoContacto' });
+    sel.innerHTML = `<option value="Sigue">Sigue con el tratamiento</option><option value="Pausa">Quiere hacer una pausa</option>
+        <option value="No responde">No responde</option><option value="Otro">Otro</option>`;
+    const nota = YS.el('textarea', { class: 'ui-input mt-12', maxlength: '500', rows: '3', placeholder: 'Nota corta (opcional)' });
+    const ok = await YS.modal({
+        titulo: 'Registrar contacto', tamano: 'chico',
+        cuerpo: YS.el('div', {}, sel, nota, YS.el('p', { class: 'texto-chico ui-muted mt-8', text: 'Sin datos clínicos: lo clínico va en la evolución.' })),
+        acciones: [
+            { texto: 'Cancelar', alClick: c => c.cerrar(false) },
+            { texto: 'Guardar', tipo: 'primary', alClick: c => c.cerrar(true) }
+        ]
+    }).resultado;
+    if (!ok) return;
+    try {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/seguimiento-asistencia`, { method: 'POST',
+            json: { resultado: sel.value, nota: nota.value.trim() || null, idProfesional: idProfesionalPar } });
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo guardar.'), 'error'); return; }
+        toast('Contacto registrado.');
+        cargarAsistenciaInicio();
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+async function confirmarAbandono(idPaciente, idProfesionalPar) {
+    const a = _alertasAsistenciaProf.find(x => x.idPaciente === idPaciente && x.idProfesional === idProfesionalPar);
+    const ok = await confirmar(`¿Confirmar el abandono de tratamiento${a ? ` de ${a.paciente} (${a.ausencias} ausencias seguidas)` : ''}? ` +
+        'Se cancelan sus próximos turnos con este profesional y le llega un aviso (sin datos clínicos). Queda en la historia clínica y no se puede borrar. ' +
+        'La asignación no se toca: si el paciente vuelve, pide un turno nuevo.',
+        { titulo: 'Confirmar abandono de tratamiento', textoConfirmar: 'Confirmar abandono' });
+    if (!ok) return;
+    try {
+        const r = await YS.fetch(`/pacientes/${idPaciente}/abandono`, { method: 'POST', json: { idProfesional: idProfesionalPar } });
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo confirmar.'), 'error'); return; }
+        const d = await r.json();
+        toast(`Abandono confirmado.${d.turnosCancelados ? ` Se cancelaron ${d.turnosCancelados} turno${d.turnosCancelados === 1 ? '' : 's'}.` : ''}`, 'warn');
+        cargarAsistenciaInicio();
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+// Aviso de la historia clínica: ausencias seguidas, abandono confirmado y último contacto.
+function htmlAsistenciaHC(resumen) {
+    const pares = resumen?.profesionales || [];
+    if (!pares.length) return '';
+    const lineas = pares.map(x => x.abandonoConfirmado && !x.ausencias
+        ? `Abandono de tratamiento confirmado el ${YS.esc(YS.fecha.corta(x.abandonoConfirmado))} (con ${YS.esc(x.profesional)}).`
+        : `${x.ausencias} ausencia${x.ausencias === 1 ? '' : 's'} seguida${x.ausencias === 1 ? '' : 's'} con ${YS.esc(x.profesional)}` +
+          (x.nivel === 'abandono' ? ' · se sugiere confirmar el abandono' : x.nivel === 'alerta' ? ' · posible abandono' : '') + '.');
+    const contacto = resumen.ultimoContacto
+        ? `<div class="texto-chico">Último contacto: ${YS.esc(resumen.ultimoContacto.resultado)} · ${YS.esc(YS.fecha.relativa(resumen.ultimoContacto.fecha))}</div>` : '';
+    const grave = pares.some(x => x.nivel !== 'ok');
+    return `<div class="ui-alerta ui-alerta--bloque${grave ? '' : ' ui-alerta--info'} mb-12" role="note">${lineas.map(l => `<div>${l}</div>`).join('')}${contacto}</div>`;
+}
+
 // ── Inicio: tablero del día ─────────────────────────────────
 // Momento real del turno (fecha + hora) para ordenar y saber cuál es el próximo.
 function momentoTurno(t) {
@@ -54,7 +234,8 @@ async function inicio() {
     const deHoy      = turnos.filter(t => YS.fecha.esHoy(t.fecha) && t.idEstadoTurno !== 3);
     const pendientes = turnos.filter(t => t.idEstadoTurno === 1);
     const pedidos    = pendientes.filter(t => t.creadoPor !== 'profesional');
-    const proximo    = turnos.filter(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4 && momentoTurno(t) >= ahora)
+    await _estadosCargados;
+    const proximo    = turnos.filter(t => !esCerrado(t) && momentoTurno(t) >= ahora)
                              .sort((a, b) => momentoTurno(a) - momentoTurno(b))[0];
     const nuevos     = asignados.filter(p => p.estadoAsignacion === 'Nueva').length;
     const sesionesHoy = confirmados.filter(t => t.fecha === YS.fecha.corta(ahora));
@@ -106,6 +287,8 @@ async function inicio() {
 
         ${sesionesHoy.length ? `<div class="card card--acento-info">${htmlSesionesHoy(sesionesHoy)}</div>` : ''}
 
+        <div id="asistencia-inicio"></div>
+
         <div class="inicio-columnas">
             <div class="card">
                 <div class="titulo-seccion titulo-seccion--tarjeta">Pacientes de hoy</div>
@@ -138,6 +321,8 @@ async function inicio() {
             </div>
         </div>
     `;
+
+    cargarAsistenciaInicio();   // migración 37: esperando conexión, ausentes de hoy y posible abandono (no frena el resto)
 
     // Pacientes para la cita urgente
     try {
@@ -300,7 +485,6 @@ function renderPacientesHoy(turnos) {
         .sort((a, b) => fmtHora(a.hora).localeCompare(fmtHora(b.hora)));
     if (!turnosHoy.length) return YS.vacio({ icono: 'agenda', titulo: 'No tenés pacientes para hoy', texto: 'Los turnos del día aparecen acá con el acceso a la sala.' });
 
-    const estadoLabel = { 1: 'Pendiente', 2: 'Confirmado', 4: 'Realizado' };
     return `
         <div class="tabla-wrapper">
             <table>
@@ -319,9 +503,10 @@ function renderPacientesHoy(turnos) {
                             <td><strong>${fmtHora(t.hora)} hs</strong></td>
                             <td>${YS.esc(nombrePaciente(t.idPaciente))}</td>
                             <td>${YS.esc(t.motivo ?? '—')}</td>
-                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span></td>
+                            <td><span class="badge-estado estado-${claseEstado(t)}">${YS.esc(nombreEstado(t))}</span></td>
                             <td class="celda-acciones">
-                                <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>
+                                ${esCerrado(t) ? '' : `<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>`}
+                                ${puedeMarcarAusente(t) ? `<button class="ui-btn ui-btn--sm" onclick="registrarInasistencia(${t.idTurno})">No se presentó</button>` : ''}
                             </td>
                         </tr>`).join('')}
                 </tbody>
@@ -514,6 +699,7 @@ async function horarios() {
         </div>`;
 
     c.innerHTML = `
+        <div id="aviso-matricula"></div>
         ${slots.length ? `<div class="ui-stats">
             ${tarjeta(`${YS.icono('pacientes')}Atención de pacientes`, `${horasTexto(turnos.min)} <span class="horario-stat-unidad">por semana</span>`, `${turnos.n} turno${turnos.n === 1 ? '' : 's'}`)}
             ${conAdmision ? tarjeta(`${YS.icono('portapapeles')}Entrevistas de admisión`, `${horasTexto(admision.min)} <span class="horario-stat-unidad">por semana</span>`, `${admision.n} entrevista${admision.n === 1 ? '' : 's'}`) : ''}
@@ -554,6 +740,28 @@ async function horarios() {
                     <div id="horarios-cal-detalle" class="horarios-cal-detalle" aria-live="polite"></div>
                 </section>
             </div>
+        </div>
+        <div class="card mt-16" id="card-bloqueos">
+            <h3>Bloqueos de agenda</h3>
+            <p class="texto-suave mb-12">Licencias, vacaciones o capacitaciones: en ese período no se ofrecen turnos. Los turnos que ya estaban dados no se cancelan solos: te los mostramos para que los reprogrames.</p>
+            <div id="lista-bloqueos">${YS.cargando()}</div>
+            <div class="form-fila mt-12">
+                <div class="ui-campo"><label for="bl-desde">Desde</label><input type="datetime-local" id="bl-desde" class="ui-input"></div>
+                <div class="ui-campo"><label for="bl-hasta">Hasta</label><input type="datetime-local" id="bl-hasta" class="ui-input"></div>
+                <div class="ui-campo"><label for="bl-motivo">Motivo</label>
+                    <select id="bl-motivo" class="ui-select">
+                        <option>Licencia</option><option>Vacaciones</option><option>Capacitación</option><option>Personal</option><option>Otro</option>
+                    </select>
+                </div>
+                <div class="ui-campo"><label for="bl-detalle">Detalle (opcional)</label><input type="text" id="bl-detalle" class="ui-input" maxlength="200" placeholder="Sin datos de salud"></div>
+            </div>
+            <div class="form-acciones"><button class="ui-btn ui-btn--primary" id="bl-guardar" onclick="guardarBloqueo()">Bloquear período</button></div>
+            <div id="bl-afectados" aria-live="polite"></div>
+        </div>
+        <div class="card mt-16" id="card-feriados">
+            <h3>Feriados</h3>
+            <p class="texto-suave mb-12">Los carga el Configurador. Esos días no se ofrecen turnos, salvo que marques que trabajás.</p>
+            <div id="lista-feriados">${YS.cargando()}</div>
         </div>`;
 
     ['fh-inicio','fh-fin','fh-intervalo'].forEach(id => {
@@ -561,6 +769,113 @@ async function horarios() {
     });
     dibujarCalendarioHorarios();
     if (!slots.length) abrirFormNuevoHorario();
+
+    cargarAvisoMatricula();
+    cargarBloqueos();
+    cargarFeriadosProf();
+}
+
+// ── Matrícula, bloqueos y feriados (migración 33) ───────────
+// Vuelve a dibujar Horarios: el calendario «Así te ven los pacientes» ya descuenta bloqueos y feriados.
+async function cargarVistaPreviaHorarios() { await horarios(); }
+
+async function cargarAvisoMatricula() {
+    const cont = document.getElementById('aviso-matricula');
+    if (!cont) return;
+    let d;
+    try { d = await YS.api('/profesionales/yo/matricula'); } catch { cont.innerHTML = ''; return; }
+    const p = (d.matriculas || []).find(m => m.principal);
+    const fecha = f => f ? YS.fecha.corta(YS.fecha.parse(f)) : '';
+    let html = '';
+    if (!p) html = `<div class="ui-alerta ui-alerta--warn mb-16">No tenés una matrícula principal cargada. Pedile al Configurador que la cargue con su vencimiento.</div>`;
+    else if (d.agendaSuspendida) html = `<div class="ui-alerta ui-alerta--danger mb-16"><strong>Agenda suspendida.</strong> Tu matrícula de ${YS.esc(p.especialidad)} venció el ${fecha(p.vencimiento)}: no se ofrecen turnos ni podés cambiar tus horarios hasta que el Configurador cargue la renovación.${d.turnosDespuesDelVencimiento ? ` Tenés ${d.turnosDespuesDelVencimiento} turno(s) dado(s) desde esa fecha: reprogramalos o cancelalos.` : ''}</div>`;
+    else if (p.estado === 'Por vencer') html = `<div class="ui-alerta ui-alerta--warn mb-16">Tu matrícula de ${YS.esc(p.especialidad)} vence el ${fecha(p.vencimiento)} (${p.diasRestantes === 1 ? 'falta 1 día' : `faltan ${p.diasRestantes} días`}). Desde esa fecha la agenda no ofrece turnos.${d.turnosDespuesDelVencimiento ? ` Ya tenés ${d.turnosDespuesDelVencimiento} turno(s) dado(s) para después.` : ''} Enviá la renovación al Configurador.</div>`;
+    else if (p.estado === 'Sin vencimiento cargado') html = `<div class="ui-alerta ui-alerta--info mb-16">Falta cargar el vencimiento de tu matrícula. Pedíselo al Configurador.</div>`;
+    else html = `<p class="texto-suave mb-12">Matrícula de ${YS.esc(p.especialidad)} N° ${YS.esc(p.numero)}, vigente hasta el ${fecha(p.vencimiento)}. Los turnos se ofrecen hasta el día anterior.</p>`;
+    cont.innerHTML = html;
+}
+
+async function cargarBloqueos() {
+    const cont = document.getElementById('lista-bloqueos');
+    if (!cont) return;
+    let lista = [];
+    try { lista = await YS.api(`/profesionales/${idProfesional}/bloqueos`); }
+    catch { cont.innerHTML = YS.errorCarga({ texto: 'No se pudieron cargar los bloqueos.', reintentar: 'cargarBloqueos()' }); return; }
+    const fh = s => { const d = new Date(s); return `${YS.fecha.corta(d)} ${YS.fecha.hora(d)}`; };
+    cont.innerHTML = !lista.length ? `<p class="texto-suave">No tenés bloqueos cargados.</p>` : `
+        <div class="tabla-wrapper"><table>
+            <thead><tr><th>Desde</th><th>Hasta</th><th>Motivo</th><th>Detalle</th><th></th></tr></thead>
+            <tbody>${lista.map(b => `<tr>
+                <td>${fh(b.desde)}</td><td>${fh(b.hasta)}</td><td>${YS.esc(b.motivo)}</td><td>${YS.esc(b.detalle ?? '—')}</td>
+                <td class="celda-acciones"><button class="btn-peligro" onclick="anularBloqueo(${b.idBloqueo})">Quitar</button></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`;
+}
+
+async function guardarBloqueo() {
+    const desde = document.getElementById('bl-desde').value;
+    const hasta = document.getElementById('bl-hasta').value;
+    const valido = YS.form.validar([
+        { id: 'bl-desde', requerido: 'Elegí desde cuándo.' },
+        { id: 'bl-hasta', requerido: 'Elegí hasta cuándo.', validar: v => desde && v && v <= desde ? 'Tiene que ser después del inicio.' : null }
+    ]);
+    if (!valido) return;
+    const boton = document.getElementById('bl-guardar');
+    boton.disabled = true;
+    try {
+        const r = await YS.fetch(`/profesionales/${idProfesional}/bloqueos`, { method: 'POST', json: {
+            desde, hasta, motivo: document.getElementById('bl-motivo').value, detalle: document.getElementById('bl-detalle').value || null } });
+        if (!r.ok) { toast(await YS.leerMensaje(r, 'No se pudo guardar el bloqueo.'), 'error'); return; }
+        const d = await r.json();
+        toast('Período bloqueado: no se ofrecen turnos en ese rango.');
+        ['bl-desde', 'bl-hasta', 'bl-detalle'].forEach(id => document.getElementById(id).value = '');
+        const af = d.turnosAfectados || [];
+        await cargarPacientes(af.map(t => t.idPaciente));
+        await cargarVistaPreviaHorarios();   // redibuja todo: el aviso de turnos afectados va después
+        document.getElementById('bl-afectados').innerHTML = !af.length ? '' : `
+            <div class="ui-alerta ui-alerta--warn mt-12">
+                <strong>${af.length === 1 ? 'Queda 1 turno' : `Quedan ${af.length} turnos`} dentro del bloqueo.</strong> No se cancelaron: reprogramalos desde el Calendario.
+                <ul class="mt-8">${af.map(t => `<li>${YS.fecha.corta(YS.fecha.parse(t.fecha))} ${fmtHora(t.hora)} hs · ${YS.esc(nombrePaciente(t.idPaciente))} (${YS.esc(t.estado)})</li>`).join('')}</ul>
+            </div>`;
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+    finally { const b = document.getElementById('bl-guardar'); if (b) b.disabled = false; }
+}
+
+async function anularBloqueo(id) {
+    const ok = await confirmar('¿Quitar este bloqueo? Esos horarios se vuelven a ofrecer.', { titulo: 'Quitar bloqueo', textoConfirmar: 'Quitar' });
+    if (!ok) return;
+    try {
+        const r = await YS.fetch(`/bloqueos/${id}`, { method: 'DELETE' });
+        if (r.ok) { toast('Bloqueo quitado.'); cargarVistaPreviaHorarios(); }
+        else toast(await YS.leerMensaje(r, 'No se pudo quitar el bloqueo.'), 'error');
+    } catch { toast('No se pudo conectar con el servidor.', 'error'); }
+}
+
+async function cargarFeriadosProf() {
+    const cont = document.getElementById('lista-feriados');
+    if (!cont) return;
+    let lista = [];
+    try { lista = await YS.api('/profesionales/yo/feriados'); }
+    catch { cont.innerHTML = YS.errorCarga({ texto: 'No se pudieron cargar los feriados.', reintentar: 'cargarFeriadosProf()' }); return; }
+    cont.innerHTML = !lista.length ? `<p class="texto-suave">No hay feriados cargados para los próximos 12 meses.</p>` : `
+        <div class="tabla-wrapper"><table>
+            <thead><tr><th>Fecha</th><th>Feriado</th><th>Trabajo este feriado</th></tr></thead>
+            <tbody>${lista.map(f => `<tr>
+                <td>${YS.esc(YS.fecha.separador(YS.fecha.parse(f.fecha)))}</td><td>${YS.esc(f.nombre)}</td>
+                <td><label class="ui-check"><input type="checkbox" ${f.trabajo ? 'checked' : ''} onchange="marcarTrabajoFeriado(${f.idFeriado}, this)"> ${f.trabajo ? 'Sí' : 'No'}</label></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`;
+}
+
+async function marcarTrabajoFeriado(id, check) {
+    check.disabled = true;
+    try {
+        const r = await YS.fetch(`/profesionales/yo/feriados/${id}`, { method: 'PUT', json: { trabajo: check.checked } });
+        if (!r.ok) { check.checked = !check.checked; toast(await YS.leerMensaje(r, 'No se pudo guardar.'), 'error'); return; }
+        toast(check.checked ? 'Ese feriado se ofrecen turnos en tus horarios de siempre.' : 'Ese feriado no se ofrecen turnos.');
+        cargarVistaPreviaHorarios();
+    } catch { check.checked = !check.checked; toast('No se pudo conectar con el servidor.', 'error'); }
+    finally { check.disabled = false; }
 }
 
 // "Tu semana": una fila por día con sus franjas como botones; un día sin franjas tiene + para agregar una ese día.
@@ -922,10 +1237,12 @@ async function verHistoria(idPaciente) {
             { texto: 'Cerrar', tipo: 'primary', foco: true, alClick: c => c.cerrar() }
         ]
     });
-    const [paciente, historia, sesiones] = await Promise.all([
+    const [paciente, historia, sesiones, documentos, asistencia] = await Promise.all([
         YS.api(`/pacientes/${idPaciente}`).catch(() => null),
         YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true }).catch(() => null),
-        YS.api(`/pacientes/${idPaciente}/sesiones-clinicas`).catch(() => [])
+        YS.api(`/pacientes/${idPaciente}/sesiones-clinicas`).catch(() => []),
+        YS.api(`/pacientes/${idPaciente}/documentos`).catch(() => []),   // migración 35 (js/documentos.js)
+        YS.api(`/pacientes/${idPaciente}/asistencia-resumen`).catch(() => null)   // migración 37: ausencias seguidas y abandono
     ]);
     const evoluciones = historia?.idHistoria
         ? await YS.api(`/historiasclinicas/${historia.idHistoria}/evoluciones`).catch(() => [])
@@ -936,9 +1253,10 @@ async function verHistoria(idPaciente) {
     const pestanas = [
         { id: 'datos', texto: 'Datos del paciente', html: renderDatosPaciente(paciente) },
         { id: 'evoluciones', texto: 'Evoluciones', n: evoluciones.length, html: renderEvoluciones(evoluciones) },
-        { id: 'sesiones', texto: 'Sesiones clínicas', n: sesiones.length, html: renderSesionesClinicas(sesiones) }
+        { id: 'sesiones', texto: 'Sesiones clínicas', n: sesiones.length, html: renderSesionesClinicas(sesiones) },
+        { id: 'documentos', texto: 'Documentos', n: documentos.length, html: htmlDocumentosHC(idPaciente, documentos) }
     ];
-    cuerpo.innerHTML = `
+    cuerpo.innerHTML = `${htmlAsistenciaHC(asistencia)}
         <div class="ui-tabs" role="tablist" aria-label="Historia clínica">
             ${pestanas.map((p, i) => `<button type="button" class="ui-tab${i ? '' : ' activo'}" role="tab" id="hc-tab-${p.id}"
                 aria-controls="hc-panel-${p.id}" aria-selected="${!i}" data-tab="${p.id}">${p.texto}${p.n != null
@@ -1124,6 +1442,10 @@ async function perfil() {
             `}
         </div>`;
     document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
+    // Firma para los PDF de los documentos clínicos (js/documentos.js)
+    document.getElementById('contenido').insertAdjacentHTML('beforeend',
+        '<div class="card mt-16"><h3>Firma para documentos</h3><div id="firma-perfil">' + YS.cargando() + '</div></div>');
+    cargarFirmaPerfil();
 }
 
 function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
@@ -1274,7 +1596,7 @@ async function dibujarCalendarioProfesional() {
         let clases, onclick;
         if (_modoReprogramarProf) {
             const enAgenda = _agendaReprogProf.some(a => DIA_DB_NUM[normalizarP(a.dia)] === fechaD.getDay());
-            const ocupado  = tieneT && turnosPorDia[dia].some(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4);
+            const ocupado  = tieneT && turnosPorDia[dia].some(t => !esCerrado(t));
             const valido   = !esPasado && enAgenda && !ocupado;
             clases  = ['cal-dia', esPasado ? 'pasado' : valido ? 'reprog-valido' : 'reprog-invalido', esSeleccionado ? 'reprog-seleccionado' : ''].join(' ').trim();
             onclick = valido ? `onclick="seleccionarDiaReprogProf(${dia})"` : '';
@@ -1330,7 +1652,7 @@ let _vistaAgendaProf = 'semana';
 let _fechaRefProf    = new Date();
 let _agendaSlotsProf = [];
 const HORA_PX = 64;
-const ESTADO_TURNO_LABEL = { 1: 'Pendiente', 2: 'Confirmado', 3: 'Cancelado', 4: 'Realizado' };
+const ESTADO_TURNO_LABEL = ESTADOS_TURNO;   // mismo objeto: suma 'Ausente' cuando llega /estadosturnos
 
 function inicioSemanaProf(d) {
     const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -1503,7 +1825,7 @@ async function dibujarSemanaProfesional() {
             const alto = Math.max(22, (intervalo / 60) * HORA_PX - 3);
             const posicion = `left:calc(3px + (100% - 6px) * ${carril} / ${carriles});width:calc((100% - 6px) / ${carriles} - 2px)`;
             const propuesto = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
-            html += `<button class="bloque-turno estado-${t.idEstadoTurno}${propuesto ? ' propuesto' : ''}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
+            html += `<button class="bloque-turno estado-${claseEstado(t)}${propuesto ? ' propuesto' : ''}" style="top:${y(inicio) + 1}px;height:${alto}px;${posicion}"
                          title="${fmtHora(t.hora)} · ${YS.esc(nombre)} · ${propuesto ? 'Propuesto, espera al paciente' : ESTADO_TURNO_LABEL[t.idEstadoTurno] ?? ''}"
                          onclick="abrirDiaDesdeSemanaProf(${d.getFullYear()},${d.getMonth()},${d.getDate()})">
                         <span class="bt-nombre"><span class="bt-hora">${fmtHora(t.hora)}</span> ${YS.esc(nombre)}</span>
@@ -1555,14 +1877,14 @@ async function mostrarPanelDiaProfesional(dia) {
         }
     }));
 
-    const estadoLabel = { 1:'Pendiente', 2:'Confirmado', 3:'Cancelado', 4:'Realizado' };
+    await _estadosCargados;
     const fechaStr    = `${calAnio}-${String(calMes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
-    const tieneActivo = turnosDia.some(t => t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4);
+    const tieneActivo = turnosDia.some(t => !esCerrado(t));
 
     const turnosHtml = turnosDia.map(t => {
         const p = _pacientesCalMap[t.idPaciente];
         const nombre = p ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'Paciente #' + t.idPaciente;
-        const puedeAccionar = t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4;
+        const puedeAccionar = !esCerrado(t);
         const esPendientePaciente = t.idEstadoTurno === 1 && t.creadoPor === 'paciente';
         const esPropuestoPorMi    = t.idEstadoTurno === 1 && t.creadoPor === 'profesional';
         return `
@@ -1574,8 +1896,17 @@ async function mostrarPanelDiaProfesional(dia) {
             <div class="panel-info-principal">
                 <div class="panel-profesional">${YS.esc(nombre)}</div>
             </div>
-            <span class="panel-estado-badge estado-${t.idEstadoTurno}${esPropuestoPorMi ? ' estado-propuesto' : ''}">${esPropuestoPorMi ? 'Propuesto' : (estadoLabel[t.idEstadoTurno] ?? '—')}</span>
+            <span class="panel-estado-badge estado-${claseEstado(t)}${esPropuestoPorMi ? ' estado-propuesto' : ''}">${esPropuestoPorMi ? 'Propuesto' : YS.esc(nombreEstado(t))}</span>
         </div>
+        ${puedeMarcarAusente(t) ? `
+            <div class="panel-acciones">
+                <button class="btn-accion btn-cancelar" onclick="registrarInasistencia(${t.idTurno})">Registrar inasistencia</button>
+            </div>` : ''}
+        ${nombreEstado(t) === 'Ausente' ? `
+            <p class="texto-suave mb-12">El paciente no se presentó.</p>
+            <div class="panel-acciones">
+                <button class="btn-accion btn-reprogramar" onclick="registrarInasistencia(${t.idTurno}, true)">Corregir: sí se presentó</button>
+            </div>` : ''}
         ${esPropuestoPorMi ? `<p class="texto-suave mb-12">Lo propusiste vos: queda pendiente hasta que el paciente lo confirme.</p>` : ''}
         ${esPendientePaciente ? `<p class="texto-suave mb-12">Lo pidió el paciente: aceptalo o rechazalo.</p>` : ''}
         ${t.motivo ? `<div class="panel-chips"><div class="chip chip-wide"><span class="chip-label">Motivo</span><span class="chip-val">${YS.esc(t.motivo)}</span></div></div>` : ''}
@@ -1652,7 +1983,7 @@ async function cargarPacientesSolicitudProf(fechaStr) {
     const fechaDate = new Date(fechaStr + 'T12:00:00').toDateString();
     const yaOcupado = turnosCalendarioProfesional.some(t =>
         new Date(t.fecha).toDateString() === fechaDate &&
-        t.idEstadoTurno !== 3 && t.idEstadoTurno !== 4
+        !esCerrado(t)
     );
     const sel = document.getElementById('solProfPac');
     if (!sel) return;

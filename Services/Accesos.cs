@@ -50,6 +50,11 @@ public static class Privilegios
 {
     public const string Admision = "admision";
     public const string GestionAgendas = "gestion_agendas";
+    // Migración 36 (rama AAA1): ofrecer una entrevista de admisión por video. Opcional; solo para Profesional o auditor.
+    public const string EntrevistaVideo = "entrevista_video";
+    // Migración 37 (rama AAA1): la Recepcionista ve los pacientes y sus turnos (nunca la historia clínica) y cambia el estado
+    // de un turno: marcar Ausente o cancelar. Sin este privilegio, eso lo hace solo el profesional del turno.
+    public const string GestionPacientes = "gestion_pacientes";
 }
 
 public record PermisoAsignado(string Modulo, string Permiso);

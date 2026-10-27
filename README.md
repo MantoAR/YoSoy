@@ -147,8 +147,11 @@ cd YoSoy
    | 21 | `add_privilegio_agendas_auditoria_permisos.sql` | Privilegio Gestión de agendas y auditoría de los cambios de permisos | Sí |
    | 22 | `add_alta_equipo_invitaciones.sql` | `Usuario.Telefono` e `InvitacionCuenta` (alta de equipo por invitación) | Sí |
    | 23 | `mapear_usuarios_existentes_a_permisos.sql` | Da permisos a los usuarios que ya existen; corre una sola vez | Sí (la segunda corrida no hace nada) |
+   | 24 | `add_debe_cambiar_password.sql` | `Usuario.DebeCambiarPassword` | Sí |
+   | 25 | `add_conversacion_ia.sql` | `Conversacion.IaActiva` (opcional) | Sí |
+   | 26 | `add_agenda_feriados_bloqueos_matriculas.sql` | Tablas `Feriado`, `FeriadoTrabajado`, `BloqueoAgenda`, `ProfesionalMatricula` (una por especialidad, con vencimiento) y `AvisoMatricula`; estado de turno `Ausente`. Guía: `docs/PRUEBA_AGENDA_MATRICULA.md` | Sí |
 
-   Las 23 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
+   Las 26 son idempotentes: se pueden correr más de una vez (o sobre una base donde el script de la rama `DataBase` ya trajo alguna de estas columnas de fábrica) sin ningún error.
 
    Para cada uno:
    ```bash

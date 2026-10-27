@@ -74,7 +74,7 @@ async function renderInicio(c) {
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
         const listaTurnos = turnos === FALLA ? [] : turnos;
         const proximos = listaTurnos
-            .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
+            .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && x.estadoDescripcion !== "Ausente" && YS.fecha.parse(x.fecha) >= hoy)
             .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
         const porConfirmar = proximos.filter(propuestoPorProfesional);
 
@@ -328,7 +328,7 @@ function dibujarCalendario() {
         let clases, onclick;
         if (_modoReprogramar) {
             const enAgenda  = _reprogAgenda.some(a => DIA_DB_NUM[normalizar(a.dia)] === fechaD.getDay());
-            const ocupado   = tieneT && turnosPorDia[dia].some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado");
+            const ocupado   = tieneT && turnosPorDia[dia].some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado" && t.estadoDescripcion !== "Ausente");
             const valido    = !esPasado && enAgenda && !ocupado;
             clases  = ["cal-dia", esPasado ? "pasado" : valido ? "reprog-valido" : "reprog-invalido", esSeleccionado ? "reprog-seleccionado" : ""].join(" ").trim();
             onclick = valido ? `onclick="seleccionarDiaReprog(${dia})"` : "";
@@ -397,7 +397,7 @@ async function mostrarPanelDia(dia) {
         turnoSeleccionado = turnosDia[0];
         const t = turnoSeleccionado;
         const hora = t.hora.substring(0, 5);
-        const puedeAccionar = t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado";
+        const puedeAccionar = t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado" && t.estadoDescripcion !== "Ausente";
 
         html += `
             <div class="panel-top${t.estadoDescripcion === 'Cancelado' ? ' panel-cancelado' : ''}">
@@ -445,7 +445,7 @@ async function mostrarPanelDia(dia) {
             <div class="panel-separador"></div>`;
     }
 
-    const tieneActivo = turnosDia.some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado");
+    const tieneActivo = turnosDia.some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado" && t.estadoDescripcion !== "Ausente");
 
     html += !tieneActivo ? `<div class="panel-solicitar-bloque">
         <button class="btn-solicitar-dia" onclick="abrirFormSolicitud('${fechaStr}')">+ Solicitar turno para este día</button>
@@ -483,7 +483,7 @@ async function cargarProfesionalesSolicitud(fechaStr) {
     const fechaDate = new Date(fechaStr + "T12:00:00").toDateString();
     const yaOcupado = turnosCalendario.some(t =>
         new Date(t.fecha).toDateString() === fechaDate &&
-        t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado"
+        t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado" && t.estadoDescripcion !== "Ausente"
     );
     const sel = document.getElementById("solProf");
     if (!sel) return;

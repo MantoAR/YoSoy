@@ -132,7 +132,13 @@ public class PrimerosPasosBaseRealTests : IDisposable
     public async Task La_recepcionista_del_modulo_CRM_tambien_revisa_los_formularios()
     {
         var (pac, informe, _) = Escenario();
-        var crm = DatosDePrueba.Cliente(_fabrica, _d.Usuario(), Roles.Crm);
+        // Migración 36: sin el privilegio Admisión, la recepcionista no ve los formularios «Sobre mí» (tienen datos sensibles).
+        var crmSinPrivilegio = DatosDePrueba.Cliente(_fabrica, _d.Usuario(), Roles.Crm);
+        Assert.Equal(HttpStatusCode.Forbidden, (await crmSinPrivilegio.GetAsync("/informes-admision-detalle")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await crmSinPrivilegio.PutAsJsonAsync($"/informes-admision/{informe}/aceptar", Confirmo)).StatusCode);
+        // Con el privilegio Admisión (la admisionista), sí.
+        var crm = DatosDePrueba.Cliente(_fabrica, _fabrica.Services.GetRequiredService<JwtEmisorService>().EmitirModulo(_d.Usuario(),
+            new SesionModulo(Modulos.Crm, new[] { Roles.Crm }, new[] { Privilegios.Admision }, null)));
         var lista = await Json(await crm.GetAsync("/informes-admision-detalle"));
         Assert.Contains(lista.EnumerateArray(), x => x.GetProperty("idInforme").GetInt32() == informe);
         Assert.Equal(HttpStatusCode.OK, (await crm.PutAsJsonAsync($"/informes-admision/{informe}/devolver", new { confirmo = true, aclaracion = "Falta el motivo" })).StatusCode);

@@ -13,7 +13,7 @@ public class AltaEquipoTests
     // CUIL de prueba con dígito verificador correcto: 20-12345678-6.
     private static AltaEquipoRequest Valido(params string[] permisos) => AltaEquipo.Normalizar(new AltaEquipoRequest(
         " Ana ", "Pérez", "20-12345678-6", "351 555-1234", "Ana.Perez@Ejemplo.com", "Ana.Perez",
-        permisos.ToList(), new List<PrivilegioPedido>(), "MP 1234", "Córdoba", 3));
+        permisos.ToList(), new List<PrivilegioPedido>(), "MP 1234", "Córdoba", 3, DateTime.Today.AddYears(1).ToString("yyyy-MM-dd")));
 
     [Theory]
     [InlineData("20123456786", true)]
@@ -83,5 +83,45 @@ public class AltaEquipoTests
         Assert.NotEqual(a, b);
         Assert.Equal(64, AltaEquipo.HashToken(a).Length);
         Assert.DoesNotContain(a, AltaEquipo.HashToken(a));
+    }
+
+    // Matrícula por especialidad (rama AAA1): además de la principal, otras especialidades con su propia matrícula.
+    private static string EnUnAnio => DateTime.Today.AddYears(1).ToString("yyyy-MM-dd");
+
+    private static AltaEquipoRequest ConAdicionales(params MatriculaAdicional[] m) =>
+        AltaEquipo.Normalizar(Valido(Roles.Profesional) with { MatriculasAdicionales = m.ToList() });
+
+    [Fact]
+    public void Especialidad_adicional_con_su_matricula_es_valida()
+    {
+        var r = ConAdicionales(new MatriculaAdicional(5, " MP 999 ", null, EnUnAnio));
+        Assert.Null(AltaEquipo.Validar(r, Catalogo));
+        Assert.Equal("MP 999", r.MatriculasAdicionales![0].Numero);
+        Assert.Equal("Córdoba", r.MatriculasAdicionales[0].Jurisdiccion);   // sin jurisdicción propia, toma la de la principal
+    }
+
+    [Fact]
+    public void Especialidad_adicional_no_repite_ni_la_principal_ni_otra()
+    {
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(new MatriculaAdicional(3, "MP 1", null, EnUnAnio)), Catalogo));   // 3 es la principal
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(
+            new MatriculaAdicional(5, "MP 1", null, EnUnAnio), new MatriculaAdicional(5, "MP 2", null, EnUnAnio)), Catalogo));
+    }
+
+    [Fact]
+    public void Especialidad_adicional_exige_matricula_y_vencimiento_futuro()
+    {
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(new MatriculaAdicional(5, " ", null, EnUnAnio)), Catalogo));
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(new MatriculaAdicional(5, "MP 1", null, null)), Catalogo));
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(new MatriculaAdicional(5, "MP 1", null, DateTime.Today.ToString("yyyy-MM-dd"))), Catalogo));
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(new MatriculaAdicional(null, "MP 1", null, EnUnAnio)), Catalogo));
+    }
+
+    [Fact]
+    public void Hasta_cinco_especialidades_adicionales()
+    {
+        var seis = Enumerable.Range(10, 6).Select(i => new MatriculaAdicional(i, "MP " + i, null, EnUnAnio)).ToArray();
+        Assert.NotNull(AltaEquipo.Validar(ConAdicionales(seis), Catalogo));
+        Assert.Null(AltaEquipo.Validar(ConAdicionales(seis[..5]), Catalogo));
     }
 }

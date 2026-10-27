@@ -26,7 +26,7 @@ public static class PrimerosPasosEndpoints
             var yo = identidad.Resolver(ctx)!;
             if (yo is { EsPaciente: true } && yo.IdPaciente != id)
                 return Results.Json(new { mensaje = "Solo podés ver tus propios primeros pasos." }, statusCode: 403);
-            if (!yo.EsPaciente && !yo.HaceAdmision && !yo.EsAuditor && !yo.EsConfigurador && !yo.EsCrm)
+            if (!yo.EsPaciente && !yo.HaceAdmision && !yo.EsAuditor && !yo.EsConfigurador && !yo.RecepcionAdmision)
                 return Results.Json(new { mensaje = "No tenés permiso para ver los primeros pasos de este paciente." }, statusCode: 403);
             if (new PacienteDAO().ObtenerPorId(id) is null) return Results.NotFound();
 
@@ -64,7 +64,7 @@ public static class PrimerosPasosEndpoints
 
         app.MapGet("/profesionales/elegibles", () =>
             Results.Ok(PreferenciasAdmision.ProfesionalesElegibles().Select(p => new { p.IdProfesional, p.Nombre, p.Especialidad })))
-            .Solo(Quien.Paciente | Quien.Admision | Quien.Crm);
+            .Solo(Quien.Paciente | Quien.Admision | Quien.RecepcionAdmision);
 
         // El paciente completa de nuevo el formulario devuelto. Sobre el mismo informe: vuelve a «Pendiente» para otra revisión. No crea otro informe ni otro caso.
         app.MapPut("/pacientes/{id}/informe-admision", (int id, InformeAdmision i, HttpContext ctx, IdentidadActualService identidad) =>
@@ -106,7 +106,7 @@ public static class PrimerosPasosEndpoints
                 AvisarSiNoFirmo(ctx, pac, consentimiento.CurrentValue);
             }
             return Responder(r);
-        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
+        }).Solo(Quien.Admision | Quien.RecepcionAdmision);   // la recepcionista: profesional o CRM, con el privilegio Admisión
 
         app.MapPut("/informes-admision/{id}/devolver", (int id, RevisionRequest req, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
         {
@@ -115,7 +115,7 @@ public static class PrimerosPasosEndpoints
             var r = RevisionAdmision.Devolver(id, yo.IdUsuario, req.Aclaracion, reloj.GetLocalNow().DateTime);
             if (r.Ok && r.Cambio && r.IdPaciente is int pac) AuditoriaIds.Registrar(ctx, "Devolvió el formulario de admisión con una aclaración", "InformeAdmision", id, pac);
             return Responder(r);
-        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
+        }).Solo(Quien.Admision | Quien.RecepcionAdmision);   // la recepcionista: profesional o CRM, con el privilegio Admisión
 
         app.MapPut("/informes-admision/{id}/otro-recurso", (int id, RevisionRequest req, TimeProvider reloj, HttpContext ctx, IdentidadActualService identidad) =>
         {
@@ -124,7 +124,7 @@ public static class PrimerosPasosEndpoints
             var r = RevisionAdmision.OtroRecurso(id, yo.IdUsuario, req.Motivo, reloj.GetLocalNow().DateTime);
             if (r.Ok && r.Cambio && r.IdPaciente is int pac) AuditoriaIds.Registrar(ctx, "Cerró el ingreso con «otro recurso»", "InformeAdmision", id, pac);
             return Responder(r);
-        }).Solo(Quien.Admision | Quien.Crm);   // la recepcionista: Admisión o CRM
+        }).Solo(Quien.Admision | Quien.RecepcionAdmision);   // la recepcionista: profesional o CRM, con el privilegio Admisión
 
         // Revocar el consentimiento de tratamiento. «Borrar» es revocar CON CONSTANCIA: la fila no se elimina (la auditoría tiene que conservar quién firmó, cuándo y cuándo revocó).
         // TODO-VALIDAR: si el consentimiento revocado debe conservarse tal cual o anonimizarse pasado un tiempo lo decide alguien de formación legal.

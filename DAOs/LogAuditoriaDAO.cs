@@ -36,7 +36,7 @@ public class LogAuditoriaDAO
     // se pueden corregir (la auditoría es de solo agregar), quedan del lado correcto.
     public const string EntidadesClinicas =
         "'HistoriaClinica','Evolucion','EventoCrisis','SesionClinica','Conversacion','Consentimiento','InteraccionIA'," +
-        "'InformeAdmision','Derivacion','PacienteProfesional','Caso','Reporte','Turno'";
+        "'InformeAdmision','Derivacion','PacienteProfesional','Caso','Reporte','Turno','DocumentoClinico','SeguimientoAsistencia','AbandonoTratamiento'";
 
     public List<LogAuditoria> ObtenerPaginado(int pagina, int cantidad, string categoria)
     {

@@ -53,7 +53,7 @@ public class InspectorEsquemaSql : IInspectorEsquema
 
 public class VerificadorEsquema
 {
-    public const int VersionRequerida = 32;   // la última migración que el código conoce (la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión; la 31 son los primeros pasos del paciente; la 32 es opcional: sin ella aceptar un formulario anda como antes, sin propuesta automática)
+    public const int VersionRequerida = 37;   // la última migración que el código conoce (la 25 a la 28 son opcionales: sin la 25 el interruptor de IA por conversación lo avisa; sin la 26 el cierre de sesión nuevo responde 409; la 29 y la 30 son de las agendas de admisión; la 31 son los primeros pasos del paciente; la 32 es opcional: sin ella aceptar un formulario anda como antes, sin propuesta automática) La 33 (agenda, feriados y matrículas) es obligatoria; la 34 (especialidades del Colegio) es opcional; la 35 (documentos clínicos) la 36 (privilegios de admisión y video) y la 37 (asistencia y abandono) son obligatorias.
 
     public static readonly IReadOnlyList<MigracionConocida> Migraciones = new MigracionConocida[]
     {
@@ -121,6 +121,17 @@ public class VerificadorEsquema
             "COL_LENGTH('dbo.InformeAdmision', 'AclaracionRecepcion') IS NOT NULL AND COL_LENGTH('dbo.Consentimiento', 'FechaRevocacion') IS NOT NULL AND COL_LENGTH('dbo.Notificacion', 'Evento') IS NOT NULL"),
         new(32, "add_propuesta_asignacion.sql",
             "OBJECT_ID('dbo.PropuestaAsignacion', 'U') IS NOT NULL AND COL_LENGTH('dbo.InformeAdmision', 'AsignacionEstado') IS NOT NULL", Opcional: true),
+        new(33, "add_agenda_feriados_bloqueos_matriculas.sql",
+            "OBJECT_ID('dbo.Feriado', 'U') IS NOT NULL AND OBJECT_ID('dbo.BloqueoAgenda', 'U') IS NOT NULL AND OBJECT_ID('dbo.ProfesionalMatricula', 'U') IS NOT NULL AND EXISTS (SELECT 1 FROM EstadoTurno WHERE Descripcion = N'Ausente')"),
+        // Solo datos (el catálogo del Colegio): el marcador es su propia fila. Opcional: sin ella la API anda igual.
+        new(34, "add_especialidades_colegio.sql",
+            "EXISTS (SELECT 1 FROM VersionEsquema WHERE Numero = 34)", Opcional: true),
+        new(35, "add_documentos_clinicos.sql",
+            "OBJECT_ID('dbo.DocumentoClinico', 'U') IS NOT NULL AND OBJECT_ID('dbo.TR_DocumentoClinico_SoloAgregar', 'TR') IS NOT NULL AND COL_LENGTH('dbo.Profesional', 'FirmaImagen') IS NOT NULL AND COL_LENGTH('dbo.DocumentoClinico', 'HashPdfSha256') IS NOT NULL"),
+        new(36, "add_privilegios_admision_video.sql",
+            "EXISTS (SELECT 1 FROM Privilegio WHERE Clave = 'entrevista_video') AND EXISTS (SELECT 1 FROM PermisoPrivilegio pp JOIN Permiso p ON p.IdPermiso = pp.IdPermiso JOIN Privilegio pr ON pr.IdPrivilegio = pp.IdPrivilegio WHERE p.Clave = 'crm' AND pr.Clave = 'admision')"),
+        new(37, "add_asistencia_abandono.sql",
+            "COL_LENGTH('dbo.Turno', 'Cobrable') IS NOT NULL AND OBJECT_ID('dbo.SeguimientoAsistencia', 'U') IS NOT NULL AND OBJECT_ID('dbo.AbandonoTratamiento', 'U') IS NOT NULL AND EXISTS (SELECT 1 FROM Privilegio WHERE Clave = 'gestion_pacientes')"),
     };
 
     // Mientras la base esté desactualizada (o no se pueda verificar), se vuelve a mirar cada

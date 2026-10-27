@@ -46,7 +46,7 @@ public static class AsignacionAutomaticaEndpoints
             if (req.Confirmo != true) return Results.BadRequest(new { codigo = "sin-confirmacion", mensaje = "Confirmá la acción para continuar." });
             var yo = identidad.Resolver(ctx)!;
             return Responder(servicio.Reproponer(id, yo.IdUsuario, reloj.GetLocalNow().DateTime));
-        }).Solo(Quien.Admision | Quien.Crm);
+        }).Solo(Quien.Admision | Quien.RecepcionAdmision);
 
         return app;
     }

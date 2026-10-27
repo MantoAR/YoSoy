@@ -64,10 +64,11 @@ public class ConfiguradorMenuTests
     {
         var m = Menus(new[] { "configurador" });
 
-        Assert.Equal(new[] { "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" }, Resumen(m["configurador"]));
+        // Rama AAA1: Feriados (migración 33) y Asistencia (migración 37) en Configuración; Matrículas (migración 33) en Usuarios.
+        Assert.Equal(new[] { "Configuración[whatsapp,chatsia,especialidades,feriados,asistencia]", "Usuarios[altausuario,permisos,usuarios,matriculas,solicitudes]", "auditoria" }, Resumen(m["configurador"]));
         Assert.Equal(new[] { "Configuración", "Usuarios", "Auditoría" }, m["configurador"].Select(e => e.Grupo ?? e.Texto));
-        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades" }, m["configurador"][0].Items!.Select(i => i.Texto));
-        Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Solicitudes de registro" }, m["configurador"][1].Items!.Select(i => i.Texto));
+        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades", "Feriados", "Asistencia" }, m["configurador"][0].Items!.Select(i => i.Texto));
+        Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Matrículas", "Solicitudes de registro" }, m["configurador"][1].Items!.Select(i => i.Texto));
     }
 
     [FactConNodeDelServicioDeWhatsApp]
@@ -101,15 +102,22 @@ public class ConfiguradorMenuTests
     [FactConNodeDelServicioDeWhatsApp]
     public void El_menu_del_CRM_es_el_de_siempre()
     {
+        // Migración 36: los formularios «Sobre mí» solo con el privilegio Admisión (la admisionista).
         var m = Menus(new[] { "crm" })["crm"];
-        Assert.Equal(new[] { "inicio", "Casos[admisiones,casos,casosderivaciones]" }, Resumen(m));
+        Assert.Equal(new[] { "inicio", "Casos[casos,casosderivaciones]" }, Resumen(m));
+        Assert.Equal(new[] { "inicio", "Casos[admisiones,casos,casosderivaciones]" }, Resumen(Menus(new[] { "crm" }, new[] { "admision" })["crm"]));
 
         var conChats = Menus(new[] { "crm" })["crm+chats"];
-        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[admisiones,casos,casosderivaciones]" }, Resumen(conChats));
+        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[casos,casosderivaciones]" }, Resumen(conChats));
         Assert.Equal(new[] { "Chats", "Escalamientos", "Etiquetas de chats" }, conChats[1].Items!.Select(i => i.Texto));
 
         var conAgendas = Menus(new[] { "crm" }, new[] { "gestion_agendas" })["crm+chats"];
-        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[admisiones,casos,casosderivaciones]", "Agendas[turnos,agendas]" }, Resumen(conAgendas));
+        Assert.Equal(new[] { "inicio", "Conversaciones[chats,escalamientos,etiquetas]", "Casos[casos,casosderivaciones]", "Agendas[turnos,agendas]" }, Resumen(conAgendas));
+
+        // Migración 37: con Gestión de pacientes, «Pacientes y turnos» (asistencia del día; nunca la historia clínica).
+        var conPacientes = Menus(new[] { "crm" }, new[] { "gestion_pacientes" })["crm"];
+        Assert.Equal(new[] { "inicio", "gestionpacientes", "Casos[casos,casosderivaciones]" }, Resumen(conPacientes));
+        Assert.Equal("Pacientes y turnos", conPacientes[1].Texto);
     }
 
     [FactConNodeDelServicioDeWhatsApp]
@@ -134,7 +142,7 @@ public class ConfiguradorMenuTests
         Assert.Equal(new[]
         {
             "inicio", "Admisión[admisiones,derivaciones,asignaciones]", "Agenda[agenda,horarios]", "pacientes", "casos", "sesion", "reportes",
-            "Auditoría[reportesgenerales,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
+            "Auditoría[reportesgenerales,matriculas,evoluciones,eventoscrisis,interaccionesia,auditoriaclinica]"
         }, Resumen(m));
     }
 
@@ -149,25 +157,29 @@ public class ConfiguradorMenuTests
     {
         var m = Menus(SesionAdministracion, roles: new[] { "administracion" });
 
-        // Sin chats (mensajería no disponible): el grupo CRM solo trae Casos y Derivaciones.
-        Assert.Equal(new[] { "Recepcionista[admisiones,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        // Sin chats (mensajería no disponible): el grupo CRM solo trae Casos y Derivaciones (los Formularios, con el privilegio Admisión).
+        Assert.Equal(new[] { "Recepcionista[casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades,feriados,asistencia]", "Usuarios[altausuario,permisos,usuarios,matriculas,solicitudes]", "auditoria" },
             Resumen(m["administracion"]));
         // Con chats: Chats y Leads van PRIMERO dentro de CRM ▾; después Etiquetas, Escalamientos, Casos y Derivaciones.
         var conChats = m["administracion+chats"];
-        Assert.Equal(new[] { "Recepcionista[chats,leads,etiquetas,escalamientos,admisiones,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades]", "Usuarios[altausuario,permisos,usuarios,solicitudes]", "auditoria" },
+        Assert.Equal(new[] { "Recepcionista[chats,leads,etiquetas,escalamientos,casos,casosderivaciones]", "Configuración[whatsapp,chatsia,especialidades,feriados,asistencia]", "Usuarios[altausuario,permisos,usuarios,matriculas,solicitudes]", "auditoria" },
             Resumen(conChats));
-        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Formularios", "Casos", "Derivaciones" }, Textos(conChats[0]));
+        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Casos", "Derivaciones" }, Textos(conChats[0]));
         Assert.Equal(new[] { "Recepcionista", "Configuración", "Usuarios", "Auditoría" }, conChats.Select(e => e.Grupo ?? e.Texto));
-        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades" }, Textos(conChats[1]));
-        Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Solicitudes de registro" }, Textos(conChats[2]));
+        Assert.Equal(new[] { "WhatsApp", "Asistente de chats", "Especialidades", "Feriados", "Asistencia" }, Textos(conChats[1]));
+        Assert.Equal(new[] { "Registrar usuario", "Permisos", "Usuarios", "Matrículas", "Solicitudes de registro" }, Textos(conChats[2]));
+
+        // Con Admisión y Gestión de pacientes: Formularios antes de Casos y «Pacientes y turnos» al final del grupo.
+        var todo = Menus(SesionAdministracion, new[] { "admision", "gestion_pacientes" }, new[] { "administracion" })["administracion+chats"];
+        Assert.Equal(new[] { "chats", "leads", "etiquetas", "escalamientos", "admisiones", "casos", "casosderivaciones", "gestionpacientes" }, todo[0].Ids);
     }
 
     [FactConNodeDelServicioDeWhatsApp]
     public void Turnos_y_Agendas_van_dentro_de_CRM_solo_con_el_privilegio_Gestion_de_agendas()
     {
         var con = Menus(SesionAdministracion, new[] { "gestion_agendas" }, new[] { "administracion" })["administracion+chats"];
-        Assert.Equal(new[] { "chats", "leads", "etiquetas", "escalamientos", "admisiones", "casos", "casosderivaciones", "turnos", "agendas" }, con[0].Ids);
-        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Formularios", "Casos", "Derivaciones", "Turnos", "Agendas" }, Textos(con[0]));
+        Assert.Equal(new[] { "chats", "leads", "etiquetas", "escalamientos", "casos", "casosderivaciones", "turnos", "agendas" }, con[0].Ids);
+        Assert.Equal(new[] { "Chats", "Leads", "Etiquetas", "Escalamientos", "Casos", "Derivaciones", "Turnos", "Agendas" }, Textos(con[0]));
         var sin = Menus(SesionAdministracion, roles: new[] { "administracion" })["administracion+chats"];
         Assert.DoesNotContain("turnos", sin.SelectMany(e => e.Ids));
         Assert.DoesNotContain("agendas", sin.SelectMany(e => e.Ids));
@@ -202,7 +214,9 @@ public class ConfiguradorMenuTests
         var conChats = sin["crm+chats"];
         Assert.Equal(new[] { "inicio", "Conversaciones", "Casos" }, conChats.Select(e => e.Id ?? e.Grupo!));
         Assert.Equal(new[] { "Chats", "Escalamientos", "Etiquetas de chats" }, Textos(conChats[1]));
-        Assert.Equal(new[] { "Formularios", "Casos", "Derivaciones" }, Textos(conChats[2]));   // «Formularios»: la recepcionista revisa los «Sobre mí»
+        Assert.Equal(new[] { "Casos", "Derivaciones" }, Textos(conChats[2]));
+        // «Formularios»: la recepcionista revisa los «Sobre mí» solo con el privilegio Admisión (migración 36).
+        Assert.Equal(new[] { "Formularios", "Casos", "Derivaciones" }, Textos(Menus(new[] { "crm" }, new[] { "admision" }, new[] { "crm" })["crm+chats"][2]));
         Assert.Equal("Inicio", conChats[0].Texto);
 
         var conAgendas = Menus(new[] { "crm" }, new[] { "gestion_agendas" }, new[] { "crm" })["crm+chats"];
@@ -248,7 +262,7 @@ public class ConfiguradorMenuTests
     [FactConNodeDelServicioDeWhatsApp]
     public void Las_secciones_de_Administracion_coinciden_con_su_menu_y_no_incluyen_las_ocultas()
     {
-        foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" } })
+        foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" }, new[] { "admision", "gestion_pacientes" } })
         {
             var menu = Menus(SesionAdministracion, privilegios, new[] { "administracion" })["administracion+chats"].SelectMany(e => e.Ids).OrderBy(x => x).ToArray();
             var secciones = SeccionesDe("administracion", SesionAdministracion, privilegios).OrderBy(x => x).ToArray();
@@ -261,7 +275,7 @@ public class ConfiguradorMenuTests
     [FactConNodeDelServicioDeWhatsApp]
     public void Las_secciones_del_CRM_coinciden_con_su_menu()
     {
-        foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" } })
+        foreach (var privilegios in new[] { Array.Empty<string>(), new[] { "gestion_agendas" }, new[] { "admision", "gestion_pacientes" } })
         {
             var menu = Menus(new[] { "crm" }, privilegios, new[] { "crm" })["crm+chats"].SelectMany(e => e.Ids).OrderBy(x => x).ToArray();
             Assert.Equal(menu, SeccionesDe("crm", new[] { "crm" }, privilegios).OrderBy(x => x).ToArray());

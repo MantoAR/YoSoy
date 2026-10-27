@@ -145,7 +145,7 @@ public class UsuariosAdminUnidadTests
         var esquema = Leer("docs", "produccion", "01-produccion.sql");
         Assert.Contains("DebeCambiarPassword", esquema);
         Assert.Contains("(24, N'add_debe_cambiar_password.sql', 'Script')", esquema);
-        Assert.Equal(32, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión), la 27 (alta y derivación) y la 28 (consentimientos del circuito) son opcionales; la 29 (agenda de admisión) y la 30 (vigencia de la agenda) se exigen; la 24 sigue siendo la última que el código EXIGE
+        Assert.Equal(37, VerificadorEsquema.VersionRequerida);   // la 25 (Chats v2), la 26 (cierre de sesión), la 27 (alta y derivación) y la 28 (consentimientos del circuito) son opcionales; la 29 (agenda de admisión) y la 30 (vigencia de la agenda) se exigen; la 24 sigue siendo la última que el código EXIGE; la 33 (agenda y matrícula) es obligatoria
         var m = VerificadorEsquema.Migraciones.Single(x => x.Numero == 24);
         Assert.Equal("add_debe_cambiar_password.sql", m.Archivo);
         Assert.Contains("DebeCambiarPassword", m.Marcador);

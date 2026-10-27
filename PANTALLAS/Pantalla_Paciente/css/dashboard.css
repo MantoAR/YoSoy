@@ -82,6 +82,7 @@
 .estado-Cancelado  { color: var(--neutral); background: var(--neutral-bg); border-color: var(--neutral-border); }
 .estado-Realizado  { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .estado-propuesto  { color: var(--warn); background: var(--warn-bg); border-color: var(--warn-border); }   /* "A confirmar", como en el almanaque */
+.estado-Ausente    { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
 .estado-En-entrevista { color: var(--info); background: var(--info-bg); border-color: var(--info-border); }
 .estado-Derivado   { color: var(--ok);   background: var(--ok-bg);   border-color: var(--ok-border); }
 .panel-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }

@@ -27,7 +27,10 @@
             { id: "whatsapp", texto: "WhatsApp", titulo: "WhatsApp", icono: "telefono", desc: "Estado de la conexión y código QR" },
             // Chats v2: el interruptor GLOBAL de IA de los chats (arranca apagado). Solo el Configurador; el CRM puro no tiene Configuración.
             { id: "chatsia", texto: "Asistente de chats", titulo: "Asistente de chats", icono: "ia", desc: "Interruptor global de IA de los chats" },
-            { id: "especialidades", texto: "Especialidades", icono: "etiqueta" }
+            { id: "especialidades", texto: "Especialidades", icono: "etiqueta" },
+            { id: "feriados", texto: "Feriados", icono: "agenda", desc: "Días sin turnos para toda la organización" },
+            // Migración 37: tolerancia, aviso al paciente, cancelación sin cargo y ausencias seguidas.
+            { id: "asistencia", texto: "Asistencia", icono: "reloj", desc: "Tolerancia, avisos, cancelaciones y ausencias" }
         ]
     };
     const GRUPO_USUARIOS = {
@@ -35,6 +38,7 @@
             { id: "altausuario", texto: "Registrar usuario", icono: "usuario-mas", desc: "Alta de alguien del equipo; le llega un mail para confirmar", titulo: "Registrar usuario del equipo" },
             { id: "permisos", texto: "Permisos", icono: "escudo", desc: "Módulos, permisos y privilegios de cada usuario" },
             { id: "usuarios", texto: "Usuarios", icono: "pacientes", desc: "Todos los usuarios: contraseña, permisos, asignaciones y bajas" },
+            { id: "matriculas", texto: "Matrículas", icono: "escudo", desc: "Vencimientos y renovaciones de los profesionales" },
             { id: "solicitudes", texto: "Solicitudes de registro", icono: "usuario-mas", desc: "Profesionales que pidieron cuenta" }
         ]
     };
@@ -143,6 +147,7 @@
             { id: "escalamientos", texto: "Escalamientos", icono: "alerta", desc: "Pidieron hablar con una persona del equipo" }
         ]
     };
+    const ITEM_GESTION_PACIENTES = { id: "gestionpacientes", texto: "Pacientes y turnos" };
     const GRUPO_AGENDAS = {
         texto: "Agendas", items: [
             { id: "turnos", texto: "Turnos", icono: "reloj", desc: "Turnos de todos los profesionales" },
@@ -161,6 +166,7 @@
     const GRUPO_AUDITOR = {
         texto: "Auditoría", items: [
             { id: "reportesgenerales", texto: "Reportes", icono: "reportes", desc: "Atenciones de toda la organización", titulo: "Reportes de la organización", pagina: "gestion" },
+            { id: "matriculas", texto: "Matrículas", icono: "escudo", desc: "Vencimientos de matrícula de los profesionales", pagina: "gestion" },
             { id: "evoluciones", texto: "Evoluciones", icono: "tendencia", desc: "Todas, solo lectura", pagina: "gestion" },
             { id: "eventoscrisis", texto: "Eventos de crisis", icono: "alerta", desc: "Todos, solo lectura", pagina: "gestion" },
             { id: "interaccionesia", texto: "Interacciones IA", icono: "ia", desc: "Todas, solo lectura", pagina: "gestion" },
@@ -182,7 +188,14 @@
             if (YS.sesion.tienePermiso("auditor")) propios.push(GRUPO_AUDITOR);
             return { ...base, items: propios };
         }
+        // Migración 36: los formularios «Sobre mí» solo los ve la recepcionista con el privilegio Admisión (la admisionista).
+        if ((rol === "crm" || rol === "administracion") && !YS.sesion.tienePrivilegio("admision"))
+            items.forEach(it => { if (it.items) it.items = it.items.filter(s => s.id !== "admisiones"); });
         if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_agendas")) items.push(GRUPO_AGENDAS);
+        // Migración 37: con Gestión de pacientes, la recepción ve los turnos del día con su asistencia (nunca la historia clínica).
+        if (rol === "crm" && YS.sesion.tienePrivilegio("gestion_pacientes")) items.splice(1, 0, { ...ITEM_GESTION_PACIENTES, titulo: "Pacientes y turnos" });
+        if (rol === "administracion" && YS.sesion.tienePrivilegio("gestion_pacientes"))
+            items.find(it => it.texto === ETIQUETA_CRM).items.push({ ...ITEM_GESTION_PACIENTES, icono: "pacientes", desc: "Asistencia de hoy, ausencias y posible abandono" });
         if (rol === "administracion" && YS.sesion.tienePrivilegio("gestion_agendas")) {
             // Turnos y Agendas van dentro del grupo CRM, después de Derivaciones.
             const crm = items.find(it => it.texto === ETIQUETA_CRM);
@@ -503,16 +516,18 @@
             },
             vacio: "No tenés notificaciones sin leer."
         },
-        // Turnos confirmados por el paciente que todavía no tienen sala (antes eran avisos flotantes).
+        // Turnos confirmados por el paciente que todavía no tienen sala (antes eran avisos flotantes), y los avisos del
+        // sistema para el profesional (migración 33: vencimiento de matrícula), que se marcan leídos al abrir la campana.
         profesional: {
             titulo: "Avisos",
             async cargar() {
                 // Con el privilegio Admisión, primero los formularios «Sobre mí» para revisar (aceptar, devolver u otro recurso).
                 // Quedan en la campana mientras sigan sin revisar.
                 const conAdmision = YS.sesion.tienePrivilegio("admision");
-                const [lista, informes] = await Promise.all([
+                const [lista, informes, avisosSistema] = await Promise.all([
                     YS.api(`/profesionales/${YS.sesion.idProfesional()}/turnos-confirmados`),
-                    conAdmision ? YS.api("/informes-admision-detalle").catch(() => []) : []
+                    conAdmision ? YS.api("/informes-admision-detalle").catch(() => []) : [],
+                    YS.api("/profesionales/yo/avisos").catch(() => [])   // migración 33: avisos del sistema (vencimiento de matrícula)
                 ]);
                 const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
                 const sinSala = lista.filter(t => !t.codigoSala && fechaDMY(t.fecha) >= hoy);
@@ -537,9 +552,12 @@
                     id: "aviso-" + a.idAviso, titulo: a.titulo, texto: a.mensaje, fecha: a.fecha ? String(a.fecha).slice(0, 10) : null, noLeido: a.leida === false,
                     accion: a.leida === false ? { texto: "Entendido", alClick: () => marcarAvisoClinico(a.idAviso) } : null
                 }));
+                const sistemaNoLeidos = avisosSistema.filter(a => !a.leida);
                 return {
-                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length,
+                    noLeidos: pendientes.length + sinSala.length + porResponder.length + avisos.filter(a => a.noLeido).length + sistemaNoLeidos.length,
+                    avisosNoLeidos: sistemaNoLeidos.map(a => a.idNotificacion),
                     items: [
+                        ...sistemaNoLeidos.map(a => ({ id: "sis-" + a.idNotificacion, titulo: a.titulo, texto: a.mensaje, fecha: a.fecha, noLeido: true, urgente: a.tipo === "Matricula" })),
                         ...porResponder,
                         ...avisos,
                         ...pendientes.map(a => ({
@@ -554,6 +572,14 @@
                         }))
                     ]
                 };
+            },
+            async alAbrir(datos) {
+                // Solo los avisos del sistema se marcan leídos: un turno sin sala sigue pendiente hasta que se genera.
+                for (const id of datos.avisosNoLeidos || []) {
+                    try { await YS.fetch(`/profesionales/yo/avisos/${id}/leida`, { method: "PUT" }); } catch { }
+                }
+                if ((datos.avisosNoLeidos || []).length) setTimeout(() => campana.refrescar(), 1500);
+                return false;
             },
             vacio: "No hay avisos por ahora.",
             recordatorio: n => `Tenés ${n} aviso${n === 1 ? "" : "s"} sin leer (turnos sin sala o derivaciones).`

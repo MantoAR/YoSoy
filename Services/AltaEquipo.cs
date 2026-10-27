@@ -19,7 +19,14 @@ using Microsoft.Data.SqlClient;
 public record AltaEquipoRequest(
     string? Nombre, string? Apellido, string? Cuil, string? Telefono, string? Mail, string? Username,
     List<string>? Permisos, List<PrivilegioPedido>? Privilegios,
-    string? Matricula, string? JurisdiccionMatricula, int? IdEspecialidad);
+    string? Matricula, string? JurisdiccionMatricula, int? IdEspecialidad,
+    // Migración 33: vencimiento de la matrícula principal (AAAA-MM-DD). Obligatorio para el rol Profesional.
+    string? VencimientoMatricula = null,
+    // Otras especialidades que atiende, cada una con su matrícula (opcionales; la principal va arriba).
+    List<MatriculaAdicional>? MatriculasAdicionales = null);
+
+/// <summary>Una especialidad más del profesional, con su propia matrícula. Vencimiento en AAAA-MM-DD.</summary>
+public record MatriculaAdicional(int? IdEspecialidad, string? Numero, string? Jurisdiccion, string? Vencimiento);
 
 public record ActivarCuentaRequest(string? Token, string? Password);
 public record AgregarPrivilegioRequest(string? Privilegio);
@@ -33,6 +40,16 @@ public static class AltaEquipo
     private static readonly Regex TelefonoValido = new(@"^[0-9+()\- ]{6,30}$");
 
     /// <summary>Trim, minúsculas en mail y usuario, solo dígitos en el CUIL.</summary>
+    public static DateTime? VencimientoMatricula(AltaEquipoRequest r) => Fecha(r.VencimientoMatricula);
+
+    /// <summary>Una fecha AAAA-MM-DD, o null si no es válida.</summary>
+    public static DateTime? Fecha(string? texto) =>
+        DateTime.TryParseExact(texto?.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var v) ? v : null;
+
+    /// <summary>Máximo de especialidades adicionales en el alta (además de la principal).</summary>
+    public const int MaximoAdicionales = 5;
+
     public static AltaEquipoRequest Normalizar(AltaEquipoRequest r) => r with
     {
         Nombre = r.Nombre?.Trim(),
@@ -44,7 +61,16 @@ public static class AltaEquipo
         Permisos = (r.Permisos ?? new()).Distinct().ToList(),
         Privilegios = (r.Privilegios ?? new()).Distinct().ToList(),
         Matricula = string.IsNullOrWhiteSpace(r.Matricula) ? null : r.Matricula.Trim(),
-        JurisdiccionMatricula = string.IsNullOrWhiteSpace(r.JurisdiccionMatricula) ? null : r.JurisdiccionMatricula.Trim()
+        JurisdiccionMatricula = string.IsNullOrWhiteSpace(r.JurisdiccionMatricula) ? null : r.JurisdiccionMatricula.Trim(),
+        // Sin jurisdicción propia, una matrícula adicional toma la de la principal.
+        MatriculasAdicionales = (r.MatriculasAdicionales ?? new()).Select(m => m with
+        {
+            Numero = string.IsNullOrWhiteSpace(m.Numero) ? null : m.Numero.Trim(),
+            Jurisdiccion = string.IsNullOrWhiteSpace(m.Jurisdiccion)
+                ? (string.IsNullOrWhiteSpace(r.JurisdiccionMatricula) ? null : r.JurisdiccionMatricula.Trim())
+                : m.Jurisdiccion.Trim(),
+            Vencimiento = m.Vencimiento?.Trim()
+        }).ToList()
     };
 
     /// <summary>
@@ -90,6 +116,21 @@ public static class AltaEquipo
             if (string.IsNullOrEmpty(r.Matricula) || r.Matricula.Length > 50) return "Para el rol Profesional, completá la matrícula.";
             if (string.IsNullOrEmpty(r.JurisdiccionMatricula) || r.JurisdiccionMatricula.Length > 60) return "Indicá la jurisdicción de la matrícula (por ejemplo, Córdoba).";
             if (r.IdEspecialidad is not > 0) return "Para el rol Profesional, elegí la especialidad principal.";
+            if (VencimientoMatricula(r) is not DateTime vence) return "Indicá la fecha de vencimiento de la matrícula.";
+            if (vence.Date <= DateTime.Today) return "La matrícula ya está vencida: cargá la fecha de la renovación.";
+
+            var adicionales = r.MatriculasAdicionales ?? new();
+            if (adicionales.Count > MaximoAdicionales) return $"Se pueden agregar hasta {MaximoAdicionales} especialidades además de la principal.";
+            var elegidas = new HashSet<int> { r.IdEspecialidad!.Value };
+            foreach (var m in adicionales)
+            {
+                if (m.IdEspecialidad is not > 0) return "En cada especialidad agregada, elegí cuál es.";
+                if (!elegidas.Add(m.IdEspecialidad.Value)) return "Hay una especialidad repetida: cada especialidad va una sola vez.";
+                if (string.IsNullOrEmpty(m.Numero) || m.Numero.Length > 50) return "Completá la matrícula de cada especialidad agregada.";
+                if (string.IsNullOrEmpty(m.Jurisdiccion) || m.Jurisdiccion.Length > 60) return "Indicá la jurisdicción de cada matrícula agregada.";
+                if (Fecha(m.Vencimiento) is not DateTime v) return "Indicá el vencimiento de cada matrícula agregada.";
+                if (v.Date <= DateTime.Today) return "Una de las matrículas agregadas ya está vencida: cargá la fecha de la renovación.";
+            }
         }
 
         return AccesosEdicion.Validar(catalogo, new AccesosEdicionRequest(permisos, r.Privilegios),
@@ -160,6 +201,9 @@ public class AltaEquipoDAO
             if (Existe("SELECT 1 FROM Profesional WHERE Matricula = @V", ("@V", r.Matricula!))) return "Ya hay un profesional con esa matrícula.";
             if (!Existe("SELECT 1 FROM Especialidad WHERE IdEspecialidad = @V AND Estado = 'Activo' AND ISNULL(Tipo, '') <> 'Servicio'", ("@V", r.IdEspecialidad!.Value)))
                 return "Esa especialidad no está disponible.";
+            foreach (var m in r.MatriculasAdicionales ?? new())
+                if (!Existe("SELECT 1 FROM Especialidad WHERE IdEspecialidad = @V AND Estado = 'Activo' AND ISNULL(Tipo, '') <> 'Servicio'", ("@V", m.IdEspecialidad!.Value)))
+                    return "Una de las especialidades agregadas no está disponible.";
         }
         return null;
     }
@@ -192,6 +236,19 @@ public class AltaEquipoDAO
                 AccesosEdicionDAO.Ejecutar(con, tx,
                     "INSERT INTO UsuarioProfesional (IdUsuario, IdProfesional, FechaVinculacion) VALUES (@U, @P, CAST(GETDATE() AS DATE));",
                     ("@U", idUsuario), ("@P", idProfesional));
+                // Migración 33: la matrícula de la ficha es la principal, con su vencimiento (Validar ya exigió la fecha).
+                AccesosEdicionDAO.Ejecutar(con, tx, @"
+                    INSERT INTO ProfesionalMatricula (IdProfesional, IdEspecialidad, Numero, Jurisdiccion, Vencimiento, Principal, IdUsuarioModifico)
+                    VALUES (@P, @E, @N, @J, @V, 1, @A);",
+                    ("@P", idProfesional), ("@E", r.IdEspecialidad!.Value), ("@N", r.Matricula!), ("@J", r.JurisdiccionMatricula!),
+                    ("@V", AltaEquipo.VencimientoMatricula(r)!.Value.Date), ("@A", idAutor));
+                // Las otras especialidades, cada una con su matrícula (no principales).
+                foreach (var m in r.MatriculasAdicionales ?? new())
+                    AccesosEdicionDAO.Ejecutar(con, tx, @"
+                        INSERT INTO ProfesionalMatricula (IdProfesional, IdEspecialidad, Numero, Jurisdiccion, Vencimiento, Principal, IdUsuarioModifico)
+                        VALUES (@P, @E, @N, @J, @V, 0, @A);",
+                        ("@P", idProfesional), ("@E", m.IdEspecialidad!.Value), ("@N", m.Numero!), ("@J", m.Jurisdiccion!),
+                        ("@V", AltaEquipo.Fecha(m.Vencimiento)!.Value.Date), ("@A", idAutor));
             }
 
             // Roles, permisos y privilegios: mismas reglas y la misma auditoría que el editor.

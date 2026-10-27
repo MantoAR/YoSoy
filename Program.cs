@@ -29,6 +29,12 @@ builder.Services.AddRelojDeLaClinica(builder.Configuration);
 builder.Services.AddMensajeria(builder.Configuration);
 builder.Services.AddVideo(builder.Configuration);
 builder.Services.AddUsuariosAdmin(builder.Configuration);
+// Migración 33: avisos diarios de vencimiento de matrícula (Services/MatriculaAvisosService.cs).
+builder.Services.AddSingleton<MatriculaAvisosService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MatriculaAvisosService>());
+// Migración 37: aviso «Te estamos esperando» al paciente que no entró a la sala (Services/AsistenciaAvisosService.cs).
+builder.Services.AddSingleton<AsistenciaAvisosService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<AsistenciaAvisosService>());
 builder.Services.AddSingleton<IAsignacionRepositorio, AsignacionRepositorioDAO>();
 builder.Services.AddSingleton<AsignacionService>();
 builder.Services.AddSingleton<AsignacionAutomaticaService>();   // propuesta automática de profesional y horario al aceptar un formulario (migración 32)
@@ -153,6 +159,11 @@ builder.Services.AddRateLimiter(opt =>
 });
 
 var app = builder.Build();
+
+// Documentos clínicos (migración 35): QuestPDF con la licencia Community (gratuita para organizaciones con facturación anual
+// menor a USD 1.000.000, proyectos de código abierto y uso académico; no para organismos públicos). Si la organización deja
+// de cumplir esas condiciones, hace falta una licencia paga.
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 // Queda en el journal qué zona está usando la API para decidir qué hora es en la clínica.
 var relojDeLaClinica = app.Services.GetRequiredService<TimeProvider>();
@@ -818,8 +829,16 @@ app.MapPut("/profesionales/{id}", (int id, Profesional p, HttpContext ctx, Ident
     var yo = identidad.Resolver(ctx)!;
     if (!yo.EsConfigurador && yo.IdProfesional != id)
         return Results.Json(new { mensaje = "Solo podés editar tu propio perfil." }, statusCode: 403);
+    // Migración 33: la matrícula y la especialidad las administra el Configurador (Usuarios › Matrículas). Desde
+    // "Mi perfil" no se cambian aunque el pedido las traiga.
+    if (!yo.EsConfigurador && new ProfesionalDAO().ObtenerPorId(id) is Profesional actual)
+    {
+        p.Matricula = actual.Matricula;
+        p.IdEspecialidad = actual.IdEspecialidad;
+    }
     var resultado = new RegistroProfesionalService(new ProfesionalDAO()).Modificar(id, p);
     if (!resultado.Ok) return Results.Json(new { mensaje = resultado.Mensaje }, statusCode: resultado.StatusCode);
+    if (yo.EsConfigurador) new AgendaRestriccionesDAO().SincronizarPrincipalDesdeFicha(id, yo.IdUsuario);
     return Results.Ok(p);
 }).RequireAuthorization();
 
@@ -993,19 +1012,20 @@ app.MapGet("/profesionales/{id}/horarios-libres", (int id, int? dias, TurnoRegla
 // Cierre de seguridad, Paso 3: el profesional solo administra sus propias franjas; quien
 // gestiona agendas (roles y permisos: CRM con ese privilegio, antes el Configurador), las de cualquiera. Se aplica igual a /agendas y a su alias /agenda (abajo),
 // que comparten el mismo AgendaDAO.
-app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPost("/agendas", (Agenda a, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
     // Una franja de admisión (migración 26) la marca quien hace admisión o quien gestiona agendas.
-    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = false;
+    if (!yo.HaceAdmision && !yo.OfreceEntrevistaVideo && !yo.GestionaAgendas) a.EsAdmision = false;
     if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
         return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
+    if (AgendaEndpoints.AgendaSuspendida(a.IdProfesional, reloj) is IResult suspendida) return suspendida;
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agendas", a);
 }).Solo(Quien.Profesional | Quien.Agendas);
 
-app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var dao = new AgendaDAO();
     var existente = dao.ObtenerPorId(id);
@@ -1013,10 +1033,11 @@ app.MapPut("/agendas/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualS
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
+    if (AgendaEndpoints.AgendaSuspendida(existente.IdProfesional, reloj) is IResult suspendida) return suspendida;
 
     a.IdAgenda = id;
     if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
-    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
+    if (!yo.HaceAdmision && !yo.OfreceEntrevistaVideo && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
     if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
         return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     dao.Modificar(a);
@@ -1042,19 +1063,20 @@ app.MapGet("/agenda/{id}", (int id) =>
     return a is null ? Results.NotFound() : Results.Ok(a);
 }).RequireAuthorization();
 
-app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPost("/agenda", (Agenda a, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas) a.IdProfesional = yo.IdProfesional!.Value;
     // Una franja de admisión (migración 26) la marca quien hace admisión o quien gestiona agendas.
-    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = false;
+    if (!yo.HaceAdmision && !yo.OfreceEntrevistaVideo && !yo.GestionaAgendas) a.EsAdmision = false;
     if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
         return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
+    if (AgendaEndpoints.AgendaSuspendida(a.IdProfesional, reloj) is IResult suspendida) return suspendida;
     a.IdAgenda = new AgendaDAO().Insertar(a);
     return Results.Created("/agenda", a);
 }).Solo(Quien.Profesional | Quien.Agendas);
 
-app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad) =>
+app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualService identidad, TimeProvider reloj) =>
 {
     var dao = new AgendaDAO();
     var existente = dao.ObtenerPorId(id);
@@ -1062,10 +1084,11 @@ app.MapPut("/agenda/{id}", (int id, Agenda a, HttpContext ctx, IdentidadActualSe
     var yo = identidad.Resolver(ctx)!;
     if (!yo.GestionaAgendas && yo.IdProfesional != existente.IdProfesional)
         return Results.Json(new { mensaje = "Ese horario no es tuyo." }, statusCode: 403);
+    if (AgendaEndpoints.AgendaSuspendida(existente.IdProfesional, reloj) is IResult suspendida) return suspendida;
 
     a.IdAgenda = id;
     if (!yo.GestionaAgendas) a.IdProfesional = existente.IdProfesional;
-    if (!yo.HaceAdmision && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
+    if (!yo.HaceAdmision && !yo.OfreceEntrevistaVideo && !yo.GestionaAgendas) a.EsAdmision = existente.EsAdmision;
     if (a.FechaInicio is DateTime desde && a.FechaFin is DateTime hasta && hasta.Date < desde.Date)
         return Results.BadRequest(new { mensaje = "La fecha de fin no puede ser anterior a la de inicio." });
     dao.Modificar(a);
@@ -1171,23 +1194,41 @@ app.MapDelete("/pacientes/{idPac}/profesionales/{idProf}", (int idPac, int idPro
 // Fase JWT, agregado: si cancela un profesional (no idPaciente, no Configurador), el turno
 // tiene que ser suyo — antes cualquier profesional podía cancelar el turno de cualquier
 // otro, sin chequeo ("ver o cancelar un turno ajeno").
-app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
+// Migración 37 (rama AAA1): cada cancelación deja quién y cuándo, y si el turno queda «cobrable»: lo cancela el paciente (o la
+// recepción/el profesional en su nombre, con ?porPaciente=true) con menos de Asistencia.HorasCancelacionSinCargo (24 hs). Si cancela
+// el profesional o la organización, no corresponde cobro. Además: un paciente solo cancela SUS turnos (antes bastaba con no mandar
+// idPaciente, o mandar el de otro, para cancelar cualquier turno).
+app.MapPut("/turnos/{id}/cancelar", (int id, int? idPaciente, bool? porPaciente, INotificadorTurnos notificador, TurnoReglasService reglas, HttpContext ctx, IdentidadActualService identidad) =>
 {
+    var yo = identidad.Resolver(ctx);
+    if (yo is { EsPaciente: true })
+    {
+        if (yo.IdPaciente is not int propio || (idPaciente is not null && idPaciente != propio))
+            return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
+        idPaciente = propio;
+    }
+    var antes = new TurnoDAO().ObtenerPorId(id);
+    var asistencia = new AsistenciaDAO();
+
     if (idPaciente is not null)
     {
         var regla = reglas.Cancelar(id, idPaciente.Value);
         if (!regla.Ok) return regla.ComoConflicto();
+        if (antes is not null)
+            asistencia.RegistrarCancelacion(id, AsistenciaReglas.CancelacionCobrable(antes.Fecha.Date + antes.Hora, reglas.Ahora, asistencia.Parametros()), yo?.IdUsuario);
         notificador.TurnoCancelado(id);
         return Results.Ok();
     }
 
-    var t = new TurnoDAO().ObtenerPorId(id);
+    var t = antes;
     if (t is null) return Results.NotFound();
-    var yo = identidad.Resolver(ctx);
     if (yo is { EsProfesional: true } && yo.IdProfesional != t.IdProfesional)
         return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
     t.IdEstadoTurno = 3; // Cancelado
     new TurnoDAO().Modificar(t);
+    asistencia.RegistrarCancelacion(id, porPaciente == true
+        ? AsistenciaReglas.CancelacionCobrable(t.Fecha.Date + t.Hora, reglas.Ahora, asistencia.Parametros())
+        : null, yo?.IdUsuario);
     notificador.TurnoCancelado(id);
     return Results.Ok();
 }).RequireAuthorization();
@@ -1236,6 +1277,10 @@ app.MapPut("/turnos/{id}", (int id, Turno t, INotificadorTurnos notificador, Tur
         return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
 
     t.IdTurno = id;
+    // Migración 33 (RN-08): reprogramar a un feriado, un bloqueo o después del vencimiento de la matrícula no se puede.
+    if ((t.Fecha.Date != anterior.Fecha.Date || t.Hora != anterior.Hora)
+        && reglas.MotivoNoDisponible(anterior.IdProfesional, t.Fecha.Date + t.Hora) is string motivoRn08)
+        return Results.Json(new { codigo = "RN-08", mensaje = $"No se puede pasar el turno a ese horario: {motivoRn08}." }, statusCode: 409);
     var rn02 = reglas.ValidarCambioDeEstado(anterior, t);
     if (!rn02.Ok) return rn02.ComoConflicto();
     new TurnoDAO().Modificar(t);
@@ -2344,7 +2389,7 @@ app.MapGet("/informes-admision-detalle", (HttpContext ctxConsentimiento, TimePro
         });
     }
     return Results.Ok(lista);
-}).Solo(Quien.Admision | Quien.Auditor | Quien.Crm);   // la recepcionista (CRM) revisa los formularios «Sobre mí»
+}).Solo(Quien.Admision | Quien.Auditor | Quien.RecepcionAdmision);   // la recepcionista con el privilegio Admisión revisa los formularios «Sobre mí»
 
 // Programa la primera entrevista de admisión en forma AUTOMÁTICA: el primer horario libre de las franjas de admisión
 // de quien la programa (Mis horarios de trabajo, migración 26), dentro de las 24 horas de recibida la solicitud
@@ -2427,7 +2472,7 @@ app.MapPut("/informes-admision/{id}/entrevista", (int id, EntrevistaRequest req,
     tx.Commit();   // libera el bloqueo: recién ahora puede programar el siguiente
 
     return Results.Ok(new { codigoSala, fecha = fecha.ToString("dd/MM/yyyy HH:mm") });
-}).Solo(Quien.Admision);
+}).Solo(Quien.EntrevistaVideo);
 
 // ── Notificaciones ──────────────────────────────────────────
 // Cierre de seguridad, Paso 4: antes sin auth ni chequeo de dueño — cualquiera podía leer
@@ -2622,7 +2667,7 @@ app.MapPut("/informes-admision/{id}/derivar", (int id, DerivarRequest req, HttpC
     }
 
     return Results.NoContent();
-}).Solo(Quien.Admision | Quien.Crm);
+}).Solo(Quien.Admision | Quien.RecepcionAdmision);
 
 // ── Mis Pacientes con estado de asignacion ──────────────────
 app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, IdentidadActualService identidad) =>
@@ -2920,10 +2965,19 @@ app.MapPut("/turnos/{id}/generar-sala", (int id, HttpContext ctx, IdentidadActua
 }).Solo(Quien.Profesional | Quien.Agendas);
 
 // Turnos ocupados por profesional en una fecha
-app.MapGet("/turnos/ocupados", (int idProfesional, string fecha) =>
+// Migración 33: además de los turnos dados, devuelve como ocupados los horarios de la agenda que caen en un feriado, en un
+// bloqueo del profesional o después del vencimiento de su matrícula ({ hora, bloqueado: true }, sin decir el motivo: lo
+// pide cualquier paciente). Así las pantallas que arman los horarios por su cuenta no los ofrecen.
+app.MapGet("/turnos/ocupados", (int idProfesional, string fecha, TurnoReglasService reglas) =>
 {
     var dao    = new TurnoDAO();
     var turnos = dao.ObtenerOcupadosPorFecha(idProfesional, fecha);
+    if (DateTime.TryParse(fecha, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var dia))
+    {
+        var dadas = new TurnoRepositorioDAO().HorasOcupadas(idProfesional, dia.Date);
+        foreach (var h in reglas.HorasNoDisponibles(idProfesional, dia.Date).Where(h => !dadas.Contains(h)))
+            turnos.Add(new { hora = h.ToString(@"hh\:mm"), bloqueado = true });
+    }
     return Results.Ok(turnos);
 }).RequireAuthorization();
 
@@ -2939,6 +2993,10 @@ app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 app.MapPrimerosPasos();
 app.MapAsignacionAutomatica();
+app.MapAgendaRestricciones();   // feriados, bloqueos y matrículas (migración 33)
+app.MapEspecialidadesCatalogo(); // Configuración › Especialidades: el catálogo lo administra el Configurador (migración 34)
+app.MapDocumentosClinicos();     // documentos clínicos en la historia clínica: consentimientos, constancias e informes (migración 35)
+app.MapAsistencia();             // llegada tarde, inasistencia (con tolerancia), cobro y abandono de tratamiento (migración 37)
 
 // ═══════════════════════════════════════════════════════
 // REPORTES DEL PROFESIONAL

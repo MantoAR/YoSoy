@@ -89,7 +89,7 @@ public class AccesoSalaService
         // profesional). Un Profesional sin ese privilegio, el CRM y el Configurador no entran a una admisión.
         string? rol = null;
         if (yo.EsPaciente && yo.IdPaciente == a.IdPaciente) rol = Roles.Paciente;
-        else if (yo.HaceAdmision) rol = Roles.Profesional;
+        else if (yo.HaceAdmision || yo.OfreceEntrevistaVideo) rol = Roles.Profesional;   // migración 36: también quien ofrece la entrevista por video
         if (rol is null) return ResultadoAcceso.De(EstadoAcceso.SinAcceso, MensajeNoEncontrada, ahora);
 
         if (TextoNormalizado.Normalizar(a.Estado) != EstadoAdmisionEnEntrevista)

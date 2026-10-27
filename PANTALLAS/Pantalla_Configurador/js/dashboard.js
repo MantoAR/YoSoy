@@ -11,18 +11,20 @@ const API = YS.API;   // mismo origen que la página (shared/ui.js)
 const MODULO = ["configurador", "crm", "profesional", "administracion"].includes(YS.sesion.modulo()) ? YS.sesion.modulo() : "configurador";
 const SECCIONES_POR_MODULO = {
     // Configurador: sin Inicio. Fuera del menu (su codigo y sus endpoints siguen): grupos, reglasderivacion, coberturas, privilegios, roles, recuperacion.
-    configurador: ["altausuario", "permisos", "usuarios", "solicitudes", "whatsapp", "chatsia", "especialidades", "auditoria"],
-    crm: ["inicio", "chats", "escalamientos", "etiquetas", "admisiones", "casos", "casosderivaciones",
+    configurador: ["altausuario", "permisos", "usuarios", "matriculas", "solicitudes", "whatsapp", "chatsia", "especialidades", "feriados", "asistencia", "auditoria"],
+    crm: ["inicio", ...(YS.sesion.tienePrivilegio("gestion_pacientes") ? ["gestionpacientes"] : []),
+          "chats", "escalamientos", "etiquetas", ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones"] : []), "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : [])],
     // Administracion (vista unica = Configurador + CRM): CRM, Configuracion, Usuarios y Auditoria, sin Inicio. Chats, Leads, Etiquetas y Escalamientos
     // solo se ven con la mensajeria disponible (lo decide el menu); Turnos y Agendas, con Gestion de agendas. Siguen fuera del menu: grupos, reglasderivacion,
     // coberturas, privilegios, roles, recuperacion e inicio.
-    administracion: ["chats", "leads", "etiquetas", "escalamientos", "admisiones", "casos", "casosderivaciones",
+    administracion: ["chats", "leads", "etiquetas", "escalamientos", ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones"] : []), "casos", "casosderivaciones",
           ...(YS.sesion.tienePrivilegio("gestion_agendas") ? ["turnos", "agendas"] : []),
-          "whatsapp", "chatsia", "especialidades", "altausuario", "permisos", "usuarios", "solicitudes", "auditoria"],
+          ...(YS.sesion.tienePrivilegio("gestion_pacientes") ? ["gestionpacientes"] : []),
+          "whatsapp", "chatsia", "especialidades", "feriados", "asistencia", "altausuario", "permisos", "usuarios", "matriculas", "solicitudes", "auditoria"],
     profesional: [
         ...(YS.sesion.tienePrivilegio("admision") ? ["admisiones", "derivaciones", "asignaciones"] : []),
-        ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
+        ...(YS.sesion.tienePermiso("auditor") ? ["reportesgenerales", "matriculas", "evoluciones", "eventoscrisis", "interaccionesia", "auditoriaclinica"] : [])
     ]
 };
 
@@ -209,6 +211,11 @@ async function mostrarTab(tab, params = {}) {
         if (tab === "permisos")     return await renderPermisos(contenido);
         if (tab === "altausuario")  return await renderAltaUsuario(contenido);
         if (tab === "privilegios")  return await renderPrivilegios(contenido);
+        if (tab === "feriados")     return await renderFeriados(contenido);
+        if (tab === "asistencia")   return await renderParametrosAsistencia(contenido);
+        if (tab === "gestionpacientes") return await renderGestionPacientes(contenido);
+        if (tab === "especialidades") return await renderEspecialidades(contenido);
+        if (tab === "matriculas")   return await renderMatriculas(contenido);
         if (tab === "auditoriaclinica") return await renderAuditoria(contenido, 1, tab);
         if (tab === "solicitudes")  return await renderSolicitudes(contenido);
         if (tab === "derivaciones") return await renderDerivaciones(contenido);
@@ -1387,7 +1394,7 @@ function verAdmision(idInforme) {
             '<button class="ui-btn ui-btn--primary" onclick="aceptarFormulario(' + a.idInforme + ')">Aceptar</button>' +
             '<button class="ui-btn" onclick="devolverFormulario(' + a.idInforme + ')">Devolver con aclaración</button>' +
             '<button class="ui-btn ui-btn--danger" onclick="otroRecursoFormulario(' + a.idInforme + ')">Otro recurso</button>' +
-            '</div></div>';
+            '</div>' + htmlEntrevistaVideo(a) + '</div>';
     } else if (a.estado === "Aprobado") {
         // Al aceptar, el sistema propone profesional y horario y el paciente decide. Si no se pudo (o el paciente no aceptó), la asignación es manual y la hace quien revisa.
         let avisoAsignacion = "";
@@ -1573,6 +1580,34 @@ async function verHCAdmision(idPaciente) {
         '</div>';
 }
 
+// Migración 36: la entrevista de admisión por video es OPCIONAL. Solo la ofrece un profesional con el privilegio
+// "Entrevista de admisión por video" (lo asigna el Configurador), en un horario de admisión de su agenda.
+function htmlEntrevistaVideo(a) {
+    const puede = YS.sesion.tienePrivilegio("entrevista_video");
+    if (a.estado === "En entrevista" && a.codigoSala) {
+        return '<div class="ui-alerta ui-alerta--info mt-12"><span><strong>Entrevista por video programada</strong>' +
+            (a.fechaEntrevista ? ' para el ' + YS.esc(a.fechaEntrevista) + ' hs' : '') +
+            (a.nombreProfesionalEntrevista ? ' con ' + YS.esc(a.nombreProfesionalEntrevista) : '') + '. ' +
+            'Después de la entrevista, aceptá, devolvé o derivá el formulario como siempre.</span></div>' +
+            (puede ? '<div class="mt-8"><button class="ui-btn" onclick="iniciarEntrevistaVideo(\'' + YS.esc(a.codigoSala) + '\')">' + YS.icono("video") + 'Entrar a la entrevista</button></div>' : '');
+    }
+    if (!puede || a.estado !== "Pendiente") return "";
+    return '<div class="mt-12 texto-chico ui-muted">¿Hace falta conocer al paciente antes de asignarlo? Es opcional.</div>' +
+        '<div class="mt-8"><button class="ui-btn" onclick="ofrecerEntrevistaVideo(' + a.idInforme + ')">' + YS.icono("video") + 'Ofrecer entrevista por video</button></div>';
+}
+
+async function ofrecerEntrevistaVideo(idInforme) {
+    if (!await confirmar("Se le programa al paciente una entrevista por video en tu primer horario de admisión libre y le llega el aviso con el día, la hora y el código de sala. La entrevista es opcional: después aceptás o derivás el formulario como siempre.",
+        { titulo: "Ofrecer entrevista por video", textoConfirmar: "Programar entrevista" })) return;
+    try {
+        const res = await YS.fetch(`/informes-admision/${idInforme}/entrevista`, { method: "PUT", json: { observaciones: null } });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo programar la entrevista."), "error"); return; }
+        const r = await res.json();
+        toast(`Entrevista programada para el ${r.fecha} hs. Al paciente le llegó el aviso.`);
+        mostrarTab("admisiones");
+    } catch (e) { toast(e.message, "error"); }
+}
+
 // Roles y permisos: la entrevista la hace un profesional con el privilegio Admisión, con su propia
 // sesión. Antes el Configurador reemplazaba el idProfesional guardado en el navegador por el
 // del profesional "ADM-001" para poder entrar a la sala; eso ya no hace falta.
@@ -1635,10 +1670,13 @@ async function inicioCrm() {
     const pedir = ruta => YS.api(ruta).catch(() => null);
     const conAgendas = YS.sesion.tienePrivilegio("gestion_agendas");
     const conChats = (await YS.shell.capacidades)?.mensajeria;
-    const [derivaciones, casos, chats, turnos, formularios] = await Promise.all([
+    const conAdmision = YS.sesion.tienePrivilegio("admision");   // migración 36: la admisionista
+    const conPacientes = YS.sesion.tienePrivilegio("gestion_pacientes");   // migración 37: asistencia
+    const [derivaciones, casos, chats, turnos, formularios, asistencia, alertas] = await Promise.all([
         pedir("/casosderivaciones/pendientes"), pedir("/casos?sinAsignar=true"),
         conChats ? pedir("/mensajeria/conversaciones") : null, conAgendas ? pedir("/turnos") : null,
-        pedir("/informes-admision-detalle")
+        conAdmision ? pedir("/informes-admision-detalle") : null,
+        conPacientes ? pedir("/asistencia/turnos") : null, conPacientes ? pedir("/asistencia/alertas") : null
     ]);
     if (YS.shell.actual !== "inicio") return;
 
@@ -1657,15 +1695,17 @@ async function inicioCrm() {
             ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", cuenta(chats, ch => ch.noLeidos > 0), "Conversaciones con mensajes nuevos") : ""}
             ${conChats ? tarjetaChats("derivadas", "Chats escalados", cuenta(chats, ch => ch.estado === "DerivadaHumano" || ch.estado === "Urgente"),
                 nUrgentes ? `${nUrgentes} urgente${nUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nUrgentes > 0) : ""}
-            ${tarjetaInicio("admisiones?filtro=pendientes", "Formularios por revisar", "portapapeles", cuenta(formularios, esParaRevisar), "«Sobre mí» esperando tu revisión", true)}
-            ${tarjetaInicio("admisiones?filtro=resolver", "Asignaciones para resolver", "usuario", cuenta(formularios, esPorResolver), "Sin propuesta o rechazada: asignalas a mano", true)}
+            ${conAdmision ? tarjetaInicio("admisiones?filtro=pendientes", "Formularios por revisar", "portapapeles", cuenta(formularios, esParaRevisar), "«Sobre mí» esperando tu revisión", true) : ""}
+            ${conAdmision ? tarjetaInicio("admisiones?filtro=resolver", "Asignaciones para resolver", "usuario", cuenta(formularios, esPorResolver), "Sin propuesta o rechazada: asignalas a mano", true) : ""}
             ${tarjetaInicio("casosderivaciones", "Derivaciones por confirmar", "flechas", cuenta(derivaciones), "Casos con grupo y profesional sugeridos", true)}
             ${tarjetaInicio("casos", "Casos sin asignar", "portapapeles", cuenta(casos), "Todavía sin profesional", true)}
         </div>
-        ${conAgendas ? `
+        ${conAgendas || conPacientes ? `
         <div class="ui-titulo-seccion texto-chico ui-muted">Hoy</div>
         <div class="ui-stats">
-            ${tarjetaInicio("turnos", "Turnos de hoy", "reloj", cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3), "Sin contar los cancelados")}
+            ${conAgendas ? tarjetaInicio("turnos", "Turnos de hoy", "reloj", cuenta(turnos, t => YS.fecha.mismoDia(t.fecha, hoy) && t.idEstadoTurno !== 3), "Sin contar los cancelados") : ""}
+            ${conPacientes ? tarjetaInicio("gestionpacientes", "Esperando conexión", "reloj", cuenta(asistencia?.turnos, t => t.esperandoConexion), "Turnos empezados sin el paciente en la sala", true) : ""}
+            ${conPacientes ? tarjetaInicio("gestionpacientes", "Posible abandono", "alerta", cuenta(alertas?.alertas), "Ausencias seguidas: registrá el contacto", true) : ""}
         </div>` : ""}`;
 }
 
@@ -2360,12 +2400,25 @@ async function renderAltaUsuario(c) {
                         </div>
                         <label class="ui-check mt-8"><input type="checkbox" id="altaAdmision"> Privilegio: Admisión
                             <span class="texto-chico ui-muted">(informes de admisión, primera entrevista, asignaciones y solicitudes de cambio)</span></label>
-                        <div class="ui-form-grid mt-12">
-                            <div class="ui-campo"><label for="altaMatricula">Matrícula</label><input id="altaMatricula" class="ui-input" maxlength="50" placeholder="MP 1234"></div>
-                            <div class="ui-campo"><label for="altaJurisdiccion">Jurisdicción de la matrícula</label><input id="altaJurisdiccion" class="ui-input" maxlength="60" value="Córdoba"></div>
-                            <div class="ui-campo"><label for="altaEspecialidad">Especialidad principal</label>
-                                <select id="altaEspecialidad" class="ui-select"><option value="">Elegí la especialidad</option>${esp}</select></div>
+                        <label class="ui-check mt-8"><input type="checkbox" id="altaEntrevistaVideo"> Privilegio: Entrevista de admisión por video
+                            <span class="texto-chico ui-muted">(opcional: ofrece una entrevista por video antes de asignar al paciente; va junto con Admisión)</span></label>
+                        <h4 class="alta-subtitulo mt-16">Especialidades y matrículas</h4>
+                        <p class="texto-chico ui-muted mb-8">Elegí la especialidad y cargá su matrícula. Si atiende más de una, agregalas abajo, cada una con su matrícula.</p>
+                        <div class="alta-especialidad">
+                            <div class="ui-form-grid">
+                                <div class="ui-campo"><label for="altaEspecialidad">Especialidad principal</label>
+                                    <select id="altaEspecialidad" class="ui-select alta-esp-select"><option value="">Elegí la especialidad</option>${esp}</select></div>
+                            </div>
+                            <div id="altaMatriculaPrincipal" class="ui-form-grid mt-8 oculto">
+                                <div class="ui-campo"><label for="altaMatricula">Matrícula</label><input id="altaMatricula" class="ui-input" maxlength="50" placeholder="MP 1234"></div>
+                                <div class="ui-campo"><label for="altaJurisdiccion">Jurisdicción de la matrícula</label><input id="altaJurisdiccion" class="ui-input" maxlength="60" value="Córdoba"></div>
+                                <div class="ui-campo"><label for="altaVencimiento">Vencimiento de la matrícula</label>
+                                    <input type="date" id="altaVencimiento" class="ui-input" min="${YS.fecha.aISO(new Date(Date.now() + 864e5))}">
+                                    <span class="texto-chico ui-muted">Desde esa fecha la agenda deja de ofrecer turnos.</span></div>
+                            </div>
                         </div>
+                        <div id="altaAdicionales"></div>
+                        <button type="button" class="ui-btn ui-btn--sm mt-8" id="altaAgregarEsp">+ Agregar especialidad</button>
                     </div>
                 </fieldset>
                 <fieldset class="editor-permisos-modulo">
@@ -2373,6 +2426,10 @@ async function renderAltaUsuario(c) {
                     <div id="altaBloqueCrm" class="oculto">
                         <label class="ui-check"><input type="checkbox" id="altaAgendas"> Privilegio: Gestión de agendas
                             <span class="texto-chico ui-muted">(turnos y horarios de todos los profesionales; nunca historias clínicas)</span></label>
+                        <label class="ui-check mt-8"><input type="checkbox" id="altaAdmisionCrm"> Privilegio: Admisión
+                            <span class="texto-chico ui-muted">(admisionista: revisa los formularios «Sobre mí» y asigna el profesional; nunca la historia clínica)</span></label>
+                        <label class="ui-check mt-8"><input type="checkbox" id="altaGestionPacientes"> Privilegio: Gestión de pacientes
+                            <span class="texto-chico ui-muted">(ve los pacientes y sus turnos, marca Ausente y cancela; nunca la historia clínica)</span></label>
                     </div>
                 </fieldset>
                 <fieldset class="editor-permisos-modulo">
@@ -2394,6 +2451,7 @@ async function renderAltaUsuario(c) {
         $("altaErrorRol").classList.add("oculto");
     };
     ["altaRolProfesional", "altaRolCrm", "altaRolConfigurador"].forEach(id => $(id).addEventListener("change", sync));
+    prepararEspecialidadesAlta(opciones.especialidades);
     let usuarioEditado = false;
     $("altaUsuario").addEventListener("input", () => { usuarioEditado = true; });
     const sugerir = () => { if (!usuarioEditado) $("altaUsuario").value = sugerirUsuario($("altaNombre").value, $("altaApellido").value); };
@@ -2401,6 +2459,73 @@ async function renderAltaUsuario(c) {
     $("altaApellido").addEventListener("input", sugerir);
     $("formAlta").addEventListener("submit", e => { e.preventDefault(); guardarAltaUsuario(); });
     $("altaNombre").focus();
+}
+
+// ── Especialidades del alta: cada una con su matrícula (rama AAA1) ──
+// La principal es obligatoria; las adicionales son opcionales, hasta 5, y ninguna se repite.
+const ALTA_MAX_ADICIONALES = 5;
+let _altaEspecialidades = [], _altaSiguiente = 0;
+
+function prepararEspecialidadesAlta(especialidades) {
+    _altaEspecialidades = especialidades || [];
+    _altaSiguiente = 0;
+    const $ = id => document.getElementById(id);
+    $("altaEspecialidad").addEventListener("change", () => {
+        $("altaMatriculaPrincipal").classList.toggle("oculto", !$("altaEspecialidad").value);
+        refrescarOpcionesEspecialidades();
+    });
+    $("altaAgregarEsp").addEventListener("click", agregarEspecialidadAlta);
+    refrescarOpcionesEspecialidades();
+}
+
+function agregarEspecialidadAlta() {
+    const cont = document.getElementById("altaAdicionales");
+    if (cont.children.length >= ALTA_MAX_ADICIONALES) return;
+    const n = _altaSiguiente++;
+    const jur = document.getElementById("altaJurisdiccion").value || "Córdoba";
+    const fila = document.createElement("div");
+    fila.className = "alta-especialidad alta-especialidad--adicional mt-8";
+    fila.dataset.n = n;
+    fila.innerHTML = `
+        <div class="ui-form-grid">
+            <div class="ui-campo"><label for="altaAdicEsp${n}">Otra especialidad</label>
+                <select id="altaAdicEsp${n}" class="ui-select alta-esp-select"><option value="">Elegí la especialidad</option></select></div>
+        </div>
+        <div id="altaAdicDatos${n}" class="ui-form-grid mt-8 oculto">
+            <div class="ui-campo"><label for="altaAdicNum${n}">Matrícula</label><input id="altaAdicNum${n}" class="ui-input" maxlength="50" placeholder="MP 1234"></div>
+            <div class="ui-campo"><label for="altaAdicJur${n}">Jurisdicción</label><input id="altaAdicJur${n}" class="ui-input" maxlength="60" value="${YS.esc(jur)}"></div>
+            <div class="ui-campo"><label for="altaAdicVenc${n}">Vencimiento</label>
+                <input type="date" id="altaAdicVenc${n}" class="ui-input" min="${YS.fecha.aISO(new Date(Date.now() + 864e5))}"></div>
+        </div>
+        <button type="button" class="ui-btn ui-btn--sm ui-btn--ghost mt-8">Quitar esta especialidad</button>`;
+    cont.appendChild(fila);
+    fila.querySelector("select").addEventListener("change", e => {
+        document.getElementById(`altaAdicDatos${n}`).classList.toggle("oculto", !e.target.value);
+        refrescarOpcionesEspecialidades();
+    });
+    fila.querySelector("button").addEventListener("click", () => { fila.remove(); refrescarOpcionesEspecialidades(); });
+    refrescarOpcionesEspecialidades();
+    fila.querySelector("select").focus();
+}
+
+// Cada combo ofrece las especialidades que no están elegidas en otro (conserva su propia elección).
+function refrescarOpcionesEspecialidades() {
+    const selects = [...document.querySelectorAll("#formAlta .alta-esp-select")];
+    const elegidas = selects.map(s => s.value).filter(Boolean);
+    selects.forEach(s => {
+        const propia = s.value;
+        s.innerHTML = `<option value="">Elegí la especialidad</option>` + _altaEspecialidades
+            .filter(e => String(e.idEspecialidad) === propia || !elegidas.includes(String(e.idEspecialidad)))
+            .map(e => `<option value="${e.idEspecialidad}"${String(e.idEspecialidad) === propia ? " selected" : ""}>${YS.esc(e.nombre)}</option>`).join("");
+    });
+    const boton = document.getElementById("altaAgregarEsp");
+    const cantidad = document.getElementById("altaAdicionales").children.length;
+    boton.disabled = cantidad >= ALTA_MAX_ADICIONALES || elegidas.length >= _altaEspecialidades.length;
+    boton.title = cantidad >= ALTA_MAX_ADICIONALES ? `Hasta ${ALTA_MAX_ADICIONALES} especialidades además de la principal.` : "";
+}
+
+function filasAdicionalesAlta() {
+    return [...document.querySelectorAll("#altaAdicionales .alta-especialidad--adicional")].map(f => f.dataset.n);
 }
 
 async function guardarAltaUsuario() {
@@ -2414,10 +2539,19 @@ async function guardarAltaUsuario() {
         { id: "altaMail", requerido: "Completá el email.", patron: /^[^@\s]+@[^@\s]+\.[^@\s]+$/, mensajePatron: "El email no es válido." },
         { id: "altaUsuario", requerido: "Completá el usuario.", patron: /^[a-z0-9._-]{3,50}$/, mensajePatron: "En minúsculas, sin espacios: letras, números, punto o guion." }
     ];
-    if (esProf) reglas.push(
+    const venceFutura = v => v && v <= YS.fecha.aISO(new Date()) ? "La matrícula ya está vencida: cargá la fecha de la renovación." : null;
+    if (esProf) filasAdicionalesAlta().forEach(n => reglas.push(
+        { id: `altaAdicEsp${n}`, requerido: "Elegí la especialidad o quitala." },
+        ...($(`altaAdicEsp${n}`).value ? [
+            { id: `altaAdicNum${n}`, requerido: "Completá la matrícula." },
+            { id: `altaAdicJur${n}`, requerido: "Indicá la jurisdicción." },
+            { id: `altaAdicVenc${n}`, requerido: "Indicá el vencimiento.", validar: venceFutura }] : [])));
+    if (esProf && !$("altaEspecialidad").value) reglas.push({ id: "altaEspecialidad", requerido: "Elegí la especialidad principal." });
+    else if (esProf) reglas.push(
         { id: "altaMatricula", requerido: "Completá la matrícula." },
         { id: "altaJurisdiccion", requerido: "Indicá la jurisdicción." },
-        { id: "altaEspecialidad", requerido: "Elegí la especialidad principal." });
+        { id: "altaEspecialidad", requerido: "Elegí la especialidad principal." },
+        { id: "altaVencimiento", requerido: "Indicá el vencimiento de la matrícula.", validar: v => v && v <= YS.fecha.aISO(new Date()) ? "La matrícula ya está vencida: cargá la fecha de la renovación." : null });
     const datosOk = YS.form.validar(reglas);
 
     const permisos = [];
@@ -2426,10 +2560,13 @@ async function guardarAltaUsuario() {
         const tipo = document.querySelector('input[name="altaTipoProf"]:checked').value;
         permisos.push(tipo);
         if ($("altaAdmision").checked) privilegios.push({ permiso: tipo, privilegio: "admision" });
+        if ($("altaEntrevistaVideo").checked) privilegios.push({ permiso: tipo, privilegio: "entrevista_video" });
     }
     if ($("altaRolCrm").checked) {
         permisos.push("crm");
         if ($("altaAgendas").checked) privilegios.push({ permiso: "crm", privilegio: "gestion_agendas" });
+        if ($("altaAdmisionCrm").checked) privilegios.push({ permiso: "crm", privilegio: "admision" });
+        if ($("altaGestionPacientes").checked) privilegios.push({ permiso: "crm", privilegio: "gestion_pacientes" });
     }
     if ($("altaRolConfigurador").checked) permisos.push("configurador");
     const errorRol = $("altaErrorRol");
@@ -2445,7 +2582,14 @@ async function guardarAltaUsuario() {
             permisos, privilegios,
             matricula: esProf ? $("altaMatricula").value : null,
             jurisdiccionMatricula: esProf ? $("altaJurisdiccion").value : null,
-            idEspecialidad: esProf ? parseInt($("altaEspecialidad").value) || null : null
+            idEspecialidad: esProf ? parseInt($("altaEspecialidad").value) || null : null,
+            vencimientoMatricula: esProf ? $("altaVencimiento").value || null : null,
+            matriculasAdicionales: esProf ? filasAdicionalesAlta().map(n => ({
+                idEspecialidad: parseInt($(`altaAdicEsp${n}`).value) || null,
+                numero: $(`altaAdicNum${n}`).value,
+                jurisdiccion: $(`altaAdicJur${n}`).value,
+                vencimiento: $(`altaAdicVenc${n}`).value || null
+            })) : []
         } });
         if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo registrar el usuario."), "error"); return; }
         const r = await res.json();
@@ -2677,3 +2821,498 @@ YS.shell.iniciar({
         ? { modo: "pagina", contenedor: document.getElementById("vistaChatsCRM"), alPulsarBoton: () => { location.hash = "#chats"; } }
         : undefined
 });
+
+// ══════════════════════════════════════════════════════════════
+// AGENDA Y MATRÍCULA (migración 33)
+// ══════════════════════════════════════════════════════════════
+// Configuración › Feriados: los carga el Configurador; esos días nadie ofrece turnos salvo quien marcó "trabajo este
+// feriado" (Mis horarios de trabajo). Dar de baja no borra: queda en la auditoría administrativa.
+async function renderFeriados(c, anio = new Date().getFullYear()) {
+    const lista = await YS.api(`/feriados?anio=${anio}`);
+    if (YS.shell.actual !== "feriados") return;
+    YS.shell.encabezado({ subtitulo: "Esos días no se ofrecen turnos, salvo a quien marcó que trabaja. Los turnos ya dados no se cancelan." });
+    YS.shell.acciones([]);
+    const hoy = YS.fecha.aISO(new Date());
+    c.innerHTML = `
+        <section class="tarjeta">
+            <form id="formFeriado" class="ui-form-grid" novalidate>
+                <div class="ui-campo"><label for="ferFecha">Fecha</label><input type="date" id="ferFecha" class="ui-input"></div>
+                <div class="ui-campo"><label for="ferNombre">Nombre</label><input id="ferNombre" class="ui-input" maxlength="120" placeholder="Día de la Soberanía Nacional"></div>
+                <div class="ui-campo"><label aria-hidden="true">&nbsp;</label><button type="submit" class="ui-btn ui-btn--primary" id="ferGuardar">${YS.icono("mas")}Agregar feriado</button></div>
+            </form>
+        </section>
+        <section class="tarjeta mt-16">
+            <div class="ui-entre mb-12">
+                <h3 class="tarjeta-titulo mb-0">Feriados ${anio}</h3>
+                <div class="ui-flex">
+                    <button class="ui-btn ui-btn--sm" onclick="renderFeriados(document.getElementById('contenido'), ${anio - 1})">${anio - 1}</button>
+                    <button class="ui-btn ui-btn--sm" onclick="renderFeriados(document.getElementById('contenido'), ${anio + 1})">${anio + 1}</button>
+                </div>
+            </div>
+            ${lista.length ? `<div class="tabla-wrapper"><table>
+                <thead><tr><th>Fecha</th><th>Feriado</th><th></th></tr></thead>
+                <tbody>${lista.map(f => {
+                    const iso = YS.fecha.aISO(f.fecha);
+                    return `<tr${iso < hoy ? ' class="ui-muted"' : ""}>
+                        <td>${YS.esc(YS.fecha.larga(f.fecha, true))}</td><td>${YS.esc(f.nombre)}</td>
+                        <td class="celda-acciones">${iso >= hoy ? `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="bajaFeriado(${f.idFeriado}, '${YS.esc(f.nombre).replace(/'/g, "\\'")}')">Dar de baja</button>` : ""}</td>
+                    </tr>`;
+                }).join("")}</tbody></table></div>`
+                : YS.vacio({ icono: "agenda", titulo: `No hay feriados cargados para ${anio}` })}
+        </section>`;
+    document.getElementById("formFeriado").addEventListener("submit", async e => {
+        e.preventDefault();
+        if (!YS.form.validar([
+            { id: "ferFecha", requerido: "Elegí la fecha." },
+            { id: "ferNombre", requerido: "Escribí el nombre del feriado." }
+        ])) return;
+        const boton = document.getElementById("ferGuardar");
+        boton.classList.add("cargando");
+        try {
+            const res = await YS.fetch("/feriados", { method: "POST", json: { fecha: document.getElementById("ferFecha").value, nombre: document.getElementById("ferNombre").value } });
+            if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo cargar el feriado."), "error"); return; }
+            toast("Feriado cargado: ese día no se ofrecen turnos.");
+            renderFeriados(c, parseInt(document.getElementById("ferFecha").value.slice(0, 4)) || anio);
+        } catch (err) { toast(err.message, "error"); }
+        finally { boton.classList.remove("cargando"); }
+    });
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONFIGURACIÓN › ASISTENCIA y RECEPCIÓN › PACIENTES Y TURNOS (rama AAA1, migración 37)
+// ══════════════════════════════════════════════════════════════
+// Llegada tarde, inasistencia y abandono. El Configurador fija los cinco parámetros de la organización. La Recepcionista con el
+// privilegio Gestión de pacientes ve los turnos del día de todos los profesionales con su asistencia (nunca la historia clínica):
+// quién está esperando conexión, marcar Ausente pasada la tolerancia, cancelar, escribirle por WhatsApp; y los pacientes con
+// ausencias seguidas, para registrar el contacto. El abandono lo confirma el profesional tratante o el auditor, no la recepción.
+const TEXTO_PARAMETROS_ASISTENCIA = [
+    { clave: "avisoMinutos", etiqueta: "Aviso al paciente (minutos)", ayuda: "A los cuántos minutos sin entrar a la sala le llega «Te estamos esperando».", min: 1, max: 60 },
+    { clave: "toleranciaMinutos", etiqueta: "Tolerancia (minutos)", ayuda: "Desde cuándo se puede marcar Ausente. El turno nunca pasa solo a Ausente: lo marca una persona.", min: 5, max: 120 },
+    { clave: "horasCancelacionSinCargo", etiqueta: "Cancelación sin cargo (horas antes)", ayuda: "Cancelar con menos anticipación, o no venir, deja el turno cobrable (el profesional puede justificar fuerza mayor).", min: 0, max: 168 },
+    { clave: "ausenciasAlerta", etiqueta: "Alerta «Posible abandono» (ausencias seguidas)", ayuda: "Aparece en el Inicio del profesional y en Pacientes y turnos de la recepción.", min: 1, max: 10 },
+    { clave: "ausenciasAbandono", etiqueta: "Sugerir abandono (ausencias seguidas)", ayuda: "El sistema lo sugiere; lo confirma el profesional tratante o el auditor.", min: 2, max: 10 }
+];
+
+async function renderParametrosAsistencia(c) {
+    const p = await YS.api("/asistencia/parametros");
+    if (YS.shell.actual !== "asistencia") return;
+    YS.shell.encabezado({ subtitulo: "Llegada tarde, inasistencias y abandono de tratamiento: valen para toda la organización." });
+    YS.shell.acciones([]);
+    c.innerHTML = `
+        <section class="tarjeta">
+            <form id="formAsistencia" class="ui-form-grid" novalidate>
+                ${TEXTO_PARAMETROS_ASISTENCIA.map(x => `
+                    <div class="ui-campo"><label for="asis_${x.clave}">${YS.esc(x.etiqueta)}</label>
+                        <input type="number" id="asis_${x.clave}" class="ui-input" min="${x.min}" max="${x.max}" step="1" value="${Number(p[x.clave])}">
+                        <span class="texto-chico ui-muted">${YS.esc(x.ayuda)}</span></div>`).join("")}
+                <div class="ui-campo"><label aria-hidden="true">&nbsp;</label><button type="submit" class="ui-btn ui-btn--primary" id="asisGuardar">Guardar</button></div>
+            </form>
+        </section>
+        <div class="ui-alerta ui-alerta--info mt-16">Valores acordados con el equipo clínico: aviso a los 5 minutos, tolerancia de 15, 24 horas para cancelar sin cargo,
+            alerta con 2 ausencias seguidas y abandono sugerido con 3. Cada cambio queda en la auditoría administrativa.</div>`;
+    document.getElementById("formAsistencia").addEventListener("submit", async e => {
+        e.preventDefault();
+        const datos = {};
+        for (const x of TEXTO_PARAMETROS_ASISTENCIA) datos[x.clave] = parseInt(document.getElementById(`asis_${x.clave}`).value, 10);
+        if (Object.values(datos).some(v => isNaN(v))) { toast("Completá todos los valores con números enteros.", "error"); return; }
+        const boton = document.getElementById("asisGuardar");
+        boton.classList.add("cargando");
+        try {
+            const res = await YS.fetch("/asistencia/parametros", { method: "PUT", json: datos });
+            if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudieron guardar los parámetros."), "error"); return; }
+            toast("Parámetros de asistencia guardados.");
+        } catch (err) { toast(err.message, "error"); }
+        finally { boton.classList.remove("cargando"); }
+    });
+}
+
+let _gestionFecha = null, _turnosGestion = [], _alertasGestion = [];
+const TONO_ESTADO_TURNO = { Pendiente: "neutral", Confirmado: "info", Cancelado: "neutral", Realizado: "ok", Ausente: "danger", Rechazado: "neutral" };
+
+// Link a WhatsApp con un texto ya escrito. Los teléfonos se guardan sin código de país: se asume Argentina (54 9).
+function linkWhatsAppPaciente(telefono, texto) {
+    let n = String(telefono || "").replace(/\D/g, "");
+    if (n.length < 8) return "";
+    if (!n.startsWith("54")) n = "549" + n.replace(/^0/, "");
+    return `<a class="ui-btn ui-btn--sm" target="_blank" rel="noopener" href="https://wa.me/${n}?text=${encodeURIComponent(texto)}">${YS.icono("chat")}WhatsApp</a>`;
+}
+
+function filaTurnoGestion(t) {
+    let llegada = "";
+    if (t.ingreso) llegada = `<span class="ui-chip ui-chip--ok">Entró ${YS.esc(t.ingreso)}${t.minutosDemora ? ` (+${t.minutosDemora} min)` : ""}</span>`;
+    else if (t.esperandoConexion) llegada = `<span class="ui-chip ui-chip--warn">Esperando conexión · ${t.minutosDemora} min</span>`;
+    const cobro = t.cobrable === true ? `<span class="ui-chip ui-chip--warn">Cobrable</span>`
+        : t.cobrable === false ? `<span class="ui-chip ui-chip--neutral" title="${YS.esc(t.motivoNoCobrable || "")}">Sin cargo</span>` : "";
+    const acciones = [];
+    if (t.puedeMarcarAusente) acciones.push(`<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="marcarAusenteGestion(${t.idTurno})">Marcar ausente</button>`);
+    else if (t.esperandoConexion) acciones.push(`<span class="texto-chico ui-muted">Ausente desde las ${YS.esc(t.marcarAusenteDesde)}</span>`);
+    if (t.estado === "Ausente") acciones.push(`<button class="ui-btn ui-btn--sm" onclick="corregirAusenteGestion(${t.idTurno})">Corregir</button>`);
+    if (t.estado === "Pendiente" || (t.estado === "Confirmado" && !t.ingreso))
+        acciones.push(`<button class="ui-btn ui-btn--sm" onclick="cancelarTurnoGestion(${t.idTurno})">Cancelar</button>`);
+    if (t.esperandoConexion || t.estado === "Ausente")
+        acciones.push(linkWhatsAppPaciente(t.telefono, `Hola ${t.paciente.split(" ")[0]}, te escribimos de YoSoy: tu sesión de las ${t.hora} ya empezó y tu profesional te está esperando. ¿Podés conectarte?`));
+    return `<tr>
+        <td class="texto-fuerte">${YS.esc(t.hora)}</td>
+        <td>${YS.esc(t.paciente)}</td>
+        <td>${YS.esc(t.profesional)}</td>
+        <td><span class="ui-chip ui-chip--${TONO_ESTADO_TURNO[t.estado] || "neutral"}">${YS.esc(t.estado)}</span> ${llegada} ${cobro}</td>
+        <td class="celda-acciones">${acciones.join(" ")}</td>
+    </tr>`;
+}
+
+function filaAlertaGestion(a) {
+    const contacto = a.ultimoContacto
+        ? `${YS.esc(a.ultimoContacto.resultado)} · ${YS.esc(YS.fecha.relativa(a.ultimoContacto.fecha))}`
+        : `<span class="ui-muted">Sin contacto</span>`;
+    return `<tr>
+        <td>${YS.esc(a.paciente)}</td>
+        <td>${YS.esc(a.profesional)}</td>
+        <td><span class="ui-chip ui-chip--${a.nivel === "abandono" ? "danger" : "warn"}">${a.ausencias} ausencias seguidas</span></td>
+        <td>${YS.esc(YS.fecha.corta(a.ultimaAusencia))}</td>
+        <td>${contacto}</td>
+        <td class="celda-acciones">
+            <button class="ui-btn ui-btn--sm" onclick="registrarContactoGestion(${a.idPaciente}, ${a.idProfesional})">Registrar contacto</button>
+            ${linkWhatsAppPaciente(a.telefono, `Hola ${a.paciente.split(" ")[0]}, te escribimos de YoSoy porque no pudiste venir a tus últimas sesiones. ¿Querés que te ayudemos a buscar un horario?`)}
+        </td>
+    </tr>`;
+}
+
+async function renderGestionPacientes(c, fecha) {
+    _gestionFecha = fecha || _gestionFecha || YS.fecha.aISO(new Date());
+    c.innerHTML = YS.esqueleto.tabla(6);
+    const [datos, alertas] = await Promise.all([
+        YS.api(`/asistencia/turnos?fecha=${_gestionFecha}`),
+        YS.api("/asistencia/alertas").catch(() => ({ alertas: [] }))
+    ]);
+    if (YS.shell.actual !== "gestionpacientes") return;
+    _turnosGestion = datos.turnos; _alertasGestion = alertas.alertas || [];
+    const p = datos.parametros;
+    const esHoy = _gestionFecha === YS.fecha.aISO(new Date());
+    const otroDia = dias => { const d = YS.fecha.parse(_gestionFecha); d.setDate(d.getDate() + dias); return YS.fecha.aISO(d); };
+    const esperando = _turnosGestion.filter(t => t.esperandoConexion).length;
+    YS.shell.encabezado({ subtitulo: `Pasados ${p.toleranciaMinutos} minutos sin que el paciente entre a la sala, se puede marcar Ausente. Acá no se ve la historia clínica.` });
+    YS.shell.acciones([{ texto: "Actualizar", icono: "refrescar", alClick: () => renderGestionPacientes(c) }]);
+    c.innerHTML = `
+        ${esHoy && esperando ? `<div class="ui-alerta ui-alerta--warn mb-12">${esperando} paciente${esperando === 1 ? "" : "s"} esperando conexión: ya les llegó el aviso «Te estamos esperando» a los ${p.avisoMinutos} minutos.</div>` : ""}
+        <section class="tarjeta">
+            <div class="ui-entre mb-12">
+                <h3 class="tarjeta-titulo mb-0">Turnos del ${YS.esc(YS.fecha.larga(_gestionFecha))}</h3>
+                <div class="ui-flex">
+                    <button class="ui-btn ui-btn--sm" onclick="renderGestionPacientes(document.getElementById('contenido'), '${otroDia(-1)}')">Anterior</button>
+                    ${esHoy ? "" : `<button class="ui-btn ui-btn--sm" onclick="renderGestionPacientes(document.getElementById('contenido'), '${YS.fecha.aISO(new Date())}')">Hoy</button>`}
+                    <button class="ui-btn ui-btn--sm" onclick="renderGestionPacientes(document.getElementById('contenido'), '${otroDia(1)}')">Siguiente</button>
+                </div>
+            </div>
+            ${_turnosGestion.length ? `<div class="tabla-wrapper"><table>
+                <thead><tr><th>Hora</th><th>Paciente</th><th>Profesional</th><th>Estado</th><th></th></tr></thead>
+                <tbody>${_turnosGestion.map(filaTurnoGestion).join("")}</tbody></table></div>`
+                : YS.vacio({ icono: "agenda", titulo: "No hay turnos ese día" })}
+        </section>
+        <section class="tarjeta mt-16">
+            <h3 class="tarjeta-titulo">Posible abandono</h3>
+            <p class="texto-chico ui-muted mb-12">Pacientes con ${p.ausenciasAlerta} o más ausencias seguidas con el mismo profesional. Registrá cada contacto
+                (sin datos clínicos). Con ${p.ausenciasAbandono} el sistema sugiere el abandono, que confirma el profesional tratante o el auditor.</p>
+            ${_alertasGestion.length ? `<div class="tabla-wrapper"><table>
+                <thead><tr><th>Paciente</th><th>Profesional</th><th>Ausencias</th><th>Última</th><th>Último contacto</th><th></th></tr></thead>
+                <tbody>${_alertasGestion.map(filaAlertaGestion).join("")}</tbody></table></div>`
+                : YS.vacio({ icono: "pacientes", titulo: "Nadie con ausencias seguidas" })}
+        </section>`;
+}
+
+async function marcarAusenteGestion(idTurno) {
+    const nombre = _turnosGestion.find(t => t.idTurno === idTurno)?.paciente || "el paciente";
+    if (!await confirmar(`¿Marcar a ${nombre} como ausente? El turno queda cobrable (el profesional puede dejarlo sin cargo por fuerza mayor). Se puede corregir.`,
+        { titulo: "Marcar ausente", textoConfirmar: "Marcar ausente", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/turnos/${idTurno}/inasistencia`, { method: "PUT" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo marcar ausente."), "error"); return; }
+        toast("Inasistencia registrada.", "warn");
+        renderGestionPacientes(document.getElementById("contenido"));
+    } catch (err) { toast(err.message, "error"); }
+}
+
+async function corregirAusenteGestion(idTurno) {
+    if (!await confirmar("¿Corregir la inasistencia? El turno vuelve a Confirmado y se borra la marca de cobro.", { titulo: "Corregir inasistencia", textoConfirmar: "Corregir" })) return;
+    try {
+        const res = await YS.fetch(`/turnos/${idTurno}/inasistencia`, { method: "DELETE" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo corregir."), "error"); return; }
+        toast("Inasistencia corregida: el turno vuelve a Confirmado.");
+        renderGestionPacientes(document.getElementById("contenido"));
+    } catch (err) { toast(err.message, "error"); }
+}
+
+function cancelarTurnoGestion(idTurno) {
+    const t = _turnosGestion.find(x => x.idTurno === idTurno);
+    abrirModalCaso("Cancelar turno", "Cancelar turno", `
+        <p>Turno de <span class="texto-fuerte">${YS.esc(t?.paciente || "")}</span> a las ${YS.esc(t?.hora || "")} con ${YS.esc(t?.profesional || "")}.</p>
+        <fieldset class="mt-12"><legend class="texto-fuerte">¿Quién lo cancela?</legend>
+            <label class="ui-check"><input type="radio" name="cancQuien" value="paciente" checked> El paciente (avisó por teléfono o WhatsApp)
+                <span class="texto-chico ui-muted">(con menos de 24 hs queda cobrable)</span></label>
+            <label class="ui-check mt-4"><input type="radio" name="cancQuien" value="centro"> El profesional o el centro
+                <span class="texto-chico ui-muted">(nunca se cobra)</span></label></fieldset>`,
+        async () => {
+            const porPaciente = document.querySelector('input[name="cancQuien"]:checked').value === "paciente";
+            const res = await YS.fetch(`/turnos/${idTurno}/cancelar${porPaciente ? "?porPaciente=true" : ""}`, { method: "PUT" });
+            if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo cancelar."), "error"); return; }
+            cerrarModalCaso();
+            toast("Turno cancelado. Al paciente le llega el aviso.");
+            renderGestionPacientes(document.getElementById("contenido"));
+        });
+}
+
+function registrarContactoGestion(idPaciente, idProfesional) {
+    const a = _alertasGestion.find(x => x.idPaciente === idPaciente && x.idProfesional === idProfesional);
+    abrirModalCaso("Registrar contacto", "Guardar", `
+        <p>${YS.esc(a?.paciente || "")} · ${a ? `${a.ausencias} ausencias seguidas con ${YS.esc(a.profesional)}` : ""}</p>
+        <div class="ui-campo mt-12"><label for="segResultado">Resultado</label>
+            <select id="segResultado" class="ui-input">
+                <option value="Sigue">Sigue con el tratamiento</option>
+                <option value="Pausa">Quiere hacer una pausa</option>
+                <option value="No responde">No responde</option>
+                <option value="Otro">Otro</option>
+            </select></div>
+        <div class="ui-campo mt-12"><label for="segNota">Nota corta (opcional)</label>
+            <textarea id="segNota" class="ui-input" maxlength="500" rows="3" placeholder="Ej.: pide reprogramar para la semana que viene"></textarea>
+            <span class="texto-chico ui-muted">Sin datos clínicos: lo que cuente el paciente sobre su salud lo registra su profesional.</span></div>`,
+        async () => {
+            const res = await YS.fetch(`/pacientes/${idPaciente}/seguimiento-asistencia`, { method: "POST", json: {
+                resultado: document.getElementById("segResultado").value,
+                nota: document.getElementById("segNota").value || null, idProfesional } });
+            if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo guardar."), "error"); return; }
+            cerrarModalCaso();
+            toast("Contacto registrado.");
+            renderGestionPacientes(document.getElementById("contenido"));
+        });
+}
+
+// ══════════════════════════════════════════════════════════════
+// CONFIGURACIÓN › ESPECIALIDADES (rama AAA1, migración 34)
+// ══════════════════════════════════════════════════════════════
+// El Configurador agrega, modifica, da de baja o borra. Las activas de tipo "Especialidad" son las que se ofrecen al
+// registrar un profesional, así que cada cambio se ve ahí en el momento. Una que ya se usó no se borra: se da de baja.
+let _especialidades = [], _filtroEsp = "activas";
+
+async function renderEspecialidades(c) {
+    _especialidades = await YS.api("/especialidades/catalogo");
+    if (YS.shell.actual !== "especialidades") return;
+    YS.shell.encabezado({ subtitulo: "Las activas de tipo Especialidad son las que se eligen al registrar un profesional." });
+    YS.shell.acciones([{ texto: "Nueva especialidad", tipo: "primary", icono: "mas", alClick: () => editarEspecialidad(null) }]);
+    const cuenta = f => _especialidades.filter(f).length;
+    const filtros = {
+        activas: { texto: "Activas", pasa: e => e.estado === "Activo" },
+        especialidades: { texto: "Para profesionales", pasa: e => e.estado === "Activo" && e.tipo === "Especialidad" },
+        servicios: { texto: "Servicios", pasa: e => e.tipo === "Servicio" },
+        bajas: { texto: "Dadas de baja", pasa: e => e.estado !== "Activo" },
+        todas: { texto: "Todas", pasa: () => true }
+    };
+    const f = filtros[_filtroEsp] || filtros.activas;
+    const lista = _especialidades.filter(f.pasa);
+    c.innerHTML = `
+        <section class="tarjeta">
+            <div class="ui-flex mb-12" role="group" aria-label="Filtrar especialidades">
+                ${Object.entries(filtros).map(([id, x]) => `<button type="button" class="ui-btn ui-btn--sm${id === _filtroEsp ? " ui-btn--primary" : ""}"
+                    onclick="_filtroEsp='${id}'; renderEspecialidades(document.getElementById('contenido'))">${x.texto} <span class="ui-muted">${cuenta(x.pasa)}</span></button>`).join("")}
+            </div>
+            ${lista.length ? `<div class="tabla-wrapper"><table>
+                <thead><tr><th>Nombre</th><th>Disciplina</th><th>Tipo</th><th>Estado</th><th>En uso</th><th></th></tr></thead>
+                <tbody>${lista.map(e => `<tr${e.estado !== "Activo" ? ' class="ui-muted"' : ""}>
+                    <td><span class="texto-fuerte">${YS.esc(e.nombre)}</span>${e.requiereMatriculaEspecialista ? '<div class="texto-chico ui-muted">Pide matrícula de especialista</div>' : ""}</td>
+                    <td>${YS.esc(e.disciplina || "—")}</td>
+                    <td><span class="ui-chip ui-chip--${e.tipo === "Servicio" ? "neutral" : "info"}">${YS.esc(e.tipo)}</span></td>
+                    <td><span class="ui-chip ui-chip--${e.estado === "Activo" ? "ok" : "neutral"}">${e.estado === "Activo" ? "Activa" : "Dada de baja"}</span></td>
+                    <td>${e.usos ? `${e.usos} registro${e.usos === 1 ? "" : "s"}` : '<span class="ui-muted">Sin usar</span>'}</td>
+                    <td class="celda-acciones">
+                        <button class="ui-btn ui-btn--sm" onclick="editarEspecialidad(${e.idEspecialidad})">Editar</button>
+                        ${e.estado === "Activo"
+                            ? `<button class="ui-btn ui-btn--sm" onclick="estadoEspecialidad(${e.idEspecialidad}, false)">Dar de baja</button>`
+                            : `<button class="ui-btn ui-btn--sm" onclick="estadoEspecialidad(${e.idEspecialidad}, true)">Reactivar</button>`}
+                        ${e.usos ? "" : `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="eliminarEspecialidad(${e.idEspecialidad})">Borrar</button>`}
+                    </td>
+                </tr>`).join("")}</tbody></table></div>`
+            : YS.vacio({ icono: "etiqueta", titulo: "No hay especialidades en este filtro" })}
+        </section>`;
+}
+
+function editarEspecialidad(id) {
+    const e = id ? _especialidades.find(x => x.idEspecialidad === id) : null;
+    const disciplinas = [...new Set(_especialidades.map(x => x.disciplina).filter(Boolean))].sort();
+    abrirModalCaso(e ? "Editar especialidad" : "Nueva especialidad", e ? "Guardar" : "Agregar", `
+        <div class="ui-campo"><label for="espNombre">Nombre</label>
+            <input id="espNombre" class="ui-input" maxlength="100" value="${YS.esc(e?.nombre || "")}" placeholder="Psicología Clínica"></div>
+        <div class="ui-campo mt-12"><label for="espDisciplina">Disciplina (opcional)</label>
+            <input id="espDisciplina" class="ui-input" maxlength="60" list="espDisciplinas" value="${YS.esc(e?.disciplina || "")}" placeholder="Psicología">
+            <datalist id="espDisciplinas">${disciplinas.map(d => `<option value="${YS.esc(d)}">`).join("")}</datalist></div>
+        <fieldset class="mt-12"><legend class="texto-fuerte">Tipo</legend>
+            <label class="ui-check"><input type="radio" name="espTipo" value="Especialidad" ${e?.tipo !== "Servicio" ? "checked" : ""}> Especialidad
+                <span class="texto-chico ui-muted">(se elige al registrar un profesional)</span></label>
+            <label class="ui-check mt-4"><input type="radio" name="espTipo" value="Servicio" ${e?.tipo === "Servicio" ? "checked" : ""}> Servicio
+                <span class="texto-chico ui-muted">(Admisión, Atención domiciliaria...: solo para derivar)</span></label></fieldset>
+        <label class="ui-check mt-12"><input type="checkbox" id="espReqEsp" ${e?.requiereMatriculaEspecialista ? "checked" : ""}>
+            Pide matrícula de especialista <span class="texto-chico ui-muted">(como las del Colegio de Psicólogos)</span></label>
+        ${e?.usos ? `<div class="ui-alerta ui-alerta--info mt-12">Está en uso en ${e.usos} registro${e.usos === 1 ? "" : "s"}: si le cambiás el nombre, el nombre nuevo se ve también en esos registros.</div>` : ""}`,
+        async () => {
+            if (!YS.form.validar([{ id: "espNombre", requerido: "Escribí el nombre de la especialidad." }])) return;
+            const datos = {
+                nombre: document.getElementById("espNombre").value,
+                disciplina: document.getElementById("espDisciplina").value || null,
+                tipo: document.querySelector('input[name="espTipo"]:checked').value,
+                requiereMatriculaEspecialista: document.getElementById("espReqEsp").checked
+            };
+            const res = await YS.fetch(e ? `/especialidades/catalogo/${e.idEspecialidad}` : "/especialidades/catalogo",
+                { method: e ? "PUT" : "POST", json: datos });
+            if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo guardar."), "error"); return; }
+            cerrarModalCaso();
+            toast(e ? "Especialidad modificada." : "Especialidad agregada: ya se puede elegir al registrar un profesional.");
+            mostrarTab("especialidades");
+        });
+    setTimeout(() => document.getElementById("espNombre")?.focus(), 50);
+}
+
+async function estadoEspecialidad(id, activa) {
+    const e = _especialidades.find(x => x.idEspecialidad === id);
+    const aviso = activa
+        ? `¿Reactivar "${e.nombre}"? Vuelve a ofrecerse al registrar un profesional.`
+        : `¿Dar de baja "${e.nombre}"? Deja de ofrecerse al registrar un profesional.${e.usos ? " Los registros que ya la usan la conservan." : ""}`;
+    if (!await confirmar(aviso, { titulo: activa ? "Reactivar especialidad" : "Dar de baja especialidad", textoConfirmar: activa ? "Reactivar" : "Dar de baja", peligro: !activa })) return;
+    try {
+        const res = await YS.fetch(`/especialidades/catalogo/${id}/estado`, { method: "PUT", json: { activa } });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo cambiar el estado."), "error"); return; }
+        toast(activa ? "Especialidad reactivada." : "Especialidad dada de baja.", activa ? "ok" : "warn");
+        mostrarTab("especialidades");
+    } catch (err) { toast(err.message, "error"); }
+}
+
+async function eliminarEspecialidad(id) {
+    const e = _especialidades.find(x => x.idEspecialidad === id);
+    if (!await confirmar(`¿Borrar "${e.nombre}"? Nunca se usó, así que se borra del catálogo. Esto no se puede deshacer.`,
+        { titulo: "Borrar especialidad", textoConfirmar: "Borrar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/especialidades/catalogo/${id}`, { method: "DELETE" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo borrar."), "error"); mostrarTab("especialidades"); return; }
+        toast("Especialidad borrada.", "warn");
+        mostrarTab("especialidades");
+    } catch (err) { toast(err.message, "error"); }
+}
+
+async function bajaFeriado(id, nombre) {
+    if (!await confirmar(`¿Dar de baja el feriado "${nombre}"? Ese día se vuelven a ofrecer turnos.`, { titulo: "Dar de baja feriado", textoConfirmar: "Dar de baja", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/feriados/${id}`, { method: "DELETE" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo dar de baja."), "error"); return; }
+        toast("Feriado dado de baja.", "warn");
+        mostrarTab("feriados");
+    } catch (e) { toast(e.message, "error"); }
+}
+
+// Usuarios › Matrículas (Configurador: carga y renueva) y Auditoría › Matrículas (Profesional auditor: solo lectura).
+// Una matrícula por especialidad; la principal es obligatoria y su vencimiento corta la agenda.
+const PUEDE_EDITAR_MATRICULAS = MODULO === "configurador" || MODULO === "administracion";
+const CHIP_MATRICULA = { "Vigente": "ok", "Por vencer": "warn", "Vencida": "danger", "Sin vencimiento cargado": "neutral", "Sin matrícula cargada": "neutral" };
+
+async function renderMatriculas(c) {
+    const datos = await YS.api("/reportes/matriculas");
+    if (YS.shell.actual !== "matriculas") return;
+    YS.shell.encabezado({ subtitulo: "Desde 30 días antes del vencimiento se avisa todos los días al profesional y a los auditores. Desde la fecha de vencimiento de la principal, la agenda no ofrece turnos." });
+    YS.shell.acciones(PUEDE_EDITAR_MATRICULAS ? [{ texto: "Enviar avisos ahora", icono: "campana", alClick: enviarAvisosMatricula }] : []);
+    window._matriculas = datos.filas;
+    const r = datos.resumen;
+    const fecha = f => f ? YS.fecha.corta(f) : "—";
+    c.innerHTML = `
+        <div class="ui-flex mb-16">
+            <span class="ui-chip ui-chip--danger">Vencidas: ${r.vencidas}</span>
+            <span class="ui-chip ui-chip--warn">Por vencer (30 días): ${r.porVencer}</span>
+            <span class="ui-chip ui-chip--neutral">Sin fecha o sin matrícula: ${r.sinFecha}</span>
+            <span class="ui-chip ui-chip--ok">Vigentes: ${r.vigentes}</span>
+        </div>
+        <section class="tarjeta">
+            ${datos.filas.length ? `<div class="tabla-wrapper"><table>
+                <thead><tr><th>Profesional</th><th>Especialidad</th><th>Matrícula</th><th>Vencimiento</th><th>Estado</th><th>Turnos después del vencimiento</th>${PUEDE_EDITAR_MATRICULAS ? "<th></th>" : ""}</tr></thead>
+                <tbody>${datos.filas.map((m, i) => `<tr>
+                    <td><span class="principal">${YS.esc(m.profesional)}</span></td>
+                    <td>${YS.esc(m.especialidad ?? "—")}${m.idMatricula ? ` <span class="ui-chip ui-chip--${m.principal ? "marca" : "neutral"}">${m.principal ? "Principal" : "Secundaria"}</span>` : ""}</td>
+                    <td>${YS.esc(m.numero ?? "—")}${m.jurisdiccion ? `<span class="secundario">${YS.esc(m.jurisdiccion)}</span>` : ""}</td>
+                    <td>${fecha(m.vencimiento)}${m.diasRestantes != null && m.diasRestantes >= 0 && m.diasRestantes <= 30 ? `<span class="secundario">${m.diasRestantes === 0 ? "vence hoy" : `faltan ${m.diasRestantes} días`}</span>` : ""}</td>
+                    <td><span class="ui-chip ui-chip--${CHIP_MATRICULA[m.estado] || "neutral"}">${YS.esc(m.estado)}</span></td>
+                    <td>${m.turnosDespuesDelVencimiento || "—"}</td>
+                    ${PUEDE_EDITAR_MATRICULAS ? `<td class="celda-acciones">
+                        ${m.idMatricula ? `<button class="ui-btn ui-btn--sm" onclick="renovarMatricula(${i})">Renovar</button>` : ""}
+                        <button class="ui-btn ui-btn--sm" onclick="agregarMatricula(${m.idProfesional}, '${YS.esc(m.profesional).replace(/'/g, "\\'")}', ${m.idMatricula ? "false" : "true"})">${m.idMatricula ? "Otra matrícula" : "Cargar matrícula"}</button>
+                        ${m.idMatricula && !m.principal ? `<button class="ui-btn ui-btn--sm ui-btn--danger" onclick="quitarMatricula(${m.idMatricula})">Quitar</button>` : ""}
+                    </td>` : ""}
+                </tr>`).join("")}</tbody></table></div>`
+                : YS.vacio({ icono: "pacientes", titulo: "No hay profesionales activos" })}
+        </section>`;
+}
+
+function camposMatricula(m = {}) {
+    return `
+        <div class="ui-form-grid">
+            <div class="ui-campo"><label for="matNumero">Número de matrícula</label><input id="matNumero" class="ui-input" maxlength="50" value="${YS.esc(m.numero ?? "")}"></div>
+            <div class="ui-campo"><label for="matJurisdiccion">Jurisdicción</label><input id="matJurisdiccion" class="ui-input" maxlength="60" value="${YS.esc(m.jurisdiccion ?? "Córdoba")}"></div>
+            <div class="ui-campo"><label for="matVencimiento">Vencimiento</label><input type="date" id="matVencimiento" class="ui-input" value="${m.vencimiento ? YS.fecha.aISO(m.vencimiento) : ""}"></div>
+        </div>`;
+}
+
+const leerCamposMatricula = () => ({
+    numero: document.getElementById("matNumero").value,
+    jurisdiccion: document.getElementById("matJurisdiccion").value || null,
+    vencimiento: document.getElementById("matVencimiento").value
+});
+const validarCamposMatricula = () => YS.form.validar([
+    { id: "matNumero", requerido: "Escribí el número de matrícula." },
+    { id: "matVencimiento", requerido: "Elegí la fecha de vencimiento." }
+]);
+
+function renovarMatricula(i) {
+    const m = window._matriculas[i];
+    abrirModalCaso(`Renovar matrícula · ${m.profesional}`, "Guardar", `
+        <p class="texto-suave mb-12">${YS.esc(m.especialidad)} · ${m.principal ? "principal" : "secundaria"}. Al guardar una fecha futura, la agenda vuelve a ofrecer turnos.</p>
+        ${camposMatricula(m)}`, async () => {
+        if (!validarCamposMatricula()) return;
+        const res = await YS.fetch(`/matriculas/${m.idMatricula}`, { method: "PUT", json: leerCamposMatricula() });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo guardar."), "error"); return; }
+        cerrarModalCaso();
+        toast("Matrícula actualizada.");
+        mostrarTab("matriculas");
+    });
+}
+
+async function agregarMatricula(idProfesional, nombre, esPrimera) {
+    let especialidades = [];
+    try { especialidades = (await YS.api("/usuarios/equipo/opciones")).especialidades; } catch (e) { toast(e.message, "error"); return; }
+    const ya = new Set(window._matriculas.filter(m => m.idProfesional === idProfesional && m.idMatricula).map(m => m.especialidad));
+    abrirModalCaso(`${esPrimera ? "Cargar matrícula" : "Otra matrícula"} · ${nombre}`, "Guardar", `
+        <div class="ui-campo"><label for="matEspecialidad">Especialidad</label>
+            <select id="matEspecialidad" class="ui-select"><option value="">Elegí la especialidad</option>${especialidades.filter(e => !ya.has(e.nombre)).map(e =>
+                `<option value="${e.idEspecialidad}">${YS.esc(e.nombre)}</option>`).join("")}</select></div>
+        ${camposMatricula()}
+        ${esPrimera ? `<p class="texto-chico ui-muted mt-8">Es la primera: queda como principal.</p>`
+            : `<label class="ui-check mt-8"><input type="checkbox" id="matPrincipal"> Que sea la principal (la que corta la agenda al vencer). La actual pasa a secundaria.</label>`}`, async () => {
+        if (!YS.form.validar([{ id: "matEspecialidad", requerido: "Elegí la especialidad." }]) || !validarCamposMatricula()) return;
+        const res = await YS.fetch(`/profesionales/${idProfesional}/matriculas`, { method: "POST", json: {
+            ...leerCamposMatricula(), idEspecialidad: parseInt(document.getElementById("matEspecialidad").value),
+            principal: esPrimera || !!document.getElementById("matPrincipal")?.checked } });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo guardar."), "error"); return; }
+        cerrarModalCaso();
+        toast("Matrícula cargada.");
+        mostrarTab("matriculas");
+    });
+}
+
+async function quitarMatricula(id) {
+    if (!await confirmar("¿Dar de baja esta matrícula secundaria?", { titulo: "Quitar matrícula", textoConfirmar: "Quitar", peligro: true })) return;
+    try {
+        const res = await YS.fetch(`/matriculas/${id}`, { method: "DELETE" });
+        if (!res.ok) { toast(await YS.leerMensaje(res, "No se pudo quitar."), "error"); return; }
+        toast("Matrícula dada de baja.", "warn");
+        mostrarTab("matriculas");
+    } catch (e) { toast(e.message, "error"); }
+}
+
+async function enviarAvisosMatricula() {
+    try {
+        const r = await YS.api("/matriculas/avisos/ejecutar", { method: "POST" });
+        toast(r.matriculas ? `Avisos enviados: ${r.avisos} en la campanita y ${r.correos} por mail (${r.matriculas} matrícula(s)).`
+            : "No hay avisos pendientes hoy: ninguna matrícula vence en los próximos 30 días, o ya se avisó hoy.", "info", 6000);
+    } catch (e) { toast(e.message, "error"); }
+}

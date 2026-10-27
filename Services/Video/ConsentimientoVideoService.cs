@@ -303,6 +303,6 @@ public static class SesionDeVideoReglas
     // Quién hace de profesional en la sala: el del turno y, en las admisiones, quien tiene el privilegio Admisión. Mismo
     // criterio que AccesoSalaService (etapa 2 de roles: el Configurador ya no entra a sesiones clínicas).
     public static bool AtiendeLaSesion(Identidad yo, SesionDeVideo s) =>
-        (s.Origen == OrigenSala.Admision && yo.HaceAdmision)
+        (s.Origen == OrigenSala.Admision && (yo.HaceAdmision || yo.OfreceEntrevistaVideo))
         || (s.Origen == OrigenSala.Turno && yo.EsProfesional && yo.IdProfesional is int ip && ip == s.IdProfesional);
 }

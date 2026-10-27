@@ -25,6 +25,9 @@ public record ResultadoSolicitud(ResultadoRegla Regla, int? IdTurno);
 ///         (RN-01), así que se puede pedir uno para dentro de unos minutos.
 ///  RN-07  Un paciente no puede tener dos turnos Pendientes o Confirmados con el
 ///         mismo profesional el mismo día.
+///  RN-08  (migración 33) No se ofrecen ni se aceptan turnos en un feriado que el
+///         profesional no trabaja, dentro de un bloqueo suyo, ni desde el vencimiento de su
+///         matrícula principal (ver Services/AgendaRestricciones.cs).
 /// Lo usa el bot entero y, desde la Fase 3a, también los endpoints web de turnos
 /// (POST /turnos/solicitar, PUT /turnos/{id}/cancelar cuando lo llama un paciente,
 /// POST /turnos/profesional-solicitar) — antes insertaban/cancelaban directo, sin pasar
@@ -99,20 +102,24 @@ public class TurnoReglasService
         // Las franjas de admisión (migración 26) no se ofrecen a los pacientes: ahí van las entrevistas.
         var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible && !a.EsAdmision).ToList();
         var result  = new List<DateTime>();
+        // Migración 33: feriados, bloqueos y matrícula, una sola consulta para todo el rango.
+        var restricciones = _repo.Restricciones(idProfesional, ahora.Date, ahora.Date.AddDays(Math.Max(dias, 1)));
 
         for (var d = 0; d < dias && result.Count < maximo; d++)
         {
             var fecha  = ahora.Date.AddDays(d);
             var franjas = agenda.Where(a => DiaDeLaSemana(a.Dia) == fecha.DayOfWeek && VigenteEl(a, fecha)).ToList();
             if (franjas.Count == 0) continue;
+            if (restricciones.MatriculaVencida(fecha)) break;   // de acá en adelante, todo vencido
             if (!pasaRN07(fecha)) continue;
 
             // Ocupado = con un turno activo o con una propuesta de asignación pendiente de otro paciente (la propia no cuenta).
             var ocupadas = _repo.HorasOcupadas(idProfesional, fecha).Concat(_repo.HorasReservadasPorPropuestas(idProfesional, fecha, idPaciente, ahora)).ToHashSet();
-            foreach (var slot in Slots(franjas).OrderBy(s => s))
+            foreach (var (slot, duracion) in SlotsConDuracion(franjas).OrderBy(s => s.Hora))
             {
                 var momento = fecha + slot;
                 if (momento <= ahora || ocupadas.Contains(slot)) continue;   // mismo criterio que ValidarSolicitud (RN-01)
+                if (restricciones.MotivoNoDisponible(momento, duracion) is not null) continue;   // RN-08
                 result.Add(momento);
                 if (result.Count == maximo) break;
             }
@@ -156,6 +163,25 @@ public class TurnoReglasService
         return null;
     }
 
+    /// <summary>
+    /// Migración 33: horarios de la agenda de ese día que no se pueden dar por feriado, bloqueo o matrícula vencida.
+    /// Los usa GET /turnos/ocupados para que las pantallas que arman los horarios por su cuenta no los ofrezcan.
+    /// </summary>
+    public List<TimeSpan> HorasNoDisponibles(int idProfesional, DateTime fecha)
+    {
+        var franjas = _repo.AgendaDe(idProfesional)
+            .Where(a => a.Disponible && DiaDeLaSemana(a.Dia) == fecha.DayOfWeek && VigenteEl(a, fecha)).ToList();
+        if (franjas.Count == 0) return new();
+        var restricciones = _repo.Restricciones(idProfesional, fecha.Date, fecha.Date);
+        return SlotsConDuracion(franjas)
+            .Where(s => restricciones.MotivoNoDisponible(fecha.Date + s.Hora, s.Duracion) is not null)
+            .Select(s => s.Hora).Distinct().OrderBy(h => h).ToList();
+    }
+
+    /// <summary>Migración 33: por qué no se puede mover un turno a ese momento (reprogramación), o null.</summary>
+    public string? MotivoNoDisponible(int idProfesional, DateTime momento) =>
+        _repo.Restricciones(idProfesional, momento.Date, momento.Date).MotivoNoDisponible(momento, TimeSpan.FromMinutes(1));
+
     public ResultadoRegla ValidarSolicitud(int idPaciente, int idProfesional, DateTime momento)
     {
         var ahora = Ahora;
@@ -167,6 +193,12 @@ public class TurnoReglasService
             .Where(a => a.Disponible && !a.EsAdmision && DiaDeLaSemana(a.Dia) == momento.DayOfWeek && VigenteEl(a, momento)).ToList();
         if (!Slots(franjas).Contains(momento.TimeOfDay))
             return ResultadoRegla.Falla("RN-01", "Ese horario no está dentro de la agenda del profesional.");
+
+        // RN-08 (migración 33): feriado, bloqueo del profesional o matrícula vencida.
+        var duracion = SlotsConDuracion(franjas).Where(s => s.Hora == momento.TimeOfDay).Select(s => s.Duracion).FirstOrDefault();
+        var motivo = _repo.Restricciones(idProfesional, momento.Date, momento.Date).MotivoNoDisponible(momento, duracion);
+        if (motivo is not null)
+            return ResultadoRegla.Falla("RN-08", $"Ese horario no está disponible: {motivo}.");
 
         // RN-01: libre (un turno activo, o una propuesta de asignación pendiente de otro paciente: la propia no cuenta)
         if (_repo.HorasOcupadas(idProfesional, momento.Date).Contains(momento.TimeOfDay)
@@ -214,6 +246,10 @@ public class TurnoReglasService
     /// </summary>
     public ResultadoSolicitud SolicitarUrgente(int idPaciente, int idProfesional, DateTime momento, string? motivo)
     {
+        // Migración 33: sin matrícula vigente no se atiende, tampoco de urgencia. Feriados y bloqueos no frenan una
+        // urgencia: si el profesional decide atender, atiende.
+        if (_repo.Restricciones(idProfesional, momento.Date, momento.Date).MatriculaVencida(momento))
+            return new ResultadoSolicitud(ResultadoRegla.Falla("RN-08", "Tu matrícula no está vigente: no podés iniciar una cita."), null);
         var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, "profesional");
         return id is null
             ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-07", "Ya hay un turno activo para ese profesional y paciente ese día, o el horario está ocupado."), null)
@@ -309,6 +345,18 @@ public class TurnoReglasService
             var intervalo = TimeSpan.FromMinutes(a.IntervaloMinutos > 0 ? a.IntervaloMinutos : 30);
             for (var h = a.HoraInicio.Value; h + intervalo <= a.HoraFin.Value; h += intervalo)
                 yield return h;
+        }
+    }
+
+    // Lo mismo que Slots, con la duración de cada turno (el intervalo de su franja).
+    private static IEnumerable<(TimeSpan Hora, TimeSpan Duracion)> SlotsConDuracion(IEnumerable<Agenda> franjas)
+    {
+        foreach (var a in franjas)
+        {
+            if (a.HoraInicio is null || a.HoraFin is null) continue;
+            var intervalo = TimeSpan.FromMinutes(a.IntervaloMinutos > 0 ? a.IntervaloMinutos : 30);
+            for (var h = a.HoraInicio.Value; h + intervalo <= a.HoraFin.Value; h += intervalo)
+                yield return (h, intervalo);
         }
     }
 

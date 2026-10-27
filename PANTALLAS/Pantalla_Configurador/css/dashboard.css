@@ -129,6 +129,9 @@
 /* ── Registrar usuario y Privilegios (18/10) ─────── */
 .alta-usuario { max-width: 860px; }
 .alta-roles { display: grid; gap: 10px; }
+/* Especialidades del alta: la principal y las que se agregan, cada una con su matrícula. */
+.alta-subtitulo { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.alta-especialidad--adicional { padding: 12px; border: 1px dashed var(--border); border-radius: var(--r-md); }
 .alta-opciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
 .alta-opcion { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; }
 .alta-opcion > span { display: flex; flex-direction: column; gap: 2px; }
