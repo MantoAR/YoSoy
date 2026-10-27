@@ -72,10 +72,10 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
 
     private int ProfesionalSinAgenda(int esp, string nombre) => _d.Profesional(esp, nombre: nombre);
 
-    /// <summary>El primer horario (grilla de 30 minutos) de esos días y esa franja, con la anticipación de 24 horas, ignorando todo lo demás.</summary>
+    /// <summary>El primer horario (grilla de 30 minutos) de esos días y esa franja, desde el primer momento permitido (ahora + colchón de 15 min, sin anticipación de 24 h), ignorando todo lo demás.</summary>
     private DateTime Primero(DayOfWeek[] dias, string inicio, string fin, Func<DateTime, bool>? filtro = null)
     {
-        var desde = Ahora.AddHours(AsignacionAutomaticaReglas.HorasAnticipacionMinima);
+        var desde = AsignacionAutomaticaReglas.PrimerHorarioPermitido(Ahora);
         for (var fecha = desde.Date; fecha <= desde.Date.AddDays(40); fecha = fecha.AddDays(1))
         {
             if (!dias.Contains(fecha.DayOfWeek)) continue;
@@ -105,19 +105,19 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         return await Json(r);
     }
 
-    private sealed record Prop(int Id, int Profesional, DateTime FechaHora, string Estado, int Nro, string? Motivo, DateTime ExpiraEn, DateTime? Respuesta, int? Turno);
+    private sealed record Prop(int Id, int Profesional, DateTime FechaHora, string Estado, int Nro, string? Motivo, DateTime ExpiraEn, DateTime? Respuesta, int? Turno, DateTime FechaCreacion = default);
 
     private static List<Prop> Propuestas(int informe)
     {
         var lista = new List<Prop>();
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        using var cmd = new SqlCommand("SELECT IdPropuesta, IdProfesional, FechaHora, Estado, NroPropuesta, Motivo, ExpiraEn, FechaRespuesta, IdTurno FROM PropuestaAsignacion WHERE IdInformeAdmision = @i ORDER BY IdPropuesta", con);
+        using var cmd = new SqlCommand("SELECT IdPropuesta, IdProfesional, FechaHora, Estado, NroPropuesta, Motivo, ExpiraEn, FechaRespuesta, IdTurno, FechaCreacion FROM PropuestaAsignacion WHERE IdInformeAdmision = @i ORDER BY IdPropuesta", con);
         cmd.Parameters.AddWithValue("@i", informe);
         using var r = cmd.ExecuteReader();
         while (r.Read())
             lista.Add(new((int)r["IdPropuesta"], (int)r["IdProfesional"], (DateTime)r["FechaHora"], (string)r["Estado"], Convert.ToInt32(r["NroPropuesta"]), r["Motivo"] as string,
-                (DateTime)r["ExpiraEn"], r["FechaRespuesta"] as DateTime?, r["IdTurno"] as int?));
+                (DateTime)r["ExpiraEn"], r["FechaRespuesta"] as DateTime?, r["IdTurno"] as int?, (DateTime)r["FechaCreacion"]));
         return lista;
     }
 
@@ -155,7 +155,8 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         Assert.Equal(Primero(TodosLosDias, "09:00", "18:00"), p.FechaHora);
         Assert.Equal(PropuestaEstado.Pendiente, p.Estado);
         Assert.Equal(1, p.Nro);
-        Assert.Equal(p.FechaHora.AddHours(-AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar), p.ExpiraEn);   // el turno está a ~24 h: vence 2 h antes de él, no a las 48 h (Bloque F)
+        Assert.Equal(AsignacionAutomaticaReglas.Vencimiento(p.FechaCreacion, p.FechaHora), p.ExpiraEn);   // la regla única de vencimiento (turno cercano: 15 min antes de él; lejano: 2 h antes o 48 h)
+        Assert.True(p.ExpiraEn > p.FechaCreacion && p.ExpiraEn < p.FechaHora);
         Assert.Equal("Aprobado", EstadoInforme(informe));
         Assert.Equal("Propuesta", AsignacionEstado(informe));
         Assert.Equal(1, Auditorias(informe, "Se generó una propuesta de asignación"));
@@ -805,8 +806,9 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
         var p = Propuestas(informe).Single();
 
         Assert.True((p.FechaHora - Ahora).TotalHours < AsignacionAutomaticaReglas.HorasParaResponder);
-        Assert.Equal(p.FechaHora.AddHours(-AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar), p.ExpiraEn);
+        Assert.Equal(AsignacionAutomaticaReglas.Vencimiento(p.FechaCreacion, p.FechaHora), p.ExpiraEn);
         Assert.True(p.ExpiraEn < p.FechaHora, "nunca puede vencer después del turno");
+        Assert.True(p.ExpiraEn > p.FechaCreacion, "nunca puede nacer vencida");
 
         // «Podés responder hasta…» usa el vencimiento nuevo (lo que viaja a la pantalla es ExpiraEn).
         var pr = (await PrimerosPasos(pac)).GetProperty("propuesta");
@@ -863,15 +865,15 @@ public class AsignacionAutomaticaBaseRealTests : IDisposable
     }
 
     [FactConBaseDeAsignacion]
-    public async Task Si_el_turno_quedo_sin_el_margen_exigido_no_se_puede_confirmar_aunque_el_plazo_no_haya_vencido()
+    public async Task Si_el_turno_ya_empezo_no_se_puede_confirmar_aunque_el_plazo_no_haya_vencido()
     {
         var esp = _d.Especialidad();
         Profesional(esp, "Alba");
         var (pac, informe) = NuevoFormulario(esp);
         await Aceptar(Recepcion(_d.Profesional()), informe);
         var vieja = Propuestas(informe).Single();
-        // Una propuesta «vieja» (de antes de este arreglo): plazo de 48 horas, pero el turno empieza dentro de 1 hora.
-        DatosDePrueba.Ejecutar("UPDATE PropuestaAsignacion SET ExpiraEn = @e, FechaHora = @f WHERE IdPropuesta = @i", ("@e", Ahora.AddHours(40)), ("@f", Ahora.AddHours(1)), ("@i", vieja.Id));
+        // Una propuesta con el plazo todavía vigente (48 horas, de antes de la regla nueva) pero cuyo turno ya empezó: nunca se confirma un turno pasado. (El margen de 2 h ya no se exige: ExpiraEn trae el margen.)
+        DatosDePrueba.Ejecutar("UPDATE PropuestaAsignacion SET ExpiraEn = @e, FechaHora = @f WHERE IdPropuesta = @i", ("@e", Ahora.AddHours(40)), ("@f", Ahora.AddMinutes(-5)), ("@i", vieja.Id));
 
         var r = await Paciente(pac).PostAsync($"/propuestas-asignacion/{vieja.Id}/aceptar", null);
 

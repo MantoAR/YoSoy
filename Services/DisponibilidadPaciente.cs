@@ -5,7 +5,7 @@
 public static class DisponibilidadReglas
 {
     // TODO-VALIDAR: cuántas horas de anticipación se exigen para que el PACIENTE pida un turno. Hoy ninguna (se puede pedir para dentro de unos minutos, ver PR #26: se quitó la de 24 hs para pedir y se
-    // conserva para cancelar). La propuesta automática de admisión sí usa 24 hs (AsignacionAutomaticaReglas.HorasAnticipacionMinima). Si se define una, el mensaje de hoy la nombra solo.
+    // conserva para cancelar). La propuesta automática de admisión tampoco (AsignacionAutomaticaReglas.AnticipacionMinimaMinutosPorDefecto = 0, más un colchón de 15 min que vale para las dos). Si se define una, el mensaje de hoy la nombra solo.
     public const int AnticipacionMinimaPedidoHoras = 0;
 
     public const int DiasPorDefecto = 30;

@@ -121,40 +121,76 @@ public class AsignacionAutomaticaReglasTests
         Assert.Equal("el miércoles 04/11 a las 09:00 hs", AsignacionAutomaticaReglas.Cuando(Miercoles(9)));
     }
 
-    // ───────────── Bloque F: vencimiento = el menor entre «creación + 48 h» y «turno − 2 h» ─────────────
+    // ───────────── Vencimiento de la propuesta (sin anticipación de 24 h: puede haber turnos para dentro de pocos minutos) ─────────────
 
     [Fact]
-    public void El_vencimiento_es_el_menor_entre_48_horas_y_dos_horas_antes_del_turno()
+    public void El_vencimiento_de_un_turno_lejano_es_el_menor_entre_48_horas_y_dos_horas_antes_del_turno()
     {
         var creacion = new DateTime(2026, 11, 3, 23, 16, 0);
-        // El caso real: turno el miércoles 08:15 y propuesta creada ~32 h antes. Antes vencía "el miércoles 23:16" (después del turno).
-        var turno = new DateTime(2026, 11, 4, 8, 15, 0);
+        var turno = new DateTime(2026, 11, 4, 8, 15, 0);   // turno el miércoles 08:15, propuesta ~9 h antes
         Assert.Equal(new DateTime(2026, 11, 4, 6, 15, 0), AsignacionAutomaticaReglas.Vencimiento(creacion, turno));
-        // Turno lejano: manda el plazo de 48 horas.
         Assert.Equal(creacion.AddHours(48), AsignacionAutomaticaReglas.Vencimiento(creacion, creacion.AddDays(6)));
-        // Justo en el empate.
-        Assert.Equal(creacion.AddHours(48), AsignacionAutomaticaReglas.Vencimiento(creacion, creacion.AddHours(50)));
-        // Nunca después del turno.
-        foreach (var horas in new[] { 3, 10, 24, 47, 48, 49, 50, 51, 200 })
-            Assert.True(AsignacionAutomaticaReglas.Vencimiento(creacion, creacion.AddHours(horas)) <= creacion.AddHours(horas).AddHours(-AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar));
+        Assert.Equal(creacion.AddHours(48), AsignacionAutomaticaReglas.Vencimiento(creacion, creacion.AddHours(50)));   // justo en el empate
         Assert.Equal(2, AsignacionAutomaticaReglas.HorasAntesDelTurnoParaCerrar);
     }
 
+    [Theory]
+    [InlineData(16)] [InlineData(20)] [InlineData(29)] [InlineData(30)] [InlineData(31)] [InlineData(45)] [InlineData(60)] [InlineData(119)]
+    [InlineData(134)] [InlineData(135)] [InlineData(136)] [InlineData(180)] [InlineData(600)] [InlineData(2880)] [InlineData(5000)]
+    public void El_vencimiento_nunca_es_anterior_a_la_creacion_ni_posterior_al_inicio(int minutosHastaElTurno)
+    {
+        var creacion = new DateTime(2026, 11, 3, 10, 0, 0);
+        var turno = creacion.AddMinutes(minutosHastaElTurno);
+        var v = AsignacionAutomaticaReglas.Vencimiento(creacion, turno);
+        Assert.True(v >= creacion.AddMinutes(AsignacionAutomaticaReglas.MinutosMinimosDeVigencia), $"dura menos de 15 min: {v}");
+        Assert.True(v < turno, $"vence después de empezar el turno: {v} vs {turno}");
+        Assert.True(v <= creacion.AddHours(AsignacionAutomaticaReglas.HorasParaResponder));
+    }
+
+    [Theory]
+    [InlineData(130, 115)]   // turno a 2 h 10: «inicio − 15 min» (no se aplica el − 2 h, quedaría a 10 min de la creación, menos del mínimo)
+    [InlineData(60, 45)]     // turno en 1 hora: vence 15 min antes del turno
+    [InlineData(30, 15)]     // turno en 30 min: justo el mínimo de 15 min desde la creación
+    [InlineData(20, 15)]     // turno en 20 min: «inicio − 15» sería a los 5 min; vale el mínimo de 15 min, que sigue siendo antes del inicio
+    [InlineData(16, 15)]
+    [InlineData(135, 15)]    // el empate: turno a 2 h 15 → «inicio − 2 h» cae justo a los 15 min de la creación
+    public void Con_un_turno_cercano_vale_hasta_15_minutos_antes_pero_al_menos_15_minutos_desde_la_creacion(int minutosHastaElTurno, int minutosDeVigenciaEsperados)
+    {
+        var creacion = new DateTime(2026, 11, 3, 10, 0, 0);
+        Assert.Equal(creacion.AddMinutes(minutosDeVigenciaEsperados), AsignacionAutomaticaReglas.Vencimiento(creacion, creacion.AddMinutes(minutosHastaElTurno)));
+    }
+
     [Fact]
-    public void No_se_puede_confirmar_con_el_plazo_vencido_ni_con_el_turno_sin_el_margen_exigido()
+    public void El_primer_horario_permitido_es_estrictamente_posterior_a_ahora_y_respeta_el_colchon_y_la_clave()
     {
         var ahora = new DateTime(2026, 11, 3, 10, 0, 0);
-        Assert.False(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(5), ahora.AddHours(30), ahora));   // vigente
-        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora, ahora.AddHours(30), ahora));               // el plazo vence ahora mismo
-        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora.AddHours(1), ahora));   // plazo viejo, turno en 1 hora
-        Assert.False(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora.AddHours(3), ahora));  // el turno aún tiene el margen de 2 horas
-        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora.AddHours(2).AddMinutes(-1), ahora));
+        Assert.Equal(AsignacionAutomaticaReglas.AnticipacionMinimaMinutosPorDefecto, 0);
+        Assert.Equal(ahora.AddMinutes(15), AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora));                       // por defecto: solo el colchón
+        Assert.True(AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora) > ahora);
+        Assert.Equal(ahora.AddMinutes(15), AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora, 5));                    // una anticipación menor al colchón no lo baja
+        Assert.Equal(ahora.AddMinutes(90), AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora, 90));                   // configurable (AsignacionAutomatica:AnticipacionMinimaMinutos)
+        Assert.Equal(ahora.AddMinutes(15), AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora, -30));                  // un valor negativo no adelanta nada
+        Assert.Equal(ahora.AddHours(24), AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora, 0, 24 * 60));             // la de un pedido del paciente, si algún día se define
+        Assert.Equal("AsignacionAutomatica:AnticipacionMinimaMinutos", AsignacionAutomaticaReglas.ClaveAnticipacionMinimaMinutos);
+    }
+
+    [Fact]
+    public void No_se_puede_confirmar_con_el_plazo_vencido_ni_con_el_turno_ya_empezado()
+    {
+        var ahora = new DateTime(2026, 11, 3, 10, 0, 0);
+        Assert.False(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(5), ahora.AddHours(30), ahora));        // vigente
+        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora, ahora.AddHours(30), ahora));                    // el plazo vence ahora mismo
+        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora, ahora));                    // plazo viejo, el turno ya empezó
+        Assert.True(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora.AddMinutes(-1), ahora));
+        Assert.False(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddMinutes(10), ahora.AddMinutes(25), ahora));  // turno cercano: el plazo corto ya trae el margen, no se pide otro
+        Assert.False(AsignacionAutomaticaReglas.NoSePuedeConfirmar(ahora.AddHours(40), ahora.AddHours(1), ahora));       // un turno en 1 hora, con plazo vigente, se puede confirmar
     }
 
     [Fact]
     public void Las_cifras_sin_validar_estan_en_un_solo_lugar_y_son_las_pedidas()
     {
-        Assert.Equal(24, AsignacionAutomaticaReglas.HorasAnticipacionMinima);
+        Assert.Equal(0, AsignacionAutomaticaReglas.AnticipacionMinimaMinutosPorDefecto);
+        Assert.Equal(15, AsignacionAutomaticaReglas.MinutosColchon);
         Assert.Equal(30, AsignacionAutomaticaReglas.DiasHorizonte);
         Assert.Equal(48, AsignacionAutomaticaReglas.HorasParaResponder);
         Assert.Equal(3, AsignacionAutomaticaReglas.MaxPropuestas);

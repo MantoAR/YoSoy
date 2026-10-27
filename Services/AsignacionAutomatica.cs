@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 // Propuesta automática de profesional y horario (migración 32). Al ACEPTAR un formulario «Sobre mí» (acción de la recepción), el sistema calcula una propuesta
 // —un profesional y su primer horario libre— y el PACIENTE decide:
 //
-//   recepción acepta el formulario → propuesta Pendiente (48 hs) → el paciente:
+//   recepción acepta el formulario → propuesta Pendiente (vence según AsignacionAutomaticaReglas.Vencimiento: 48 hs, o antes si el turno está cerca) → el paciente:
 //        · «Me sirve»                → se crean el vínculo con el profesional y el turno (confirmado), una sola vez;
 //        · «Prefiero otro horario»   → elige otro libre del MISMO profesional (hasta 10) → nueva propuesta;
 //        · «Probar con otro profesional» → la siguiente propuesta, sin repetir los que ya rechazó;
@@ -36,34 +36,53 @@ public static class AsignacionInforme
 
 public static class AsignacionAutomaticaReglas
 {
-    // TODO-VALIDAR: las tres cifras siguientes son una decisión clínica/operativa que no está definida; quedan neutras y en un solo lugar.
-    /// <summary>Anticipación mínima del primer horario propuesto, en horas desde ahora.</summary>
-    public const int HorasAnticipacionMinima = 24;
+    // TODO-VALIDAR: las cifras siguientes son una decisión clínica/operativa; quedan neutras y en un solo lugar.
+    /// <summary>
+    /// Anticipación mínima ADICIONAL del horario propuesto, en minutos desde ahora. Por defecto 0: se puede proponer el primer hueco libre de hoy mismo (decisión del dueño, octubre 2026; antes eran 24 h).
+    /// Se cambia sin redesplegar con la clave AsignacionAutomatica:AnticipacionMinimaMinutos (variable AsignacionAutomatica__AnticipacionMinimaMinutos). Nunca baja del colchón de <see cref="MinutosColchon"/>.
+    /// </summary>
+    public const int AnticipacionMinimaMinutosPorDefecto = 0;
+    public const string ClaveAnticipacionMinimaMinutos = "AsignacionAutomatica:AnticipacionMinimaMinutos";
+    /// <summary>Colchón mínimo, en minutos: no se propone un horario que empiece en menos de esto, y el paciente puede responder hasta ese margen antes del turno cuando este está cerca.</summary>
+    public const int MinutosColchon = 15;
+    /// <summary>Tiempo mínimo que vale una propuesta desde que se crea, en minutos (aunque el turno esté muy cerca).</summary>
+    public const int MinutosMinimosDeVigencia = 15;
+
+    /// <summary>El primer momento que se puede proponer: ahora + max(anticipación configurada, colchón). Los horarios son siempre estrictamente posteriores a «ahora».</summary>
+    public static DateTime PrimerHorarioPermitido(DateTime ahora, int anticipacionMinutos = AnticipacionMinimaMinutosPorDefecto, int? otraAnticipacionMinutos = null) =>
+        ahora.AddMinutes(Math.Max(MinutosColchon, Math.Max(Math.Max(0, anticipacionMinutos), otraAnticipacionMinutos ?? 0)));
     /// <summary>Hasta cuántos días hacia adelante se busca un horario.</summary>
     public const int DiasHorizonte = 30;
     /// <summary>Cuánto tiempo tiene el paciente para responder una propuesta antes de que venza.</summary>
     public const int HorasParaResponder = 48;
     /// <summary>
-    /// Con cuántas horas de margen antes del turno propuesto se cierra la propuesta: nadie puede confirmar un horario que empieza en menos de esto. Es también la «anticipación mínima» que el servidor
-    /// vuelve a exigir al confirmar. (No es la de 24 horas de arriba, que solo decide qué horarios se PROPONEN.)
+    /// Con cuántas horas de margen antes del turno propuesto se cierra la propuesta cuando el turno está lejos. Si el turno empieza en menos de (esto + el colchón), ver <see cref="Vencimiento"/>.
     /// TODO-VALIDAR: lo define el equipo clínico/operativo; queda en un solo lugar.
     /// </summary>
     public const int HorasAntesDelTurnoParaCerrar = 2;
 
     /// <summary>
-    /// Hasta cuándo puede responder el paciente: lo MENOR entre «creación + 48 horas» y «el horario del turno propuesto − 2 horas». Antes era solo lo primero y podía quedar DESPUÉS del turno
-    /// (turno el miércoles 08:15, «podés responder hasta el miércoles 23:16»). Es el valor que se guarda en ExpiraEn y el que ve el paciente.
+    /// Hasta cuándo puede responder el paciente (es el valor que se guarda en ExpiraEn y el que ve el paciente). Regla exacta:
+    ///  · Turno lejano (empieza a más de 2 h + 15 min de la creación): lo MENOR entre «creación + 48 h» y «inicio del turno − 2 h».
+    ///  · Turno cercano (empieza antes): «inicio del turno − 15 min», pero nunca antes de «creación + 15 min». Así el vencimiento nunca queda en el pasado ni después del inicio
+    ///    (para un turno que empieza entre 15 y 30 min después de la creación vale 15 min desde la creación, siempre antes del inicio).
+    /// Un horario que empieza en menos de 15 min no se propone (ver <see cref="PrimerHorarioPermitido"/>): el turno tiene que empezar después de «creación + 15 min».
     /// </summary>
     public static DateTime Vencimiento(DateTime creacion, DateTime turno)
     {
-        var porPlazo = creacion.AddHours(HorasParaResponder);
+        var minimo = creacion.AddMinutes(MinutosMinimosDeVigencia);
         var porTurno = turno.AddHours(-HorasAntesDelTurnoParaCerrar);
-        return porTurno < porPlazo ? porTurno : porPlazo;
+        if (porTurno >= minimo) { var porPlazo = creacion.AddHours(HorasParaResponder); return porTurno < porPlazo ? porTurno : porPlazo; }
+        var cercano = turno.AddMinutes(-MinutosColchon);
+        return cercano < minimo ? minimo : cercano;
     }
 
-    /// <summary>¿Ya no se puede confirmar? Venció su plazo, o el horario quedó con menos margen del exigido antes del turno (aunque ExpiraEn, de una propuesta vieja, diga otra cosa).</summary>
+    /// <summary>
+    /// ¿Ya no se puede confirmar? Venció su plazo (ExpiraEn ya trae el margen antes del turno, ver <see cref="Vencimiento"/>), o el turno ya empezó. No se vuelve a exigir un margen fijo acá: con un turno
+    /// cercano el plazo legítimo puede ser de pocos minutos y un margen fijo lo dejaría sin confirmar nunca.
+    /// </summary>
     public static bool NoSePuedeConfirmar(DateTime expiraEn, DateTime turno, DateTime ahora) =>
-        expiraEn <= ahora || turno < ahora.AddHours(HorasAntesDelTurnoParaCerrar);
+        expiraEn <= ahora || turno <= ahora;
 
     public const int MaxPropuestas = 3;
     public const int MaxHorariosAlternativos = 10;
@@ -190,10 +209,12 @@ public class AsignacionAutomaticaService
     private readonly IOptionsMonitor<ConsentimientoOptions> _consentimiento;
     private readonly INotificadorTurnos _notificador;
     private readonly ILogger<AsignacionAutomaticaService> _log;
+    private readonly IConfiguration? _config;
 
     public AsignacionAutomaticaService(ITurnoRepositorio repo, TurnoReglasService reglas, IOptionsMonitor<ConsentimientoOptions> consentimiento,
-        INotificadorTurnos notificador, ILogger<AsignacionAutomaticaService> log)
+        INotificadorTurnos notificador, ILogger<AsignacionAutomaticaService> log, IConfiguration? config = null)
     {
+        _config = config;
         _repo = repo;
         _reglas = reglas;
         _consentimiento = consentimiento;
@@ -359,14 +380,21 @@ public class AsignacionAutomaticaService
             .ToList();
     }
 
-    /// <summary>Los horarios libres de un profesional entre «ahora + anticipación» y el horizonte, del más próximo al más lejano.</summary>
+    /// <summary>La anticipación mínima configurada (AsignacionAutomatica:AnticipacionMinimaMinutos, en minutos; por defecto 0). Se lee en cada uso: cambiarla no necesita reiniciar el servicio.</summary>
+    public int AnticipacionMinimaMinutos => Math.Max(0, _config?.GetValue(AsignacionAutomaticaReglas.ClaveAnticipacionMinimaMinutos, AsignacionAutomaticaReglas.AnticipacionMinimaMinutosPorDefecto) ?? AsignacionAutomaticaReglas.AnticipacionMinimaMinutosPorDefecto);
+
+    /// <summary>
+    /// Los horarios libres de un profesional desde <see cref="AsignacionAutomaticaReglas.PrimerHorarioPermitido"/> (ahora + max(anticipación configurada, colchón de 15 min); siempre estrictamente después de «ahora»)
+    /// hasta el horizonte, del más próximo al más lejano. Es la ÚNICA regla de qué se ofrece: la usan la propuesta, «Prefiero otro horario» y el calendario del paciente.
+    /// <paramref name="horasAnticipacion"/> es una anticipación adicional (la de un pedido del paciente, DisponibilidadReglas); nunca baja de la configurada.
+    /// </summary>
     public List<DateTime> HorariosLibres(int idProfesional, DateTime ahora, SqlConnection? conTx = null, SqlTransaction? tx = null, int? horasAnticipacion = null, int? dias = null)
     {
         var resultado = new List<DateTime>();
         var agenda = _repo.AgendaDe(idProfesional)
             .Where(a => a.Disponible && !a.EsAdmision && a.HoraInicio.HasValue && a.HoraFin.HasValue).ToList();   // las franjas de admisión (migración 29) no se ofrecen
         if (agenda.Count == 0) return resultado;
-        var desde = ahora.AddHours(horasAnticipacion ?? AsignacionAutomaticaReglas.HorasAnticipacionMinima);
+        var desde = AsignacionAutomaticaReglas.PrimerHorarioPermitido(ahora, AnticipacionMinimaMinutos, (horasAnticipacion ?? 0) * 60);
         var hasta = ahora.AddDays(dias ?? AsignacionAutomaticaReglas.DiasHorizonte);
         var ocupados = Ocupados(conTx, tx, idProfesional, desde.Date, hasta.Date, ahora);
         for (var fecha = desde.Date; fecha <= hasta.Date; fecha = fecha.AddDays(1))
@@ -874,11 +902,12 @@ public class AsignacionAutomaticaService
         cmd.ExecuteNonQuery();
     }
 
-    // ───────────── Vencimiento (se evalúa al consultar, sin proceso en segundo plano) ─────────────
+    // ───────────── Vencimiento (se evalúa al consultar y, además, en cada pasada de RecordatorioBackgroundService) ─────────────
 
     /// <summary>
     /// Pasa a «Vencida» toda propuesta pendiente cuyo plazo terminó (queda auditado) y deja el formulario en «Asignaciones para resolver»: si el paciente no respondió, la recepción decide cómo seguir.
-    /// Se llama antes de leer o de responder propuestas; es barato y repetirlo no hace nada de más.
+    /// Se llama antes de leer o de responder propuestas y en cada pasada del servicio de fondo (las propuestas de turnos cercanos duran pocos minutos y la recepción tiene que enterarse a tiempo,
+    /// no recién cuando alguien abra la lista); es barato y repetirlo no hace nada de más.
     /// </summary>
     public static void VencerVencidas(DateTime ahora)
     {
@@ -905,7 +934,7 @@ public class AsignacionAutomaticaService
         {
             // TODO-VALIDAR: qué hacer cuando el paciente no responde en el plazo (hoy: pasa a la recepción, que decide).
             const string motivo = "El paciente no respondió la propuesta a tiempo.";
-            Auditar(con, tx, null, "Venció la propuesta de asignación", idInforme, $"propuesta #{idPropuesta}: pasó el plazo de {AsignacionAutomaticaReglas.HorasParaResponder} horas sin respuesta");
+            Auditar(con, tx, null, "Venció la propuesta de asignación", idInforme, $"propuesta #{idPropuesta}: pasó su plazo sin respuesta");
             Ejecutar(con, tx, "UPDATE InformeAdmision SET AsignacionEstado = @E, AsignacionMotivo = @M WHERE IdInforme = @I AND Estado = N'Aprobado'",
                 ("@E", AsignacionInforme.PorResolver), ("@M", motivo), ("@I", idInforme));
             AvisarRecepcionUnaVez(con, tx, "asignacion-por-resolver", "Una asignación espera a la recepción", $"{NombrePaciente(con, tx, idPaciente)}: {motivo}", $"(formulario #{idInforme})");
