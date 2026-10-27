@@ -32,6 +32,7 @@ public class GuardiaEndpointsTests
         ("POST", "/turnos"),                                          // Paso 3: apagado (410 Gone) para todos por igual, no expone nada — ver el comentario en Program.cs
         ("GET", "/cuentas/invitacion"),                               // 18/10: quien recibió la invitación todavía no tiene contraseña; busca por hash del token, rate-limited
         ("POST", "/cuentas/activar"),                                 // idem: confirma la cuenta con el token del mail, rate-limited
+        ("GET", "/favicon.ico"),                                      // el navegador lo pide solo, sin sesión; es el mismo archivo público que enlazan las pantallas
     };
 
     [Fact]
