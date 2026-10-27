@@ -1899,14 +1899,18 @@ async function pacientes() {
         buscar: p => [p.nombre, p.dni, p.mail, p.telefono].join(' '),
         filtros: [
             { id: 'todos', texto: 'Todos', pasa: () => true },
-            { id: 'nuevos', texto: 'Asignaciones nuevas', pasa: p => p.estadoAsignacion === 'Nueva' }
+            { id: 'nuevos', texto: 'Asignaciones nuevas', pasa: p => p.estadoAsignacion === 'Nueva' },
+            { id: 'derivados', texto: 'Derivados', pasa: p => p.derivado },
+            { id: 'alta', texto: 'En alta', pasa: p => p.enAlta }
         ],
         ordenInicial: { col: 0 },
         vacio: { icono: 'pacientes', titulo: 'Todavía no tenés pacientes asignados', texto: 'Te los asigna el equipo de admisión.' },
         columnas: [
             { titulo: 'Paciente', orden: p => YS.normalizar(p.nombre),
               html: p => `<span class="ui-flex">${YS.avatar(p.nombre, p.idPaciente, 'sm')}<span class="principal">${YS.esc(p.nombre)}</span>` +
-                  (p.estadoAsignacion === 'Nueva' ? '<span class="ui-chip ui-chip--info">Nuevo</span>' : '') + '</span>' },
+                  (p.estadoAsignacion === 'Nueva' ? '<span class="ui-chip ui-chip--info">Nuevo</span>' : '') +
+                  (p.derivado ? '<span class="ui-chip ui-chip--warn" title="Derivado a psiquiatría: no puede reservar turnos">Derivado</span>' : '') +
+                  (p.enAlta ? '<span class="ui-chip ui-chip--info" title="Alta clínica dada">En alta</span>' : '') + '</span>' },
             { titulo: 'DNI', html: p => YS.esc(p.dni || '—'), orden: p => p.dni || '' },
             { titulo: 'Mail', html: p => YS.esc(p.mail || '—') },
             { titulo: 'Teléfono', html: p => YS.esc(p.telefono || '—') },
@@ -1933,7 +1937,7 @@ async function casos() {
     YS.shell.encabezado({ subtitulo: `${lista.length} caso${lista.length === 1 ? '' : 's'}` });
     YS.shell.acciones([{ texto: 'Actualizar', icono: 'refrescar', alClick: () => activarTab('casos') }]);
 
-    const tono = { Nuevo: 'neutral', Derivado: 'info', Asignado: 'ok', 'En atención': 'ok', Cerrado: 'neutral' };
+    const tono = { Nuevo: 'neutral', Derivado: 'info', Asignado: 'ok', 'En atención': 'ok', 'En alta': 'info', Cerrado: 'neutral' };
     YS.tabla(c, {
         filas: lista, unidad: ['caso', 'casos'], placeholder: 'Buscar por paciente o grupo',
         buscar: cs => [cs.nombrePaciente, cs.nombreGrupo].join(' '),
@@ -1947,7 +1951,8 @@ async function casos() {
             { titulo: 'Paciente', orden: cs => YS.normalizar(cs.nombrePaciente),
               html: cs => `<span class="ui-flex">${YS.avatar(cs.nombrePaciente, cs.idPaciente, 'sm')}<span class="principal">${YS.esc(cs.nombrePaciente)}</span></span>` },
             { titulo: 'Grupo', html: cs => YS.esc(cs.nombreGrupo || '—') },
-            { titulo: 'Estado', html: cs => `<span class="ui-chip ui-chip--${tono[cs.estado] || 'neutral'}">${YS.esc(cs.estado)}</span>`, orden: cs => cs.estado },
+            { titulo: 'Estado', html: cs => `<span class="ui-chip ui-chip--${tono[cs.estado] || 'neutral'}">${YS.esc(cs.estado)}</span>` +
+                (cs.derivado ? ' <span class="ui-chip ui-chip--warn" title="Derivado a psiquiatría: no puede reservar turnos">Derivado a psiquiatría</span>' : ''), orden: cs => cs.estado },
             { titulo: '', clase: 'acciones', html: cs => `
                 <button class="ui-btn ui-btn--sm" onclick="verHistoria(${cs.idPaciente})">Historia clínica</button>
                 <button class="ui-btn ui-btn--sm" onclick="abrirSesionCon(${cs.idPaciente})">${YS.icono('video')}Sesión</button>` }

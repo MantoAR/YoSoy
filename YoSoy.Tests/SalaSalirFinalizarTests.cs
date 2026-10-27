@@ -104,4 +104,65 @@ public class SalaSalirFinalizarTests
         Assert.Contains("window.close()", volver);                             // o ventana suelta
         Assert.Contains("clearTimeout(salidaAlPanelTimer)", Profesional);     // si toca algo del cierre, se queda
     }
+
+    // ───────────── Notas → Historia Clínica, Derivar y lo que se ocultó ─────────────
+
+    [Fact]
+    public void Ya_no_se_crean_notas_nuevas_el_cuadro_esta_oculto_y_el_cierre_manda_la_nota_vacia()
+    {
+        var sala = Profesional;
+        Assert.Matches(@"<textarea id=""notas-evolucion""[^>]*\shidden\s[^>]*style=""display:none""", sala);
+        Assert.DoesNotContain("Escribí las notas de la sesión", sala);
+        Assert.Contains("Anotar en la historia clínica", sala);
+        var guardar = Funcion(sala, "async function guardarEnHC() {");
+        Assert.Contains("notasEvolucion:     notas || null", guardar);   // la nota sale de un cuadro que nadie puede escribir: siempre vacía
+    }
+
+    [Fact]
+    public void Anotar_en_la_historia_clinica_precarga_la_sesion_se_vincula_a_ella_y_un_doble_clic_no_duplica()
+    {
+        var sala = Profesional;
+        var abrir = Funcion(sala, "function abrirAnotacionHC() {");
+        Assert.Contains("textoDeLaSesion()", abrir);                       // los datos de la sesión vienen cargados
+        var anotar = Funcion(sala, "async function guardarAnotacionHC() {");
+        Assert.Contains("idTurno: hayTurno() ? sesionVideo.id : null", anotar);   // Evolucion.IdTurno: la sesión del turno
+        Assert.Contains("if (hcEnCurso) return;", anotar);
+        Assert.Contains("idEvolucionAnotada", anotar);                    // el segundo guardado corrige la misma evolución (PUT), no crea otra
+        Assert.Contains("vincularAnotacionConLaSesion()", anotar);
+        var vincular = Funcion(sala, "async function vincularAnotacionConLaSesion() {");
+        Assert.Contains("/sesiones-clinicas/${idSesionGuardada}/evolucion", vincular);   // SesionClinica.IdEvolucion, la relación real
+        Assert.Contains("vincularAnotacionConLaSesion();", Funcion(sala, "async function guardarEnHC() {"));   // al guardar el cierre también
+        // La ventana se abre solo desde un botón del profesional.
+        Assert.DoesNotContain("abrirAnotacionHC()", Funcion(sala, "async function finalizarSesion() {"));
+        // La historia clínica no recibe ningún dato personal del paciente: la página no lo pide (ni DNI, ni mail, ni teléfono).
+        Assert.DoesNotMatch(@"(?i)dni|telefono|mail", anotar);
+    }
+
+    [Fact]
+    public void Derivar_a_psiquiatra_pide_confirmacion_en_una_ventana_y_recien_ahi_llama_al_servidor()
+    {
+        var sala = Profesional;
+        Assert.Contains("onclick=\"pedirDerivarPsiquiatra()\"", sala);
+        var pedir = Funcion(sala, "function pedirDerivarPsiquiatra() {");
+        Assert.DoesNotContain("YS.api", pedir);                           // pedir confirmación no cambia nada
+        Assert.Contains("modal-derivar", pedir);
+        var confirmar = Funcion(sala, "async function confirmarDerivarPsiquiatra() {");
+        Assert.Contains("confirma: true", confirmar);
+        Assert.Contains("/derivar-psiquiatra", confirmar);
+        Assert.Contains("if (derivandoEnCurso || derivadoAPsiquiatra) return;", confirmar);   // doble clic
+        Assert.Contains("no se cancelan solos", sala);                    // la ventana lo dice antes de confirmar
+        Assert.Contains("TODO-VALIDAR", sala);
+    }
+
+    [Fact]
+    public void El_tipo_de_cierre_Derivacion_y_el_proximo_turno_ocultos_no_se_pueden_activar_desde_un_borrador()
+    {
+        var sala = Profesional;
+        Assert.Contains("if (tipo === 'Derivación' && !DERIVACION_INTERNA_ALCANZABLE) return;", Funcion(sala, "function seleccionarCierre(tipo) {"));
+        Assert.Contains("if (!PROPUESTA_PROXIMO_TURNO_VISIBLE) return;", Funcion(sala, "function alternarProximoTurno(abrir) {"));
+        Assert.Contains("if (!PROPUESTA_PROXIMO_TURNO_VISIBLE) return;", Funcion(sala, "function resaltarProximoTurno() {"));
+        // Nada se borró: las funciones y los asistentes siguen en la página.
+        Assert.Contains("function abrirAsistente(", sala);
+        Assert.Contains("async function enviarProximoTurno()", sala);
+    }
 }

@@ -152,6 +152,16 @@
         .btn-gris.sugerido { border-color: var(--accent); color: var(--accent-strong); box-shadow: 0 0 0 3px var(--accent-ring); }
         .evolucion-box textarea.resaltada { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 
+        /* Ventanas del cierre (anotar en la historia clínica / confirmar la derivación) */
+        .ys-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+        .ys-modal[hidden] { display: none; }
+        .ys-modal-caja { background: var(--surface); color: var(--text); border-radius: var(--r-lg); padding: 20px; width: min(560px, 100%); max-height: 90vh; overflow: auto; box-shadow: var(--shadow-lg); }
+        .ys-modal-caja h3 { text-transform: none; letter-spacing: 0; font-size: var(--fs-lg, 1.1rem); color: var(--text); }
+        .ys-modal-caja label { display: block; font-weight: 600; margin: 10px 0 4px; }
+        .ys-modal-caja textarea, .ys-modal-caja input { width: 100%; box-sizing: border-box; }
+        .ys-modal-acciones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+        .hc-sala-estado { margin-top: 8px; font-size: var(--fs-sm, .9rem); }
+
         @media (max-width: 900px) { .main-grid, .bottom-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -250,16 +260,20 @@
                 </div>
             </div>
 
-            <!-- EVOLUCIÓN -->
-            <div class="card">
-                <h3>Evolución clínica</h3>
+            <!-- HISTORIA CLÍNICA: las «notas» sueltas ya no se crean. Todo lo clínico se anota en la historia clínica del paciente (ventana «Anotar en la historia clínica»).
+                 El cuadro de texto de abajo sigue en la página, oculto, SOLO para no romper el borrador local ni lo que ya lo lee (las notas viejas siguen guardadas y se leen en la historia clínica, solo lectura). -->
+            <div class="card" id="card-evolucion">
+                <h3>Historia clínica</h3>
                 <div class="evolucion-box">
+                    <p class="cierre-ayuda" style="margin-top:0">Lo clínico se anota en la historia clínica del paciente. Se abre solo cuando vos lo pedís.</p>
+                    <button type="button" class="btn-verde" id="btn-hc-sala" onclick="abrirAnotacionHC()">📝 Anotar en la historia clínica</button>
+                    <div id="hc-sala-estado" class="hc-sala-estado" role="status" aria-live="polite"></div>
                     <div id="borrador-recuperar" class="cierre-aviso borrador-recuperar oculto" role="alert">
                         <span id="borrador-recuperar-texto"></span>
                         <button type="button" class="btn-verde" onclick="seguirConBorrador()">Seguir con el borrador</button>
                         <button type="button" class="btn-gris" onclick="descartarBorrador()">Descartar</button>
                     </div>
-                    <textarea id="notas-evolucion" rows="5" placeholder="Escribí las notas de la sesión, observaciones, plan de tratamiento..."></textarea>
+                    <textarea id="notas-evolucion" rows="5" hidden aria-hidden="true" tabindex="-1" style="display:none"></textarea>
                     <div id="borrador-estado" class="borrador-estado" role="status" aria-live="polite"></div>
                 </div>
             </div>
@@ -292,18 +306,22 @@
                 <div class="tipo-cierre" role="group" aria-label="Tipo de cierre">
                     <button type="button" class="tipo-btn" data-tipo="Seguimiento" aria-pressed="false" onclick="seleccionarCierre('Seguimiento')">📋 Seguimiento</button>
                     <button type="button" class="tipo-btn" data-tipo="Alta" aria-pressed="false" onclick="seleccionarCierre('Alta')">✅ Alta</button>
-                    <button type="button" class="tipo-btn" data-tipo="Derivación" aria-pressed="false" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
+                    <!-- OCULTO: la derivación interna asistida (Derivacion / CasoDerivacion) no es alcanzable desde el cierre. Código y tablas intactos; ver DERIVACION_INTERNA_ALCANZABLE en el script. -->
+                    <button type="button" class="tipo-btn" data-tipo="Derivación" style="display:none" aria-pressed="false" onclick="seleccionarCierre('Derivación')">↗ Derivación</button>
                 </div>
                 <div id="cierre-aviso-tipo" class="cierre-aviso oculto" role="status"></div>
             </fieldset>
 
             <div class="cierre-acciones">
-                <button type="button" class="btn-gris" id="btn-cierre-evolucion" onclick="anotarEvolucion()">📝 Anotar evolución</button>
-                <button type="button" class="btn-gris" id="btn-cierre-proximo" aria-pressed="false" aria-controls="cierre-proximo" onclick="alternarProximoTurno()">📅 Agendar próximo turno</button>
+                <button type="button" class="btn-gris" id="btn-cierre-evolucion" onclick="abrirAnotacionHC()">📝 Anotar en la historia clínica</button>
+                <!-- OCULTO (bloque E): la propuesta de próximo turno desde el cierre. La asignación de turnos ahora es automática desde admisión. NO se borró nada: para reactivarla, poner
+                     PROPUESTA_PROXIMO_TURNO_VISIBLE = true (script) y sacar el style="display:none" de este botón y del fieldset #cierre-proximo. -->
+                <button type="button" class="btn-gris" id="btn-cierre-proximo" style="display:none" aria-pressed="false" aria-controls="cierre-proximo" onclick="alternarProximoTurno()">📅 Agendar próximo turno</button>
+                <button type="button" class="btn-gris" id="btn-derivar-psiquiatra" onclick="pedirDerivarPsiquiatra()" title="Cambia el estado del paciente a Derivado. No crea tareas ni avisa a nadie.">↗ Derivar a psiquiatra</button>
             </div>
 
             <!-- Selector del próximo turno: el paciente y el profesional ya vienen cargados y no se editan. Nada se reserva solo: es una PROPUESTA que el paciente acepta. -->
-            <fieldset id="cierre-proximo" class="cierre-paso proximo-turno oculto">
+            <fieldset id="cierre-proximo" class="cierre-paso proximo-turno oculto" style="display:none">
                 <legend>Próximo turno</legend>
                 <p id="proximo-quien" class="cierre-ayuda" style="margin:0"></p>
                 <div id="proximo-horarios" class="proximo-dias" role="radiogroup" aria-label="Horarios libres"></div>
@@ -395,6 +413,44 @@
                 <div id="vinculo-mensaje" class="cierre-ayuda" role="status" aria-live="polite"></div>
             </div>
         </section>
+    </div>
+
+    <!-- Anotar en la historia clínica: con los datos de la sesión precargados. Se vincula sola a la sesión. -->
+    <div id="modal-hc" class="ys-modal" hidden role="dialog" aria-modal="true" aria-labelledby="hc-titulo">
+        <div class="ys-modal-caja">
+            <h3 id="hc-titulo">Anotar en la historia clínica</h3>
+            <p id="hc-sesion" class="cierre-ayuda" style="margin:0"></p>
+            <label for="hc-diagnostico">Diagnóstico / motivo (opcional)</label>
+            <input type="text" id="hc-diagnostico" class="ui-input" maxlength="200">
+            <label for="hc-observaciones">Evolución de la sesión</label>
+            <textarea id="hc-observaciones" class="ui-textarea" rows="7" maxlength="8000"></textarea>
+            <label for="hc-plan">Plan de tratamiento (opcional)</label>
+            <textarea id="hc-plan" class="ui-textarea" rows="3" maxlength="2000"></textarea>
+            <p id="hc-mensaje" class="cierre-ayuda" role="alert"></p>
+            <div class="ys-modal-acciones">
+                <button type="button" class="btn-gris" id="btn-hc-cancelar" onclick="cerrarAnotacionHC()">Cancelar</button>
+                <button type="button" class="btn-verde" id="btn-hc-guardar" onclick="guardarAnotacionHC()">Guardar en la historia clínica</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Derivar a psiquiatra: confirmación explícita. Solo cambia el estado del paciente; no crea tareas ni avisa a nadie. -->
+    <div id="modal-derivar" class="ys-modal" hidden role="dialog" aria-modal="true" aria-labelledby="derivar-titulo">
+        <div class="ys-modal-caja">
+            <h3 id="derivar-titulo">¿Derivar a psiquiatra?</h3>
+            <p id="derivar-texto"></p>
+            <ul>
+                <li>El paciente pasa a figurar como <strong>Derivado</strong>.</li>
+                <li>No va a poder reservar ni recibir turnos con este equipo hasta que recepción lo reabra.</li>
+                <li>Si ya tiene turnos por delante, <strong>no se cancelan solos</strong>: te avisamos a vos y a recepción para que decidan.</li>
+                <li>No se crean tareas ni se manda ningún mail.</li>
+            </ul>
+            <p id="derivar-mensaje" class="cierre-ayuda" role="alert"></p>
+            <div class="ys-modal-acciones">
+                <button type="button" class="btn-gris" id="btn-derivar-cancelar" onclick="cerrarDerivarPsiquiatra()">Cancelar</button>
+                <button type="button" class="btn-rojo" id="btn-derivar-confirmar" onclick="confirmarDerivarPsiquiatra()">Sí, derivar al paciente</button>
+            </div>
+        </div>
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
@@ -999,7 +1055,7 @@ function elegirRealizo(valor) {
     decisionRealizo = valor;
     const ayuda = {
         si: 'Al guardar, el turno pasa a Realizado. Si es la primera sesión con este paciente, su caso pasa a «En atención».',
-        no: 'Se guarda la nota y el turno NO cambia. Escribí en la evolución qué pasó.',
+        no: 'Se guarda el cierre y el turno NO cambia. Anotá en la historia clínica qué pasó.',
         despues: 'No se guarda nada ni cambia ningún estado. Podés cerrar la sesión más tarde con lo que escribiste.'
     };
     document.getElementById('cierre-ayuda-realizo').textContent = ayuda[valor];
@@ -1010,6 +1066,7 @@ function elegirRealizo(valor) {
 
 // ─── TIPO DE CIERRE ───────────────────────────────────────
 function seleccionarCierre(tipo) {
+    if (tipo === 'Derivación' && !DERIVACION_INTERNA_ALCANZABLE) return;   // un borrador viejo no puede reabrir un camino que ya no existe
     tipoCierreSeleccionado = tipo;
     document.querySelectorAll('.tipo-btn').forEach(btn => {
         const activo = btn.dataset.tipo === tipo;
@@ -1053,13 +1110,128 @@ function actualizarCierre() {
     guardar.textContent = decisionRealizo === 'despues' ? '⏸ Decidir después' : '💾 Guardar cierre';
 }
 
-// «Anotar evolución»: lleva al editor de la nota (la misma caja donde se escribió durante la llamada).
-function anotarEvolucion() {
-    const nota = document.getElementById('notas-evolucion');
-    nota.classList.add('resaltada');
-    setTimeout(() => nota.classList.remove('resaltada'), 2500);
-    nota.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    nota.focus({ preventScroll: true });
+// Banderas de lo que se ocultó (no se borró nada):
+//  · PROPUESTA_PROXIMO_TURNO_VISIBLE: «Agendar próximo turno» del cierre (la propuesta de turno ahora es automática desde admisión). true la vuelve a mostrar (ver el comentario del HTML).
+//  · DERIVACION_INTERNA_ALCANZABLE: el tipo de cierre «Derivación» y su asistente (Derivacion / CasoDerivacion). Quedan en el servidor y en esta página, sin camino desde el cierre.
+const PROPUESTA_PROXIMO_TURNO_VISIBLE = false;
+const DERIVACION_INTERNA_ALCANZABLE = false;
+
+// ─── ANOTAR EN LA HISTORIA CLÍNICA ────────────────────────
+// Reemplaza a las «notas»: abre la entrada de la historia clínica con los datos de la sesión ya cargados y la deja vinculada a la sesión (Evolucion.IdTurno y, al guardar el cierre,
+// SesionClinica.IdEvolucion). Se abre SOLO por esta acción del profesional; no se conecta ningún dato personal del paciente (solo el nombre, para saber de quién es).
+// La historia clínica se crea acá únicamente si el paciente todavía no tiene una, y recién cuando el profesional guarda.
+let idEvolucionAnotada = null;   // la evolución que ya se escribió desde esta sala (un segundo guardado la corrige, no crea otra)
+let hcEnCurso = false;
+
+function textoDeLaSesion() {
+    const quien = nombreDelPaciente();
+    const dur = sessionStart ? Math.max(1, Math.round((Date.now() - sessionStart) / 60000)) : null;
+    const f = (datosTurno && datosTurno.fecha) ? `${datosTurno.fecha}${datosTurno.hora ? ' ' + datosTurno.hora + ' hs' : ''}` : new Date().toLocaleDateString('es-AR');
+    return `Sesión por videollamada del ${f}${dur ? ` (duración aproximada: ${dur} min)` : ''}${quien ? ' · ' + quien : ''}.`;
+}
+
+function abrirAnotacionHC() {
+    if (!document.getElementById('sel-paciente').value) { toast('Elegí primero el paciente de la sesión.'); return; }
+    if (!idProfesional) { toast('No se pudo identificar tu usuario profesional: ingresá de nuevo.'); return; }
+    document.getElementById('hc-sesion').textContent = textoDeLaSesion();
+    const obs = document.getElementById('hc-observaciones');
+    // Un borrador viejo recuperado (de cuando existían las notas) se ofrece como punto de partida; si ya se guardó una anotación, se conserva lo escrito.
+    if (!obs.dataset.tocado) obs.value = document.getElementById('notas-evolucion').value;
+    document.getElementById('hc-mensaje').textContent = '';
+    document.getElementById('btn-hc-guardar').textContent = idEvolucionAnotada ? 'Guardar los cambios' : 'Guardar en la historia clínica';
+    document.getElementById('modal-hc').hidden = false;
+    obs.focus();
+}
+function cerrarAnotacionHC() { document.getElementById('modal-hc').hidden = true; }
+document.getElementById('hc-observaciones').addEventListener('input', e => { e.target.dataset.tocado = '1'; });
+
+async function guardarAnotacionHC() {
+    if (hcEnCurso) return;   // un solo guardado a la vez: un doble clic no crea dos evoluciones
+    const msg = document.getElementById('hc-mensaje');
+    const obs = document.getElementById('hc-observaciones').value.trim();
+    const diag = document.getElementById('hc-diagnostico').value.trim();
+    const plan = document.getElementById('hc-plan').value.trim();
+    if (!obs && !diag && !plan) { msg.textContent = 'Escribí algo para guardar en la historia clínica.'; return; }
+    const idPaciente = parseInt(document.getElementById('sel-paciente').value);
+    hcEnCurso = true;
+    document.getElementById('btn-hc-guardar').disabled = true;
+    msg.textContent = 'Guardando…';
+    try {
+        let historia = await YS.api(`/pacientes/${idPaciente}/historiaclinica`, { permitir404: true, sinRedireccion: true }).catch(e => { if (e.status === 404) return null; throw e; });
+        if (!historia || !historia.idHistoria) historia = await YS.api('/historiasclinicas', { method: 'POST', json: { idPaciente, fechaApertura: new Date().toISOString() }, sinRedireccion: true });
+        const cuerpo = {
+            idEvolucion: idEvolucionAnotada || 0, idHistoria: historia.idHistoria, idProfesional,
+            idTurno: hayTurno() ? sesionVideo.id : null,
+            fecha: new Date().toISOString(), diagnostico: diag || null, observaciones: obs || null, planTratamiento: plan || null
+        };
+        if (idEvolucionAnotada) await YS.api(`/evoluciones/${idEvolucionAnotada}`, { method: 'PUT', json: cuerpo, sinRedireccion: true });
+        else { const e = await YS.api('/evoluciones', { method: 'POST', json: cuerpo, sinRedireccion: true }); idEvolucionAnotada = e.idEvolucion; }
+        guardadoEnHC = true;   // ya no hay «notas sin guardar» que se pierdan al cerrar la pestaña
+        document.getElementById('modal-hc').hidden = true;
+        document.getElementById('hc-sala-estado').textContent = '✅ Anotado en la historia clínica. Se vincula con esta sesión al guardar el cierre.';
+        toast('✅ Anotado en la historia clínica.');
+        await vincularAnotacionConLaSesion();
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : (err.message || 'No se pudo guardar. Probá de nuevo.');
+    } finally {
+        hcEnCurso = false;
+        document.getElementById('btn-hc-guardar').disabled = false;
+    }
+}
+
+// La evolución escrita queda enlazada con la sesión ya guardada (el servidor exige: mismo paciente, mismo profesional, mismo día). Sin sesión guardada todavía, se hace al guardar el cierre.
+async function vincularAnotacionConLaSesion() {
+    if (!idEvolucionAnotada || !idSesionGuardada) return;
+    try {
+        await YS.api(`/sesiones-clinicas/${idSesionGuardada}/evolucion`, { method: 'PUT', json: { idEvolucion: idEvolucionAnotada }, sinRedireccion: true });
+        document.getElementById('hc-sala-estado').textContent = '✅ Anotado en la historia clínica y vinculado con esta sesión.';
+    } catch (err) {
+        // No es grave: queda el vínculo manual de más abajo.
+        document.getElementById('hc-sala-estado').textContent = 'Quedó en la historia clínica. No se pudo vincular sola con la sesión: usá «Vincular con una evolución de hoy» más abajo.';
+    }
+}
+
+// ─── DERIVAR A PSIQUIATRA ─────────────────────────────────
+// Solo cambia el estado del paciente a «Derivado» (con confirmación explícita). No crea tareas, no manda mails, no avisa a nadie más; sí deja auditoría (quién, cuándo, paciente, sesión).
+// TODO-VALIDAR (psicólogos): qué significa clínicamente «derivado» para el seguimiento; hoy el paciente no puede reservar ni recibir turnos hasta que recepción lo reabra.
+let derivadoAPsiquiatra = false, derivandoEnCurso = false;
+function pedirDerivarPsiquiatra() {
+    const idPaciente = document.getElementById('sel-paciente').value;
+    if (!idPaciente) { mensajeCierre('Seleccioná el paciente antes de derivarlo.'); return; }
+    if (derivadoAPsiquiatra) { toast('Este paciente ya figura como derivado.'); return; }
+    const quien = nombreDelPaciente() || 'el paciente';
+    document.getElementById('derivar-texto').textContent = `Vas a derivar a ${quien} a psiquiatría.`;
+    document.getElementById('derivar-mensaje').textContent = '';
+    document.getElementById('modal-derivar').hidden = false;
+    document.getElementById('btn-derivar-cancelar').focus();
+}
+function cerrarDerivarPsiquiatra() { document.getElementById('modal-derivar').hidden = true; }
+
+async function confirmarDerivarPsiquiatra() {
+    if (derivandoEnCurso || derivadoAPsiquiatra) return;   // un doble clic no duplica nada (y el servidor también es idempotente)
+    derivandoEnCurso = true;
+    const btn = document.getElementById('btn-derivar-confirmar');
+    const msg = document.getElementById('derivar-mensaje');
+    btn.disabled = true;
+    msg.textContent = 'Derivando…';
+    try {
+        const idPaciente = parseInt(document.getElementById('sel-paciente').value);
+        const r = await YS.api(`/pacientes/${idPaciente}/derivar-psiquiatra`, {
+            method: 'POST', sinRedireccion: true,
+            json: { confirma: true, idSesion: idSesionGuardada || null, idTurno: hayTurno() ? sesionVideo.id : null }
+        });
+        derivadoAPsiquiatra = true;
+        document.getElementById('modal-derivar').hidden = true;
+        const b = document.getElementById('btn-derivar-psiquiatra');
+        b.disabled = true; b.textContent = '↗ Derivado a psiquiatría';
+        toast('✅ ' + r.mensaje, 9000);
+        mensajeCierre(r.mensaje);
+    } catch (err) {
+        msg.textContent = err.status === 401 ? MSG_VENCIDA_AL_GUARDAR : (err.message || 'No se pudo derivar. Probá de nuevo.');
+    } finally {
+        derivandoEnCurso = false;
+        btn.disabled = false;
+    }
 }
 
 // ─── ALTA Y DERIVACIÓN ASISTIDAS ───────────────────────────
@@ -1466,6 +1638,7 @@ const fechaISOLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 const horaLocal = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 
 function alternarProximoTurno(abrir) {
+    if (!PROPUESTA_PROXIMO_TURNO_VISIBLE) return;   // oculto (bloque E): ver el comentario del HTML
     const caja = document.getElementById('cierre-proximo');
     const quiere = typeof abrir === 'boolean' ? abrir : caja.classList.contains('oculto');
     if (typeof abrir !== 'boolean') proximoAbiertoAMano = true;
@@ -1476,6 +1649,7 @@ function alternarProximoTurno(abrir) {
 
 // «Agendar próximo turno» se ofrece siempre; con Seguimiento viene sugerido (destacado y abierto), con Alta o Derivación queda a elección.
 function resaltarProximoTurno() {
+    if (!PROPUESTA_PROXIMO_TURNO_VISIBLE) return;
     const btn = document.getElementById('btn-cierre-proximo');
     const sugerido = tipoCierreSeleccionado === 'Seguimiento' && !proximoTurnoEnviado;
     btn.classList.toggle('sugerido', sugerido);
@@ -1661,9 +1835,9 @@ async function guardarEnHC() {
     }
 
     const notas = document.getElementById('notas-evolucion').value;
-    if (decisionRealizo === 'no' && !notas.trim()) {
-        mensajeCierre('Si la sesión no se realizó, escribí en la evolución qué pasó, o elegí «Decidir después».');
-        anotarEvolucion();
+    if (decisionRealizo === 'no' && !notas.trim() && !idEvolucionAnotada) {
+        mensajeCierre('Si la sesión no se realizó, anotá en la historia clínica qué pasó, o elegí «Decidir después».');
+        abrirAnotacionHC();
         return;
     }
     mensajeCierre('');
@@ -1701,6 +1875,7 @@ async function guardarEnHC() {
         document.getElementById('cierre-vinculo').classList.remove('oculto');
         descartarBorradorGuardado('La sesión quedó en la historia clínica: el borrador de este equipo se descartó.');
         mostrarResultadoDelCierre(r, motivo, emociones);
+        vincularAnotacionConLaSesion();   // si ya anotó en la historia clínica, queda enlazada con esta sesión
         // HOOK: lo que sigue después del cierre (seguimiento, alta o derivación). La feature de alta / derivación se engancha a este evento.
         document.dispatchEvent(new CustomEvent('ys:cierre-guardado', { detail: r.siguientePaso }));
         // Con Alta o Derivación todavía queda el asistente por completar: ahí la salida es a mano.

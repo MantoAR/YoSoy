@@ -3,6 +3,15 @@
 // sección Fase 2, sobre el choque de nombres).
 public static class CasosEndpoints
 {
+    // Marca a los pacientes que figuran derivados a psiquiatría (migración 34) para que las listas lo muestren. Una sola consulta por pedido.
+    private static List<CasoDetalle> ConDerivado(List<CasoDetalle> casos)
+    {
+        var derivados = DerivacionPsiquiatraDAO.Derivados(casos.Select(c => c.IdPaciente));
+        foreach (var c in casos) c.Derivado = derivados.Contains(c.IdPaciente);
+        return casos;
+    }
+    private static CasoDetalle ConDerivado(CasoDetalle caso) { ConDerivado(new List<CasoDetalle> { caso }); return caso; }
+
     public static IEndpointRouteBuilder MapCasos(this IEndpointRouteBuilder app)
     {
         // Cierre de seguridad, Paso 4: ninguno de estos endpoints exigía sesión a nivel de
@@ -143,7 +152,7 @@ public static class CasosEndpoints
             if (!esAdmin && idPropio is null)
                 return Results.Json(new { mensaje = "No se pudo identificar al usuario." }, statusCode: 403);
             int? idProfesionalEfectivo = esAdmin ? profesional : idPropio;
-            return Results.Ok(new CasoDAO().ObtenerConFiltros(estado, grupo, idProfesionalEfectivo, sinAsignar ?? false));
+            return Results.Ok(ConDerivado(new CasoDAO().ObtenerConFiltros(estado, grupo, idProfesionalEfectivo, sinAsignar ?? false)));
         });
 
         g.MapGet("/casos/{id}", (int id, HttpContext ctx) =>
@@ -153,7 +162,7 @@ public static class CasosEndpoints
             if (c is null) return Results.NotFound();
             if (!esAdmin && (idPropio is null || c.IdProfesionalAsignado != idPropio))
                 return Results.Json(new { mensaje = "Ese caso no es tuyo." }, statusCode: 403);
-            return Results.Ok(c);
+            return Results.Ok(ConDerivado(c));
         });
 
         g.MapGet("/casos/{id}/derivaciones", (int id, HttpContext ctx) =>
@@ -217,7 +226,7 @@ public static class CasosEndpoints
             var (esAdmin, idPropio) = AutorizacionCasos.Resolver(ctx);
             if (!esAdmin && id != idPropio)
                 return Results.Json(new { mensaje = "Solo podés ver tus propios casos." }, statusCode: 403);
-            return Results.Ok(new CasoDAO().ObtenerPorProfesional(id));
+            return Results.Ok(ConDerivado(new CasoDAO().ObtenerPorProfesional(id)));
         });
 
         // ── Derivaciones de casos (solo administrador) ────────────

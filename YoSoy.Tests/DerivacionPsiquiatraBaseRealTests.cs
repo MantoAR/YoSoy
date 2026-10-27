@@ -422,6 +422,43 @@ public class DerivacionPsiquiatraBaseRealTests : IDisposable
         Assert.Equal(1, Avisos("Administrador", marca));
     }
 
+    // ───────────── Listados: «Derivado» y «En alta» con distintivo ─────────────
+
+    [FactConBaseDeDerivado]
+    public async Task Las_listas_del_profesional_y_de_recepcion_marcan_al_derivado_y_al_que_esta_en_alta()
+    {
+        var (prof, pac) = Escenario();
+        var enAlta = _d.Paciente("Alta " + _d.Marca, mail: $"alta{_d.Marca}@example.test");
+        _d.PacienteProfesional(enAlta, prof);
+        _d.AlLimpiar("Caso", "IdPaciente", enAlta);
+        _d.AlLimpiar("Caso", "IdPaciente", pac);
+        DatosDePrueba.Ejecutar("INSERT INTO Caso (IdPaciente, Estado, IdProfesionalAsignado, Origen) VALUES (@p, N'En alta', @r, 'Admision')", ("@p", enAlta), ("@r", prof));
+        DatosDePrueba.Ejecutar("INSERT INTO Caso (IdPaciente, Estado, IdProfesionalAsignado, Origen) VALUES (@p, N'En atención', @r, 'Admision')", ("@p", pac), ("@r", prof));
+        await Derivar(ComoProfesional(prof), pac);
+
+        // «Mis pacientes»
+        var pacientes = await Json(await ComoProfesional(prof).GetAsync($"/profesionales/{prof}/pacientes-detalle"));
+        var fila = pacientes.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == pac);
+        Assert.True(fila.GetProperty("derivado").GetBoolean());
+        Assert.False(fila.GetProperty("enAlta").GetBoolean());
+        Assert.Equal("En atención", fila.GetProperty("estadoCaso").GetString());   // el caso NO cambió de estado: «Derivado» no pisa a «Derivado por admisión»
+        var otra = pacientes.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == enAlta);
+        Assert.False(otra.GetProperty("derivado").GetBoolean());
+        Assert.True(otra.GetProperty("enAlta").GetBoolean());
+
+        // «Mis casos» y la lista de casos de recepción / CRM
+        var misCasos = await Json(await ComoProfesional(prof).GetAsync($"/profesionales/{prof}/casos"));
+        Assert.True(misCasos.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == pac).GetProperty("derivado").GetBoolean());
+        var deCrm = await Json(await ComoCrm().GetAsync($"/casos?profesional={prof}"));
+        Assert.True(deCrm.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == pac).GetProperty("derivado").GetBoolean());
+        Assert.False(deCrm.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == enAlta).GetProperty("derivado").GetBoolean());
+
+        // Al reabrir, el distintivo desaparece.
+        await Reabrir(ComoCrm(), pac);
+        var despues = await Json(await ComoProfesional(prof).GetAsync($"/profesionales/{prof}/pacientes-detalle"));
+        Assert.False(despues.EnumerateArray().Single(x => x.GetProperty("idPaciente").GetInt32() == pac).GetProperty("derivado").GetBoolean());
+    }
+
     [Fact]
     public void El_aviso_por_turnos_futuros_concuerda_en_singular_y_plural_y_no_lleva_datos_clinicos()
     {

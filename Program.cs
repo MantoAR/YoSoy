@@ -2619,28 +2619,42 @@ app.MapGet("/profesionales/{id}/pacientes-detalle", (int id, HttpContext ctx, Id
     con.Open();
     var cmd = new Microsoft.Data.SqlClient.SqlCommand(@"
         SELECT p.IdPaciente, p.Nombre, p.Dni, p.Mail, p.Telefono,
-               ISNULL(pp.EstadoAsignacion, 'Confirmada') AS EstadoAsignacion, pp.FechaAsignacion
+               ISNULL(pp.EstadoAsignacion, 'Confirmada') AS EstadoAsignacion, pp.FechaAsignacion,
+               (SELECT TOP 1 c.Estado FROM Caso c WHERE c.IdPaciente = p.IdPaciente ORDER BY c.IdCaso DESC) AS EstadoCaso
         FROM PacienteProfesional pp
         INNER JOIN Paciente p ON p.IdPaciente = pp.IdPaciente
         WHERE pp.IdProfesional = @Id AND ISNULL(pp.EstadoAsignacion, 'Confirmada') <> 'Rechazada'
         ORDER BY pp.FechaAsignacion DESC", con);
     cmd.Parameters.AddWithValue("@Id", id);
     var reader = cmd.ExecuteReader();
-    var lista = new System.Collections.Generic.List<object>();
+    var filas = new System.Collections.Generic.List<(int IdPaciente, string Nombre, string Dni, string Mail, string Telefono, string EstadoAsignacion, string Fecha, string? EstadoCaso)>();
     while (reader.Read())
+        filas.Add(((int)reader["IdPaciente"], reader["Nombre"].ToString()!, reader["Dni"] == DBNull.Value ? "" : reader["Dni"].ToString()!,
+            reader["Mail"] == DBNull.Value ? "" : reader["Mail"].ToString()!, reader["Telefono"] == DBNull.Value ? "" : reader["Telefono"].ToString()!,
+            reader["EstadoAsignacion"].ToString()!, reader["FechaAsignacion"] == DBNull.Value ? "" : ((DateTime)reader["FechaAsignacion"]).ToString("dd/MM/yyyy"),
+            reader["EstadoCaso"] as string));
+    reader.Close();
+    // «Derivado» (a psiquiatría, migración 34) y «En alta» se ven en la lista con un distintivo. Sin la migración, nadie figura derivado.
+    var derivados = DerivacionPsiquiatraDAO.Derivados(filas.Select(f => f.IdPaciente));
+    var lista = new System.Collections.Generic.List<object>();
+    foreach (var f in filas)
     {
         lista.Add(new {
-            idPaciente       = (int)reader["IdPaciente"],
-            nombre           = reader["Nombre"].ToString(),
-            dni              = reader["Dni"] == DBNull.Value ? "" : reader["Dni"].ToString(),
-            mail             = reader["Mail"] == DBNull.Value ? "" : reader["Mail"].ToString(),
-            telefono         = reader["Telefono"] == DBNull.Value ? "" : reader["Telefono"].ToString(),
-            estadoAsignacion = reader["EstadoAsignacion"].ToString(),
-            fechaAsignacion  = reader["FechaAsignacion"] == DBNull.Value ? "" : ((DateTime)reader["FechaAsignacion"]).ToString("dd/MM/yyyy")
+            idPaciente       = f.IdPaciente,
+            nombre           = f.Nombre,
+            dni              = f.Dni,
+            mail             = f.Mail,
+            telefono         = f.Telefono,
+            estadoAsignacion = f.EstadoAsignacion,
+            fechaAsignacion  = f.Fecha,
+            estadoCaso       = f.EstadoCaso,
+            derivado         = derivados.Contains(f.IdPaciente),
+            enAlta           = f.EstadoCaso == AltaDerivacionReglas.CasoEnAlta
         });
     }
     return Results.Ok(lista);
 }).RequireAuthorization();
+
 
 // ── Confirmar asignacion (el profesional acepta al paciente) ─
 // Cierre de seguridad, Paso 4: el profesional solo confirma/rechaza su propia asignación
