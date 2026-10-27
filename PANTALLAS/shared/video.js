@@ -246,7 +246,7 @@
     function entrar({
         sesion, acceso, stream, paraRol,
         alVideoRemoto = () => {}, alConectado = () => {}, alOtroSeFue = () => {},
-        alAviso = () => {}, alRecuperar = () => {}, alFallo = () => {}
+        alAviso = () => {}, alRecuperar = () => {}, alFallo = () => {}, alLlamadaTerminada = () => {}
     }) {
         if (typeof io !== "function") {
             alFallo("No se pudo cargar el componente de videollamada. Recargá la página.", { llamadaActiva: false });
@@ -481,6 +481,8 @@
                 alOtroSeFue({ motivo: datos && datos.motivo });
             });
 
+            // «Finalizar» del otro lado: la llamada terminó para los dos. Distinto de "user-left" (salir): ahí la sala sigue abierta y se puede volver a entrar.
+            socket.on("call-end", datos => { if (!terminado) alLlamadaTerminada({ rol: datos && datos.rol }); });
             socket.on("offer", ({ offer } = {}) => encolar(() => responder(offer)));
             socket.on("answer", ({ answer } = {}) => encolar(() => aplicarRespuesta(answer)));
             socket.on("ice-candidate", ({ candidate } = {}) => encolar(() => agregarCandidato(candidate)));
@@ -494,6 +496,13 @@
                 terminado = true;
                 if (socket) socket.disconnect();
                 cerrarConexion();
+            },
+            // «Finalizar»: avisa a la otra persona (por la señalización) y recién después se corta. Sin conexión a la señalización el aviso no sale y la otra persona ve que te fuiste.
+            terminar() {
+                enviar("call-end");
+                // Un instante para que el aviso salga antes de cortar: el cierre inmediato puede llevárselo por delante.
+                terminado = true;
+                setTimeout(() => this.cerrar(), 250);
             }
         };
     }

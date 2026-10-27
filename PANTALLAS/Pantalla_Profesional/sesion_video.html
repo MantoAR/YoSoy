@@ -266,7 +266,8 @@
         </div>
 
         <div class="controles">
-            <button class="btn-rojo" id="btn-finalizar" onclick="finalizarSesion()">⏹ Finalizar sesión</button>
+            <button class="btn-gris" id="btn-salir" type="button" onclick="salirDeLaSala()" title="Dejás la videollamada, pero la sesión sigue abierta: podés volver a entrar.">🚪 Salir</button>
+            <button class="btn-rojo" id="btn-finalizar" onclick="finalizarSesion()" title="Termina la videollamada para las dos personas y abre el cierre de la sesión.">⏹ Finalizar</button>
             <button class="btn-gris" id="btn-exportar" onclick="exportarReporte()" disabled>⬇ Exportar reporte</button>
             <span class="estado" id="estado-txt">Conectando...</span>
         </div>
@@ -646,7 +647,8 @@ async function entrarASala() {
             iniciarTimer();
         },
         alConectado: () => { estadoTxt.textContent = '🟢 Sesión activa'; },
-        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El paciente se desconectó.'; },
+        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El paciente salió de la sala. Si vuelve, la llamada sigue sola.'; },
+        alLlamadaTerminada: () => llamadaTerminadaPorElPaciente(),
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
         alRecuperar: () => { estadoTxt.textContent = 'Esperando al paciente...'; },
         alFallo: (texto, { llamadaActiva }) => {
@@ -668,6 +670,7 @@ async function entrarASala() {
 const INTERVALO_ACTIVIDAD_MS = 60000;
 let avisoActividadTimer = null;
 let salaFinalizada = false;          // la llamada ya terminó (finalizarSesion)
+let terminoElOtro = false;           // la llamada la terminó el paciente («Finalizar» de su lado): finalizarSesion no le avisa de vuelta
 let panelDeCierreAbierto = false;    // HOOK: el panel de cierre lo pone en true mientras esté abierto
 function avisarActividad() {
     try { if (window.parent && window.parent !== window) window.parent.postMessage('ys-actividad', location.origin); }
@@ -1575,13 +1578,49 @@ async function finalizarSesion() {
     if (micPacienteActivo) { recPaciente?.stop(); micPacienteActivo = false; }
 
     stream?.getTracks().forEach(t => t.stop());
-    control?.cerrar();
+    if (terminoElOtro) control?.cerrar();   // la llamada ya la terminó el paciente: no hace falta avisarle de vuelta
+    else control?.terminar();               // «Finalizar»: se le avisa al paciente para que la llamada termine para los dos
 
     document.getElementById('btn-exportar').disabled = false;
     document.getElementById('btn-finalizar').disabled = true;
     document.getElementById('estado-txt').textContent = `Sesión finalizada. ${analisis ? analisis.cantidad() : 0} muestras registradas.`;
     toast('Sesión finalizada. Completá el cierre más abajo.');
     abrirPanelDeCierre();
+}
+
+// SALIR: dejás la sala sin terminar la sesión. Podés volver a entrar con «Entrar a la sala» mientras la sesión siga abierta; el paciente ve que saliste y, si vuelve, la llamada se retoma.
+function salirDeLaSala() {
+    if (salaFinalizada) return;
+    volverAConexion('Saliste de la sala. La sesión sigue abierta: para volver, tocá «Entrar a la sala».');
+    document.getElementById('estado-conexion').className = 'estado-conexion';   // no es un error
+}
+
+// El paciente tocó «Finalizar»: la llamada terminó para los dos. Se cierra la sala con un mensaje claro y se abre el cierre de la sesión, como si el profesional hubiera finalizado.
+// IMPORTANTE (TODO-VALIDAR): que el paciente finalice NO marca la sesión como Realizada ni cambia ningún estado clínico. Eso lo hace solo el profesional al guardar el cierre.
+function llamadaTerminadaPorElPaciente() {
+    if (salaFinalizada) return;
+    terminoElOtro = true;
+    toast('El paciente terminó la videollamada. Completá el cierre de la sesión.', 8000);
+    finalizarSesion();
+    document.getElementById('estado-txt').textContent = 'El paciente terminó la videollamada. Completá el cierre más abajo.';
+}
+
+// Después de guardar el cierre se vuelve al panel (la sala deja de ser necesaria). Una pausa corta para leer qué quedó hecho; si el profesional toca algo del cierre se queda.
+let salidaAlPanelTimer = null;
+function programarSalidaAlPanel() {
+    clearTimeout(salidaAlPanelTimer);
+    salidaAlPanelTimer = setTimeout(volverAlPanel, 4000);
+    toast('✅ Cierre guardado. Volvés a tu panel en unos segundos (tocá cualquier parte del cierre para quedarte).', 6000);
+    document.getElementById('panel-cierre').addEventListener('click', () => clearTimeout(salidaAlPanelTimer), { once: true });
+}
+function volverAlPanel() {
+    detenerAvisoDeActividad();
+    try {
+        // La sala corre dentro de un iframe del panel: se le pide al panel que muestre el Inicio.
+        if (window.parent && window.parent !== window) { window.parent.location.hash = '#inicio'; return; }
+    } catch { /* otro origen: se cae al caso de ventana suelta */ }
+    if (window.opener) { window.close(); return; }
+    location.href = 'nuevo_dashboard.html#inicio';
 }
 
 // ─── GUARDAR EL CIERRE ────────────────────────────────────
@@ -1664,6 +1703,8 @@ async function guardarEnHC() {
         mostrarResultadoDelCierre(r, motivo, emociones);
         // HOOK: lo que sigue después del cierre (seguimiento, alta o derivación). La feature de alta / derivación se engancha a este evento.
         document.dispatchEvent(new CustomEvent('ys:cierre-guardado', { detail: r.siguientePaso }));
+        // Con Alta o Derivación todavía queda el asistente por completar: ahí la salida es a mano.
+        if (!r.siguientePaso || r.siguientePaso.tipo === 'seguimiento') programarSalidaAlPanel();
     } catch (err) {
         // El botón sigue habilitado: se puede reintentar (con la misma clave) sin duplicar nada.
         btn.disabled = false;

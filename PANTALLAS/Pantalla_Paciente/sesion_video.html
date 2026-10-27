@@ -91,7 +91,7 @@
             <div class="ui-alerta ui-alerta--info ui-alerta--bloque aviso-medios" role="note" id="aviso-medios">
                 <strong>Esta sesión usa tu cámara y tu micrófono.</strong>
                 <p>Tu profesional te va a ver y a escuchar en vivo durante la videollamada. Al tocar "Conectarme", el navegador
-                   te va a pedir permiso para usarlos, y podés cortar cuando quieras con "Finalizar sesión".</p>
+                   te va a pedir permiso para usarlos, y podés dejar la sala cuando quieras con "Salir" (después podés volver a entrar) o terminar la videollamada para las dos personas con "Finalizar".</p>
                 <span class="aviso-provisorio"><span class="ui-chip ui-chip--warn ui-chip--sin-punto">Aviso provisorio</span>
                     El texto legal definitivo lo tiene que validar el equipo legal.</span>
             </div>
@@ -143,7 +143,8 @@
             </div>
         </div>
         <div class="controles">
-            <button class="ui-btn ui-btn--danger-solido" onclick="finalizarSesion()">Finalizar sesión</button>
+            <button class="ui-btn" id="btn-salir" type="button" onclick="salirDeLaSala()" title="Dejás la videollamada, pero la sesión sigue abierta: podés volver a entrar.">Salir</button>
+            <button class="ui-btn ui-btn--danger-solido" id="btn-finalizar" type="button" onclick="finalizarSesion()" title="Termina la videollamada para las dos personas.">Finalizar</button>
             <button class="ui-btn ui-btn--danger oculto" id="btn-video-dejar" type="button">Dejar de usar el video</button>
             <span class="estado" id="estado-txt" aria-live="polite">Conectando…</span>
         </div>
@@ -473,7 +474,8 @@ async function conectarse() {
         sesion, acceso, stream, paraRol: 'paciente',
         alVideoRemoto: s => { document.getElementById('vid-profesional').srcObject = s; },
         alConectado: () => { estadoTxt.textContent = '🟢 Sesión en curso'; },
-        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El profesional se desconectó.'; },
+        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El profesional salió de la sala. Si vuelve, la llamada sigue sola.'; },
+        alLlamadaTerminada: () => cerrarPorFinalizacion('Tu profesional terminó la videollamada. Gracias por estar.'),
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
         alRecuperar: () => { estadoTxt.textContent = 'Conectando con el profesional...'; },
         alFallo: (texto, { llamadaActiva }) => {
@@ -494,10 +496,33 @@ function cerrarSesion() {
     document.getElementById('btn-conectar').disabled = false;
 }
 
-function finalizarSesion() {
+// SALIR: dejás la sala sin terminar nada. La sesión sigue abierta del otro lado y podés volver a entrar con "Conectarme".
+function salirDeLaSala() {
     cerrarSesion();
-    document.getElementById('input-sala').value = '';
-    document.getElementById('estado-espera').textContent = 'Sesión finalizada.';
+    document.getElementById('estado-espera').textContent = 'Saliste de la sala. La sesión sigue abierta: si querés volver, tocá "Conectarme".';
+    document.getElementById('estado-espera').className = 'estado-box';
+}
+
+// FINALIZAR: termina la videollamada para las dos personas (se le avisa al profesional por la señalización).
+// IMPORTANTE: esto corta la LLAMADA y nada más. No manda nada a la API: no marca la sesión como Realizada ni cambia ningún estado clínico.
+// Eso lo hace solo el profesional al guardar el cierre de la sesión (una persona con el rol correcto confirma).
+// TODO-VALIDAR: si el paciente finaliza, ¿se le debería impedir volver a entrar a la misma sesión? Hoy puede volver a entrar mientras la sesión siga abierta.
+function finalizarSesion() {
+    const c = control;
+    control = null;
+    c?.terminar();
+    cerrarPorFinalizacion('Terminaste la videollamada. Gracias por estar.');
+}
+
+// Vuelve a la pantalla de espera con un mensaje claro (cuando termina la llamada, por este lado o por el otro).
+function cerrarPorFinalizacion(mensaje) {
+    stream?.getTracks().forEach(t => t.stop());
+    control?.cerrar();
+    control = null;
+    document.getElementById('pantalla-sesion').classList.add('oculto');
+    document.getElementById('pantalla-espera').classList.remove('oculto');
+    document.getElementById('btn-conectar').disabled = false;
+    document.getElementById('estado-espera').textContent = mensaje;
     document.getElementById('estado-espera').className = 'estado-box conectado';
 }
 

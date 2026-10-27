@@ -501,3 +501,30 @@ prueba('los logs tienen lo mínimo (conexión, rechazo con motivo, desconexión)
     assert.deepEqual(Object.keys(conexion).sort(), ['evento', 'ip', 'rol', 'sala', 'sub']);
     assert.ok(e.logs.filter(l => l.evento === 'RECHAZO').every(l => typeof l.motivo === 'string' && l.motivo.length > 0), 'todo rechazo trae su motivo');
 });
+
+// ── Finalizar ──
+
+prueba('call-end avisa al otro participante quién terminó la llamada, sin eco y sin cortar a nadie', async t => {
+    const e = await entorno(t);
+    const pro = await e.unido(tk('F1', 'profesional', '1'));
+    const pac = await e.unido(tk('F1', 'paciente', '2'));
+    const otraSala = await e.unido(tk('F2', 'paciente', '3'));
+
+    const aviso = esperar(pro, 'call-end');
+    const nadaEnOtraSala = noLlega(otraSala, 'call-end', 500);
+    const sinEco = noLlega(pac, 'call-end', 500);
+    pac.emit('call-end', { rol: 'profesional', roomId: 'F2', basura: 1 });   // lo que diga el cliente no cuenta: el rol sale del token
+    assert.deepEqual(await aviso, { rol: 'paciente' });
+    assert.ok(await nadaEnOtraSala && await sinEco);
+    assert.equal(pro.connected && pac.connected, true, 'avisar no corta ninguna conexión: lo hace cada cliente');
+});
+
+prueba('call-end de quien todavía no hizo join no llega a nadie', async t => {
+    const e = await entorno(t);
+    const pro = await e.unido(tk('F3', 'profesional', '1'));
+    const sinJoin = e.conectar(tk('F3', 'paciente', '2'));
+    await esperar(sinJoin, 'connect');
+    const nada = noLlega(pro, 'call-end', 500);
+    sinJoin.emit('call-end');
+    assert.ok(await nada);
+});

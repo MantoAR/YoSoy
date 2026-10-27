@@ -108,7 +108,7 @@ function accesoDe(rol, sub, { token, iceServers = [{ urls: ['stun:stun.prueba.te
 /** Una persona entrando a la sala desde su página: lo que le avisa video.js queda anotado en eventos. */
 function persona(t, e, rol, sub, { api, acceso } = {}) {
     const pagina = cargarVideo(t, e.url, { api });
-    const eventos = { remotos: 0, conectado: 0, otroSeFue: [], avisos: [], recuperar: 0, fallos: [] };
+    const eventos = { remotos: 0, conectado: 0, otroSeFue: [], avisos: [], recuperar: 0, fallos: [], terminada: [] };
     const datos = acceso || accesoDe(rol, sub);
     const control = pagina.video.entrar({
         sesion: { origen: 'turno', id: 1 }, acceso: datos, stream: flujoLocal(), paraRol: rol,
@@ -117,7 +117,8 @@ function persona(t, e, rol, sub, { api, acceso } = {}) {
         alOtroSeFue: info => { eventos.otroSeFue.push(plano(info)); },
         alAviso: texto => { eventos.avisos.push(texto); },
         alRecuperar: () => { eventos.recuperar++; },
-        alFallo: (texto, info) => { eventos.fallos.push({ texto, ...plano(info) }); }
+        alFallo: (texto, info) => { eventos.fallos.push({ texto, ...plano(info) }); },
+        alLlamadaTerminada: info => { eventos.terminada.push(plano(info)); }
     });
     t.after(() => control && control.cerrar());
     return { ...pagina, eventos, control, acceso: datos };
@@ -500,4 +501,45 @@ prueba('entrar: sin el cliente de Socket.IO o sin WebRTC avisa en vez de quedars
         assert.match(fallos[0].texto, mensaje);
         assert.equal(fallos[0].llamadaActiva, false);
     }
+});
+
+// ───────────────────────── Salir y Finalizar ─────────────────────────
+
+prueba('Finalizar: terminar() le avisa a la otra persona quién la terminó, y esa persona NO lo toma por una salida', async t => {
+    const e = await entorno(t);
+    const pro = persona(t, e, 'profesional', '10');
+    const pac = persona(t, e, 'paciente', '20');
+    assert.ok(await hasta(() => pro.pcs[0].localDescription && pac.pcs[0].remoteDescription));
+
+    pac.control.terminar();   // el paciente toca «Finalizar»
+    assert.ok(await hasta(() => pro.eventos.terminada.length === 1), 'el profesional se entera de que la llamada terminó');
+    assert.deepEqual(pro.eventos.terminada, [{ rol: 'paciente' }]);
+    assert.equal(pac.eventos.terminada.length, 0, 'quien finaliza no recibe su propio aviso');
+    assert.ok(await hasta(() => pac.pcs[0].cerrada), 'quien finaliza corta su conexión');
+});
+
+prueba('Salir: cerrar() NO avisa que la llamada terminó (solo que la persona se fue) y se puede volver a entrar', async t => {
+    const e = await entorno(t);
+    const pro = persona(t, e, 'profesional', '10');
+    const pac = persona(t, e, 'paciente', '20');
+    assert.ok(await hasta(() => pro.pcs[0].localDescription && pac.pcs[0].remoteDescription));
+
+    pac.control.cerrar();   // el paciente toca «Salir»
+    assert.ok(await hasta(() => pro.eventos.otroSeFue.length === 1), 'el profesional ve que se fue');
+    await pausa(300);
+    assert.equal(pro.eventos.terminada.length, 0, 'la llamada no se da por terminada');
+
+    const pacNuevo = persona(t, e, 'paciente', '20');   // vuelve a entrar con la sesión todavía abierta
+    assert.ok(await hasta(() => pacNuevo.pcs[0] && pacNuevo.pcs[0].remoteDescription && pacNuevo.pcs[0].remoteDescription.type === 'answer'), 'la conexión se arma de nuevo');
+    assert.deepEqual(pacNuevo.eventos.fallos, []);
+});
+
+prueba('Finalizar con el profesional: el aviso también llega al paciente', async t => {
+    const e = await entorno(t);
+    const pro = persona(t, e, 'profesional', '10');
+    const pac = persona(t, e, 'paciente', '20');
+    assert.ok(await hasta(() => pro.pcs[0].localDescription && pac.pcs[0].remoteDescription));
+    pro.control.terminar();
+    assert.ok(await hasta(() => pac.eventos.terminada.length === 1));
+    assert.deepEqual(pac.eventos.terminada, [{ rol: 'profesional' }]);
 });
