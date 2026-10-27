@@ -28,6 +28,10 @@ public interface ITurnoRepositorio
     // Solicitudes de turno del paciente que esperan al profesional (migración 36): anotar hasta cuándo pueden responderse y vencer las que pasaron de plazo. Por defecto no hacen nada.
     void RegistrarSolicitud(int idTurno, DateTime ahora) { }
     void VencerSolicitudes(DateTime ahora) { }
+
+    // RN-07 con el reloj de la clínica: un turno del mismo día que ya empezó y no tuvo sesión (el paciente no entró) no impide pedir otro. Por defecto, igual que antes (dobles de prueba).
+    int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha, DateTime ahora) => ContarTurnosActivos(idPaciente, idProfesional, fecha);
+    int? InsertarSiLibre(Turno t, string creadoPor, DateTime ahora) => InsertarSiLibre(t, creadoPor);
 }
 
 public class TurnoRepositorioDAO : ITurnoRepositorio
@@ -78,7 +82,16 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         return lista;
     }
 
-    public int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha)
+    public int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha) => ContarTurnosActivos(idPaciente, idProfesional, fecha, null);
+
+    public int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha, DateTime ahora) => ContarTurnosActivos(idPaciente, idProfesional, fecha, (DateTime?)ahora);
+
+    // Un turno que ya empezó y no tuvo sesión (el paciente no entró) no cuenta como «turno activo» para RN-07: ese horario se perdió y no tiene sentido impedir que pida otro el mismo día.
+    // Solo se aplica si quien llama pasa el reloj de la clínica; sin él, el conteo es el de siempre.
+    private const string TurnoYaPerdido = @"
+              AND NOT (@Ahora IS NOT NULL AND CAST(t.Fecha AS DATETIME) + CAST(t.Hora AS DATETIME) < @Ahora AND NOT EXISTS (SELECT 1 FROM SesionClinica s WHERE s.IdTurno = t.IdTurno))";
+
+    private int ContarTurnosActivos(int idPaciente, int idProfesional, DateTime fecha, DateTime? ahora)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -87,10 +100,11 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
             FROM Turno t
             JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno
             WHERE t.IdPaciente = @IdPac AND t.IdProfesional = @IdProf AND t.Fecha = @Fecha
-              AND et.Descripcion IN ('Pendiente', 'Confirmado')", con);
+              AND et.Descripcion IN ('Pendiente', 'Confirmado')" + TurnoYaPerdido, con);
         cmd.Parameters.AddWithValue("@IdPac",  idPaciente);
         cmd.Parameters.AddWithValue("@IdProf", idProfesional);
         cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        cmd.Parameters.AddWithValue("@Ahora",  (object?)ahora ?? DBNull.Value);
         return (int)cmd.ExecuteScalar();
     }
 
@@ -122,7 +136,11 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
     /// inserción van en una transacción con UPDLOCK/HOLDLOCK para que dos pedidos
     /// simultáneos no terminen con el mismo horario. Devuelve null si ya no se pudo.
     /// </summary>
-    public int? InsertarSiLibre(Turno t, string creadoPor)
+    public int? InsertarSiLibre(Turno t, string creadoPor) => InsertarSiLibre(t, creadoPor, (DateTime?)null);
+
+    public int? InsertarSiLibre(Turno t, string creadoPor, DateTime ahora) => InsertarSiLibre(t, creadoPor, (DateTime?)ahora);
+
+    private int? InsertarSiLibre(Turno t, string creadoPor, DateTime? ahora)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -136,7 +154,7 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
                 JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno
                 WHERE t.IdProfesional = @IdProf AND t.Fecha = @Fecha
                   AND (   (t.Hora = @Hora AND et.Descripcion NOT IN ('Cancelado', 'Rechazado'))
-                       OR (t.IdPaciente = @IdPac AND et.Descripcion IN ('Pendiente', 'Confirmado'))))
+                       OR (t.IdPaciente = @IdPac AND et.Descripcion IN ('Pendiente', 'Confirmado'){TurnoYaPerdido})))
               {GuardiaPropuestas()}
             BEGIN
                 INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor)
@@ -145,6 +163,7 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
             END
             COMMIT;
             SELECT @IdNuevo;", con);
+        cmd.Parameters.AddWithValue("@Ahora",     (object?)ahora ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@IdPac",     t.IdPaciente);
         cmd.Parameters.AddWithValue("@IdProf",    t.IdProfesional);
         cmd.Parameters.AddWithValue("@IdEstado",  t.IdEstadoTurno);

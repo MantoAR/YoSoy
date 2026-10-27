@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="../shared/tema.css">
+    <link rel="stylesheet" href="../shared/sala.css">
     <style>
         /* Propio de esta página; colores, tipografía y botones salen de ../shared/tema.css */
         /* La espera queda alineada con el resto del panel (el mismo contenedor centrado de 1240 px que Admisión y Turnos)
@@ -49,13 +50,11 @@
         .antes-sesion p { margin: 0 0 8px; line-height: 1.5; }
         .video-decision { margin: 10px 0 0; font-weight: 500; }
         .emo-opcional { margin: 16px 0 0; font-size: var(--fs-md); color: var(--text-2, var(--text)); }
-        .videos-grid { display: grid; grid-template-columns: 1fr 220px; gap: 10px; margin-bottom: 12px; }
-        .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; }
-        .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .video-wrap { position: relative; background: #111; border-radius: var(--r-lg); overflow: hidden; aspect-ratio: 16/9; margin-bottom: 12px; }
+        .video-wrap > video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .video-label { position: absolute; bottom: 8px; left: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: var(--fs-sm); padding: 2px 8px; border-radius: var(--r-sm); }
         .controles { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
         .estado { font-size: var(--fs-md); color: var(--text-3); }
-        @media (max-width: 760px) { .videos-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body class="ui-pagina-ancha">
@@ -132,15 +131,11 @@
 
     <!-- PANTALLA DE SESIÓN -->
     <div id="pantalla-sesion" class="oculto">
-        <div class="videos-grid">
-            <div class="video-wrap">
-                <video id="vid-profesional" autoplay playsinline></video>
-                <span class="video-label">Tu profesional</span>
-            </div>
-            <div class="video-wrap">
-                <video id="vid-paciente" autoplay playsinline muted></video>
-                <span class="video-label">Vos</span>
-            </div>
+        <!-- Una sola escena, igual que la del profesional (shared/video.js): el profesional grande, «Vos» en miniatura, y «Esperando a tu profesional…» mientras no llega. -->
+        <div class="video-wrap sala-marco" id="marco-sala">
+            <video id="vid-profesional" autoplay playsinline></video>
+            <span class="video-label">Tu profesional</span>
+            <video id="vid-paciente" autoplay playsinline muted></video>
         </div>
         <div class="controles">
             <button class="ui-btn" id="btn-salir" type="button" onclick="salirDeLaSala()" title="Dejás la videollamada, pero la sesión sigue abierta: podés volver a entrar.">Salir</button>
@@ -171,6 +166,7 @@
 <script src="../shared/emociones.js"></script>
 <script>
 let stream, control;   // control: lo que devuelve YS.video.entrar (cierra la conexión)
+let escenaSala = null; // la escena de la sala (shared/video.js)
 
 // ─── LECTURA DE EXPRESIONES (consentimiento) ───────────────────
 // La API es la autoridad: acá no se guarda nada de la decisión, solo se la pide y se la pinta (YS.emociones).
@@ -461,23 +457,24 @@ async function conectarse() {
         return;
     }
 
-    document.getElementById('vid-paciente').srcObject = stream;
+    escenaSala = YS.video.escena({ marco: document.getElementById('marco-sala'), principal: document.getElementById('vid-profesional'), propio: document.getElementById('vid-paciente'), textoEspera: 'Esperando a tu profesional…' });
+    escenaSala.usarStream(stream);
     document.getElementById('pantalla-espera').classList.add('oculto');
     document.getElementById('pantalla-sesion').classList.remove('oculto');
     const estadoTxt = document.getElementById('estado-txt');
-    estadoTxt.textContent = 'Conectando con el profesional...';
+    estadoTxt.textContent = 'Esperando a tu profesional…';
 
     // 3. Sala: YS.video.entrar abre la señalización con el token, arma la conexión con los iceServers de la API y la
     // mantiene (reintentos, ICE, token vencido). Un problema de conexión (o un rechazo) se ve acá, en vez de quedar
     // para siempre en "Conectando…".
     control = YS.video.entrar({
         sesion, acceso, stream, paraRol: 'paciente',
-        alVideoRemoto: s => { document.getElementById('vid-profesional').srcObject = s; },
+        alVideoRemoto: s => { document.getElementById('vid-profesional').srcObject = s; escenaSala?.otroConectado(true); },
         alConectado: () => { estadoTxt.textContent = '🟢 Sesión en curso'; },
-        alOtroSeFue: () => { estadoTxt.textContent = '⚠ El profesional salió de la sala. Si vuelve, la llamada sigue sola.'; },
+        alOtroSeFue: () => { escenaSala?.otroConectado(false); estadoTxt.textContent = '⚠ El profesional salió de la sala. Si vuelve, la llamada sigue sola.'; },
         alLlamadaTerminada: () => cerrarPorFinalizacion('Tu profesional terminó la videollamada. Gracias por estar.'),
         alAviso: texto => { estadoTxt.textContent = '⚠ ' + texto; },
-        alRecuperar: () => { estadoTxt.textContent = 'Conectando con el profesional...'; },
+        alRecuperar: () => { estadoTxt.textContent = 'Esperando a tu profesional…'; },
         alFallo: (texto, { llamadaActiva }) => {
             // Con la llamada andando no se tira la sala por un problema de la señalización.
             if (llamadaActiva) estadoTxt.textContent = '⚠ ' + texto;

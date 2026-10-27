@@ -360,14 +360,14 @@ public class AsignacionAutomaticaService
     }
 
     /// <summary>Los horarios libres de un profesional entre «ahora + anticipación» y el horizonte, del más próximo al más lejano.</summary>
-    public List<DateTime> HorariosLibres(int idProfesional, DateTime ahora, SqlConnection? conTx = null, SqlTransaction? tx = null)
+    public List<DateTime> HorariosLibres(int idProfesional, DateTime ahora, SqlConnection? conTx = null, SqlTransaction? tx = null, int? horasAnticipacion = null, int? dias = null)
     {
         var resultado = new List<DateTime>();
         var agenda = _repo.AgendaDe(idProfesional)
             .Where(a => a.Disponible && !a.EsAdmision && a.HoraInicio.HasValue && a.HoraFin.HasValue).ToList();   // las franjas de admisión (migración 29) no se ofrecen
         if (agenda.Count == 0) return resultado;
-        var desde = ahora.AddHours(AsignacionAutomaticaReglas.HorasAnticipacionMinima);
-        var hasta = ahora.AddDays(AsignacionAutomaticaReglas.DiasHorizonte);
+        var desde = ahora.AddHours(horasAnticipacion ?? AsignacionAutomaticaReglas.HorasAnticipacionMinima);
+        var hasta = ahora.AddDays(dias ?? AsignacionAutomaticaReglas.DiasHorizonte);
         var ocupados = Ocupados(conTx, tx, idProfesional, desde.Date, hasta.Date, ahora);
         for (var fecha = desde.Date; fecha <= hasta.Date; fecha = fecha.AddDays(1))
         {
@@ -381,6 +381,44 @@ public class AsignacionAutomaticaService
             }
         }
         return resultado;
+    }
+
+    /// <summary>
+    /// Los horarios que ve el PACIENTE al pedir un turno o reprogramar, agrupados por día. Usa la MISMA función que la propuesta automática (<see cref="HorariosLibres"/>), con la anticipación de un pedido del
+    /// paciente (DisponibilidadReglas) y la regla RN-07: no se ofrece un día en el que ya tiene un turno activo con ese profesional (salvo el que está reprogramando, que se cancela primero).
+    /// Si no hay nada, devuelve un mensaje en español claro en vez de una lista vacía.
+    /// </summary>
+    public ResultadoDisponibilidad HorariosParaPaciente(int idPaciente, int idProfesional, int dias, int? ignorarTurno = null)
+    {
+        var ahora = _reglas.Ahora;
+        dias = Math.Clamp(dias, 1, DisponibilidadReglas.DiasMaximo);
+        var anticipacion = DisponibilidadReglas.AnticipacionMinimaPedidoHoras;
+        var mensajeHoy = DisponibilidadReglas.MensajeHoy(anticipacion);
+
+        var derivado = _reglas.ValidarPacienteNoDerivado(idPaciente);
+        if (!derivado.Ok) return new ResultadoDisponibilidad(new(), 0, DisponibilidadReglas.CodigoDerivado, derivado.Mensaje, mensajeHoy, anticipacion);
+
+        _repo.VencerPropuestas(ahora);
+        _repo.VencerSolicitudes(ahora);
+        if (!_reglas.TieneAgendaDeTurnos(idProfesional))
+            return new ResultadoDisponibilidad(new(), 0, DisponibilidadReglas.CodigoSinAgenda, DisponibilidadReglas.MensajeSinAgenda, mensajeHoy, anticipacion);
+
+        // El turno que se reprograma se cancela antes de pedir el nuevo: no debe bloquear su propio día.
+        DateTime? diaDelIgnorado = null;
+        if (ignorarTurno is int ig && _repo.ObtenerTurno(ig) is { } t && t.IdPaciente == idPaciente && t.IdProfesional == idProfesional) diaDelIgnorado = t.Fecha.Date;
+
+        var porDia = new SortedDictionary<DateTime, List<string>>();
+        foreach (var h in HorariosLibres(idProfesional, ahora, null, null, anticipacion, dias).Where(h => h > ahora))
+        {
+            var activos = _repo.ContarTurnosActivos(idPaciente, idProfesional, h.Date, ahora) - (diaDelIgnorado == h.Date ? 1 : 0);
+            if (activos > 0) continue;
+            if (!porDia.TryGetValue(h.Date, out var horas)) porDia[h.Date] = horas = new();
+            horas.Add(h.ToString("HH:mm"));
+        }
+        var lista = porDia.Select(kv => new DiaDisponible(kv.Key.ToString("yyyy-MM-dd"), kv.Value)).ToList();
+        return lista.Count == 0
+            ? new ResultadoDisponibilidad(lista, 0, DisponibilidadReglas.CodigoSinHorarios, DisponibilidadReglas.MensajeSinHorarios(dias), mensajeHoy, anticipacion)
+            : new ResultadoDisponibilidad(lista, lista.Sum(d => d.Horas.Count), null, null, mensajeHoy, anticipacion);
     }
 
     // Turnos que no están cancelados ni rechazados (el mismo criterio que HorasOcupadas) y propuestas pendientes todavía vigentes.

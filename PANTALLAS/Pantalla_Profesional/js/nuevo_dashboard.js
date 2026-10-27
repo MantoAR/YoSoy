@@ -59,10 +59,11 @@ async function inicio() {
     const nuevos     = asignados.filter(p => p.estadoAsignacion === 'Nueva').length;
     const sesionesHoy = confirmados.filter(t => t.fecha === YS.fecha.corta(ahora));
     await cargarPacientes([...deHoy, ...pendientes, ...(proximo ? [proximo] : [])].map(t => t.idPaciente));
+    await cargarEstadoDeSalas([...deHoy, ...sesionesHoy].map(t => t.idTurno));   // por abrir / abierta / cerrada, decidido por el servidor
 
     if (YS.shell.actual !== 'inicio') return;   // el usuario ya cambió de sección
     YS.shell.encabezado({ titulo: `Hola, ${prof?.nombre ?? 'Profesional'}`, subtitulo: YS.capitalizar(YS.fecha.larga(new Date())) });
-    YS.shell.acciones([{ texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
+    YS.shell.acciones([{ texto: 'Agendar turno', icono: 'agenda', tipo: 'primary', alClick: agendarTurno }, { texto: 'Cita urgente', icono: 'alerta', tipo: 'danger', alClick: citaUrgente }]);
 
     const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
     // Quien hace admisión ve primero cuántos pacientes esperan su entrevista y cuántos están en entrevista para derivar
@@ -151,6 +152,22 @@ async function inicio() {
     } catch {}
 }
 
+// Estado de la sala de cada turno (por abrir / abierta / cerrada). Lo decide el servidor con la misma regla que el acceso a la sala (GET /salas/estado): acá no se calcula nada.
+let _estadoSalas = new Map();
+async function cargarEstadoDeSalas(ids) {
+    _estadoSalas = new Map();
+    const lista = [...new Set(ids)].filter(Boolean);
+    if (!lista.length) return;
+    try {
+        const r = await YS.api(`/salas/estado?ids=${lista.join(',')}`);
+        (r.salas || []).forEach(s => _estadoSalas.set(s.idTurno, s));
+    } catch { /* sin el dato no se bloquea nada: el servidor igual rechaza una sala cerrada */ }
+}
+const salaCerrada = id => _estadoSalas.get(id)?.fase === 'cerrada';
+const pacienteEsperando = id => !!_estadoSalas.get(id)?.pacienteEsperando;
+const chipEsperando = id => pacienteEsperando(id) ? '<span class="ui-chip ui-chip--info" title="Tu paciente ya entró a la sala y te está esperando">Esperando</span>' : '';
+const textoSalaCerrada = id => `La sala cerró a las ${_estadoSalas.get(id)?.horaCierre ?? ''} hs: el turno ya pasó.`;
+
 // Sesiones de hoy ya confirmadas: generar la sala o compartir el código
 function htmlSesionesHoy(turnosHoy) {
     return `
@@ -167,15 +184,24 @@ function htmlSesionesHoy(turnosHoy) {
                         <div class="turno-paciente">${YS.esc(t.nombrePaciente)}</div>
                         ${t.motivo ? `<div class="turno-meta">${YS.esc(t.motivo)}</div>` : ''}
                     </div>
-                    ${t.codigoSala
+                    ${salaCerrada(t.idTurno)
                         ? `<div class="sala-estado">
+                            <span class="ui-chip ui-chip--neutral" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</span>
+                           </div>`
+                        : t.codigoSala
+                        ? `<div class="sala-estado">
+                            ${chipEsperando(t.idTurno)}
                             <span class="ui-chip ui-chip--ok">Sala lista</span>
                             <code class="codigo-sala">${YS.esc(t.codigoSala)}</code>
                            </div>`
                         : `<button class="ui-btn ui-btn--primary" onclick="generarSalaDesdeInicio(${t.idTurno})">Iniciar sesión</button>`
                     }
                 </div>
-                ${t.codigoSala ? `
+                ${salaCerrada(t.idTurno) ? `
+                <div class="sala-codigo-fila">
+                    <span class="texto-suave">${YS.esc(textoSalaCerrada(t.idTurno))}</span>
+                    <button class="ui-btn ui-btn--sm" disabled aria-disabled="true" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Entrar a la sala →</button>
+                </div>` : t.codigoSala ? `
                 <div class="sala-codigo-fila">
                     <span class="texto-suave">Compartí este código con el paciente:</span>
                     <code class="codigo-sala codigo-sala--grande">${YS.esc(t.codigoSala)}</code>
@@ -199,6 +225,48 @@ async function generarSalaDesdeInicio(idTurno) {
             activarTab('inicio');
         } else toast('Error al generar la sala.', 'error');
     } catch { toast('Error de conexión.', 'error'); }
+}
+
+// «Agendar turno»: el profesional agenda un turno para un paciente suyo, en un horario libre de su agenda. Queda Confirmado (no requiere aceptación) y el paciente recibe el aviso por la campanita.
+// Los horarios salen de GET /profesionales/{id}/horarios-libres (la misma función de siempre); si el servidor rechaza algo (derivado, sin consentimiento, horario ocupado) explica por qué.
+async function agendarTurno() {
+    const pacientes = await YS.api(`/profesionales/${idProfesional}/pacientes`).catch(() => []);
+    const libres = await YS.api(`/profesionales/${idProfesional}/horarios-libres?dias=21`).catch(() => null);
+    if (!pacientes.length) { toast('Todavía no tenés pacientes asignados a quienes agendar un turno.', 'warn'); return; }
+    if (!libres || !libres.length) { toast('No tenés horarios libres en los próximos días. Agregá horarios en Mis horarios de trabajo.', 'warn'); return; }
+
+    const cuerpo = document.createElement('div');
+    const dias = {};
+    libres.forEach(x => { const [dia, hora] = x.split('T'); (dias[dia] ||= []).push(hora.substring(0, 5)); });
+    cuerpo.innerHTML = `
+        <div class="ui-campo"><label for="agendar-paciente">Paciente</label>
+            <select id="agendar-paciente" class="ui-select">${pacientes.map(p => `<option value="${p.idPaciente}">${YS.esc(YS.nombreCompleto(p))}</option>`).join('')}</select></div>
+        <div class="ui-campo"><label for="agendar-dia">Día</label>
+            <select id="agendar-dia" class="ui-select">${Object.keys(dias).map(d => `<option value="${d}">${YS.esc(YS.capitalizar(YS.fecha.larga(d)))}</option>`).join('')}</select></div>
+        <div class="ui-campo"><label for="agendar-hora">Horario</label><select id="agendar-hora" class="ui-select"></select></div>
+        <div class="ui-campo"><label for="agendar-motivo">Motivo (opcional)</label><input id="agendar-motivo" class="ui-input" maxlength="500"></div>
+        <p class="texto-suave texto-chico">El turno queda confirmado y le avisamos al paciente. Un paciente derivado a psiquiatría o sin el consentimiento firmado no se puede agendar.</p>
+        <p id="agendar-error" class="texto-suave" role="alert"></p>`;
+    const horas = () => { cuerpo.querySelector('#agendar-hora').innerHTML = (dias[cuerpo.querySelector('#agendar-dia').value] || []).map(h => `<option value="${h}">${h} hs</option>`).join(''); };
+    cuerpo.querySelector('#agendar-dia').addEventListener('change', horas);
+    horas();
+    YS.modal({
+        titulo: 'Agendar turno', cuerpo, tamano: 'chico',
+        acciones: [
+            { texto: 'Cancelar', tipo: 'ghost', alClick: c => c.cerrar(null) },
+            { texto: 'Agendar turno', tipo: 'primary', alClick: async c => {
+                const error = cuerpo.querySelector('#agendar-error');
+                try {
+                    const r = await YS.api('/turnos/agendar', { method: 'POST', json: {
+                        idPaciente: parseInt(cuerpo.querySelector('#agendar-paciente').value), fecha: cuerpo.querySelector('#agendar-dia').value,
+                        hora: cuerpo.querySelector('#agendar-hora').value + ':00', motivo: cuerpo.querySelector('#agendar-motivo').value || null } });
+                    toast(r.mensaje || 'Turno agendado.');
+                    c.cerrar(true);
+                    activarTab('inicio');
+                } catch (e) { error.textContent = e.message || 'No se pudo agendar el turno.'; }
+            } }
+        ]
+    });
 }
 
 function citaUrgente() {
@@ -319,9 +387,11 @@ function renderPacientesHoy(turnos) {
                             <td><strong>${fmtHora(t.hora)} hs</strong></td>
                             <td>${YS.esc(nombrePaciente(t.idPaciente))}</td>
                             <td>${YS.esc(t.motivo ?? '—')}</td>
-                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span></td>
+                            <td><span class="badge-estado estado-${t.idEstadoTurno}">${estadoLabel[t.idEstadoTurno] ?? '—'}</span> ${chipEsperando(t.idTurno)}</td>
                             <td class="celda-acciones">
-                                <button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>
+                                ${salaCerrada(t.idTurno)
+                                    ? `<button class="ui-btn ui-btn--sm" disabled aria-disabled="true" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</button>`
+                                    : `<button class="ui-btn ui-btn--sm ui-btn--primary" onclick="irASala(${t.idTurno}, ${t.idPaciente})">Ir a sala</button>`}
                             </td>
                         </tr>`).join('')}
                 </tbody>

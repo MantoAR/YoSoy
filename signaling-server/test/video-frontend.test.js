@@ -543,3 +543,102 @@ prueba('Finalizar con el profesional: el aviso también llega al paciente', asyn
     assert.ok(await hasta(() => pac.eventos.terminada.length === 1));
     assert.deepEqual(pac.eventos.terminada, [{ rol: 'profesional' }]);
 });
+
+// ── La escena de la sala (video del otro, miniatura propia «Vos», esperando, sin cámara) ──
+
+/** Un DOM mínimo: lo justo para que YS.video.escena arme y cambie sus clases. */
+function domFalso() {
+    const elemento = (etiqueta = 'div') => {
+        const clases = new Set();
+        const e = {
+            etiqueta, hijos: [], textContent: '', atributos: {}, srcObject: null, oyentes: {},
+            classList: { add: c => clases.add(c), remove: c => clases.delete(c), contains: c => clases.has(c) },
+            set className(v) { clases.clear(); String(v).split(/\s+/).filter(Boolean).forEach(c => clases.add(c)); },
+            get className() { return [...clases].join(' '); },
+            append(...ns) { e.hijos.push(...ns); }, appendChild(n) { e.hijos.push(n); return n; },
+            setAttribute(k, v) { e.atributos[k] = v; }
+        };
+        return e;
+    };
+    return { elemento, documento: { createElement: elemento } };
+}
+
+function pista(estado = {}) {
+    const oyentes = {};
+    return { readyState: 'live', enabled: true, muted: false, ...estado, oyentes, addEventListener(ev, fn) { (oyentes[ev] ||= []).push(fn); } };
+}
+const conPistas = (...video) => ({ getVideoTracks: () => video });
+
+prueba('estadoDeCamara: activa solo con una pista de video viva y encendida', t => {
+    const { video } = cargarVideo(t, 'http://127.0.0.1:1');
+    assert.equal(video.estadoDeCamara(conPistas(pista())), 'activa');
+    assert.equal(video.estadoDeCamara(conPistas(pista({ enabled: false }))), 'sin-camara');
+    assert.equal(video.estadoDeCamara(conPistas(pista({ readyState: 'ended' }))), 'sin-camara');
+    assert.equal(video.estadoDeCamara(conPistas()), 'sin-camara');
+    assert.equal(video.estadoDeCamara(null), 'sin-camara');
+});
+
+prueba('clasesDeEscena: esperando al otro o conectada, con o sin cámara propia', t => {
+    const { video } = cargarVideo(t, 'http://127.0.0.1:1');
+    assert.deepEqual(plano(video.clasesDeEscena({ otroPresente: false, camara: 'activa' })), ['sala-marco', 'sala--esperando', 'sala--con-camara']);
+    assert.deepEqual(plano(video.clasesDeEscena({ otroPresente: true, camara: 'sin-camara' })), ['sala-marco', 'sala--conectada', 'sala--sin-camara']);
+});
+
+prueba('la escena arranca esperando, pasa a miniatura al conectarse el otro y muestra «Sin cámara» si la cámara se apaga', t => {
+    const { video } = cargarVideo(t, 'http://127.0.0.1:1');
+    const { elemento, documento } = domFalso();
+    const contexto = vm.createContext({ document: documento });   // el DOM de la escena es el de la página
+    const pagina = cargarVideo(t, 'http://127.0.0.1:1');
+    void video; void contexto; void pagina;
+    // video.js ya está cargado en su propio contexto: se vuelve a cargar con un document falso para que escena() lo use.
+    const ctx = { console: { warn() {} }, setTimeout, clearTimeout, URLSearchParams, Date, Promise, document: documento, location: { protocol: 'https:', hostname: 'ys.test', origin: 'http://127.0.0.1:1', search: '' }, navigator: { mediaDevices: {} }, RTCPeerConnection: class {}, io: () => ({}) };
+    ctx.window = ctx; ctx.YS = { param: () => null, api: async () => ({}), mensajeHttp: s => String(s) };
+    vm.createContext(ctx);
+    vm.runInContext(CODIGO_VIDEO, ctx);
+
+    const marco = elemento(), principal = elemento('video'), propio = elemento('video');
+    const escena = ctx.YS.video.escena({ marco, principal, propio, textoEspera: 'Esperando al paciente…' });
+
+    assert.ok(marco.classList.contains('sala--esperando'));           // el otro todavía no está: estado claro, no caja negra
+    assert.ok(principal.classList.contains('sala-principal'));
+    const espera = marco.hijos[0];
+    assert.equal(espera.hijos[0].textContent, 'Esperando al paciente…');
+    const miniatura = marco.hijos[1];
+    assert.equal(miniatura.hijos[2].textContent, 'Vos');                 // etiqueta de la miniatura
+    assert.equal(miniatura.hijos[1].hijos[1].textContent, 'Sin cámara');  // y el estado sin cámara ya está armado
+
+    const p = pista();
+    const flujo = conPistas(p);
+    escena.usarStream(flujo);
+    assert.equal(propio.srcObject, flujo);
+    assert.ok(marco.classList.contains('sala--con-camara'));
+
+    escena.otroConectado(true);                                         // llega el otro: la propia pasa a miniatura
+    assert.ok(marco.classList.contains('sala--conectada'));
+    assert.ok(!marco.classList.contains('sala--esperando'));
+
+    p.readyState = 'ended';                                             // la cámara se desconecta a mitad de la llamada
+    p.oyentes.ended.forEach(fn => fn());
+    assert.ok(marco.classList.contains('sala--sin-camara'));
+    assert.ok(!marco.classList.contains('sala--con-camara'));
+
+    escena.otroConectado(false);                                        // el otro se fue: vuelve a esperar
+    assert.ok(marco.classList.contains('sala--esperando'));
+});
+
+prueba('sala.css: la propia es una miniatura 4:3 espejada abajo a la derecha, nunca una tira, y la espera no es una caja negra', t => {
+    const css = fs.readFileSync(path.join(__dirname, '..', '..', 'PANTALLAS', 'shared', 'sala.css'), 'utf8');
+    assert.match(css, /\.sala-propio\s*\{[^}]*right:\s*12px;[^}]*bottom:\s*12px/s);
+    assert.match(css, /\.sala-propio\s*\{[^}]*width:\s*min\(200px/s);
+    assert.match(css, /\.sala-propio\s*\{[^}]*aspect-ratio:\s*4\s*\/\s*3/s);
+    assert.match(css, /\.sala-propio-video\s*\{[^}]*object-fit:\s*cover;[^}]*scaleX\(-1\)/s);
+    assert.match(css, /\.sala--esperando \.sala-espera\s*\{\s*display:\s*flex/);
+    assert.match(css, /\.sala--sin-camara \.sala-sin-camara\s*\{\s*display:\s*flex/);
+    assert.doesNotMatch(css, /height:\s*90px/);                      // la tira de 90 px del profesional
+    for (const pagina of ['Pantalla_Profesional', 'Pantalla_Paciente']) {
+        const html = fs.readFileSync(path.join(__dirname, '..', '..', 'PANTALLAS', pagina, 'sesion_video.html'), 'utf8');
+        assert.match(html, /shared\/sala\.css/);
+        assert.match(html, /YS\.video\.escena\(/);                   // las dos salas usan el mismo componente
+        assert.doesNotMatch(html, /class="mini-video"/);
+    }
+});

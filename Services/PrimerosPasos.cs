@@ -19,7 +19,7 @@ public static class EstadoInforme
 
 public record InformePaso(string Estado, string? Aclaracion, string? MotivoCierre);
 public record ProfesionalPaso(int IdProfesional, string Nombre, string? Especialidad);
-public record TurnoPaso(int IdTurno, DateTime Inicio, string Estado, bool ConfirmadoPaciente, string? CreadoPor, string? CodigoSala);
+public record TurnoPaso(int IdTurno, DateTime Inicio, string Estado, bool ConfirmadoPaciente, string? CreadoPor, string? CodigoSala, int? DuracionMinutos = null);
 
 /// <summary>Todo lo que el cálculo necesita saber del paciente. Sin base de datos para poder probarlo combinación por combinación.</summary>
 public record DatosPrimerosPasos(
@@ -57,7 +57,7 @@ public record AccionPaso(string Tipo, string Texto, int? IdTurno = null);
 public record PasoCalculado(string Clave, string Titulo, string Estado, string Detalle, AccionPaso? Accion);
 
 /// <summary>El turno confirmado al que se entra desde «Entrar a la sesión». «Habilitada» = ya pasó HabilitaDesde (hora de la clínica, la del servidor): el botón del panel está gris hasta entonces.</summary>
-public record SesionPaso(int IdTurno, DateTime Inicio, DateTime HabilitaDesde, bool Habilitada, string? CodigoSala);
+public record SesionPaso(int IdTurno, DateTime Inicio, DateTime HabilitaDesde, bool Habilitada, string? CodigoSala, string Fase = EstadoDeSala.PorAbrir, DateTime? Cierra = null);
 
 public record ResultadoPrimerosPasos(IReadOnlyList<PasoCalculado> Pasos, string? PasoActual, bool Cerrado, string? MotivoCierre, AccionPaso? Principal, string Mensaje, SesionPaso? Sesion = null)
 {
@@ -73,13 +73,21 @@ public static class AccionTipo
     public const string CompletarDatos = "completar-datos";
     public const string EntrarSesion = "entrar-sesion";
     public const string ResponderPropuesta = "responder-propuesta";
+    public const string Reprogramar = "reprogramar";   // el turno ya pasó sin sesión: llevar a la reprogramación
 }
 
 public static class PrimerosPasos
 {
     /// <summary>Cuántos minutos antes del turno se puede entrar a la sesión. La API de video (VideoOptions.Ventana.MinutosAntes) es la que lo exige; esto solo lo muestra.</summary>
-    public static ResultadoPrimerosPasos Calcular(DatosPrimerosPasos d, DateTime ahora, int minutosAntesDeLaSesion = 10)
+    public static ResultadoPrimerosPasos Calcular(DatosPrimerosPasos d, DateTime ahora, int minutosAntesDeLaSesion = 10, VideoOptions? video = null)
     {
+        // La ventana de la sala (por abrir / abierta / cerrada) la decide EstadoDeSala, la misma regla que usa el acceso a la sala.
+        var opcionesSala = new VideoOptions
+        {
+            DuracionPorDefectoMinutos = video?.DuracionPorDefectoMinutos ?? new VideoOptions().DuracionPorDefectoMinutos,
+            Ventana = new VideoVentanaOptions { MinutosAntes = minutosAntesDeLaSesion, MinutosDespues = video?.Ventana.MinutosDespues ?? new VideoVentanaOptions().MinutosDespues }
+        };
+        bool SalaCerrada(TurnoPaso t) => EstadoDeSala.Evaluar(t.Inicio, t.DuracionMinutos, ahora, opcionesSala).Fase == FaseSala.Cerrada;
         var pasos = new List<PasoCalculado>();
         SesionPaso? sesion = null;
         var informe = d.Informe;
@@ -164,12 +172,16 @@ public static class PrimerosPasos
 
         // 6 · Turno: confirmado o realizado = hecho. Uno propuesto por el profesional, a confirmar. Uno pedido por el paciente, esperando al profesional.
         var vivos = d.Turnos.Where(t => t.Estado != "Cancelado").OrderBy(t => t.Inicio).ToList();
-        var confirmado = vivos.FirstOrDefault(t => t.Estado is "Confirmado" or "Realizado");
+        // Un turno Confirmado cuya sala ya cerró sin que hubiera sesión (el paciente no entró) no es «el turno confirmado»: es un turno que pasó. Se mira aparte.
+        var confirmado = vivos.FirstOrDefault(t => t.Estado == "Realizado" || (t.Estado == "Confirmado" && !SalaCerrada(t)));
+        var pasado = confirmado is null ? vivos.LastOrDefault(t => t.Estado == "Confirmado" && SalaCerrada(t)) : null;
         var propuesto = vivos.FirstOrDefault(t => t.Estado == "Pendiente" && t.CreadoPor == "profesional" && !t.ConfirmadoPaciente);
         var pedido = vivos.FirstOrDefault(t => t.Estado == "Pendiente" && t.CreadoPor != "profesional");
         string Cuando(TurnoPaso t) => $"{t.Inicio:dd/MM/yyyy} a las {t.Inicio:HH:mm} hs";
         if (confirmado is not null)
             pasos.Add(new(PasoClave.Turno, "Tenés turno confirmado", PasoEstado.Hecho, "Tu turno: " + Cuando(confirmado) + ".", null));
+        else if (pasado is not null && propuesto is null && pedido is null)
+            pasos.Add(new(PasoClave.Turno, "Tuviste un turno confirmado", PasoEstado.Hecho, "Tu turno del " + Cuando(pasado) + " ya pasó.", null));
         else if (d.Profesional is null)
             pasos.Add(new(PasoClave.Turno, "Confirmá tu primer turno", cerrado ? PasoEstado.Cerrado : PasoEstado.Pendiente, "Se habilita cuando tengas profesional asignado.", null));
         else if (propuesto is not null)
@@ -186,13 +198,23 @@ public static class PrimerosPasos
         var realizado = vivos.FirstOrDefault(t => t.Estado == "Realizado");
         if (realizado is not null)
             pasos.Add(new(PasoClave.Sesion, "Hiciste tu primera sesión", PasoEstado.Hecho, "Tuviste tu sesión el " + Cuando(realizado) + ".", null));
+        else if (confirmado is null && pasado is not null && propuesto is null && pedido is null)
+        {
+            // El turno ya pasó y la sala cerró sin sesión realizada: no se ofrece entrar. Se ofrece reprogramar.
+            var cierre = EstadoDeSala.Evaluar(pasado.Inicio, pasado.DuracionMinutos, ahora, opcionesSala);
+            sesion = new SesionPaso(pasado.IdTurno, pasado.Inicio, cierre.Desde, false, pasado.CodigoSala, EstadoDeSala.Cerrada, cierre.Hasta);
+            pasos.Add(new(PasoClave.Sesion, "Tu turno ya pasó", PasoEstado.Actual,
+                $"Tu turno del {Cuando(pasado)} ya pasó y la sala cerró a las {cierre.Hasta:HH:mm} hs. Reprogramalo para elegir otro horario.",
+                new(AccionTipo.Reprogramar, "Reprogramar", pasado.IdTurno)));
+        }
         else if (confirmado is null)
             pasos.Add(new(PasoClave.Sesion, "Tu primera sesión", cerrado ? PasoEstado.Cerrado : PasoEstado.Pendiente, "Se habilita cuando confirmes tu primer turno.", null));
         else
         {
+            var fase = EstadoDeSala.Evaluar(confirmado.Inicio, confirmado.DuracionMinutos, ahora, opcionesSala);
             var abre = confirmado.Inicio.AddMinutes(-minutosAntesDeLaSesion);
-            var puede = ahora >= abre;
-            sesion = new SesionPaso(confirmado.IdTurno, confirmado.Inicio, abre, puede, confirmado.CodigoSala);
+            var puede = fase.Fase == FaseSala.Abierta;
+            sesion = new SesionPaso(confirmado.IdTurno, confirmado.Inicio, abre, puede, confirmado.CodigoSala, EstadoDeSala.Nombre(fase.Fase), fase.Hasta);
             pasos.Add(new(PasoClave.Sesion, "Tu primera sesión", PasoEstado.Actual,
                 puede ? "Ya podés entrar a la sala de video." : $"Podés entrar a la sala {minutosAntesDeLaSesion} minutos antes: desde las {abre:HH:mm} hs del {abre:dd/MM/yyyy}.",
                 new(AccionTipo.EntrarSesion, "Entrar a la sesión", confirmado.IdTurno)));

@@ -37,7 +37,7 @@ public class TurnosZonaHorariaTests
 
         var conLaZonaDelServidor = ReglasConLaZonaDelServidor(e, ahoraUtc).ValidarSolicitud(1, 10, Jueves(10));
         Assert.False(conLaZonaDelServidor.Ok);
-        Assert.Equal("Ese horario ya pasó.", conLaZonaDelServidor.Mensaje);
+        Assert.StartsWith("Ese horario ya pasó.", conLaZonaDelServidor.Mensaje);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class TurnosZonaHorariaTests
 
         Assert.False(r.Ok);
         Assert.Equal("RN-01", r.Codigo);
-        Assert.Equal("Ese horario ya pasó.", r.Mensaje);
+        Assert.StartsWith("Ese horario ya pasó.", r.Mensaje);
     }
 
     [Fact]

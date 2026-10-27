@@ -72,7 +72,7 @@ public class TurnoReglasService
     /// máximo <paramref name="dias"/> días desde hoy.
     /// </summary>
     public List<DateTime> HorariosLibres(int idPaciente, int idProfesional, int dias, int maximo) =>
-        CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) == 0, idPaciente);
+        CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha, Ahora) == 0, idPaciente);
 
     /// <summary>
     /// Igual que <see cref="HorariosLibres"/> pero sin un paciente particular: no aplica
@@ -184,7 +184,11 @@ public class TurnoReglasService
 
         // RN-01: en el futuro y dentro de una franja de agenda, alineado al intervalo.
         if (momento <= ahora)
-            return ResultadoRegla.Falla("RN-01", "Ese horario ya pasó.");
+            return ResultadoRegla.Falla("RN-01", momento.Date == ahora.Date
+                ? "Ese horario ya pasó. " + DisponibilidadReglas.MensajeHoy(DisponibilidadReglas.AnticipacionMinimaPedidoHoras)
+                : "Ese horario ya pasó. Elegí otro día.");
+        if (momento < ahora.AddHours(DisponibilidadReglas.AnticipacionMinimaPedidoHoras))
+            return ResultadoRegla.Falla("RN-01", DisponibilidadReglas.MensajeHoy(DisponibilidadReglas.AnticipacionMinimaPedidoHoras));
         var franjas = _repo.AgendaDe(idProfesional)
             .Where(a => a.Disponible && !a.EsAdmision && DiaDeLaSemana(a.Dia) == momento.DayOfWeek && VigenteEl(a, momento)).ToList();
         if (!Slots(franjas).Contains(momento.TimeOfDay))
@@ -196,7 +200,7 @@ public class TurnoReglasService
             return ResultadoRegla.Falla("RN-01", "Ese horario ya está ocupado.");
 
         // RN-07
-        if (_repo.ContarTurnosActivos(idPaciente, idProfesional, momento.Date) > 0)
+        if (_repo.ContarTurnosActivos(idPaciente, idProfesional, momento.Date, ahora) > 0)
             return ResultadoRegla.Falla("RN-07", "Ya tenés un turno con ese profesional ese día.");
 
         // RN-02 (solo si se configuró el modo estricto)
@@ -247,10 +251,30 @@ public class TurnoReglasService
             : new ResultadoSolicitud(ResultadoRegla.Valido, id);
     }
 
-    private int? InsertarPendiente(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor)
+    /// <summary>
+    /// El profesional AGENDA un turno para un paciente de su cartera: nace Confirmado (no requiere aceptación de nadie) y el paciente se entera por la campanita. Respeta las mismas reglas que cualquier
+    /// turno: horario libre dentro de su agenda (RN-01), un turno por día (RN-07), paciente derivado a psiquiatría y consentimiento firmado (RN-02, porque el turno queda confirmado).
+    /// </summary>
+    public ResultadoSolicitud Agendar(int idPaciente, int idProfesional, DateTime momento, string? motivo)
     {
-        var idPendiente = _repo.IdEstado("Pendiente")
-            ?? throw new InvalidOperationException("No existe el estado 'Pendiente' en EstadoTurno.");
+        _repo.VencerPropuestas(Ahora);
+        _repo.VencerSolicitudes(Ahora);
+        var regla = ValidarSolicitud(idPaciente, idProfesional, momento);
+        if (!regla.Ok) return new ResultadoSolicitud(regla, null);
+        var consentimiento = ValidarPasoAConfirmado(new Turno { IdPaciente = idPaciente, IdEstadoTurno = _repo.IdEstado("Pendiente") ?? 0 });
+        if (!consentimiento.Ok) return new ResultadoSolicitud(consentimiento, null);
+
+        var id = InsertarPendiente(idPaciente, idProfesional, momento, motivo, "profesional", "Confirmado");
+        return id is null
+            ? new ResultadoSolicitud(ResultadoRegla.Falla("RN-01", "Ese horario se acaba de ocupar. Elegí otro."), null)
+            : new ResultadoSolicitud(ResultadoRegla.Valido, id);
+    }
+
+    private int? InsertarPendiente(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor, string estado = "Pendiente")
+    {
+        var idPendiente = _repo.IdEstado(estado)
+            ?? throw new InvalidOperationException($"No existe el estado '{estado}' en EstadoTurno.");
+        var ahora = Ahora;
         return _repo.InsertarSiLibre(new Turno
         {
             IdPaciente    = idPaciente,
@@ -260,7 +284,7 @@ public class TurnoReglasService
             Hora          = momento.TimeOfDay,
             Modalidad     = "Virtual",
             Motivo        = motivo!   // Turno.Motivo admite NULL en la base
-        }, creadoPor);
+        }, creadoPor, ahora);
     }
 
     public bool TieneConsentimiento(int idPaciente) =>

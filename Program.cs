@@ -1123,7 +1123,7 @@ app.MapGet("/pacientes/{id}/proximo-turno", (int id, HttpContext ctx, IdentidadA
     if (yo is { EsPaciente: true } && yo.IdPaciente != id)
         return Results.Json(new { mensaje = "Solo podés ver tu propio turno." }, statusCode: 403);
     // "Hoy" es el de la clínica (el reloj de la aplicación), no el GETDATE() del servidor de base de datos.
-    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id, reloj.GetLocalNow().DateTime);
+    var t = new TurnoDetalleDAO().ObtenerProximoPorPaciente(id, reloj.GetLocalNow().DateTime, excluirTerminados: true);   // sin los que ya pasaron ni los ausentes
     return t is null ? Results.NotFound() : Results.Ok(t);
 }).RequireAuthorization();
 
@@ -2820,6 +2820,10 @@ app.MapPut("/turnos/{id}/confirmar-paciente", (int id, INotificadorTurnos notifi
     if (yo is { EsProfesional: true } && yo.IdProfesional != turno.IdProfesional)
         return Results.Json(new { mensaje = "Ese turno no es tuyo." }, statusCode: 403);
 
+    // Lo que el paciente pidió por su cuenta no lo confirma él: lo acepta el profesional (POST /turnos/{id}/aceptar-solicitud). Este camino es para el turno que PROPUSO el profesional.
+    if (yo is { EsPaciente: true } && string.Equals(turno.CreadoPor, "paciente", StringComparison.OrdinalIgnoreCase))
+        return Results.Json(new { mensaje = "Tu solicitud todavía espera la aceptación de tu profesional. Te avisamos apenas la responda." }, statusCode: 409);
+
     var rn02 = reglas.ValidarPasoAConfirmado(turno);
     if (!rn02.Ok) return rn02.ComoConflicto();
     using var con = Conexion.ObtenerConexion();
@@ -2933,6 +2937,9 @@ app.MapCierreSesion();
 app.MapAltaDerivacion();
 app.MapDerivacionPsiquiatra();
 app.MapSolicitudesTurno();
+app.MapDisponibilidad();
+app.MapEstadoSala();
+app.MapAgendarTurno();
 app.MapAusenciasAlta();
 app.MapVideo();
 app.MapConsentimientoVideo();

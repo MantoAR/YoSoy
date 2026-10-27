@@ -528,3 +528,43 @@ prueba('call-end de quien todavía no hizo join no llega a nadie', async t => {
     sinJoin.emit('call-end');
     assert.ok(await nada);
 });
+
+// ── Quien llega primero (la sala ya no espera al profesional) ──
+
+prueba('el paciente espera solo: cuando entra el profesional se avisan y la negociacion funciona', async t => {
+    const e = await entorno(t);
+    const pac = await e.unido(tk('E1', 'paciente', '20'));
+    const aviso = esperar(pac, 'user-joined');
+    const pro = await e.unido(tk('E1', 'profesional', '10'));
+    assert.deepEqual(await aviso, { rol: 'profesional' });   // el que espera se entera y es el paciente quien ofrece (video.js)
+
+    const oferta = esperar(pro, 'offer');
+    pac.emit('offer', { offer: OFERTA });
+    assert.equal((await oferta).offer.type, 'offer');
+    const respuesta = esperar(pac, 'answer');
+    pro.emit('answer', { answer: RESPUESTA });
+    assert.equal((await respuesta).answer.type, 'answer');
+});
+
+prueba('el profesional espera primero: cuando entra el paciente se avisan y la negociacion funciona', async t => {
+    const e = await entorno(t);
+    const pro = await e.unido(tk('E2', 'profesional', '10'));
+    const aviso = esperar(pro, 'user-joined');
+    const pac = await e.unido(tk('E2', 'paciente', '20'));
+    assert.deepEqual(await aviso, { rol: 'paciente' });
+
+    const oferta = esperar(pro, 'offer');
+    pac.emit('offer', { offer: OFERTA });
+    assert.equal((await oferta).offer.type, 'offer');
+});
+
+prueba('el paciente puede cerrar y volver a entrar mientras espera sin romper la sala', async t => {
+    const e = await entorno(t);
+    const pac1 = await e.unido(tk('E3', 'paciente', '20'));
+    pac1.disconnect();
+    await pausa(100);
+    const pac2 = await e.unido(tk('E3', 'paciente', '20'));   // vuelve a tomar su asiento
+    const aviso = esperar(pac2, 'user-joined');
+    await e.unido(tk('E3', 'profesional', '10'));
+    assert.deepEqual(await aviso, { rol: 'profesional' });
+});

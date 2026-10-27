@@ -180,6 +180,27 @@ public class AusenciasDAO
         catch (SqlException) { /* un choque de clave (dos pedidos a la vez) o sin la tabla: no importa */ }
     }
 
+    /// <summary>De estos turnos, los que tienen al paciente ESPERANDO: ya pidió entrar a la sala y el profesional todavía no. Es el indicador discreto del inicio y de la sala del profesional.</summary>
+    public static HashSet<int> PacientesEsperando(IEnumerable<int> idsTurno)
+    {
+        var resultado = new HashSet<int>();
+        var ids = idsTurno.Distinct().ToList();
+        if (ids.Count == 0 || !Disponible()) return resultado;
+        try
+        {
+            using var con = Conexion.ObtenerConexion();
+            con.Open();
+            using var cmd = new SqlCommand($@"
+                SELECT p.IdTurno FROM dbo.TurnoConexion p
+                WHERE p.Rol = N'Paciente' AND p.IdTurno IN ({string.Join(",", ids)})
+                  AND NOT EXISTS (SELECT 1 FROM dbo.TurnoConexion m WHERE m.IdTurno = p.IdTurno AND m.Rol = N'Profesional')", con);
+            using var r = cmd.ExecuteReader();
+            while (r.Read()) resultado.Add((int)r[0]);
+        }
+        catch (SqlException) { /* sin el dato no se muestra el indicador */ }
+        return resultado;
+    }
+
     // ───────────── Lecturas compartidas (dentro de la conexión y transacción de quien llama) ─────────────
 
     private record FilaTurno(int IdTurno, int IdPaciente, int IdProfesional, string Estado, DateTime Inicio, string Paciente);

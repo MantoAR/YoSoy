@@ -105,11 +105,12 @@ public class AccesoSalaService
         VideoOptions o, DateTimeOffset ahora)
     {
         var (desde, hasta) = Ventana(inicio, duracionMinutos, o);
-        if (ahora < desde)
+        var fase = EstadoDeSala.Fase(desde, hasta, ahora);   // la misma regla que leen los paneles (GET /salas/estado)
+        if (fase == FaseSala.PorAbrir)
             return ResultadoAcceso.De(EstadoAcceso.AunNoAbre,
                 $"Todavía no se puede entrar: la sala se abre {Acotar(o.Ventana.MinutosAntes, 0, MaxVentanaMinutos)} minutos antes del horario.",
                 ahora, desde, hasta);
-        if (ahora >= hasta)
+        if (fase == FaseSala.Cerrada)
             return ResultadoAcceso.De(EstadoAcceso.YaTermino, "Esta sesión ya terminó.", ahora, desde, hasta);
 
         if (string.IsNullOrWhiteSpace(sala))

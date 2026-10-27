@@ -74,7 +74,7 @@ async function renderInicio(c) {
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
         const listaTurnos = turnos === FALLA ? [] : turnos;
         const proximos = listaTurnos
-            .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && YS.fecha.parse(x.fecha) >= hoy)
+            .filter(x => x.estadoDescripcion !== "Cancelado" && x.estadoDescripcion !== "Realizado" && x.estadoDescripcion !== "Ausente" && YS.fecha.parse(x.fecha) >= hoy && !turnoTerminado(x))
             .sort((a, b) => YS.fecha.parse(a.fecha) - YS.fecha.parse(b.fecha) || String(a.hora).localeCompare(String(b.hora)));
         const porConfirmar = proximos.filter(propuestoPorProfesional);
 
@@ -252,7 +252,12 @@ async function renderAgenda(c) {
     `;
 
     dibujarCalendario();
-    if (_diaAlEntrarAgenda) { const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null; mostrarPanelDia(dia); }   // vino de Reprogramar en Inicio
+    if (_diaAlEntrarAgenda) {   // vino de Reprogramar en Inicio (o de «Tu turno ya pasó»)
+        const dia = _diaAlEntrarAgenda; _diaAlEntrarAgenda = null;
+        await mostrarPanelDia(dia);
+        const r = window._reprogramarAlEntrar; window._reprogramarAlEntrar = null;
+        if (r) abrirFormReprogramar(r.idTurno, r.idProfesional);
+    }
 }
 
 async function cambiarProfCalendario() {
@@ -268,20 +273,35 @@ async function cambiarProfCalendario() {
         return;
     }
 
-    try {
-        const agenda = await YS.fetch(`/profesionales/${_idProfCalendario}/agenda`).then(r => r.json());
-        _agendaProfCalendario = agenda.filter(a => a.disponible);
-    } catch {}
-
-    if (_agendaProfCalendario.length) {
-        const dias = _agendaProfCalendario.map(a => a.dia).join(", ");
-        diasDiv.textContent = `Atiende los: ${dias}`;
-    } else {
-        diasDiv.textContent = "Sin días configurados";
-    }
+    // Los horarios libres los calcula el servidor con la misma función que la propuesta automática de asignación (GET /pacientes/{id}/disponibilidad).
+    diasDiv.textContent = "Buscando horarios libres…";
+    const d = await cargarDisponibilidad(_idProfCalendario);
+    diasDiv.textContent = textoDisponibilidad(d);
+    diasDiv.classList.toggle("sin-horarios", !!(d.error || d.total === 0));
 
     dibujarCalendario();
 }
+
+// ── Disponibilidad (una sola fuente: el servidor) ──────────
+// Antes esta pantalla armaba los horarios sola a partir de las franjas crudas del profesional: ignoraba las franjas de admisión y la vigencia, usaba horas fijas al reprogramar y, si la
+// consulta fallaba, dejaba el calendario vacío sin decir por qué. Ahora todo sale de GET /pacientes/{id}/disponibilidad y, si no hay nada, se dice por qué.
+let _disp = null;   // { idProf, ignorar, dias: Map(fecha → horas), total, mensaje, mensajeHoy, error }
+
+async function cargarDisponibilidad(idProf, ignorarTurno) {
+    try {
+        const r = await YS.api(`/pacientes/${idPaciente}/disponibilidad?idProfesional=${idProf}${ignorarTurno ? "&ignorarTurno=" + ignorarTurno : ""}`);
+        _disp = { idProf, ignorar: ignorarTurno || null, dias: new Map((r.dias || []).map(d => [d.fecha, d.horas])), total: r.total, mensaje: r.mensaje, mensajeHoy: r.mensajeHoy, error: null };
+    } catch (e) {
+        _disp = { idProf, ignorar: ignorarTurno || null, dias: new Map(), total: 0, mensaje: null, mensajeHoy: null, error: (e && e.message) || "No pudimos cargar los horarios. Revisá tu conexión y volvé a intentar." };
+    }
+    return _disp;
+}
+
+const textoDisponibilidad = d => d.error ? d.error
+    : d.total === 0 ? (d.mensaje || "Tu profesional no tiene horarios libres en los próximos días. Escribinos y te avisamos.")
+    : `Hay ${d.total} horario${d.total === 1 ? "" : "s"} libre${d.total === 1 ? "" : "s"} en los próximos 30 días (los días marcados).`;
+
+const fechaISODe = (anio, mes, dia) => `${anio}-${String(mes + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
 
 function cambiarMes(delta) {
     calMes += delta;
@@ -327,9 +347,8 @@ function dibujarCalendario() {
 
         let clases, onclick;
         if (_modoReprogramar) {
-            const enAgenda  = _reprogAgenda.some(a => DIA_DB_NUM[normalizar(a.dia)] === fechaD.getDay());
-            const ocupado   = tieneT && turnosPorDia[dia].some(t => t.estadoDescripcion !== "Cancelado" && t.estadoDescripcion !== "Realizado");
-            const valido    = !esPasado && enAgenda && !ocupado;
+            const enAgenda  = !!_disp && _disp.dias.has(fechaISODe(calAnio, calMes, dia));   // el servidor ya descartó los días con turno propio (RN-07)
+            const valido    = !esPasado && enAgenda;
             clases  = ["cal-dia", esPasado ? "pasado" : valido ? "reprog-valido" : "reprog-invalido", esSeleccionado ? "reprog-seleccionado" : ""].join(" ").trim();
             onclick = valido ? `onclick="seleccionarDiaReprog(${dia})"` : "";
 
@@ -339,11 +358,7 @@ function dibujarCalendario() {
 
             // Si hay profesional seleccionado, resaltar días disponibles
             let esDisponibleProf = false;
-            if (_idProfCalendario && _agendaProfCalendario.length) {
-                esDisponibleProf = _agendaProfCalendario.some(
-                    a => DIA_DB_NUM[normalizar(a.dia)] === fechaD.getDay()
-                );
-            }
+            if (_idProfCalendario && _disp && _disp.idProf === _idProfCalendario) esDisponibleProf = _disp.dias.has(fechaISODe(calAnio, calMes, dia));
 
             let claseT;
             if (tieneT) {
@@ -463,6 +478,7 @@ async function mostrarPanelDia(dia) {
                 <select id="solHora" class="turno-input" disabled><option value="">Elegí un profesional</option></select>
             </div>
         </div>
+        <p id="solAviso" class="texto-suave texto-chico" role="status" aria-live="polite"></p>
         <div class="form-grupo mt-8">
             <label>Motivo (opcional)</label>
             <input type="text" id="solMotivo" class="turno-input" placeholder="Escribí el motivo...">
@@ -525,44 +541,21 @@ async function cargarHorasSolicitud(fechaStr) {
     const sel    = document.getElementById("solHora");
     if (!idProf) { sel.innerHTML = `<option value="">Elegí un profesional</option>`; sel.disabled = true; return; }
 
-    const fecha  = new Date(fechaStr + "T12:00:00");
-    const diaSem = fecha.getDay();
-    const agenda = await YS.fetch(`/profesionales/${idProf}/agenda`).then(r => r.json()).catch(() => []);
-    const slot   = agenda.find(a => a.disponible && DIA_DB_NUM[normalizar(a.dia)] === diaSem);
+    // Los horarios de ese día los da el servidor (la misma función que la propuesta automática); acá no se calcula nada.
+    const aviso = document.getElementById("solAviso");
+    sel.innerHTML = `<option value="">Buscando horarios…</option>`; sel.disabled = true;
+    const d = (_disp && _disp.idProf === idProf && !_disp.ignorar) ? _disp : await cargarDisponibilidad(idProf);
+    const horas = d.dias.get(fechaStr) || [];
 
-    if (!slot) { sel.innerHTML = `<option value="">Sin disponibilidad ese día</option>`; sel.disabled = true; return; }
-
-    const [hI, mI] = slot.horaInicio.substring(0,5).split(":").map(Number);
-    const [hF, mF] = slot.horaFin.substring(0,5).split(":").map(Number);
-
-    // Usar el intervalo configurado por el médico (por defecto 30 min)
-    const intervalo = slot.intervaloMinutos ?? 30;
-
-    // Obtener turnos ya ocupados ese día para ese profesional
-    let turnosOcupados = [];
-    try {
-        const r = await YS.fetch(`/turnos/ocupados?idProfesional=${idProf}&fecha=${fechaStr}`);
-        if (r.ok) turnosOcupados = await r.json();
-    } catch {}
-
-    // No hay anticipación mínima: se puede pedir para dentro de unos minutos. Lo único que no se ofrece es lo que ya pasó
-    // (solo cuenta si el día elegido es hoy).
-    const minutosPasados = minutosPasadosHoy(fechaStr);
-
-    const opciones = [];
-    let cur = hI * 60 + mI;
-    while (cur + intervalo <= hF * 60 + mF) {
-        const hh = String(Math.floor(cur/60)).padStart(2,"0");
-        const mm = String(cur%60).padStart(2,"0");
-        const horaStr = `${hh}:${mm}`;
-        const ocupado = turnosOcupados.some(t => t.hora?.substring(0,5) === horaStr);
-        if (!ocupado && cur > minutosPasados) {
-            opciones.push(`<option value="${horaStr}">${horaStr}</option>`);
-        }
-        cur += intervalo;
+    sel.innerHTML = horas.length ? horas.map(h => `<option value="${h}">${h}</option>`).join("") : `<option value="">Sin horarios ese día</option>`;
+    sel.disabled  = !horas.length;
+    if (aviso) {
+        // Por qué no hay nada: hoy mismo, un día sin atención o sin horarios libres en general. Nunca un selector vacío sin explicación.
+        aviso.textContent = horas.length ? "" : d.error ? d.error
+            : d.total === 0 ? (d.mensaje || "")
+            : fechaStr === ahoraEnArgentina().fecha ? (d.mensajeHoy || "")
+            : "Ese día tu profesional no tiene horarios libres. Elegí uno de los días marcados en el calendario.";
     }
-    sel.innerHTML = opciones.length ? opciones.join("") : `<option value="">Sin horarios disponibles</option>`;
-    sel.disabled  = !opciones.length;
 }
 
 async function confirmarSolicitudDia(fechaStr) {
@@ -597,6 +590,23 @@ async function confirmarSolicitudDia(fechaStr) {
     } else toast(await YS.leerMensaje(res, "No se pudo solicitar el turno."), "error");
 }
 
+// Un turno que empezó hace más de una hora ya no es «el próximo» (el servidor aplica lo mismo en /proximo-turno: EstadoDeSala.MinutosParaOcultarProximoTurno).
+function turnoTerminado(t) {
+    const ahora = ahoraEnArgentina();
+    const fecha = String(t.fecha).substring(0, 10);
+    const [h, m] = String(t.hora).substring(0, 5).split(":").map(Number);
+    return fecha < ahora.fecha || (fecha === ahora.fecha && h * 60 + m + 60 <= ahora.minutos);
+}
+
+// ¿El turno ya empezó? (hora de la clínica, la misma con la que se valida en el servidor)
+function turnoYaPaso(t) {
+    if (!t) return false;
+    const ahora = ahoraEnArgentina();
+    const fecha = String(t.fecha).substring(0, 10);
+    const minutos = String(t.hora).substring(0, 5).split(":").map(Number);
+    return fecha < ahora.fecha || (fecha === ahora.fecha && minutos[0] * 60 + minutos[1] < ahora.minutos);
+}
+
 function toggleReprogramar() {
     document.getElementById("formReprogramar")?.classList.toggle("visible");
 }
@@ -621,10 +631,10 @@ async function abrirFormReprogramar(idTurno, idProf) {
     _idTurnoReprog = idTurno;
     _reprogFechaSeleccionada = null;
 
-    try {
-        const agenda = await YS.fetch(`/profesionales/${idProf}/agenda`).then(r => r.json());
-        _reprogAgenda = agenda.filter(a => a.disponible);
-    } catch { _reprogAgenda = []; }
+    // Los días y horarios libres salen del servidor (el turno que se reprograma no bloquea su propio día). Si no hay ninguno, o la consulta falla, se dice por qué en vez de mostrar un calendario muerto.
+    const d = await cargarDisponibilidad(idProf, idTurno);
+    const instruccion = document.querySelector("#formReprogramar .reprog-instruccion");
+    if (instruccion) instruccion.textContent = d.error || d.total === 0 ? textoDisponibilidad(d) : "Seleccioná el nuevo día en el calendario (los días marcados tienen horarios libres).";
 
     _modoReprogramar = true;
     dibujarCalendario();
@@ -634,32 +644,14 @@ function seleccionarDiaReprog(dia) {
     _reprogFechaSeleccionada = new Date(calAnio, calMes, dia);
     dibujarCalendario();
 
-    const slot = _reprogAgenda.find(a => DIA_DB_NUM[normalizar(a.dia)] === _reprogFechaSeleccionada.getDay());
+    const fechaISO = fechaISODe(_reprogFechaSeleccionada.getFullYear(), _reprogFechaSeleccionada.getMonth(), _reprogFechaSeleccionada.getDate());
+    const horas = (_disp && _disp.dias.get(fechaISO)) || [];
 
     const label = _reprogFechaSeleccionada.toLocaleDateString("es-AR", { weekday:"long", day:"numeric", month:"long" });
     document.getElementById("reprogDiaLabel").textContent = label;
 
     const sel = document.getElementById("reprogHora");
-    if (slot) {
-        const [hI, mI] = slot.horaInicio.substring(0,5).split(":").map(Number);
-        const [hF, mF] = slot.horaFin.substring(0,5).split(":").map(Number);
-        // Igual que al solicitar: sin anticipación mínima, pero no se ofrece lo que ya pasó hoy (el servidor lo rechaza, y
-        // reprogramar cancela primero el turno anterior).
-        const f = _reprogFechaSeleccionada;
-        const fechaStr = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2,"0")}-${String(f.getDate()).padStart(2,"0")}`;
-        const minutosPasados = minutosPasadosHoy(fechaStr);
-        const opciones = [];
-        let cur = hI * 60 + mI;
-        while (cur + 60 <= hF * 60 + mF) {
-            const hh = String(Math.floor(cur/60)).padStart(2,"0");
-            const mm = String(cur%60).padStart(2,"0");
-            if (cur > minutosPasados) opciones.push(`<option value="${hh}:${mm}">${hh}:${mm}</option>`);
-            cur += 60;
-        }
-        sel.innerHTML = opciones.join("") || `<option value="">Sin horarios</option>`;
-    } else {
-        sel.innerHTML = `<option value="">Sin horarios ese día</option>`;
-    }
+    sel.innerHTML = horas.length ? horas.map(h => `<option value="${h}">${h}</option>`).join("") : `<option value="">Sin horarios ese día</option>`;
 
     document.getElementById("reprogDetalles").classList.remove("oculto");
 }
@@ -669,6 +661,7 @@ function cancelarModoReprogramar() {
     _idTurnoReprog   = null;
     _reprogFechaSeleccionada = null;
     _reprogAgenda    = [];
+    _disp            = null;
     dibujarCalendario();
     document.getElementById("formReprogramar")?.classList.remove("visible");
 }
@@ -691,8 +684,12 @@ async function confirmarReprogramar(idTurno) {
         return;
     }
 
-    const rCancel = await YS.fetch(`/turnos/${idTurno}/cancelar?idPaciente=${idPaciente}`, { method: "PUT" });
-    if (!rCancel.ok) { toast(await YS.leerMensaje(rCancel, "No se pudo cancelar el turno anterior."), "error"); return; }
+    // Un turno que ya pasó sin que el paciente entrara no se cancela (el servidor no deja cancelar con menos de 24 horas y la persona se quedaba trabada): se pide el nuevo directamente.
+    // El profesional decide qué hace con el turno que pasó (por ejemplo marcarlo como ausente).
+    if (!turnoYaPaso(turnoSeleccionado)) {
+        const rCancel = await YS.fetch(`/turnos/${idTurno}/cancelar?idPaciente=${idPaciente}`, { method: "PUT" });
+        if (!rCancel.ok) { toast(await YS.leerMensaje(rCancel, "No se pudo cancelar el turno anterior."), "error"); return; }
+    }
 
     const rNuevo = await YS.fetch(`/turnos/solicitar`, {
         method: "POST",
@@ -711,6 +708,7 @@ async function confirmarReprogramar(idTurno) {
     _modoReprogramar = false;
     _reprogFechaSeleccionada = null;
     _reprogAgenda = [];
+    _disp = null;
 
     const res = await YS.fetch(`/pacientes/${idPaciente}/turnos-detalle`);
     turnosCalendario = await res.json();
