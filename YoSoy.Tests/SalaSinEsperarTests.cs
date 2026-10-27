@@ -200,7 +200,8 @@ public class SalaSinEsperarPantallasTests
         var pp = Leer("PANTALLAS", "Pantalla_Paciente", "js", "primeros_pasos.js");
         Assert.DoesNotContain("todavía no generó la sala", pp);
         Assert.Contains("const habilitado = !!(s && s.habilitada);", pp);
-        Assert.Contains("sesion_video.html?turno=", pp);
+        Assert.Contains("entrarASalaDelTurno(s.idTurno)", pp);   // se entra por el turno, con la función compartida con el Inicio
+        Assert.Contains("sesion_video.html?turno=", Leer("PANTALLAS", "shared", "entrada-sala.js"));
         Assert.Contains("Esperando a tu profesional", pp);
     }
 

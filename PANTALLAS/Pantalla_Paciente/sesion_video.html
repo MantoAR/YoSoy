@@ -13,8 +13,8 @@
         /* Propio de esta página; colores, tipografía y botones salen de ../shared/tema.css */
         /* La espera queda alineada con el resto del panel (el mismo contenedor centrado de 1240 px que Admisión y Turnos)
            y la tarjeta con el ancho de la de Admisión; la videollamada sí usa todo el ancho. */
-        .sala-espera { max-width: 1192px; margin: 0 auto; }
-        .sala-espera > .card { max-width: 720px; }
+        .sala-previa { max-width: 1192px; margin: 0 auto; }   /* NO llamarla sala-espera: shared/sala.css usa ese nombre para el cartel «Esperando…» de la escena (display: none) */
+        .sala-previa > .card { max-width: 720px; }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); padding: 20px; margin-bottom: 12px; }
         .card h3 { font-size: var(--fs-xl); font-weight: 600; color: var(--text); margin: 0 0 6px; }
         .texto-ayuda { font-size: var(--fs-md); color: var(--text-3); margin: 0; }
@@ -63,7 +63,7 @@
 <div class="ui-contenido">
 
     <!-- PANTALLA DE ESPERA -->
-    <div id="pantalla-espera" class="sala-espera">
+    <div id="pantalla-espera" class="sala-previa">
         <div class="card">
             <h3>Unirse a la sesión</h3>
             <p class="texto-ayuda">

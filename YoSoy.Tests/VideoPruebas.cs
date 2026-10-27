@@ -23,6 +23,14 @@ public class FakeOrigenSala : IOrigenSalaRepositorio
 
     public TurnoParaSala? ObtenerTurno(int idTurno) => Turnos.GetValueOrDefault(idTurno);
     public AdmisionParaSala? ObtenerAdmision(int idInforme) => Admisiones.GetValueOrDefault(idInforme);
+
+    public IReadOnlyList<TurnoConNombres> TurnosConfirmadosDe(int? idPaciente, int? idProfesional, DateTime desde) =>
+        idPaciente is null && idProfesional is null ? Array.Empty<TurnoConNombres>()
+        : Turnos.Values
+            .Where(t => (idPaciente is null || t.IdPaciente == idPaciente) && (idProfesional is null || t.IdProfesional == idProfesional))
+            .Where(t => t.Estado.Equals("Confirmado", StringComparison.OrdinalIgnoreCase) && t.Fecha.Date >= desde.Date)
+            .OrderBy(t => t.Fecha).ThenBy(t => t.Hora).Take(10)
+            .Select(t => new TurnoConNombres(t, "Paciente " + t.IdPaciente, "Profesional " + t.IdProfesional)).ToList();
 }
 
 /// <summary>

@@ -27,6 +27,36 @@ public class OrigenSalaDAO : IOrigenSalaRepositorio
         return turno with { DuracionMinutos = DuracionDeLaFranja(idProfesional, fecha, hora) };
     }
 
+    // Los próximos turnos Confirmados de UNA persona (se pasa el id del paciente o el del profesional, nunca los dos sin filtro: sin ninguno devuelve vacío). Tope de 10: alcanza para
+    // elegir el turno entrable de hoy y mostrar el próximo.
+    public IReadOnlyList<TurnoConNombres> TurnosConfirmadosDe(int? idPaciente, int? idProfesional, DateTime desde)
+    {
+        if (idPaciente is null && idProfesional is null) return Array.Empty<TurnoConNombres>();
+        var filas = new List<(TurnoParaSala Turno, string Paciente, string Profesional)>();
+        using (var con = Conexion.ObtenerConexion())
+        {
+            con.Open();
+            var cmd = new SqlCommand($@"
+                SELECT TOP 10 t.IdTurno, t.IdPaciente, t.IdProfesional, et.Descripcion AS Estado, t.Fecha, t.Hora, t.CodigoSala,
+                       pa.Nombre AS NombrePaciente, p.Nombre + ISNULL(' ' + p.Apellido, '') AS NombreProfesional
+                FROM Turno t
+                JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno
+                JOIN Paciente pa ON pa.IdPaciente = t.IdPaciente
+                JOIN Profesional p ON p.IdProfesional = t.IdProfesional
+                WHERE et.Descripcion = N'Confirmado' AND t.Fecha >= @Desde
+                  AND {(idPaciente is not null ? "t.IdPaciente = @Persona" : "t.IdProfesional = @Persona")}
+                ORDER BY t.Fecha, t.Hora", con);
+            cmd.Parameters.AddWithValue("@Desde", desde.Date);
+            cmd.Parameters.AddWithValue("@Persona", (idPaciente ?? idProfesional)!.Value);
+            using var r = cmd.ExecuteReader();
+            while (r.Read())
+                filas.Add((new TurnoParaSala((int)r["IdTurno"], (int)r["IdPaciente"], (int)r["IdProfesional"], (string)r["Estado"],
+                    (DateTime)r["Fecha"], (TimeSpan)r["Hora"], r["CodigoSala"] == DBNull.Value ? null : (string)r["CodigoSala"], null),
+                    r["NombrePaciente"] == DBNull.Value ? "" : (string)r["NombrePaciente"], (string)r["NombreProfesional"]));
+        }
+        return filas.Select(f => new TurnoConNombres(f.Turno with { DuracionMinutos = DuracionDeLaFranja(f.Turno.IdProfesional, f.Turno.Fecha, f.Turno.Hora) }, f.Paciente, f.Profesional)).ToList();
+    }
+
     public AdmisionParaSala? ObtenerAdmision(int idInforme)
     {
         using var con = Conexion.ObtenerConexion();

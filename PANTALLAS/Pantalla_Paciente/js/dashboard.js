@@ -43,7 +43,7 @@ function mostrarSeccion(id) {
     else if (id === "agenda")        renderAgenda(c);
     else if (id === "profesionales") renderProfesionales(c);
     else if (id === "perfil")        renderPerfil(c);
-    else if (id === "sesion")        c.innerHTML = renderSesion();
+    else if (id === "sesion")        renderSala(c);
     else if (id === "admision")      renderSobreMi(c);   // «Sobre mí» (primeros_pasos.js)
 }
 
@@ -61,12 +61,13 @@ async function renderInicio(c) {
     try {
         const pedir = (ruta, porDefecto, opciones) => YS.api(ruta, opciones).catch(() => porDefecto);
         const FALLA = {};   // lo que no se pudo consultar: sin todos los datos no se arma la guía de primeros pasos
-        const [res, turnos, consentimiento, profesionales, pasos] = await Promise.all([
+        const [res, turnos, consentimiento, profesionales, pasos, sala] = await Promise.all([
             YS.fetch(`/pacientes/${idPaciente}/proximo-turno`),   // 404 = no tiene turnos próximos
             pedir(`/pacientes/${idPaciente}/turnos-detalle`, FALLA),
             pedir(`/pacientes/${idPaciente}/consentimiento-telemedicina`, null),
             pedir(`/pacientes/${idPaciente}/mis-profesionales`, FALLA),
-            pedir(`/pacientes/${idPaciente}/primeros-pasos`, null)   // los siete pasos, calculados por el servidor con datos reales
+            pedir(`/pacientes/${idPaciente}/primeros-pasos`, null),   // los siete pasos, calculados por el servidor con datos reales
+            YS.entradaSala.consultar()   // el turno entrable (sala abierta ahora) o el próximo: lo decide el servidor, nunca rechaza
         ]);
         if (YS.shell.actual !== "inicio") return;   // el usuario ya cambió de sección
         const t = res.status === 404 ? null : await res.json();
@@ -96,7 +97,7 @@ async function renderInicio(c) {
         const guia = pasos && (pasos.cerrado || pasos.hechos < pasos.total) ? pasos : null;
         c.innerHTML = guia
             ? inicioPacienteNuevo(guia, tarjetaConsentimiento, tarjetaProximo)
-            : inicioPacienteEnAtencion({ proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
+            : inicioPacienteEnAtencion({ sala, proximos, porConfirmar, realizados: listaTurnos.filter(x => x.estadoDescripcion === "Realizado").length,
                                          tarjetaConsentimiento, profesionales: pasos?.profesional ? [pasos.profesional] : profesionales === FALLA ? [] : profesionales });
         programarHabilitacionDeLaSesion(guia);
     } catch {
@@ -107,7 +108,7 @@ async function renderInicio(c) {
 // ── INICIO: paciente en atención ───────────────────────────
 // Ya tiene profesional. Cada turno aparece una sola vez: el próximo en su tarjeta (o, si se lo propuso el profesional,
 // en el aviso para confirmarlo) y los siguientes en "Más adelante". Al lado, lo que necesita para entrar a la sesión.
-function inicioPacienteEnAtencion({ proximos, porConfirmar, realizados, tarjetaConsentimiento, profesionales }) {
+function inicioPacienteEnAtencion({ sala, proximos, porConfirmar, realizados, tarjetaConsentimiento, profesionales }) {
     const hora = x => String(x.hora).substring(0, 5);
     const cuando = x => `${YS.capitalizar(YS.fecha.larga(x.fecha))} a las ${hora(x)} hs`;
     const proximo = proximos[0];
@@ -163,16 +164,13 @@ function inicioPacienteEnAtencion({ proximos, porConfirmar, realizados, tarjetaC
                 <span class="ui-stat-pie">${prof ? YS.esc(prof.especialidad || "") + (profesionales.length > 1 ? ` · y ${profesionales.length - 1} más` : "") : "Sin profesional asignado"}</span>
             </a>`;
 
-    const tarjetaSesion = `
-        <section class="card" aria-labelledby="inicio-sesion-titulo">
-            <div class="titulo-tarjeta" id="inicio-sesion-titulo">Tu sesión por video</div>
-            <p class="inicio-prof-nota">La sala de video abre 10 minutos antes de cada turno. Entrá desde la Sala de video con tu turno confirmado.</p>
+    // El botón y el texto salen de shared/entrada-sala.js (el turno entrable lo decide el servidor): con la sala abierta, «Entrar a la sesión»; antes de la hora, gris con la hora de apertura.
+    const tarjetaSesion = YS.entradaSala.htmlTarjetaInicio(sala, `
             <div class="inicio-prof-enlaces">
                 <a href="#sesion">Ir a la Sala de video</a>
                 <a href="#agenda">Ver el calendario de turnos</a>
                 <a href="#profesionales">Ver Mis profesionales</a>
-            </div>
-        </section>`;
+            </div>`);
 
     return `
         <div class="ui-stats">
@@ -983,10 +981,21 @@ async function desactivarAvisosWhatsApp() {
     await renderAvisosWhatsApp();
 }
 
-function renderSesion() {
+// Menú «Sala de video»: con un turno entrable (sala abierta ahora) se entra directo a la sala de espera, sin pedir código; si no, un mensaje claro con el próximo turno y, colapsado,
+// «Tengo un código de sala» (opción secundaria). La pantalla nunca queda en blanco: si la consulta falla se dice y se puede reintentar.
+async function renderSala(c) {
+    const estado = await YS.entradaSala.consultar();
+    if (YS.shell.actual !== "sesion") return;   // el usuario ya cambió de sección
+    if (estado.tipo === "entrable") {
+        c.innerHTML = `<div class="card sesion-entrada"><div class="titulo-tarjeta">Sala de video</div><p class="texto-fuerte mb-0">Entrando a tu sesión de las ${YS.esc(estado.turno.hora)}…</p></div>`;
+        location.replace(YS.entradaSala.urlSala(estado.turno.idTurno, idPaciente));   // replace: el «volver» del navegador no cae otra vez en esta pantalla y reentra solo
+        return;
+    }
+    c.innerHTML = YS.entradaSala.htmlSinSesion(estado, formularioCodigoSala());
+}
+
+function formularioCodigoSala() {
     return `
-        <div class="card sesion-entrada">
-            <div class="titulo-tarjeta">Entrar a la sala de video</div>
             <p class="texto-suave mb-12">Ingresá el código de sala que te pasó tu profesional. También te llega en las notificaciones.</p>
             <form id="formSala" class="ui-campo" novalidate onsubmit="event.preventDefault(); entrarSesion();">
                 <label for="codigoSala">Código de sala</label>
@@ -995,8 +1004,12 @@ function renderSesion() {
                            oninput="this.value = this.value.toUpperCase()">
                     <button type="submit" class="ui-btn ui-btn--primary">Entrar</button>
                 </div>
-            </form>
-        </div>`;
+            </form>`;
+}
+
+// «Entrar a la sesión»: el Inicio y el paso 7 de los primeros pasos llaman a esta MISMA función. Se entra por el turno (no por el código): el servidor genera la sala si hace falta.
+function entrarASalaDelTurno(idTurno) {
+    location.href = YS.entradaSala.urlSala(idTurno, idPaciente);
 }
 
 function entrarSesion() {

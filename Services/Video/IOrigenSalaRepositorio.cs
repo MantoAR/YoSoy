@@ -5,7 +5,12 @@ public interface IOrigenSalaRepositorio
 {
     TurnoParaSala? ObtenerTurno(int idTurno);
     AdmisionParaSala? ObtenerAdmision(int idInforme);
+
+    /// <summary>Los turnos Confirmados de la persona (paciente o profesional) desde el día <paramref name="desde"/> (inclusive), del más próximo al más lejano, con el nombre de las dos partes. Alimenta GET /salas/entrable.</summary>
+    IReadOnlyList<TurnoConNombres> TurnosConfirmadosDe(int? idPaciente, int? idProfesional, DateTime desde);
 }
+
+public record TurnoConNombres(TurnoParaSala Turno, string Paciente, string Profesional);
 
 // Estado es la Descripcion del catálogo EstadoTurno ("Confirmado", "Cancelado"...), no el id: los ids
 // son datos de cada base. DuracionMinutos sale de la franja de la agenda que contiene la hora del turno

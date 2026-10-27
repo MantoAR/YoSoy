@@ -113,7 +113,7 @@ function entrarSesionDelPaso() {
     const s = window._ppActual?.sesion;
     if (!s || !s.habilitada || s.fase === "cerrada") return;   // el servidor también lo exige (ventana de la sala)
     // Se entra por el turno (no por el código de sala): el servidor genera la sala si el profesional todavía no entró, así el paciente puede esperar.
-    location.href = "sesion_video.html?turno=" + encodeURIComponent(s.idTurno) + "&idPaciente=" + idPaciente;
+    entrarASalaDelTurno(s.idTurno);   // la misma función que el botón del Inicio (dashboard.js)
 }
 
 function botonPrincipal(pp) {

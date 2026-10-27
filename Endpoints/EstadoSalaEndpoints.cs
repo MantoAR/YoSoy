@@ -31,6 +31,36 @@ public static class EstadoSalaEndpoints
             return Results.Ok(new { ahora = ahora.ToString("yyyy-MM-ddTHH:mm:ss"), salas });
         }).Solo(Quien.Paciente | Quien.Profesional);
 
+        // GET /salas/entrable — «el turno entrable» de quien pregunta (ver EstadoDeSala.Entrable): el Confirmado con la sala abierta ahora (el más cercano si hay más de uno) y, aparte, el próximo
+        // Confirmado que todavía no abrió. Solo mira los turnos propios: no recibe ids, así que no hay forma de preguntar por los de otra persona. Lo leen el Inicio y el menú «Sala de video».
+        app.MapGet("/salas/entrable", (HttpContext ctx, IdentidadActualService identidad, IOrigenSalaRepositorio origen, IOptionsMonitor<VideoOptions> video, TimeProvider reloj) =>
+        {
+            var yo = identidad.Resolver(ctx)!;
+            var ahora = reloj.GetLocalNow().DateTime;
+            var propios = yo.EsPaciente ? origen.TurnosConfirmadosDe(yo.IdPaciente, null, ahora.Date.AddDays(-1))
+                : yo.EsProfesional ? origen.TurnosConfirmadosDe(null, yo.IdProfesional, ahora.Date.AddDays(-1))
+                : Array.Empty<TurnoConNombres>();
+            var (entrable, proximo) = EstadoDeSala.Entrable(propios, ahora, video.CurrentValue);
+
+            object? Dibujar(TurnoConNombres? x)
+            {
+                if (x is null) return null;
+                var t = x.Turno;
+                var inicio = t.Fecha.Date + t.Hora;
+                var (_, desde, hasta) = EstadoDeSala.Evaluar(inicio, t.DuracionMinutos, ahora, video.CurrentValue);
+                return new
+                {
+                    idTurno = t.IdTurno, idPaciente = t.IdPaciente, inicio = inicio.ToString("yyyy-MM-ddTHH:mm:ss"), hora = inicio.ToString("HH:mm"),
+                    abre = desde.ToString("yyyy-MM-ddTHH:mm:ss"), horaAbre = desde.ToString("HH:mm"), cierra = hasta.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    esHoy = inicio.Date == ahora.Date,
+                    // La otra parte del turno: el profesional para el paciente, el paciente para el profesional.
+                    contraparte = yo.EsPaciente ? x.Profesional : x.Paciente
+                };
+            }
+
+            return Results.Ok(new { ahora = ahora.ToString("yyyy-MM-ddTHH:mm:ss"), entrable = Dibujar(entrable), proximo = Dibujar(proximo) });
+        }).Solo(Quien.Paciente | Quien.Profesional);
+
         return app;
     }
 }

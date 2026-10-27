@@ -90,8 +90,8 @@ public class NotificadorTurnos : INotificadorTurnos
             if (id is null) { _log.LogWarning("No se encontró el turno agendado por el profesional para avisar al paciente."); return; }
             AvisarPaciente(id.Value, "TurnoAgendado", CanalesEvento, false,
                 "Tu profesional te propuso un turno",
-                textoChat: t => PlantillasWhatsApp.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
-                mail: t => PlantillasMail.TurnoPropuesto(t.Momento, Op.UrlIngresoTurno),
+                textoChat: t => PlantillasWhatsApp.TurnoPropuesto(t.Momento, UrlsDeAviso.Ingreso(Op)),
+                mail: t => PlantillasMail.TurnoPropuesto(t.Momento, UrlsDeAviso.Ingreso(Op)),
                 // La campanita se lee ya dentro del panel: se indica la pestaña, no el link de ingreso.
                 textoApp: t => $"{t.NombreProfesional} te propuso un turno para el {Formato.FechaHora(t.Momento)}. " +
                                "Para confirmarlo, ingresá a la pestaña Turnos.");
@@ -109,7 +109,7 @@ public class NotificadorTurnos : INotificadorTurnos
         AvisarPaciente(idTurno, "TurnoCancelado", CanalesEvento, respondidoPorChat,
             "Turno cancelado",
             textoChat: t => PlantillasWhatsApp.TurnoCancelado(t.Momento),
-            mail: t => PlantillasMail.TurnoCancelado(t.Momento, Op.UrlIngresoTurno),
+            mail: t => PlantillasMail.TurnoCancelado(t.Momento, UrlsDeAviso.Ingreso(Op)),
             textoApp: t => $"Tu turno con {t.NombreProfesional} del {Formato.FechaHora(t.Momento)} fue cancelado. " +
                            "Si querés pedir otro, escribí \"menu\" por acá o ingresá a la web.",
             estadoEsperado: "Cancelado"));
@@ -130,7 +130,7 @@ public class NotificadorTurnos : INotificadorTurnos
         AvisarPaciente(idTurno, "Turno24h", CanalesRecordatorio, false,
             "Recordatorio de turno",
             textoChat: null,   // no hay texto de WhatsApp: el recordatorio no sale por ahí
-            mail: t => PlantillasMail.Recordatorio(t.Momento, Op.UrlIngresoTurno),   // el mail: solo el día y la hora
+            mail: t => PlantillasMail.Recordatorio(t.Momento, UrlsDeAviso.Ingreso(Op)),   // el mail: solo el día y la hora
             textoApp: t => TextoRecordatorio(t) +
                 "\n\nSi no vas a poder asistir, avisanos desde la web.",
             estadoEsperado: "Confirmado"));
@@ -138,7 +138,7 @@ public class NotificadorTurnos : INotificadorTurnos
     // El de la campanita (con sesión, en el panel): lleva con quién es el turno y cómo es. El del mail es PlantillasMail.Recordatorio: solo el día y la hora.
     private string TextoRecordatorio(TurnoAviso t) =>
         $"Recordatorio: tenés turno el {Formato.FechaHora(t.Momento)} con {t.NombreProfesional} " +
-        $"({t.Modalidad ?? "Virtual"}).\nPara ingresar: {Op.UrlIngresoTurno}";
+        $"({t.Modalidad ?? "Virtual"}).\nPara entrar a tu sesión: {UrlsDeAviso.SalaDelTurno(Op, t.IdTurno)}";
 
     // ── Avisos internos ─────────────────────────────────────────
 

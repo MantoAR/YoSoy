@@ -164,6 +164,7 @@ async function cargarEstadoDeSalas(ids) {
     } catch { /* sin el dato no se bloquea nada: el servidor igual rechaza una sala cerrada */ }
 }
 const salaCerrada = id => _estadoSalas.get(id)?.fase === 'cerrada';
+const salaAbierta = id => _estadoSalas.get(id)?.fase === 'abierta';
 const pacienteEsperando = id => !!_estadoSalas.get(id)?.pacienteEsperando;
 const chipEsperando = id => pacienteEsperando(id) ? '<span class="ui-chip ui-chip--info" title="Tu paciente ya entró a la sala y te está esperando">Esperando</span>' : '';
 const textoSalaCerrada = id => `La sala cerró a las ${_estadoSalas.get(id)?.horaCierre ?? ''} hs: el turno ya pasó.`;
@@ -187,6 +188,12 @@ function htmlSesionesHoy(turnosHoy) {
                     ${salaCerrada(t.idTurno)
                         ? `<div class="sala-estado">
                             <span class="ui-chip ui-chip--neutral" title="${YS.esc(textoSalaCerrada(t.idTurno))}">Sala cerrada</span>
+                           </div>`
+                        : !t.codigoSala && salaAbierta(t.idTurno)
+                        // Sala abierta y sin código: no hace falta «generarla» antes. Se entra directo y el servidor la crea (esté o no el paciente).
+                        ? `<div class="sala-estado">
+                            ${chipEsperando(t.idTurno)}
+                            <button class="ui-btn ui-btn--primary" onclick="entrarASesion(${t.idTurno}, ${t.idPaciente})">Entrar a la sala →</button>
                            </div>`
                         : t.codigoSala
                         ? `<div class="sala-estado">
@@ -1119,7 +1126,14 @@ function bannerSinConsentimiento() {
 
 // La sala se abre dentro de un iframe. idTurno le dice a qué sesión entrar (la sala la genera el turno) e idPaciente deja
 // elegido al paciente para la historia clínica. Sin idTurno, la sala deja elegir entre los turnos que ya tienen sala.
-function sesion(idPaciente = null, idTurno = null) {
+async function sesion(idPaciente = null, idTurno = null) {
+    // Desde el menú «Sala de video» (sin turno ni paciente): si hay un turno con la sala abierta se entra a ese, sin elegir ni pedir código, aunque el paciente todavía no haya llegado.
+    // Sin turno entrable queda la pantalla de siempre (elegir entre los turnos con sala).
+    if (!idPaciente && !idTurno) {
+        const estado = await YS.entradaSala.consultar();
+        if (YS.shell.actual !== 'sesion') return;   // el usuario ya cambió de sección
+        if (estado.tipo === 'entrable') { idTurno = estado.turno.idTurno; idPaciente = estado.turno.idPaciente; }
+    }
     const params = new URLSearchParams();
     if (idTurno) params.set('turno', idTurno);
     if (idPaciente) params.set('idPaciente', idPaciente);
