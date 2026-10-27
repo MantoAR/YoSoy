@@ -70,7 +70,7 @@ public class TurnoReglasService
     /// máximo <paramref name="dias"/> días desde hoy.
     /// </summary>
     public List<DateTime> HorariosLibres(int idPaciente, int idProfesional, int dias, int maximo) =>
-        CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) == 0);
+        CalcularHorariosLibres(idProfesional, dias, maximo, fecha => _repo.ContarTurnosActivos(idPaciente, idProfesional, fecha) == 0, idPaciente);
 
     /// <summary>
     /// Igual que <see cref="HorariosLibres"/> pero sin un paciente particular: no aplica
@@ -92,9 +92,10 @@ public class TurnoReglasService
     public DateTime? PrimerHorarioLibre(int idPaciente, int idProfesional) =>
         HorariosLibres(idPaciente, idProfesional, DiasPrimerTurno, 1) is [var primero, ..] ? primero : null;
 
-    private List<DateTime> CalcularHorariosLibres(int idProfesional, int dias, int maximo, Func<DateTime, bool> pasaRN07)
+    private List<DateTime> CalcularHorariosLibres(int idProfesional, int dias, int maximo, Func<DateTime, bool> pasaRN07, int? idPaciente = null)
     {
         var ahora   = Ahora;
+        _repo.VencerPropuestas(ahora);   // una propuesta de asignación vencida libera su horario (migración 32)
         // Las franjas de admisión (migración 26) no se ofrecen a los pacientes: ahí van las entrevistas.
         var agenda  = _repo.AgendaDe(idProfesional).Where(a => a.Disponible && !a.EsAdmision).ToList();
         var result  = new List<DateTime>();
@@ -106,7 +107,8 @@ public class TurnoReglasService
             if (franjas.Count == 0) continue;
             if (!pasaRN07(fecha)) continue;
 
-            var ocupadas = _repo.HorasOcupadas(idProfesional, fecha);
+            // Ocupado = con un turno activo o con una propuesta de asignación pendiente de otro paciente (la propia no cuenta).
+            var ocupadas = _repo.HorasOcupadas(idProfesional, fecha).Concat(_repo.HorasReservadasPorPropuestas(idProfesional, fecha, idPaciente, ahora)).ToHashSet();
             foreach (var slot in Slots(franjas).OrderBy(s => s))
             {
                 var momento = fecha + slot;
@@ -166,8 +168,9 @@ public class TurnoReglasService
         if (!Slots(franjas).Contains(momento.TimeOfDay))
             return ResultadoRegla.Falla("RN-01", "Ese horario no está dentro de la agenda del profesional.");
 
-        // RN-01: libre
-        if (_repo.HorasOcupadas(idProfesional, momento.Date).Contains(momento.TimeOfDay))
+        // RN-01: libre (un turno activo, o una propuesta de asignación pendiente de otro paciente: la propia no cuenta)
+        if (_repo.HorasOcupadas(idProfesional, momento.Date).Contains(momento.TimeOfDay)
+            || _repo.HorasReservadasPorPropuestas(idProfesional, momento.Date, idPaciente, ahora).Contains(momento.TimeOfDay))
             return ResultadoRegla.Falla("RN-01", "Ese horario ya está ocupado.");
 
         // RN-07
@@ -190,6 +193,7 @@ public class TurnoReglasService
     /// </summary>
     public ResultadoSolicitud Solicitar(int idPaciente, int idProfesional, DateTime momento, string? motivo, string creadoPor = "paciente")
     {
+        _repo.VencerPropuestas(Ahora);   // una propuesta de asignación vencida libera su horario (migración 32)
         var regla = ValidarSolicitud(idPaciente, idProfesional, momento);
         if (!regla.Ok) return new ResultadoSolicitud(regla, null);
 
@@ -297,7 +301,7 @@ public class TurnoReglasService
 
     // Slots de todas las franjas: desde HoraInicio, cada IntervaloMinutos, mientras
     // el turno completo entre antes de HoraFin (misma cuenta que cargarHorasSolicitud en la web).
-    private static IEnumerable<TimeSpan> Slots(IEnumerable<Agenda> franjas)
+    internal static IEnumerable<TimeSpan> Slots(IEnumerable<Agenda> franjas)
     {
         foreach (var a in franjas)
         {

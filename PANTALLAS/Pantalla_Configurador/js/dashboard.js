@@ -1293,7 +1293,12 @@ let _admisionesCache = [];
 const ESTADOS_PARA_REVISAR = ["Pendiente", "En entrevista", "Rechazado"];
 const esParaRevisar = a => ESTADOS_PARA_REVISAR.includes(a.estado);
 const ETIQUETA_ESTADO_ADMISION = { "Pendiente": "Para revisar", "En entrevista": "Para revisar", "Rechazado": "Para revisar", "Aprobado": "Aceptado", "Devuelto": "Devuelto", "Derivado": "Asignado", "Otro recurso": "Otro recurso" };
-const TONO_ESTADO_ADMISION = { "Para revisar": "warn", "Aceptado": "info", "Devuelto": "neutral", "Asignado": "ok", "Otro recurso": "danger" };
+const TONO_ESTADO_ADMISION = { "Para revisar": "warn", "Aceptado": "info", "Devuelto": "neutral", "Asignado": "ok", "Otro recurso": "danger", "Para resolver": "danger", "Propuesta enviada": "info" };
+
+// Propuesta automática de profesional y horario (migración 32): un formulario aceptado puede tener una propuesta esperando la respuesta del paciente, o haber quedado para que la
+// recepción lo asigne a mano («Asignaciones para resolver»). Sin la migración, asignacionEstado no viene y todo se ve como antes.
+const esPorResolver = a => a.estado === "Aprobado" && a.asignacionEstado === "Por resolver";
+const etiquetaEstadoAdmision = a => esPorResolver(a) ? "Para resolver" : a.estado === "Aprobado" && a.asignacionEstado === "Propuesta" ? "Propuesta enviada" : (ETIQUETA_ESTADO_ADMISION[a.estado] || a.estado);
 
 // filtro: la solapa que queda a la vista. Sin indicarla, "Para revisar"; si no queda ninguno, "Aceptados" (hay que asignarles profesional).
 async function admisiones(filtro) {
@@ -1310,7 +1315,7 @@ async function admisiones(filtro) {
 
     const hay = fn => _admisionesCache.some(fn);
     if (filtro === "entrevista") filtro = "pendientes";   // el link viejo del Inicio de Admisión
-    if (!filtro) filtro = hay(esParaRevisar) ? "pendientes" : hay(a => a.estado === "Aprobado") ? "aceptados" : "pendientes";
+    if (!filtro) filtro = hay(esParaRevisar) ? "pendientes" : hay(esPorResolver) ? "resolver" : hay(a => a.estado === "Aprobado") ? "aceptados" : "pendientes";
     c.innerHTML = '<div id="tablaAdmisiones"></div><div id="detalleAdmision" class="mt-16"></div>';
     YS.tabla(document.getElementById("tablaAdmisiones"), {
         filas: _admisionesCache, filtro, unidad: ["formulario", "formularios"], placeholder: "Buscar por paciente, DNI o especialidad",
@@ -1318,6 +1323,7 @@ async function admisiones(filtro) {
         // En el orden del trabajo de la recepcionista: primero lo que hay que revisar, después lo aceptado que espera profesional, lo devuelto y lo resuelto.
         filtros: [
             { id: "pendientes", texto: "Para revisar", pasa: esParaRevisar },
+            { id: "resolver", texto: "Asignaciones para resolver", pasa: esPorResolver },
             { id: "aceptados", texto: "Aceptados (falta asignar)", pasa: a => a.estado === "Aprobado" },
             { id: "devueltos", texto: "Devueltos", pasa: a => a.estado === "Devuelto" },
             { id: "resueltas", texto: "Asignados y otro recurso", pasa: a => a.estado === "Derivado" || a.estado === "Otro recurso" },
@@ -1330,8 +1336,8 @@ async function admisiones(filtro) {
             { titulo: "DNI", html: a => celda(a.dni) },
             { titulo: "Especialidad", html: a => celda(a.especialidad), orden: a => a.especialidad || "" },
             { titulo: "Recibido", html: a => celda(a.fechaCreacion), orden: a => fechaHoraDMY(a.fechaCreacion)?.getTime() ?? 0 },
-            { titulo: "Estado", html: a => { const e = ETIQUETA_ESTADO_ADMISION[a.estado] || a.estado; return `<span class="ui-chip ui-chip--${TONO_ESTADO_ADMISION[e] || "neutral"}">${YS.esc(e)}</span>`; },
-              orden: a => ETIQUETA_ESTADO_ADMISION[a.estado] || a.estado },
+            { titulo: "Estado", html: a => { const e = etiquetaEstadoAdmision(a); return `<span class="ui-chip ui-chip--${TONO_ESTADO_ADMISION[e] || "neutral"}">${YS.esc(e)}</span>`; },
+              orden: a => etiquetaEstadoAdmision(a) },
             { titulo: "Consentimiento", html: a => a.consentimientoFirmado ? '<span class="ui-chip ui-chip--ok">Firmado</span>' : '<span class="ui-chip ui-chip--warn">Pendiente</span>', orden: a => a.consentimientoFirmado ? 1 : 0 },
             { titulo: "", clase: "acciones", html: a => `<button class="ui-btn ui-btn--sm" onclick="verAdmision(${a.idInforme})">Ver formulario</button>` }
         ]
@@ -1383,9 +1389,18 @@ function verAdmision(idInforme) {
             '<button class="ui-btn ui-btn--danger" onclick="otroRecursoFormulario(' + a.idInforme + ')">Otro recurso</button>' +
             '</div></div>';
     } else if (a.estado === "Aprobado") {
-        // La asignación sigue siendo manual. TODO (trabajo siguiente): acá se va a PROPONER profesional y horario según las preferencias y las agendas; quien revisa confirma.
+        // Al aceptar, el sistema propone profesional y horario y el paciente decide. Si no se pudo (o el paciente no aceptó), la asignación es manual y la hace quien revisa.
+        let avisoAsignacion = "";
+        if (esPorResolver(a)) {
+            avisoAsignacion = '<p class="ui-alerta ui-alerta--warn mb-12"><span><strong>Asignación para resolver:</strong> ' + YS.esc(a.asignacionMotivo || "El sistema no pudo proponer un profesional.") + '</span></p>' +
+                '<div class="mb-12"><button class="ui-btn" onclick="volverAProponer(' + a.idInforme + ')">Volver a calcular la propuesta</button> ' +
+                '<span class="texto-suave texto-chico">Sirve si ya hay horarios o el paciente firmó el consentimiento. Si no, asignalo a mano abajo.</span></div>';
+        } else if (a.propuestaPendiente) {
+            avisoAsignacion = '<p class="ui-alerta ui-alerta--info mb-12"><span><strong>Propuesta enviada al paciente:</strong> ' + YS.esc(a.propuestaPendiente.profesional) + ', el ' + YS.esc(a.propuestaPendiente.fechaHora) +
+                ' hs (propuesta ' + a.propuestaPendiente.nro + ' de 3). Vence el ' + YS.esc(a.propuestaPendiente.expiraEn) + ' hs. Si lo asignás a mano, la propuesta se cancela y el horario queda libre.</span></p>';
+        }
         acciones = '<div class="caja-accion">' +
-            '<h4>Asignar profesional</h4>' + avisoConsentimiento +
+            '<h4>Asignar profesional</h4>' + avisoConsentimiento + avisoAsignacion +
             '<p class="texto-suave mb-12">El formulario está aceptado. Elegí el profesional que lo va a atender' + (textoProfesionalesPreferidos(a) ? ' (el paciente prefiere: ' + YS.esc(textoProfesionalesPreferidos(a)) + ')' : '') + '.</p>' +
             '<div class="fila-form">' +
             '<div class="campo-form ui-campo campo-form--ancho"><label for="derProf">Profesional</label><select id="derProf" class="ui-select"><option value="">Cargando…</option></select></div>' +
@@ -1437,7 +1452,12 @@ async function enviarRevision(idInforme, accion, cuerpo, mensajeOk, filtroDespue
         const r = await YS.fetch("/informes-admision/" + idInforme + "/" + accion, {
             method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmo: true, ...cuerpo })
         });
-        if (r.ok) { toast(mensajeOk); admisiones(filtroDespues); return; }
+        if (r.ok) {
+            let mensaje = mensajeOk;
+            // Al aceptar, el servidor cuenta si le propuso un profesional al paciente o si el caso quedó para resolver a mano.
+            if (accion === "aceptar") { try { mensaje = (await r.json()).mensaje || mensajeOk; } catch { /* queda el mensaje de siempre */ } }
+            toast(mensaje); admisiones(filtroDespues); return;
+        }
         toast(await YS.leerMensaje(r, "No se pudo completar la acción."), "error");
     } catch {
         toast("No se pudo conectar con el servidor.", "error");
@@ -1449,10 +1469,10 @@ async function aceptarFormulario(idInforme) {
     if (!a) return;
     const ok = await YS.confirmar({
         titulo: "Aceptar el formulario",
-        mensaje: "¿Aceptar el formulario de " + a.nombrePaciente + "?" + (a.consentimientoFirmado ? "" : " Todavía no firmó el consentimiento: le vamos a avisar para que firme."),
+        mensaje: "¿Aceptar el formulario de " + a.nombrePaciente + "? El sistema le va a proponer un profesional y un horario según lo que pidió; el paciente decide." + (a.consentimientoFirmado ? "" : " Todavía no firmó el consentimiento: le vamos a avisar para que firme y la propuesta queda para resolver."),
         textoConfirmar: "Aceptar"
     });
-    if (ok) enviarRevision(idInforme, "aceptar", {}, "Formulario aceptado. Ya podés asignarle un profesional.", "aceptados");
+    if (ok) enviarRevision(idInforme, "aceptar", {}, "Formulario aceptado.", "aceptados");
 }
 
 async function devolverFormulario(idInforme) {
@@ -1507,6 +1527,17 @@ async function derivarAdmision(idInforme) {
     });
     if (r.ok) { toast("Profesional asignado. Ya aparece en Mis pacientes del profesional."); admisiones("resueltas"); }
     else toast(await YS.leerMensaje(r, "No se pudo asignar el profesional."), "error");
+}
+
+// «Volver a calcular la propuesta» (formularios en «Asignaciones para resolver»): el sistema propone y el paciente decide; confirma una persona de recepción.
+async function volverAProponer(idInforme) {
+    const a = _admisionesCache.find(x => x.idInforme === idInforme);
+    if (!await YS.confirmar({ titulo: "Volver a calcular la propuesta", mensaje: "¿Proponerle de nuevo un profesional y un horario a " + (a ? a.nombrePaciente : "este paciente") + "? El paciente decide si le sirve.", textoConfirmar: "Proponer" })) return;
+    const r = await YS.fetch("/informes-admision/" + idInforme + "/proponer-asignacion", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmo: true })
+    });
+    if (r.ok) { let m = "Listo: le propusimos un profesional y un horario al paciente."; try { m = (await r.json()).mensaje || m; } catch { } toast(m); admisiones("aceptados"); }
+    else toast(await YS.leerMensaje(r, "No se pudo calcular la propuesta."), "error");
 }
 
 async function verHCAdmision(idPaciente) {
@@ -1604,9 +1635,10 @@ async function inicioCrm() {
     const pedir = ruta => YS.api(ruta).catch(() => null);
     const conAgendas = YS.sesion.tienePrivilegio("gestion_agendas");
     const conChats = (await YS.shell.capacidades)?.mensajeria;
-    const [derivaciones, casos, chats, turnos] = await Promise.all([
+    const [derivaciones, casos, chats, turnos, formularios] = await Promise.all([
         pedir("/casosderivaciones/pendientes"), pedir("/casos?sinAsignar=true"),
-        conChats ? pedir("/mensajeria/conversaciones") : null, conAgendas ? pedir("/turnos") : null
+        conChats ? pedir("/mensajeria/conversaciones") : null, conAgendas ? pedir("/turnos") : null,
+        pedir("/informes-admision-detalle")
     ]);
     if (YS.shell.actual !== "inicio") return;
 
@@ -1625,6 +1657,8 @@ async function inicioCrm() {
             ${conChats ? tarjetaChats("noLeidas", "Chats sin leer", cuenta(chats, ch => ch.noLeidos > 0), "Conversaciones con mensajes nuevos") : ""}
             ${conChats ? tarjetaChats("derivadas", "Chats escalados", cuenta(chats, ch => ch.estado === "DerivadaHumano" || ch.estado === "Urgente"),
                 nUrgentes ? `${nUrgentes} urgente${nUrgentes === 1 ? "" : "s"}` : "Esperan a una persona del equipo", nUrgentes > 0) : ""}
+            ${tarjetaInicio("admisiones?filtro=pendientes", "Formularios por revisar", "portapapeles", cuenta(formularios, esParaRevisar), "«Sobre mí» esperando tu revisión", true)}
+            ${tarjetaInicio("admisiones?filtro=resolver", "Asignaciones para resolver", "usuario", cuenta(formularios, esPorResolver), "Sin propuesta o rechazada: asignalas a mano", true)}
             ${tarjetaInicio("casosderivaciones", "Derivaciones por confirmar", "flechas", cuenta(derivaciones), "Casos con grupo y profesional sugeridos", true)}
             ${tarjetaInicio("casos", "Casos sin asignar", "portapapeles", cuenta(casos), "Todavía sin profesional", true)}
         </div>

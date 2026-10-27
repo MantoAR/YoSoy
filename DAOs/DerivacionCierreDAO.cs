@@ -287,7 +287,7 @@ public class DerivacionCierreDAO
         con.Open();
         using (var cmd = new SqlCommand(@"
             SELECT TOP 30 IdNotificacionInterna, Tipo, Titulo, Mensaje, Leida, FechaCreacion FROM NotificacionInterna
-            WHERE Destinatario = N'Profesional' AND IdProfesional = @P AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%')
+            WHERE Destinatario = N'Profesional' AND IdProfesional = @P AND (Tipo LIKE N'derivacion-%' OR Tipo LIKE N'traspaso-%' OR Tipo LIKE N'consentimiento-%' OR Tipo LIKE N'asignacion-%')
             ORDER BY IdNotificacionInterna DESC", con))
         {
             cmd.Parameters.AddWithValue("@P", idProfesional);

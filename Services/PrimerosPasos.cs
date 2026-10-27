@@ -27,7 +27,9 @@ public record DatosPrimerosPasos(
     InformePaso? Informe,
     ProfesionalPaso? Profesional,
     IReadOnlyList<TurnoPaso> Turnos,
-    bool PerfilCompleto = true);   // fecha de nacimiento y teléfono cargados (el registro ya pide el teléfono)
+    bool PerfilCompleto = true,   // fecha de nacimiento y teléfono cargados (el registro ya pide el teléfono)
+    PropuestaVista? Propuesta = null,          // la propuesta automática de profesional y horario que espera su respuesta (migración 32)
+    bool AsignacionPorResolver = false);       // la propuesta automática no se pudo resolver sola: la tiene la recepción
 
 public static class PasoEstado
 {
@@ -70,6 +72,7 @@ public static class AccionTipo
     public const string VerTurnos = "ver-turnos";
     public const string CompletarDatos = "completar-datos";
     public const string EntrarSesion = "entrar-sesion";
+    public const string ResponderPropuesta = "responder-propuesta";
 }
 
 public static class PrimerosPasos
@@ -148,8 +151,15 @@ public static class PrimerosPasos
         else
         {
             var revisado = omiteAdmision || informe is { Estado: EstadoInforme.Aprobado or EstadoInforme.Derivado };
-            pasos.Add(new(PasoClave.Profesional, "Te asignamos un profesional", cerrado ? PasoEstado.Cerrado : revisado ? PasoEstado.Espera : PasoEstado.Pendiente,
-                revisado ? "Estamos eligiendo el profesional adecuado para vos. Te avisamos apenas esté asignado." : "Se asigna después de la revisión de tu formulario.", null));
+            if (revisado && d.Propuesta is { } propuesta)
+                // Propuesta automática: el sistema eligió profesional y horario y el paciente decide (el panel dibuja la tarjeta con los botones).
+                pasos.Add(new(PasoClave.Profesional, "Te asignamos un profesional", PasoEstado.Actual,
+                    $"Te propusimos a {propuesta.Profesional}{(string.IsNullOrWhiteSpace(propuesta.Especialidad) ? "" : " (" + propuesta.Especialidad + ")")} {AsignacionAutomaticaReglas.Cuando(propuesta.FechaHora)}. Confirmalo o elegí otra opción.",
+                    new(AccionTipo.ResponderPropuesta, "Ver la propuesta")));
+            else
+                pasos.Add(new(PasoClave.Profesional, "Te asignamos un profesional", cerrado ? PasoEstado.Cerrado : revisado ? PasoEstado.Espera : PasoEstado.Pendiente,
+                    revisado ? (d.AsignacionPorResolver ? AsignacionAutomaticaReglas.MensajeBuscando : "Estamos eligiendo el profesional adecuado para vos. Te avisamos apenas esté asignado.")
+                             : "Se asigna después de la revisión de tu formulario.", null));
         }
 
         // 6 · Turno: confirmado o realizado = hecho. Uno propuesto por el profesional, a confirmar. Uno pedido por el paciente, esperando al profesional.

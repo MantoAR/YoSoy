@@ -18,7 +18,7 @@ El paciente nuevo ve en su Inicio siete pasos que **calcula el servidor con dato
 
 La entrevista de admisión ya no es parte del recorrido. El paciente completa «Sobre mí» (constante `YS.NOMBRE_FORMULARIO_ADMISION` en `shared/ui.js`) y lo revisa la recepcionista (Admisión o el módulo CRM, visible como «Recepcionista»). Tres acciones, cada una con confirmación explícita (`{ "confirmo": true }`), una transacción, auditoría (quién y cuándo en `InformeAdmision`) e idempotente:
 
-- `PUT /informes-admision/{id}/aceptar` → `Aprobado`. Si el consentimiento no está vigente, dispara el aviso para firmar (sin duplicar). **Punto de enganche** (comentario en `RevisionAdmision.Aceptar`): acá va la propuesta automática de profesional y horario; hoy la asignación es manual (`PUT /informes-admision/{id}/derivar`, que ahora acepta un formulario aprobado sin entrevista).
+- `PUT /informes-admision/{id}/aceptar` → `Aprobado`. Si el consentimiento no está vigente, dispara el aviso para firmar (sin duplicar). **Punto de enganche** (comentario en `RevisionAdmision.Aceptar`): acá engancha la propuesta automática de profesional y horario (migración 32): el sistema propone y el **paciente** decide desde el paso 5 («Me sirve» crea el vínculo y el turno confirmado). Si no se puede proponer, o el paciente no acepta, la asignación es manual (`PUT /informes-admision/{id}/derivar`, que acepta un formulario aprobado sin entrevista y cancela cualquier propuesta pendiente). Ver `docs/ASIGNACION_AUTOMATICA.md`.
 - `PUT /informes-admision/{id}/devolver` `{ aclaracion }` → `Devuelto`. El paciente lo ve en sus pasos y lo completa con `PUT /pacientes/{id}/informe-admision` (mismo informe, vuelve a `Pendiente`).
 - `PUT /informes-admision/{id}/otro-recurso` `{ motivo }` → `Otro recurso`: cierra el ingreso, el caso y descarta la sugerencia pendiente. Es el único «no ingresa».
 
@@ -40,4 +40,4 @@ Se guardan en `InformeAdmision.HorarioPreferido` (`{"dias":["martes"],"franja":"
 
 ## Migración 31
 
-`migrations/add_primeros_pasos.sql` (deshacer: `docs/produccion/deshacer-migracion-31.sql`). La API la necesita: aplicarla antes de publicar. Las de Mariana pasaron a ser la 29 (agenda de admisión) y la 30 (vigencia de la agenda).
+`migrations/add_primeros_pasos.sql` (deshacer: `docs/produccion/deshacer-migracion-31.sql`). La API la necesita: aplicarla antes de publicar. Las de Mariana pasaron a ser la 29 (agenda de admisión) y la 30 (vigencia de la agenda). La 32 (`migrations/add_propuesta_asignacion.sql`) agrega la propuesta automática de profesional y horario y es opcional.

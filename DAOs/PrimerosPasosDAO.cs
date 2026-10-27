@@ -3,7 +3,7 @@ using Microsoft.Data.SqlClient;
 // Junta los datos reales del paciente para calcular sus primeros pasos (Services/PrimerosPasos.cs). Solo lee.
 public class PrimerosPasosDAO
 {
-    public DatosPrimerosPasos Cargar(int idPaciente, EstadoTratamiento consentimiento)
+    public DatosPrimerosPasos Cargar(int idPaciente, EstadoTratamiento consentimiento, DateTime? ahora = null, AsignacionAutomaticaService? asignacion = null)
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
@@ -55,6 +55,14 @@ public class PrimerosPasosDAO
             cmd.Parameters.AddWithValue("@P", idPaciente);
             perfilCompleto = Convert.ToInt32(cmd.ExecuteScalar() ?? 0) == 1;
         }
-        return new DatosPrimerosPasos(consentimiento, informe, profesional, turnos, perfilCompleto);
+        // Propuesta automática (migración 32): solo si el servicio está y la base la tiene. Sin ella, el paso sigue como siempre.
+        PropuestaVista? propuesta = null;
+        var porResolver = false;
+        if (asignacion is not null && profesional is null && informe is { Estado: EstadoInforme.Aprobado })
+        {
+            propuesta = asignacion.PropuestaDelPaciente(idPaciente, ahora ?? DateTime.Now);
+            porResolver = propuesta is null && AsignacionAutomaticaService.PorResolverDelPaciente(idPaciente);
+        }
+        return new DatosPrimerosPasos(consentimiento, informe, profesional, turnos, perfilCompleto, propuesta, porResolver);
     }
 }

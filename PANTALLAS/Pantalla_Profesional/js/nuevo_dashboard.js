@@ -67,18 +67,18 @@ async function inicio() {
     const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
     // Quien hace admisión ve primero cuántos pacientes esperan su entrevista y cuántos están en entrevista para derivar
     // (las admisiones están en la página de gestión; cada tarjeta abre su solapa).
-    const admPendientes = admisiones.filter(a => a.estado === 'Pendiente').length;
-    const admEnEntrevista = admisiones.filter(a => a.estado === 'En entrevista').length;
+    const admPendientes = admisiones.filter(a => ['Pendiente', 'En entrevista', 'Rechazado'].includes(a.estado)).length;   // los dos últimos son del camino viejo de la entrevista: se revisan igual
+    const admEnEntrevista = admisiones.filter(a => a.estado === 'Aprobado' && a.asignacionEstado === 'Por resolver').length;   // asignaciones para resolver
     const tarjetaAdmision = conAdmision ? `
             <a class="ui-stat${admPendientes ? ' ui-stat--warn' : ''}" href="${YS.rutas.gestion}#admisiones?filtro=pendientes">
-                <span class="ui-stat-etiqueta">${YS.icono('portapapeles')}Admisión</span>
+                <span class="ui-stat-etiqueta">${YS.icono('portapapeles')}Formularios por revisar</span>
                 <span class="ui-stat-valor">${admPendientes}</span>
-                <span class="ui-stat-pie">${admPendientes ? plural(admPendientes, 'paciente para admisionar', 'pacientes para admisionar') : 'Sin pacientes para admisionar'}</span>
+                <span class="ui-stat-pie">${admPendientes ? plural(admPendientes, 'formulario «Sobre mí» para revisar', 'formularios «Sobre mí» para revisar') : 'No hay formularios para revisar'}</span>
             </a>
-            <a class="ui-stat${admEnEntrevista ? ' ui-stat--marca' : ''}" href="${YS.rutas.gestion}#admisiones?filtro=entrevista">
-                <span class="ui-stat-etiqueta">${YS.icono('video')}Pacientes en entrevista</span>
+            <a class="ui-stat${admEnEntrevista ? ' ui-stat--warn' : ''}" href="${YS.rutas.gestion}#admisiones?filtro=resolver">
+                <span class="ui-stat-etiqueta">${YS.icono('pacientes')}Asignaciones para resolver</span>
                 <span class="ui-stat-valor">${admEnEntrevista}</span>
-                <span class="ui-stat-pie">${admEnEntrevista ? 'Para derivar después de la entrevista' : 'Ninguno para derivar'}</span>
+                <span class="ui-stat-pie">${admEnEntrevista ? 'Sin propuesta o rechazada: asignalas a mano' : 'Ninguna por resolver'}</span>
             </a>` : '';
     c.innerHTML = `
         <div class="ui-stats">${tarjetaAdmision}

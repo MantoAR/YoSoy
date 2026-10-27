@@ -16,6 +16,11 @@ public interface ITurnoRepositorio
     int? IdEstado(string descripcion);
     int? InsertarSiLibre(Turno t, string creadoPor);
     void CambiarEstado(int idTurno, int idEstadoTurno);
+
+    // Propuestas de asignación automática (migración 32). Mientras una propuesta está Pendiente, su horario cuenta como ocupado para cualquier otra reserva. Por defecto no hay ninguna
+    // (los dobles de prueba y las bases sin la migración 32 no cambian de comportamiento).
+    List<TimeSpan> HorasReservadasPorPropuestas(int idProfesional, DateTime fecha, int? idPacienteAExcluir, DateTime ahora) => new();
+    void VencerPropuestas(DateTime ahora) { }
 }
 
 public class TurnoRepositorioDAO : ITurnoRepositorio
@@ -110,7 +115,7 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
     {
         using var con = Conexion.ObtenerConexion();
         con.Open();
-        var cmd = new SqlCommand(@"
+        var cmd = new SqlCommand($@"
             SET XACT_ABORT ON;
             BEGIN TRAN;
             DECLARE @IdNuevo INT = NULL;
@@ -121,6 +126,7 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
                 WHERE t.IdProfesional = @IdProf AND t.Fecha = @Fecha
                   AND (   (t.Hora = @Hora AND et.Descripcion NOT IN ('Cancelado', 'Rechazado'))
                        OR (t.IdPaciente = @IdPac AND et.Descripcion IN ('Pendiente', 'Confirmado'))))
+              {GuardiaPropuestas()}
             BEGIN
                 INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor)
                 VALUES (@IdPac, @IdProf, @IdEstado, @Fecha, @Hora, @Modalidad, @Motivo, @CreadoPor);
@@ -138,6 +144,67 @@ public class TurnoRepositorioDAO : ITurnoRepositorio
         cmd.Parameters.AddWithValue("@CreadoPor", creadoPor);
         return cmd.ExecuteScalar() as int?;
     }
+
+    // Migración 32: un horario con una propuesta de asignación pendiente de OTRO paciente no se puede reservar. Sin la migración no hay nada que mirar (el texto queda vacío).
+    // No compara contra el reloj: las propuestas vencidas se dan de baja antes (VencerPropuestas), así que acá cualquier Pendiente cuenta.
+    private static string GuardiaPropuestas() => !AsignacionAutomaticaService.Disponible() ? "" : @"
+              AND NOT EXISTS (SELECT 1 FROM PropuestaAsignacion pa WHERE pa.IdProfesional = @IdProf AND pa.Estado = N'Pendiente' AND pa.IdPaciente <> @IdPac
+                              AND pa.FechaHora = CAST(@Fecha AS DATETIME) + CAST(@Hora AS DATETIME))";
+
+    /// <summary>
+    /// Igual que <see cref="InsertarSiLibre"/> pero DENTRO de la transacción de quien llama (con su misma conexión): así el turno, el vínculo y la propuesta aceptada se confirman o se
+    /// deshacen juntos. Mismo chequeo (el horario libre y ningún otro turno activo del paciente ese día con ese profesional), con los bloqueos de la transacción.
+    /// </summary>
+    public static int? InsertarSiLibreEn(SqlConnection con, SqlTransaction tx, Turno t, string creadoPor)
+    {
+        using var cmd = new SqlCommand($@"
+            DECLARE @IdNuevo INT = NULL;
+            IF NOT EXISTS (
+                SELECT 1
+                FROM Turno t WITH (UPDLOCK, HOLDLOCK)
+                JOIN EstadoTurno et ON et.IdEstadoTurno = t.IdEstadoTurno
+                WHERE t.IdProfesional = @IdProf AND t.Fecha = @Fecha
+                  AND (   (t.Hora = @Hora AND et.Descripcion NOT IN ('Cancelado', 'Rechazado'))
+                       OR (t.IdPaciente = @IdPac AND et.Descripcion IN ('Pendiente', 'Confirmado'))))
+              {GuardiaPropuestas()}
+            BEGIN
+                INSERT INTO Turno (IdPaciente, IdProfesional, IdEstadoTurno, Fecha, Hora, Modalidad, Motivo, CreadoPor)
+                VALUES (@IdPac, @IdProf, @IdEstado, @Fecha, @Hora, @Modalidad, @Motivo, @CreadoPor);
+                SET @IdNuevo = CAST(SCOPE_IDENTITY() AS INT);
+            END
+            SELECT @IdNuevo;", con, tx);
+        cmd.Parameters.AddWithValue("@IdPac",     t.IdPaciente);
+        cmd.Parameters.AddWithValue("@IdProf",    t.IdProfesional);
+        cmd.Parameters.AddWithValue("@IdEstado",  t.IdEstadoTurno);
+        cmd.Parameters.AddWithValue("@Fecha",     t.Fecha.Date);
+        cmd.Parameters.AddWithValue("@Hora",      t.Hora);
+        cmd.Parameters.AddWithValue("@Modalidad", (object?)t.Modalidad ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Motivo",    (object?)t.Motivo    ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@CreadoPor", creadoPor);
+        return cmd.ExecuteScalar() as int?;
+    }
+
+    public List<TimeSpan> HorasReservadasPorPropuestas(int idProfesional, DateTime fecha, int? idPacienteAExcluir, DateTime ahora)
+    {
+        var lista = new List<TimeSpan>();
+        if (!AsignacionAutomaticaService.Disponible()) return lista;
+        using var con = Conexion.ObtenerConexion();
+        con.Open();
+        using var cmd = new SqlCommand(@"
+            SELECT FechaHora FROM PropuestaAsignacion
+            WHERE IdProfesional = @IdProf AND Estado = N'Pendiente' AND ExpiraEn > @Ahora
+              AND FechaHora >= @Fecha AND FechaHora < DATEADD(DAY, 1, @Fecha)
+              AND (@Excluir IS NULL OR IdPaciente <> @Excluir)", con);
+        cmd.Parameters.AddWithValue("@IdProf", idProfesional);
+        cmd.Parameters.AddWithValue("@Ahora",  ahora);
+        cmd.Parameters.AddWithValue("@Fecha",  fecha.Date);
+        cmd.Parameters.AddWithValue("@Excluir", (object?)idPacienteAExcluir ?? DBNull.Value);
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) lista.Add(r.GetDateTime(0).TimeOfDay);
+        return lista;
+    }
+
+    public void VencerPropuestas(DateTime ahora) => AsignacionAutomaticaService.VencerVencidas(ahora);
 
     public void CambiarEstado(int idTurno, int idEstadoTurno)
     {

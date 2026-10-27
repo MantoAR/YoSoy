@@ -1645,7 +1645,7 @@
         YS.shell.instalarCampana({
             titulo: "Avisos",
             async cargar() {
-                const lista = await YS.api(`${BASE}/notificaciones-internas?destinatario=Administrador`);
+                const lista = await YS.api(`${BASE}/notificaciones-internas?destinatario=Administrador&soloNoLeidas=true`);   // la campanita muestra solo lo que falta leer
                 const grupos = new Map();
                 lista.forEach(a => {
                     const clave = a.idConversacion ?? `a${a.idNotificacionInterna}`;

@@ -266,6 +266,19 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 .admision-realizada-icono svg { width: 18px; height: 18px; }
 .admision-realizada-titulo { color: var(--ok); }
 
+/* Constancia «Consentimiento firmado» en la ventana del panel: el tilde tiene tamaño fijo (antes, sin estas reglas, el SVG ocupaba media pantalla; son las mismas de css/consentimiento.css) */
+.firmado-icono {
+    flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border);
+}
+.firmado-icono svg { width: 18px; height: 18px; }
+.constancia-consentimiento { display: flex; gap: 14px; align-items: flex-start; }
+.constancia-titulo { margin: 0 0 6px; font-size: var(--fs-lg); }
+.constancia-datos { margin: 0; display: grid; gap: 4px; }
+.constancia-datos > div { display: flex; gap: 8px; }
+.constancia-datos dt { color: var(--text-3); min-width: 130px; }
+.constancia-datos dd { margin: 0; font-weight: 500; }
+
 /* «Sobre mí»: días, franja y profesionales preferidos */
 .grupo-opciones { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; margin: 0; }
 .grupo-opciones legend { padding: 0 6px; font-weight: 600; color: var(--text); }
@@ -274,3 +287,10 @@ textarea.turno-input { height: auto; min-height: 64px; padding: 8px 10px; resize
 
 /* Entrar a la sesión: gris hasta 10 minutos antes del turno */
 .pp-boton[disabled] { opacity: .55; cursor: not-allowed; }
+/* Propuesta automática de profesional y horario */
+.pp-propuesta { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--accent); border-radius: var(--r-md); background: var(--surface-2); }
+.pp-propuesta-datos { display: flex; flex-direction: column; gap: 2px; }
+.pp-propuesta-titulo { font-size: var(--fs-lg); font-weight: 600; color: var(--text); }
+.pp-propuesta-cuando { font-size: var(--fs-md); color: var(--accent-strong); font-weight: 600; }
+.pp-horarios { display: flex; flex-wrap: wrap; gap: 8px; }
+.pp-horario { min-height: 40px; }
