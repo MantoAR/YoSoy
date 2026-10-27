@@ -2956,6 +2956,7 @@ app.MapAceptacionVideollamada();
 app.MapConsentimientoWhatsApp();
 app.MapUsuariosAdmin();
 app.MapPrimerosPasos();
+app.MapNovedadesPaciente();   // GET /pacientes/{id}/novedades: la huella barata que consulta el Inicio del paciente (Endpoints/NovedadesPacienteEndpoints.cs)
 app.MapAsignacionAutomatica();
 
 // ═══════════════════════════════════════════════════════
