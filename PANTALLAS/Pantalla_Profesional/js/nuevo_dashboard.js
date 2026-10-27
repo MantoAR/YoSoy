@@ -1208,6 +1208,7 @@ async function perfil() {
             `}
         </div>`;
     document.getElementById('formPerfil').addEventListener('submit', e => { e.preventDefault(); guardarPerfil(); });
+    YS.provincias.combo(document.getElementById('pf-provincia'));   // campo de escritura con sugerencias (shared/provincias.js)
 }
 
 function urlLinkPublico(slug) { return `${location.origin}/reservar/${slug}`; }
@@ -1232,7 +1233,9 @@ async function guardarPerfil() {
         { id: 'pf-dni', requerido: 'Ingresá tu DNI.', patron: RE_DNI, mensajePatron: 'El DNI tiene que tener entre 7 y 9 números, sin puntos.' },
         { id: 'pf-fechaNacimiento', validar: v => v && v > hoy ? 'La fecha de nacimiento no puede ser futura.' : null },
         { id: 'pf-mail', requerido: 'Ingresá tu mail: ahí te llegan los avisos.', patron: RE_MAIL, mensajePatron: 'Ingresá un mail válido.' },
-        { id: 'pf-telefono', patron: RE_TEL, mensajePatron: 'Usá solo números, espacios, + o guiones.' }
+        { id: 'pf-telefono', patron: RE_TEL, mensajePatron: 'Usá solo números, espacios, + o guiones.' },
+        // Una provincia de la lista; el valor que ya tenía guardado (de antes de la lista) se acepta tal cual: no se rompen los datos viejos.
+        { id: 'pf-provincia', validar: v => YS.provincias.error(v, (window._profActual || {}).provincia) }
     ]);
     if (!valido) return;
 
@@ -1247,7 +1250,7 @@ async function guardarPerfil() {
         fechaNacimiento: valor('pf-fechaNacimiento') || null,
         mail:            valor('pf-mail'),
         telefono:        opcional(valor('pf-telefono'), antes.telefono),
-        provincia:       opcional(valor('pf-provincia'), antes.provincia),
+        provincia:       opcional(YS.provincias.canonica(valor('pf-provincia')) || valor('pf-provincia'), antes.provincia),
         idEspecialidad:  parseInt(document.getElementById('pf-especialidad').value),
     };
     const boton = document.getElementById('btnGuardarPerfil');

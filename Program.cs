@@ -706,6 +706,8 @@ app.MapPost("/pacientes", (RegistroPacienteRequest req, ConsentimientoWhatsAppSe
         return Results.BadRequest(new { mensaje = "El nombre es obligatorio." });
     if (string.IsNullOrWhiteSpace(req.Dni))
         return Results.BadRequest(new { mensaje = "El DNI es obligatorio." });
+    if (!string.IsNullOrWhiteSpace(req.Provincia) && Provincias.Canonica(req.Provincia) is null)
+        return Results.BadRequest(new { mensaje = Provincias.MensajeInvalida });
     if (string.IsNullOrWhiteSpace(req.Usuario) || !System.Text.RegularExpressions.Regex.IsMatch(req.Usuario, "^[a-zA-Z0-9_.-]{3,50}$"))
         return Results.BadRequest(new { mensaje = "El usuario tiene que tener entre 3 y 50 caracteres (letras, números, puntos, guiones o guion bajo)." });
     var errorContrasena = PoliticaContrasena.Validar(req.Contrasena);

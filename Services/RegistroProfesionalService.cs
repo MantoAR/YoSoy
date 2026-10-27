@@ -74,6 +74,14 @@ public class RegistroProfesionalService
         var invalido = Normalizar(p);
         if (invalido != null) return invalido;
 
+        // Registros NUEVOS: la provincia, si viene, tiene que ser una de la lista (y se guarda con su nombre canónico). La edición (Modificar) no la exige: no se rompen los datos viejos.
+        if (!string.IsNullOrWhiteSpace(p.Provincia))
+        {
+            var provincia = Provincias.Canonica(p.Provincia);
+            if (provincia is null) return Resultado(EstadoRegistroProfesional.DatosInvalidos, Provincias.MensajeInvalida);
+            p.Provincia = provincia;
+        }
+
         if (!_repo.ExisteEspecialidad(p.IdEspecialidad))
             return Resultado(EstadoRegistroProfesional.EspecialidadInexistente, MensajeEspecialidad);
 
